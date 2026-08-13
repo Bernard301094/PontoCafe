@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx src/local.ts",
     "start": "tsx src/local.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "auth:migrate": "tsx src/migrate-auth.ts",
+    "auth:bootstrap": "tsx src/bootstrap-admin.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",
