@@ -4,8 +4,10 @@ import { secureHeaders } from 'hono/secure-headers'
 import { auth, type AppEnv } from './auth-runtime.js'
 import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
+import { authorizationRoutes } from './routes/authorization-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
+import { reportRoutes } from './routes/report-routes.js'
 
 const app = new Hono<AppEnv>()
 app.use('*', secureHeaders())
@@ -19,6 +21,8 @@ app.get('/health', async (c) => {
 app.route('/admin', adminRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/supervisor', liveRoutes)
+app.route('/supervisor', authorizationRoutes)
+app.route('/supervisor', reportRoutes)
 app.notFound((c) => c.json({ erro: 'Rota não encontrada.' }, 404))
 app.onError((error, c) => { console.error(error); return c.json({ erro: 'Erro interno do servidor.' }, 500) })
 export default app
