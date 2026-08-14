@@ -112,7 +112,7 @@ fun FaceKioskScreen(
             Surface(color = Color.Black.copy(alpha = 0.62f), shape = RoundedCornerShape(18.dp)) {
                 Row(Modifier.padding(horizontal = 6.dp)) {
                     TextButton(onClick = onSupervisorClick) { Text("Supervisor", color = Color.White) }
-                    TextButton(onClick = onAdminClick) { Text("Admin", color = Color.White) }
+                    TextButton(onClick = onAdminClick) { Text("Administrador", color = Color.White) }
                 }
             }
         }
