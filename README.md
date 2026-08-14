@@ -15,18 +15,27 @@ A câmera é a tela inicial do quiosque. O colaborador não procura nem selecion
 
 1. O colaborador olha para a câmera.
 2. A aplicação executa detecção facial e prova de vida por piscada.
-3. O motor facial local gera um embedding.
-4. A API executa identificação 1:N entre os colaboradores ativos cadastrados.
-5. A API só retorna um nome quando a melhor correspondência ultrapassa o limiar mínimo e não é ambígua em relação à segunda melhor correspondência.
-6. A aplicação mostra o nome identificado e pergunta **“É você?”**.
-7. Ao confirmar:
+3. O motor FaceNet/LiteRT local gera um embedding.
+4. O Android compara esse embedding com o catálogo biométrico cifrado no próprio dispositivo (identificação 1:N local).
+5. A aplicação só aceita um candidato quando a melhor correspondência ultrapassa o limiar e tem margem segura sobre a segunda melhor.
+6. O Android envia apenas o candidato encontrado + embedding atual para a API fazer uma confirmação 1:1 autoritativa.
+7. A aplicação mostra o nome confirmado e pergunta **“É você?”**.
+8. Ao confirmar:
    - sem pausa aberta: registra o início;
    - com pausa aberta: registra o retorno/finalização.
-8. No início, o comprovante rápido mostra **hora registrada, horário máximo de retorno e 15:00 disponíveis**.
-9. No retorno, mostra **hora de retorno, tempo utilizado e se ficou dentro do limite**.
-10. O comprovante fica visível por aproximadamente 5 segundos e a aplicação volta automaticamente para a câmera.
+9. No início, o comprovante rápido mostra **hora registrada, horário máximo de retorno e 15:00 disponíveis**.
+10. No retorno, mostra **hora de retorno, tempo utilizado e se ficou dentro do limite**.
+11. O comprovante fica visível por aproximadamente 5 segundos e a aplicação volta automaticamente para a câmera.
 
 Se a identificação não for suficientemente segura, nenhum nome é mostrado e a câmera solicita uma nova tentativa.
+
+## Catálogo facial local
+- A API disponibiliza apenas ao quiosque autenticado o catálogo compatível com o modelo facial instalado.
+- O catálogo é transferido por HTTPS e salvo cifrado com AES-GCM protegido pelo Android Keystore.
+- A versão do catálogo é calculada a partir dos colaboradores ativos e seus templates.
+- O Android sincroniza no início, periodicamente e imediatamente ao voltar da área do Administrador.
+- Alterar/desativar um colaborador ou atualizar seu rosto invalida a versão anterior do catálogo.
+- A busca 1:N não consome uma consulta ao banco para cada pessoa que olha para a câmera.
 
 ## Perfis
 
@@ -61,7 +70,7 @@ O cadastro do rosto usa exatamente o mesmo `FaceEmbeddingEngine` usado no Ponto:
 3. A prova de vida por piscada é executada.
 4. O motor local gera o embedding.
 5. A API cifra e salva somente o template/embedding, não a foto bruta.
-6. O colaborador passa a participar da identificação 1:N.
+6. Ao voltar ao Ponto, o catálogo local é sincronizado.
 
 ## Primeiro acesso administrativo
 1. Configure no backend `FIRST_ADMIN_SETUP_KEY` com uma chave longa e aleatória.
@@ -71,19 +80,39 @@ O cadastro do rosto usa exatamente o mesmo `FaceEmbeddingEngine` usado no Ponto:
 5. Depois que o primeiro Administrador é criado, esse fluxo inicial deixa de aceitar novos cadastros.
 6. Faça login com a conta criada.
 
-## Arquitetura
-- Android: Kotlin + Jetpack Compose
+## Arquitetura sem custo mensal obrigatório
+- APK Android: Kotlin + Jetpack Compose
 - Câmera: CameraX
-- Detecção facial e sinais de piscada: ML Kit
-- Inferência do embedding: LiteRT em Google Play services
-- Reconhecimento: identificação 1:N no backend
-- Banco atual: Neon PostgreSQL
-- Persistência: PostgreSQL padrão, sem dependência de APIs proprietárias do provedor
-- Backend/API: Hono + Better Auth + PostgreSQL
+- Detecção facial e piscada: ML Kit
+- Embedding facial: FaceNet + LiteRT local
+- Identificação 1:N: local no Android
+- Confirmação 1:1: backend
+- Backend/API: Hono + Better Auth em Cloudflare Workers
+- Banco: Neon PostgreSQL Free
+- Conectividade recomendada: Cloudflare Hyperdrive → Neon
+- Persistência: PostgreSQL padrão
 - Idioma da interface: pt-BR
 
+A arquitetura foi escolhida para operar dentro das camadas gratuitas enquanto o volume permanecer dentro dos limites dos provedores.
+
+## Cloudflare Workers
+O backend contém:
+- `backend/src/cloudflare.ts`: entrypoint do Worker;
+- `backend/wrangler.jsonc`: configuração do Worker;
+- scripts `dev:worker`, `deploy`, `deploy:dry` e `cf:types`.
+
+Secrets nunca são versionados. Em Cloudflare devem ser cadastrados como secrets/bindings:
+- `DATABASE_URL` (fallback direto) ou binding `HYPERDRIVE`;
+- `BETTER_AUTH_SECRET`;
+- `CODE_PEPPER`;
+- `BIOMETRIC_MASTER_KEY`;
+- `FIRST_ADMIN_SETUP_KEY`;
+- `BETTER_AUTH_URL` após definir o endereço definitivo do Worker.
+
+O entrypoint aceita `HYPERDRIVE.connectionString` quando o binding estiver configurado; caso contrário usa `DATABASE_URL`.
+
 ## Portabilidade
-Neon é apenas o provedor PostgreSQL atual. O Android não acessa a base diretamente e não contém credenciais do banco. A API utiliza uma `DATABASE_URL`, permitindo migrar futuramente para outro PostgreSQL sem reescrever o aplicativo.
+Neon é apenas o provedor PostgreSQL atual. O Android não acessa a base diretamente e não contém credenciais do banco. A API continua usando PostgreSQL padrão, permitindo migrar futuramente para outro provedor sem reescrever o aplicativo.
 
 Veja `docs/ARQUITETURA_PORTAVEL.md`.
 
@@ -93,19 +122,42 @@ Veja `docs/ARQUITETURA_PORTAVEL.md`.
 - Better Auth gerencia credenciais e sessões de Administrador/Supervisor.
 - As sessões dos dois perfis usam armazenamentos separados e cifrados no Android Keystore.
 - O token do dispositivo também é armazenado de forma protegida.
+- O catálogo biométrico local é cifrado com chave do Android Keystore.
 - O registro público de usuários permanece desabilitado.
 - Códigos temporários são persistidos apenas como hashes HMAC.
-- Dados biométricos são armazenados como embeddings cifrados, não como fotos brutas.
-- A API usa um token facial curto e de uso único antes de registrar início ou retorno.
-- A identificação 1:N rejeita correspondências abaixo do limiar ou muito próximas da segunda melhor opção.
+- Dados biométricos persistidos no PostgreSQL são embeddings cifrados, não fotos brutas.
+- A confirmação 1:1 em servidor gera um token facial curto e de uso único antes de registrar início ou retorno.
+- A identificação local rejeita correspondências abaixo do limiar ou muito próximas da segunda melhor opção.
 - Acesso administrativo e alterações sensíveis são auditáveis.
 
-## Motor facial
-O runtime LiteRT e o `LiteRtFaceEmbeddingEngine` estão implementados. O APK espera `app/src/main/assets/facenet.tflite`, com entrada RGB 160x160 e saída de 128 dimensões, conforme documentado em `app/src/main/assets/README.md`.
+## Motor facial gratuito
+O `LiteRtFaceEmbeddingEngine` usa entrada RGB 160x160 e saída de 128 dimensões.
 
-O binário do modelo ainda não é versionado no repositório porque os pesos precisam ter licença e origem adequadas ao uso empresarial. Antes da produção também é obrigatório calibrar `FACE_MATCH_THRESHOLD` e `FACE_IDENTIFICATION_MARGIN` com amostras do ambiente real.
+O build Android executa automaticamente `prepareFaceModel` antes de `preBuild`:
+1. baixa `facenet.tflite` de um commit fixo do projeto público de referência;
+2. valida o Git blob SHA esperado;
+3. falha o build se o conteúdo não corresponder;
+4. empacota o modelo no APK sem versionar o binário de ~23 MB no repositório.
+
+A proveniência está registrada em `app/src/main/assets/NOTICE_FACE_MODEL.txt`.
+
+Antes de uso corporativo definitivo, o limiar e a margem facial ainda devem ser calibrados com amostras reais do dispositivo e do ambiente onde o quiosque será utilizado.
 
 ## Status
-Estão implementados na branch de desenvolvimento: câmera-primeiro, identificação 1:N no backend, confirmação de identidade, início/retorno automático, comprovante rápido, Supervisor somente leitura, gestão de contas, gestão de colaboradores, cadastro facial, autorização fora do horário e configuração das regras de café.
+Implementado na branch de desenvolvimento:
+- câmera como tela principal;
+- FaceNet/LiteRT no Android;
+- identificação 1:N local;
+- catálogo biométrico cifrado e sincronizado;
+- confirmação facial 1:1 no servidor;
+- início/retorno automático;
+- comprovante rápido;
+- Supervisor somente leitura;
+- gestão de contas;
+- gestão de colaboradores;
+- cadastro facial;
+- autorização fora do horário;
+- configuração das regras de café;
+- backend preparado para Cloudflare Workers.
 
-Ainda faltam: empacotar um modelo facial aprovado, validar o build completo, configurar a URL real da API e gerar a APK final instalável.
+Pendências de entrega: criar/configurar o Worker real na conta Cloudflare, cadastrar os secrets/binding Hyperdrive, validar build completo e gerar a APK instalável apontando para a URL final da API.
