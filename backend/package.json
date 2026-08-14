@@ -1,12 +1,16 @@
 {
   "name": "pontocafe-api",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
     "dev": "tsx src/local.ts",
     "start": "tsx src/local.ts",
+    "dev:worker": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "cf:types": "wrangler types",
     "typecheck": "tsc --noEmit",
     "auth:migrate": "tsx src/migrate-auth.ts",
     "auth:bootstrap": "tsx src/bootstrap-admin.ts"
@@ -19,9 +23,11 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "4.20260814.0",
     "@types/node": "26.1.2",
     "@types/pg": "8.20.0",
     "tsx": "4.23.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "wrangler": "4.31.0"
   }
 }
