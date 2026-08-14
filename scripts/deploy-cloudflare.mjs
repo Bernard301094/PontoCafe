@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +16,13 @@ if (missing.length > 0) {
   console.error(`Missing Cloudflare build secrets: ${missing.join(', ')}`)
   process.exit(1)
 }
+
+const setupKeyFingerprint = createHash('sha256')
+  .update(process.env.FIRST_ADMIN_SETUP_KEY)
+  .digest('hex')
+  .slice(0, 16)
+
+console.log(`FIRST_ADMIN_SETUP_KEY fingerprint: ${setupKeyFingerprint}`)
 
 const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
