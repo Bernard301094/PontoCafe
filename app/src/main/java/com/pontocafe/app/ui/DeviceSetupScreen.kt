@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 
 @Composable
-fun DeviceSetupScreen(viewModel: PontoCafeViewModel) {
+fun DeviceSetupScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = {}) {
     var token by remember { mutableStateOf("") }
 
     Column(
@@ -53,6 +54,10 @@ fun DeviceSetupScreen(viewModel: PontoCafeViewModel) {
             enabled = token.isNotBlank(),
         ) {
             Text("Ativar dispositivo")
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
+            Text("Área administrativa")
         }
         Spacer(Modifier.height(16.dp))
         MessageCard(viewModel)
