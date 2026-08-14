@@ -1,14 +1,16 @@
 package com.pontocafe.app
 
-import com.pontocafe.app.camera.MissingFaceEmbeddingEngine
+import android.content.Context
+import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
 
 fun createPontoCafeViewModel(
+    context: Context,
     repository: PontoCafeRepository,
     tokenStore: SecureDeviceTokenStore,
 ): PontoCafeViewModel = PontoCafeViewModel(
     repository = repository,
     tokenStore = tokenStore,
-    embeddingEngine = MissingFaceEmbeddingEngine,
+    embeddingEngine = LiteRtFaceEmbeddingEngine(context.applicationContext),
 )
