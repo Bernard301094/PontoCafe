@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ponto-cafe-api",
+  "name": "pontocafe",
   "main": "backend/src/cloudflare.ts",
   "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat"],
