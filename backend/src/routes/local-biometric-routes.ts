@@ -50,13 +50,18 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
   }
 
   const metadata = await query<{ versao: string }>(
-    `select coalesce(max(t.atualizado_em)::text,'sem-dados') || ':' || count(*)::text as versao
+    `select md5(coalesce(string_agg(
+       col.id::text || ':' || coalesce(col.matricula,'') || ':' || col.nome || ':' ||
+       coalesce(col.setor,'') || ':' || coalesce(col.turno,'') || ':' ||
+       t.atualizado_em::text,
+       '|' order by col.id
+     ),'')) as versao
      from templates_faciais t
      join colaboradores col on col.id=t.colaborador_id
      where col.ativo=true and t.modelo=$1 and t.versao_modelo=$2`,
     [modelo, versaoModelo],
   )
-  const versao = metadata.rows[0]?.versao ?? 'sem-dados:0'
+  const versao = metadata.rows[0]?.versao ?? 'd41d8cd98f00b204e9800998ecf8427e'
 
   c.header('Cache-Control', 'no-store')
   if (versaoAtual && versaoAtual === versao) {
