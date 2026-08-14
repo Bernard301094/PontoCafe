@@ -3,7 +3,7 @@ import { admin, bearer } from 'better-auth/plugins'
 import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import { config } from './config.js'
-import { pool } from './db.js'
+import { getPool } from './db.js'
 
 export type Role = 'ADMIN' | 'SUPERVISOR'
 export type AuthUser = { id: string; nome: string; email: string; papel: Role }
@@ -18,27 +18,53 @@ export type AppEnv = {
   Variables: { user: AuthUser; device: Device }
 }
 
-const secret = process.env.BETTER_AUTH_SECRET
-const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
-if (!secret) throw new Error('Configuração de autenticação ausente.')
+function createAuth() {
+  const secret = process.env.BETTER_AUTH_SECRET
+  const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
+  if (!secret) throw new Error('Configuração de autenticação ausente.')
 
-export const auth = betterAuth({
-  database: pool,
-  secret,
-  baseURL,
-  emailAndPassword: {
-    enabled: true,
-    disableSignUp: true,
-    minPasswordLength: 10,
-    maxPasswordLength: 128,
+  return betterAuth({
+    database: getPool(),
+    secret,
+    baseURL,
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+      minPasswordLength: 10,
+      maxPasswordLength: 128,
+    },
+    session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
+    advanced: { database: { generateId: 'uuid' } },
+    plugins: [bearer({ requireSignature: true }), admin()],
+  })
+}
+
+type AuthInstance = ReturnType<typeof createAuth>
+let localAuth: AuthInstance | null = null
+
+export function getAuth(): AuthInstance {
+  if (process.env.PONTOCAFE_RUNTIME === 'cloudflare') {
+    // O pool em Cloudflare é escopado à invocação atual. Criar a instância de
+    // Better Auth aqui impede que ela retenha conexões de uma requisição anterior.
+    return createAuth()
+  }
+
+  localAuth ??= createAuth()
+  return localAuth
+}
+
+// Mantém compatibilidade com as rotas existentes sem manter uma instância
+// global de Better Auth no Worker. Cada acesso resolve a instância da request.
+export const auth = new Proxy({} as AuthInstance, {
+  get(_target, property) {
+    const instance = getAuth()
+    const value = Reflect.get(instance, property, instance)
+    return typeof value === 'function' ? value.bind(instance) : value
   },
-  session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
-  advanced: { database: { generateId: 'uuid' } },
-  plugins: [bearer({ requireSignature: true }), admin()],
 })
 
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  const session = await getAuth().api.getSession({ headers: c.req.raw.headers })
   if (!session) return c.json({ erro: 'Não autenticado.' }, 401)
 
   const role = (session.user as typeof session.user & { role?: string }).role
