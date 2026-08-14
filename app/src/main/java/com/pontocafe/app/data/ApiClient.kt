@@ -24,6 +24,21 @@ data class Colaborador(
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
 
+data class RegraCafe(
+    val periodo: String,
+    val inicio: String,
+    val fim: String,
+    val limiteSegundos: Int,
+)
+
+data class HorarioCafeResponse(
+    val dentroHorario: Boolean,
+    val periodoAtual: String?,
+    val limiteSegundos: Int?,
+    val agoraLocal: String?,
+    val regras: List<RegraCafe>,
+)
+
 data class VerificarBiometriaRequest(
     val colaboradorId: String,
     val embedding: List<Float>,
@@ -68,6 +83,9 @@ interface PontoCafeApi {
     @GET("ponto/colaboradores")
     suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
 
+    @GET("ponto/horario")
+    suspend fun horario(): HorarioCafeResponse
+
     @POST("ponto/biometria/verificar")
     suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
 
@@ -82,6 +100,8 @@ class PontoCafeRepository(
     private val api: PontoCafeApi,
 ) {
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
+
+    suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
 
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
         api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
