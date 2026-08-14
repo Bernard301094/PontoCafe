@@ -20,8 +20,9 @@ export const config = {
   firstAdminSetupKey: process.env.FIRST_ADMIN_SETUP_KEY?.trim() || null,
   sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 12),
   faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72),
+  faceIdentificationMargin: numberEnv('FACE_IDENTIFICATION_MARGIN', 0.06),
   authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180),
-  verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 60),
+  verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180),
 }
 
 export function biometricKey(): Buffer {
