@@ -1,0 +1,12 @@
+{
+  "name": "ponto-cafe-monorepo",
+  "private": true,
+  "workspaces": [
+    "backend"
+  ],
+  "scripts": {
+    "typecheck": "npm --workspace backend run typecheck",
+    "deploy": "npm --workspace backend run deploy",
+    "preview": "npm --workspace backend run preview"
+  }
+}
