@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
+import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.ui.NewAccountInput
 import kotlinx.coroutines.launch
 
@@ -19,6 +20,7 @@ enum class AdminDestination {
     HOME,
     NEW_ACCOUNT,
     USER_DETAIL,
+    AUTHORIZATION,
 }
 
 data class AdminUiState(
@@ -27,9 +29,13 @@ data class AdminUiState(
     val primeiroAdminNecessario: Boolean = false,
     val instalacaoConfigurada: Boolean = false,
     val usuarios: List<AdminUser> = emptyList(),
+    val colaboradores: List<Colaborador> = emptyList(),
     val selecionado: AdminUser? = null,
     val deviceTokenGerado: String? = null,
     val deviceNome: String? = null,
+    val authorizationCode: String? = null,
+    val authorizationEmployeeName: String? = null,
+    val authorizationExpiresSeconds: Int? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -193,8 +199,79 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
         state = state.copy(deviceTokenGerado = null, deviceNome = null)
     }
 
+    fun abrirAutorizacao() {
+        viewModelScope.launch {
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                authorizationCode = null,
+            )
+            runCatching { repository.collaborators() }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.AUTHORIZATION,
+                        colaboradores = it,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
+                }
+        }
+    }
+
+    fun gerarAutorizacao(colaborador: Colaborador, periodo: String, motivo: String) {
+        if (periodo != "MANHA" && periodo != "TARDE") {
+            state = state.copy(erro = "Selecione o período autorizado.")
+            return
+        }
+        if (motivo.trim().length < 2) {
+            state = state.copy(erro = "Informe o motivo da autorização.")
+            return
+        }
+
+        viewModelScope.launch {
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                authorizationCode = null,
+            )
+            runCatching {
+                repository.createAuthorization(colaborador.id, periodo, motivo)
+            }.onSuccess { authorization ->
+                state = state.copy(
+                    carregando = false,
+                    authorizationCode = authorization.codigo,
+                    authorizationEmployeeName = colaborador.nome,
+                    authorizationExpiresSeconds = authorization.expiraEmSegundos,
+                    mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
+                )
+            }.onFailure {
+                state = state.copy(carregando = false, erro = AdminRepository.message(it))
+            }
+        }
+    }
+
+    fun limparAutorizacaoGerada() {
+        state = state.copy(
+            authorizationCode = null,
+            authorizationEmployeeName = null,
+            authorizationExpiresSeconds = null,
+            mensagem = null,
+        )
+    }
+
     fun voltarHome() {
-        state = state.copy(destination = AdminDestination.HOME, selecionado = null, erro = null)
+        state = state.copy(
+            destination = AdminDestination.HOME,
+            selecionado = null,
+            authorizationCode = null,
+            authorizationEmployeeName = null,
+            authorizationExpiresSeconds = null,
+            erro = null,
+        )
     }
 
     fun logout() {
