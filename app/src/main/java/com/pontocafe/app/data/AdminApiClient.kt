@@ -61,6 +61,14 @@ data class CreateAdminUserRequest(
 
 data class ChangePasswordRequest(val novaSenha: String)
 data class ChangeProfileRequest(val perfil: String)
+data class CreateDeviceRequest(val nome: String)
+
+data class DeviceCreatedResponse(
+    val id: String,
+    val nome: String,
+    val token: String,
+    val aviso: String,
+)
 
 data class SimpleAdminResponse(
     val ok: Boolean = true,
@@ -99,6 +107,9 @@ interface AdminApi {
 
     @PUT("admin/usuarios/{id}/perfil")
     suspend fun changeProfile(@Path("id") id: String, @Body body: ChangeProfileRequest): SimpleAdminResponse
+
+    @POST("admin/dispositivos")
+    suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
 }
 
 class AdminRepository(
@@ -147,6 +158,8 @@ class AdminRepository(
     suspend fun changeProfile(userId: String, profile: String) {
         api.changeProfile(userId, ChangeProfileRequest(profile))
     }
+
+    suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() = sessionStore.clear()
