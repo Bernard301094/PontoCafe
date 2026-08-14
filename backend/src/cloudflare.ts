@@ -32,6 +32,32 @@ function assertRequiredRuntimeConfig() {
   }
 }
 
+function safeBindingDiagnostics(env: WorkerEnv) {
+  const known = [
+    'HYPERDRIVE',
+    'BETTER_AUTH_SECRET',
+    'CODE_PEPPER',
+    'BIOMETRIC_MASTER_KEY',
+    'FIRST_ADMIN_SETUP_KEY',
+    'APP_TIMEZONE',
+    'SESSION_TTL_HOURS',
+    'FACE_MATCH_THRESHOLD',
+    'FACE_IDENTIFICATION_MARGIN',
+    'AUTHORIZATION_TTL_SECONDS',
+    'FACE_VERIFICATION_TTL_SECONDS',
+  ] as const
+
+  return {
+    nomes: Object.keys(env).sort(),
+    presentes: Object.fromEntries(
+      known.map((name) => [name, Object.prototype.hasOwnProperty.call(env, name)]),
+    ),
+    tipos: Object.fromEntries(
+      known.map((name) => [name, typeof env[name as keyof WorkerEnv]]),
+    ),
+  }
+}
+
 async function loadApplication(env: WorkerEnv, request: Request) {
   bootStage = 'environment'
   process.env.PONTOCAFE_RUNTIME = 'cloudflare'
@@ -81,18 +107,21 @@ export default {
       return await app.fetch(request)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      const bindings = safeBindingDiagnostics(env)
       console.error(JSON.stringify({
         evento: 'worker_boot_failure',
         etapa: bootStage,
         erro: message,
+        bindings,
       }))
 
-      const response: Record<string, string> = {
+      const response: Record<string, unknown> = {
         erro: 'Não foi possível iniciar a API do Ponto Café.',
         etapa: bootStage,
       }
       if (bootStage === 'environment' || bootStage === 'config' || bootStage === 'auth') {
         response.detalhe = message
+        response.bindings = bindings
       }
 
       return Response.json(response, { status: 500 })
