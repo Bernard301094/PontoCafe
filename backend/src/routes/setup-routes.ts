@@ -14,12 +14,20 @@ function sameSecret(received: string, expected: string): boolean {
   return timingSafeEqual(left, right)
 }
 
+function setupKeyFingerprint(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16)
+}
+
 setupRoutes.get('/status', async (c) => {
   const result = await query<{ total: string }>('select count(*)::text as total from "user"')
   const primeiroAdminNecessario = Number(result.rows[0]?.total ?? 0) === 0
   return c.json({
     primeiroAdminNecessario,
     instalacaoConfigurada: Boolean(config.firstAdminSetupKey),
+    chaveInstalacaoFingerprint:
+      primeiroAdminNecessario && config.firstAdminSetupKey
+        ? setupKeyFingerprint(config.firstAdminSetupKey)
+        : null,
   })
 })
 
