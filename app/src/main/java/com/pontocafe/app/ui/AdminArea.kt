@@ -16,5 +16,8 @@ fun AdminArea(viewModel: AdminViewModel, onClose: () -> Unit) {
         AdminDestination.USER_DETAIL -> AdminUserDetailScreen(viewModel)
         AdminDestination.AUTHORIZATION -> AdminAuthorizationScreen(viewModel)
         AdminDestination.SETTINGS -> AdminRulesScreen(viewModel)
+        AdminDestination.COLLABORATORS -> AdminCollaboratorsScreen(viewModel)
+        AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
+        AdminDestination.BIOMETRIC_ENROLLMENT -> AdminBiometricEnrollmentScreen(viewModel)
     }
 }
