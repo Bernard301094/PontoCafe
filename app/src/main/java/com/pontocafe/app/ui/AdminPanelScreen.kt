@@ -45,6 +45,11 @@ fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             Button(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
                 Text("Autorizar pausa")
             }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = viewModel::abrirConfiguracoes, modifier = Modifier.weight(1f)) {
+                Text("Configurar café")
+            }
             OutlinedButton(onClick = viewModel::logout, modifier = Modifier.weight(1f)) {
                 Text("Sair")
             }
