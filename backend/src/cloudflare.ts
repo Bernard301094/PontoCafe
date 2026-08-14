@@ -5,6 +5,8 @@ type WorkerEnv = {
 let appPromise: Promise<typeof import('./application.js')> | null = null
 
 async function loadApplication(env: WorkerEnv, request: Request) {
+  process.env.PONTOCAFE_RUNTIME = 'cloudflare'
+
   if (env.HYPERDRIVE?.connectionString) {
     process.env.DATABASE_URL = env.HYPERDRIVE.connectionString
   }
