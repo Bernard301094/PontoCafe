@@ -34,10 +34,12 @@ class MainActivity : ComponentActivity() {
             createPontoCafeViewModel(pontoRepository, deviceTokenStore)
         }
 
-        val sessionStore = SecureAdminSessionStore(applicationContext)
-        val adminRepository = AdminApiClient.create(sessionStore)
+        val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
+        val adminRepository = AdminApiClient.create(adminSessionStore)
         val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository) }
-        val supervisorRepository = SupervisorApiClient.create(sessionStore)
+
+        val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
+        val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore)
         val supervisorFactory = SupervisorViewModelFactory { SupervisorViewModel(supervisorRepository) }
 
         setContent {
