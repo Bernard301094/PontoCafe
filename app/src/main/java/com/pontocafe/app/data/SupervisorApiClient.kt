@@ -1,0 +1,109 @@
+package com.pontocafe.app.data
+
+import com.pontocafe.app.BuildConfig
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import retrofit2.HttpException
+import retrofit2.Response
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Query
+
+
+data class PausaSupervisor(
+    val id: String,
+    val periodo: String,
+    val data: String? = null,
+    val inicioLocal: String,
+    val fimLocal: String? = null,
+    val limiteSegundos: Int,
+    val foraHorario: Boolean,
+    val tempoSegundos: Int? = null,
+    val duracaoSegundos: Int? = null,
+    val excedeuLimite: Boolean? = null,
+    val colaboradorId: String,
+    val nome: String,
+    val matricula: String?,
+    val setor: String?,
+)
+
+data class PausasSupervisorResponse(val pausas: List<PausaSupervisor>)
+
+interface SupervisorApi {
+    @POST("api/auth/sign-in/email")
+    suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
+
+    @POST("api/auth/sign-out")
+    suspend fun signOut(): Response<Unit>
+
+    @GET("supervisor/pausas/ativas")
+    suspend fun pausasAtivas(): PausasSupervisorResponse
+
+    @GET("supervisor/pausas")
+    suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
+}
+
+class SupervisorRepository(
+    private val api: SupervisorApi,
+    private val sessionStore: SecureAdminSessionStore,
+) {
+    suspend fun signIn(email: String, senha: String) {
+        val response = api.signIn(SignInRequest(email = email, password = senha))
+        if (!response.isSuccessful) throw HttpException(response)
+        val bearer = response.headers()["set-auth-token"]
+            ?: error("O servidor não retornou a sessão do supervisor.")
+        sessionStore.save(bearer)
+        try {
+            api.pausasAtivas()
+        } catch (error: Throwable) {
+            sessionStore.clear()
+            throw error
+        }
+    }
+
+    suspend fun pausasAtivas() = api.pausasAtivas().pausas
+    suspend fun historico(data: String? = null) = api.historico(data).pausas
+
+    suspend fun signOut() {
+        runCatching { api.signOut() }
+        sessionStore.clear()
+    }
+
+    fun hasSession() = sessionStore.hasToken()
+    fun clearSession() = sessionStore.clear()
+
+    companion object {
+        fun message(error: Throwable): String = AdminRepository.message(error)
+    }
+}
+
+object SupervisorApiClient {
+    fun create(sessionStore: SecureAdminSessionStore): SupervisorRepository {
+        val authInterceptor = Interceptor { chain ->
+            val request = chain.request().newBuilder().apply {
+                sessionStore.read()?.takeIf { it.isNotBlank() }?.let {
+                    header("Authorization", "Bearer $it")
+                }
+            }.build()
+            chain.proceed(request)
+        }
+
+        val client = OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
+            .build()
+
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BuildConfig.API_BASE_URL)
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        return SupervisorRepository(
+            api = retrofit.create(SupervisorApi::class.java),
+            sessionStore = sessionStore,
+        )
+    }
+}
