@@ -8,7 +8,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SupervisorRepository
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
