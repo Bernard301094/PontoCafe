@@ -39,6 +39,32 @@ data class HorarioCafeResponse(
     val regras: List<RegraCafe>,
 )
 
+data class IdentificarBiometriaRequest(val embedding: List<Float>)
+
+data class PausaAbertaResumo(
+    val id: String,
+    val periodo: String,
+    val inicioEm: String,
+    val inicioLocal: String,
+    val limiteSegundos: Int,
+    val tempoDecorridoSegundos: Int,
+)
+
+data class IdentificarBiometriaResponse(
+    val reconhecido: Boolean,
+    val motivo: String? = null,
+    val mensagem: String? = null,
+    val score: Double? = null,
+    val verificacaoToken: String? = null,
+    val expiraEmSegundos: Int? = null,
+    val colaborador: Colaborador? = null,
+    val acaoSugerida: String? = null,
+    val pausaAberta: PausaAbertaResumo? = null,
+    val dentroHorario: Boolean? = null,
+    val periodoAtual: String? = null,
+    val limiteSegundos: Int? = null,
+)
+
 data class VerificarBiometriaRequest(
     val colaboradorId: String,
     val embedding: List<Float>,
@@ -64,6 +90,8 @@ data class IniciarPausaResponse(
     val limiteSegundos: Int,
     val foraHorario: Boolean,
     val inicioEm: String,
+    val inicioLocal: String,
+    val retornoAteLocal: String,
 )
 
 data class FinalizarPausaRequest(
@@ -73,7 +101,9 @@ data class FinalizarPausaRequest(
 
 data class FinalizarPausaResponse(
     val id: String,
+    val inicioLocal: String,
     val fimEm: String,
+    val fimLocal: String,
     val duracaoSegundos: Int,
     val limiteSegundos: Int,
     val excedeuLimite: Boolean,
@@ -85,6 +115,9 @@ interface PontoCafeApi {
 
     @GET("ponto/horario")
     suspend fun horario(): HorarioCafeResponse
+
+    @POST("ponto/biometria/identificar")
+    suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
 
     @POST("ponto/biometria/verificar")
     suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
@@ -102,6 +135,9 @@ class PontoCafeRepository(
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
 
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
+
+    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse =
+        api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
 
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
         api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
