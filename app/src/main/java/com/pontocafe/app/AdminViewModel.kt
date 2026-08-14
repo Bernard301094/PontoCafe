@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pontocafe.app.camera.FaceEmbeddingEngine
+import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AdminCoffeeRule
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
@@ -23,6 +25,9 @@ enum class AdminDestination {
     USER_DETAIL,
     AUTHORIZATION,
     SETTINGS,
+    COLLABORATORS,
+    NEW_COLLABORATOR,
+    BIOMETRIC_ENROLLMENT,
 }
 
 data class AdminUiState(
@@ -34,6 +39,8 @@ data class AdminUiState(
     val colaboradores: List<Colaborador> = emptyList(),
     val regrasCafe: List<AdminCoffeeRule> = emptyList(),
     val selecionado: AdminUser? = null,
+    val colaboradorSelecionado: Colaborador? = null,
+    val biometricScanCycle: Int = 0,
     val deviceTokenGerado: String? = null,
     val deviceNome: String? = null,
     val authorizationCode: String? = null,
@@ -43,9 +50,14 @@ data class AdminUiState(
     val erro: String? = null,
 )
 
-class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
+class AdminViewModel(
+    private val repository: AdminRepository,
+    private val embeddingEngine: FaceEmbeddingEngine,
+) : ViewModel() {
     var state by mutableStateOf(AdminUiState())
         private set
+
+    val faceModelReady: Boolean get() = embeddingEngine.isReady
 
     init {
         carregarEstadoInicial()
@@ -63,20 +75,12 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
                             carregando = false,
                             primeiroAdminNecessario = setup.primeiroAdminNecessario,
                             instalacaoConfigurada = setup.instalacaoConfigurada,
-                            destination = if (setup.primeiroAdminNecessario) {
-                                AdminDestination.FIRST_SETUP
-                            } else {
-                                AdminDestination.LOGIN
-                            },
+                            destination = if (setup.primeiroAdminNecessario) AdminDestination.FIRST_SETUP else AdminDestination.LOGIN,
                         )
                     }
                 }
                 .onFailure {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.LOGIN,
-                        erro = AdminRepository.message(it),
-                    )
+                    state = state.copy(carregando = false, destination = AdminDestination.LOGIN, erro = AdminRepository.message(it))
                 }
         }
     }
@@ -86,27 +90,23 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.signIn(email.trim().lowercase(), senha) }
                 .onSuccess { carregarUsuariosInterno() }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
     fun criarPrimeiroAdmin(nome: String, email: String, senha: String, chave: String) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.createFirstAdmin(nome.trim(), email.trim().lowercase(), senha, chave)
-            }.onSuccess {
-                state = state.copy(
-                    carregando = false,
-                    primeiroAdminNecessario = false,
-                    destination = AdminDestination.LOGIN,
-                    mensagem = "Administrador criado. Entre com o e-mail e a senha cadastrados.",
-                )
-            }.onFailure {
-                state = state.copy(carregando = false, erro = AdminRepository.message(it))
-            }
+            runCatching { repository.createFirstAdmin(nome.trim(), email.trim().lowercase(), senha, chave) }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        primeiroAdminNecessario = false,
+                        destination = AdminDestination.LOGIN,
+                        mensagem = "Administrador criado. Entre com o e-mail e a senha cadastrados.",
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -117,35 +117,22 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
     fun criarConta(input: NewAccountInput) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.createUser(input.nome, input.email, input.senha, input.perfil.name)
-            }.onSuccess {
-                carregarUsuariosInterno("Conta cadastrada com sucesso.")
-            }.onFailure {
-                state = state.copy(carregando = false, erro = AdminRepository.message(it))
-            }
+            runCatching { repository.createUser(input.nome, input.email, input.senha, input.perfil.name) }
+                .onSuccess { carregarUsuariosInterno("Conta cadastrada com sucesso.") }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
     fun selecionarUsuario(user: AdminUser) {
-        state = state.copy(
-            selecionado = user,
-            destination = AdminDestination.USER_DETAIL,
-            erro = null,
-            mensagem = null,
-        )
+        state = state.copy(selecionado = user, destination = AdminDestination.USER_DETAIL, erro = null, mensagem = null)
     }
 
     fun alterarAtivo(user: AdminUser) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.setActive(user.id, !user.ativo) }
-                .onSuccess {
-                    carregarUsuariosInterno(if (user.ativo) "Conta desativada." else "Conta reativada.")
-                }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onSuccess { carregarUsuariosInterno(if (user.ativo) "Conta desativada." else "Conta reativada.") }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -154,9 +141,7 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteUser(user.id) }
                 .onSuccess { carregarUsuariosInterno("Conta excluída definitivamente.") }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -164,15 +149,8 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.resetPassword(userId, novaSenha) }
-                .onSuccess {
-                    state = state.copy(
-                        carregando = false,
-                        mensagem = "Senha redefinida. As sessões dessa conta foram encerradas.",
-                    )
-                }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onSuccess { state = state.copy(carregando = false, mensagem = "Senha redefinida. As sessões dessa conta foram encerradas.") }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -181,50 +159,130 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.changeProfile(user.id, perfil) }
                 .onSuccess { carregarUsuariosInterno("Perfil atualizado.") }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
+    }
+
+    fun abrirColaboradores() {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.collaborators() }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.COLLABORATORS,
+                        colaboradores = it,
+                        colaboradorSelecionado = null,
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun abrirNovoColaborador() {
+        state = state.copy(destination = AdminDestination.NEW_COLLABORATOR, erro = null, mensagem = null)
+    }
+
+    fun criarColaborador(matricula: String, nome: String, setor: String, turno: String) {
+        if (nome.trim().length < 2) {
+            state = state.copy(erro = "Informe o nome do colaborador.")
+            return
+        }
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.createCollaborator(matricula, nome, setor, turno) }
+                .onSuccess { colaborador ->
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.BIOMETRIC_ENROLLMENT,
+                        colaboradorSelecionado = colaborador,
+                        biometricScanCycle = state.biometricScanCycle + 1,
+                        mensagem = "Colaborador cadastrado. Agora cadastre o rosto.",
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
+        state = state.copy(
+            destination = AdminDestination.BIOMETRIC_ENROLLMENT,
+            colaboradorSelecionado = colaborador,
+            biometricScanCycle = state.biometricScanCycle + 1,
+            erro = null,
+            mensagem = null,
+        )
+    }
+
+    fun processarBiometria(frame: FaceFrame) {
+        val colaborador = state.colaboradorSelecionado ?: return
+        if (state.carregando) return
+        if (!embeddingEngine.isReady) {
+            state = state.copy(erro = "O modelo de reconhecimento facial ainda não está instalado neste APK.")
+            return
+        }
+
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = "Processando o rosto...")
+            runCatching {
+                val embedding = embeddingEngine.embed(frame)
+                repository.saveBiometric(
+                    collaboratorId = colaborador.id,
+                    embedding = embedding,
+                    model = embeddingEngine.modelName,
+                    modelVersion = embeddingEngine.modelVersion,
+                )
+            }.onSuccess {
+                runCatching { repository.collaborators() }
+                    .onSuccess { colaboradores ->
+                        state = state.copy(
+                            carregando = false,
+                            destination = AdminDestination.COLLABORATORS,
+                            colaboradores = colaboradores,
+                            colaboradorSelecionado = null,
+                            mensagem = "Rosto de ${colaborador.nome} cadastrado com sucesso.",
+                            erro = null,
+                        )
+                    }
+                    .onFailure { error ->
+                        state = state.copy(carregando = false, erro = AdminRepository.message(error))
+                    }
+            }.onFailure { error ->
+                state = state.copy(
+                    carregando = false,
+                    biometricScanCycle = state.biometricScanCycle + 1,
+                    mensagem = null,
+                    erro = AdminRepository.message(error),
+                )
+            }
+        }
+    }
+
+    fun voltarColaboradores() {
+        state = state.copy(destination = AdminDestination.COLLABORATORS, colaboradorSelecionado = null, erro = null)
     }
 
     fun abrirConfiguracoes() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.coffeeRules() }
-                .onSuccess {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.SETTINGS,
-                        regrasCafe = it,
-                    )
-                }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onSuccess { state = state.copy(carregando = false, destination = AdminDestination.SETTINGS, regrasCafe = it) }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun salvarRegraCafe(
-        periodo: String,
-        inicio: String,
-        fim: String,
-        limiteMinutos: Int,
-        ativo: Boolean,
-    ) {
+    fun salvarRegraCafe(periodo: String, inicio: String, fim: String, limiteMinutos: Int, ativo: Boolean) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.updateCoffeeRule(periodo, inicio, fim, limiteMinutos, ativo)
-            }.onSuccess { updated ->
-                val novas = state.regrasCafe.map { if (it.periodo == updated.periodo) updated else it }
-                state = state.copy(
-                    carregando = false,
-                    regrasCafe = novas,
-                    mensagem = "Regra de ${if (periodo == "MANHA") "manhã" else "tarde"} atualizada.",
-                )
-            }.onFailure {
-                state = state.copy(carregando = false, erro = AdminRepository.message(it))
-            }
+            runCatching { repository.updateCoffeeRule(periodo, inicio, fim, limiteMinutos, ativo) }
+                .onSuccess { updated ->
+                    state = state.copy(
+                        carregando = false,
+                        regrasCafe = state.regrasCafe.map { if (it.periodo == updated.periodo) updated else it },
+                        mensagem = "Regra de ${if (periodo == "MANHA") "manhã" else "tarde"} atualizada.",
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -244,9 +302,7 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
                         mensagem = "Token gerado. Copie agora: ele não será exibido novamente.",
                     )
                 }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -256,23 +312,10 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
 
     fun abrirAutorizacao() {
         viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-                authorizationCode = null,
-            )
+            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
             runCatching { repository.collaborators() }
-                .onSuccess {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.AUTHORIZATION,
-                        colaboradores = it,
-                    )
-                }
-                .onFailure {
-                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
-                }
+                .onSuccess { state = state.copy(carregando = false, destination = AdminDestination.AUTHORIZATION, colaboradores = it) }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -285,27 +328,19 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
             state = state.copy(erro = "Informe o motivo da autorização.")
             return
         }
-
         viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-                authorizationCode = null,
-            )
-            runCatching {
-                repository.createAuthorization(colaborador.id, periodo, motivo)
-            }.onSuccess { authorization ->
-                state = state.copy(
-                    carregando = false,
-                    authorizationCode = authorization.codigo,
-                    authorizationEmployeeName = colaborador.nome,
-                    authorizationExpiresSeconds = authorization.expiraEmSegundos,
-                    mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
-                )
-            }.onFailure {
-                state = state.copy(carregando = false, erro = AdminRepository.message(it))
-            }
+            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
+            runCatching { repository.createAuthorization(colaborador.id, periodo, motivo) }
+                .onSuccess { authorization ->
+                    state = state.copy(
+                        carregando = false,
+                        authorizationCode = authorization.codigo,
+                        authorizationEmployeeName = colaborador.nome,
+                        authorizationExpiresSeconds = authorization.expiraEmSegundos,
+                        mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
@@ -322,6 +357,7 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
         state = state.copy(
             destination = AdminDestination.HOME,
             selecionado = null,
+            colaboradorSelecionado = null,
             authorizationCode = null,
             authorizationEmployeeName = null,
             authorizationExpiresSeconds = null,
