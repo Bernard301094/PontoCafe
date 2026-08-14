@@ -8,6 +8,48 @@ val apiBaseUrl = providers.gradleProperty("PONTOCAFE_API_URL")
     .orElse("https://example.invalid/")
     .get()
 
+val faceModelCommit = "289bc10420aad15fed99094eee364eb24f908ecc"
+val faceModelBlobSha = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
+val faceModelUrl = "https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/$faceModelCommit/app/src/main/assets/facenet.tflite"
+val faceModelFile = layout.projectDirectory.file("src/main/assets/facenet.tflite").asFile
+
+fun gitBlobSha(file: java.io.File): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-1")
+    digest.update("blob ${file.length()}\u0000".toByteArray(Charsets.UTF_8))
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count <= 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+val prepareFaceModel by tasks.registering {
+    group = "build setup"
+    description = "Baixa e valida o modelo FaceNet gratuito usado pelo APK."
+    outputs.file(faceModelFile)
+
+    doLast {
+        faceModelFile.parentFile.mkdirs()
+        val currentValid = faceModelFile.exists() && gitBlobSha(faceModelFile) == faceModelBlobSha
+        if (!currentValid) {
+            faceModelFile.delete()
+            java.net.URI(faceModelUrl).toURL().openStream().use { input ->
+                faceModelFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+
+        check(gitBlobSha(faceModelFile) == faceModelBlobSha) {
+            "O arquivo facenet.tflite baixado não corresponde ao modelo fixado pelo projeto."
+        }
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn(prepareFaceModel) }
+
 android {
     namespace = "com.pontocafe.app"
     compileSdk = 36
@@ -17,7 +59,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.3.0"
+        versionName = "0.4.0"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
@@ -50,7 +92,7 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraX")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
-    // LiteRT via Google Play Services. O arquivo facenet.tflite fica empacotado no APK.
+    // LiteRT via Google Play Services. O arquivo facenet.tflite é validado antes do build.
     implementation("com.google.android.gms:play-services-tflite-java:16.5.0")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
