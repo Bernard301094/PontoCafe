@@ -104,7 +104,7 @@ export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     try {
       const { default: app } = await loadApplication(env, request)
-      return await app.fetch(request)
+      return await app.fetch(request, env)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const bindings = safeBindingDiagnostics(env)
