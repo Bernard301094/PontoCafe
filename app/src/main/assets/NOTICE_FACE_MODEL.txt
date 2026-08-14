@@ -1,0 +1,11 @@
+Ponto Café — modelo facial
+
+O build baixa facenet.tflite de uma revisão fixa do projeto público:
+shubham0204/FaceRecognition_With_FaceNet_Android
+Commit: 289bc10420aad15fed99094eee364eb24f908ecc
+Git blob esperado: 8254aabae5cc73b8d2c15e7c589730eb3c264b87
+
+O repositório de origem declara licença Apache License 2.0 e contém o modelo FaceNet 128D com entrada 160x160.
+O modelo é executado localmente via LiteRT/Google Play Services.
+
+Antes de uma implantação corporativa definitiva, a organização responsável deve manter este aviso e confirmar internamente os requisitos jurídicos aplicáveis ao uso de biometria de empregados.
