@@ -6,7 +6,12 @@ const cloudflareRuntime = process.env.PONTOCAFE_RUNTIME === 'cloudflare'
 
 export const pool = globalForDb.pontoCafePool ?? new Pool({
   connectionString: config.databaseUrl,
-  max: cloudflareRuntime ? 1 : 5,
+  // Algumas rotas abrem uma transação explícita e, dentro dela, chamam
+  // Better Auth, que também usa este pool. Com max=1 o client da transação
+  // ocupava a única conexão e Better Auth aguardava indefinidamente outra.
+  // Duas conexões são suficientes para manter a transação/lock de setup e
+  // permitir que a operação de autenticação execute pela segunda conexão.
+  max: cloudflareRuntime ? 2 : 5,
   idleTimeoutMillis: cloudflareRuntime ? 5_000 : 20_000,
   connectionTimeoutMillis: 10_000,
   allowExitOnIdle: cloudflareRuntime,
