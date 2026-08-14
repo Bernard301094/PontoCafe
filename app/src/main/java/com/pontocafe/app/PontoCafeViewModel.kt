@@ -7,11 +7,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
+import com.pontocafe.app.data.CachedFaceCatalog
 import com.pontocafe.app.data.FinalizarPausaResponse
 import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
+import com.pontocafe.app.data.LocalFaceMatcher
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
+import com.pontocafe.app.data.SecureFaceCatalogStore
 import kotlinx.coroutines.launch
 
 
@@ -36,6 +39,9 @@ data class PontoCafeUiState(
     val identificacao: IdentificarBiometriaResponse? = null,
     val needsAuthorization: Boolean = false,
     val comprovante: ComprovantePonto? = null,
+    val sincronizandoBiometrias: Boolean = false,
+    val catalogoBiometricoPronto: Boolean = false,
+    val totalBiometrias: Int = 0,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -43,13 +49,18 @@ data class PontoCafeUiState(
 class PontoCafeViewModel(
     private val repository: PontoCafeRepository,
     private val tokenStore: SecureDeviceTokenStore,
+    private val faceCatalogStore: SecureFaceCatalogStore,
     private val embeddingEngine: FaceEmbeddingEngine,
 ) : ViewModel() {
+
+    private val catalogRefreshMillis = 15 * 60 * 1000L
 
     var state by mutableStateOf(
         PontoCafeUiState(
             deviceConfigured = tokenStore.hasToken(),
             scanning = tokenStore.hasToken(),
+            catalogoBiometricoPronto = faceCatalogStore.read()?.templates?.isNotEmpty() == true,
+            totalBiometrias = faceCatalogStore.read()?.templates?.size ?: 0,
         ),
     )
         private set
@@ -57,23 +68,53 @@ class PontoCafeViewModel(
     val faceModelReady: Boolean get() = embeddingEngine.isReady
     val faceModelName: String get() = embeddingEngine.modelName
 
+    init {
+        if (tokenStore.hasToken() && embeddingEngine.isReady) {
+            sincronizarBiometrias(force = false)
+        }
+    }
+
     fun configurarDispositivo(token: String) {
         if (token.trim().length < 20) {
             state = state.copy(erro = "Token do dispositivo inválido.")
             return
         }
         tokenStore.save(token)
+        faceCatalogStore.clear()
         state = PontoCafeUiState(
             deviceConfigured = true,
             scanning = true,
             scanCycle = state.scanCycle + 1,
             mensagem = "Dispositivo configurado com sucesso.",
         )
+        sincronizarBiometrias(force = true)
     }
 
     fun removerConfiguracao() {
         tokenStore.clear()
+        faceCatalogStore.clear()
         state = PontoCafeUiState(deviceConfigured = false)
+    }
+
+    fun sincronizarBiometrias(force: Boolean = false) {
+        if (!state.deviceConfigured || !embeddingEngine.isReady || state.sincronizandoBiometrias) return
+        viewModelScope.launch {
+            state = state.copy(sincronizandoBiometrias = true)
+            runCatching { obterCatalogoAtual(force) }
+                .onSuccess { catalogo ->
+                    state = state.copy(
+                        sincronizandoBiometrias = false,
+                        catalogoBiometricoPronto = catalogo?.templates?.isNotEmpty() == true,
+                        totalBiometrias = catalogo?.templates?.size ?: 0,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(
+                        sincronizandoBiometrias = false,
+                        erro = "Não foi possível sincronizar os rostos cadastrados. Verifique a conexão.",
+                    )
+                }
+        }
     }
 
     fun ativarCamera() {
@@ -86,6 +127,7 @@ class PontoCafeViewModel(
             mensagem = null,
             erro = null,
         )
+        sincronizarBiometrias(force = false)
     }
 
     fun processarFrame(frame: FaceFrame) {
@@ -102,7 +144,36 @@ class PontoCafeViewModel(
             state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
             try {
                 val embedding = embeddingEngine.embed(frame)
-                val identificacao = repository.identificar(embedding)
+                var catalogo = obterCatalogoAtual(force = false)
+                var match = catalogo?.let { LocalFaceMatcher.match(embedding, it) }
+
+                if (match == null) {
+                    catalogo = obterCatalogoAtual(force = true)
+                    match = catalogo?.let { LocalFaceMatcher.match(embedding, it) }
+                }
+
+                if (match == null) {
+                    state = state.copy(
+                        carregando = false,
+                        scanning = true,
+                        scanCycle = state.scanCycle + 1,
+                        identificacao = null,
+                        erro = if (catalogo?.templates?.isEmpty() != false) {
+                            "Nenhum rosto está cadastrado neste dispositivo. Peça ao administrador para cadastrar e sincronizar os colaboradores."
+                        } else {
+                            "Não foi possível reconhecer você com segurança. Posicione o rosto novamente."
+                        },
+                    )
+                    return@launch
+                }
+
+                val identificacao = repository.confirmarIdentidadeLocal(
+                    colaboradorId = match.colaborador.id,
+                    embedding = embedding,
+                    modelo = embeddingEngine.modelName,
+                    versaoModelo = embeddingEngine.modelVersion,
+                )
+
                 if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
                     state = state.copy(
                         carregando = false,
@@ -110,7 +181,7 @@ class PontoCafeViewModel(
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         erro = identificacao.mensagem
-                            ?: "Não foi possível reconhecer você. Posicione o rosto novamente.",
+                            ?: "Não foi possível confirmar sua identidade. Tente novamente.",
                     )
                     return@launch
                 }
@@ -131,6 +202,37 @@ class PontoCafeViewModel(
                 )
             }
         }
+    }
+
+    private suspend fun obterCatalogoAtual(force: Boolean): CachedFaceCatalog? {
+        val cache = faceCatalogStore.read()
+        val agora = System.currentTimeMillis()
+        val stale = cache == null || agora - cache.sincronizadoEmMillis >= catalogRefreshMillis
+        if (!force && !stale) return cache
+
+        val response = repository.sincronizarCatalogo(
+            modelo = embeddingEngine.modelName,
+            versaoModelo = embeddingEngine.modelVersion,
+            versaoAtual = if (force) null else cache?.versao,
+        )
+
+        if (!response.atualizado && cache != null) {
+            val refreshed = cache.copy(sincronizadoEmMillis = agora)
+            faceCatalogStore.save(refreshed)
+            return refreshed
+        }
+
+        val novo = CachedFaceCatalog(
+            versao = response.versao,
+            modelo = response.modelo,
+            versaoModelo = response.versaoModelo,
+            limiar = response.limiar,
+            margem = response.margem,
+            templates = response.templates,
+            sincronizadoEmMillis = agora,
+        )
+        faceCatalogStore.save(novo)
+        return novo
     }
 
     fun confirmarIdentidade() {
