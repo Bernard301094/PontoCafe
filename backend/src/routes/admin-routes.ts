@@ -3,14 +3,16 @@ import { z } from 'zod'
 import { auth, requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { query } from '../db.js'
 import { encryptEmbedding, hashToken, newId, newToken } from '../security.js'
-import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
+import { embeddingSchema, parseJson, periodoSchema, uuidSchema } from './shared.js'
 
 export const adminRoutes = new Hono<AppEnv>()
 adminRoutes.use('*', requireUser, requireRole('ADMIN'))
 
+const horaSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+
 async function authUser(userId: string) {
-  const result = await query<{ id: string; role: string | null; banned: boolean | null }>(
-    'select id,role,banned from "user" where id=$1 limit 1',
+  const result = await query<{ id: string; name: string; email: string; role: string | null; banned: boolean | null }>(
+    'select id,name,email,role,banned from "user" where id=$1 limit 1',
     [userId],
   )
   return result.rows[0] ?? null
@@ -25,11 +27,19 @@ async function hasAnotherActiveAdmin(userId: string): Promise<boolean> {
   return Number(result.rows[0]?.total ?? 0) > 0
 }
 
-async function audit(actorId: string, action: string, entityId: string, details: Record<string, unknown>) {
+async function auditUser(actorId: string, action: string, entityId: string, details: Record<string, unknown>) {
   await query(
     `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
      values ($1,'ADMIN',$2,'USUARIO',$3,$4::jsonb)`,
     [actorId, action, entityId, JSON.stringify(details)],
+  )
+}
+
+async function auditRule(actorId: string, period: string, details: Record<string, unknown>) {
+  await query(
+    `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+     values ($1,'ADMIN','ALTERAR_REGRA_CAFE','REGRA_CAFE',$2,$3::jsonb)`,
+    [actorId, period, JSON.stringify(details)],
   )
 }
 
@@ -55,7 +65,7 @@ adminRoutes.post('/usuarios', async (c) => {
       },
     })
 
-    await audit(adminAtual.id, 'CRIAR_CONTA', created.user.id, {
+    await auditUser(adminAtual.id, 'CRIAR_CONTA', created.user.id, {
       email: created.user.email,
       nome: created.user.name,
       perfil: body.data.perfil,
@@ -119,7 +129,7 @@ adminRoutes.post('/usuarios/:id/bloquear', async (c) => {
     body: { userId: targetId, banReason: 'Conta desativada pelo administrador.' },
     headers: c.req.raw.headers,
   })
-  await audit(adminAtual.id, 'DESATIVAR_CONTA', targetId, {})
+  await auditUser(adminAtual.id, 'DESATIVAR_CONTA', targetId, {})
   return c.json({ ok: true, ativo: false })
 })
 
@@ -130,8 +140,31 @@ adminRoutes.post('/usuarios/:id/reativar', async (c) => {
   if (!target) return c.json({ erro: 'Conta não encontrada.' }, 404)
 
   await auth.api.unbanUser({ body: { userId: targetId }, headers: c.req.raw.headers })
-  await audit(adminAtual.id, 'REATIVAR_CONTA', targetId, {})
+  await auditUser(adminAtual.id, 'REATIVAR_CONTA', targetId, {})
   return c.json({ ok: true, ativo: true })
+})
+
+adminRoutes.post('/usuarios/:id/excluir', async (c) => {
+  const targetId = c.req.param('id')
+  const adminAtual = c.get('user')
+  if (targetId === adminAtual.id) return c.json({ erro: 'Você não pode excluir a própria conta.' }, 409)
+
+  const target = await authUser(targetId)
+  if (!target) return c.json({ erro: 'Conta não encontrada.' }, 404)
+  if (target.role === 'admin' && !(await hasAnotherActiveAdmin(targetId))) {
+    return c.json({ erro: 'Não é possível excluir o último administrador ativo.' }, 409)
+  }
+
+  await auth.api.removeUser({
+    body: { userId: targetId },
+    headers: c.req.raw.headers,
+  })
+  await auditUser(adminAtual.id, 'EXCLUIR_CONTA', targetId, {
+    email: target.email,
+    nome: target.name,
+    perfil: target.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
+  })
+  return c.json({ ok: true, excluido: true })
 })
 
 adminRoutes.put('/usuarios/:id/senha', async (c) => {
@@ -146,7 +179,7 @@ adminRoutes.put('/usuarios/:id/senha', async (c) => {
     headers: c.req.raw.headers,
   })
   await auth.api.revokeUserSessions({ body: { userId: targetId }, headers: c.req.raw.headers })
-  await audit(c.get('user').id, 'REDEFINIR_SENHA', targetId, { sessoesRevogadas: true })
+  await auditUser(c.get('user').id, 'REDEFINIR_SENHA', targetId, { sessoesRevogadas: true })
   return c.json({ ok: true, sessoesRevogadas: true })
 })
 
@@ -167,8 +200,81 @@ adminRoutes.put('/usuarios/:id/perfil', async (c) => {
 
   const role = body.data.perfil === 'ADMIN' ? 'admin' : 'user'
   await auth.api.setRole({ body: { userId: targetId, role }, headers: c.req.raw.headers })
-  await audit(adminAtual.id, 'ALTERAR_PERFIL', targetId, { perfil: body.data.perfil })
+  await auditUser(adminAtual.id, 'ALTERAR_PERFIL', targetId, { perfil: body.data.perfil })
   return c.json({ ok: true, perfil: body.data.perfil })
+})
+
+adminRoutes.get('/regras-cafe', async (c) => {
+  const result = await query<{
+    periodo: 'MANHA' | 'TARDE'
+    inicio: string
+    fim: string
+    limite_segundos: number
+    ativo: boolean
+  }>(
+    `select periodo,to_char(inicio,'HH24:MI') as inicio,to_char(fim,'HH24:MI') as fim,
+            limite_segundos,ativo
+     from regras_cafe order by inicio`,
+  )
+  return c.json({
+    regras: result.rows.map((rule) => ({
+      periodo: rule.periodo,
+      inicio: rule.inicio,
+      fim: rule.fim,
+      limiteMinutos: Math.round(rule.limite_segundos / 60),
+      ativo: rule.ativo,
+    })),
+  })
+})
+
+adminRoutes.put('/regras-cafe/:periodo', async (c) => {
+  const periodo = c.req.param('periodo').toUpperCase()
+  if (!periodoSchema.safeParse(periodo).success) return c.json({ erro: 'Período inválido.' }, 400)
+
+  const body = await parseJson(c, z.object({
+    inicio: horaSchema,
+    fim: horaSchema,
+    limiteMinutos: z.number().int().min(1).max(120),
+    ativo: z.boolean().default(true),
+  }).refine((value) => value.inicio < value.fim, {
+    message: 'O horário final deve ser posterior ao horário inicial.',
+    path: ['fim'],
+  }))
+  if (!body.ok) return body.response
+
+  const updated = await query<{
+    periodo: string
+    inicio: string
+    fim: string
+    limite_segundos: number
+    ativo: boolean
+  }>(
+    `update regras_cafe
+     set inicio=$2::time,fim=$3::time,limite_segundos=$4,ativo=$5
+     where periodo=$1
+     returning periodo,to_char(inicio,'HH24:MI') as inicio,to_char(fim,'HH24:MI') as fim,
+               limite_segundos,ativo`,
+    [periodo, body.data.inicio, body.data.fim, body.data.limiteMinutos * 60, body.data.ativo],
+  )
+  const rule = updated.rows[0]
+  if (!rule) return c.json({ erro: 'Regra de café não encontrada.' }, 404)
+
+  await auditRule(c.get('user').id, periodo, {
+    inicio: rule.inicio,
+    fim: rule.fim,
+    limiteMinutos: Math.round(rule.limite_segundos / 60),
+    ativo: rule.ativo,
+  })
+
+  return c.json({
+    regra: {
+      periodo: rule.periodo,
+      inicio: rule.inicio,
+      fim: rule.fim,
+      limiteMinutos: Math.round(rule.limite_segundos / 60),
+      ativo: rule.ativo,
+    },
+  })
 })
 
 adminRoutes.post('/dispositivos', async (c) => {
