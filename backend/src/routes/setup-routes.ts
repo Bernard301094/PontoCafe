@@ -2,7 +2,6 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { auth, type AppEnv } from '../auth-runtime.js'
-import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { parseJson } from './shared.js'
 
@@ -20,6 +19,14 @@ function setupKeyFingerprint(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16)
 }
 
+function currentSetupKey(bindings: AppEnv['Bindings'] | undefined): string | null {
+  const runtimeValue = bindings?.FIRST_ADMIN_SETUP_KEY
+  if (typeof runtimeValue === 'string' && runtimeValue.trim()) return runtimeValue.trim()
+
+  const localValue = process.env.FIRST_ADMIN_SETUP_KEY
+  return localValue?.trim() || null
+}
+
 function safeSetupErrorCode(error: unknown): string {
   if (!(error instanceof Error)) return 'SETUP_UNKNOWN_ERROR'
   const message = error.message.toLowerCase()
@@ -31,12 +38,14 @@ function safeSetupErrorCode(error: unknown): string {
 setupRoutes.get('/status', async (c) => {
   const result = await query<{ total: string }>('select count(*)::text as total from "user"')
   const primeiroAdminNecessario = Number(result.rows[0]?.total ?? 0) === 0
+  const setupKey = currentSetupKey(c.env)
+
   return c.json({
     primeiroAdminNecessario,
-    instalacaoConfigurada: Boolean(config.firstAdminSetupKey),
+    instalacaoConfigurada: Boolean(setupKey),
     chaveInstalacaoFingerprint:
-      primeiroAdminNecessario && config.firstAdminSetupKey
-        ? setupKeyFingerprint(config.firstAdminSetupKey)
+      primeiroAdminNecessario && setupKey
+        ? setupKeyFingerprint(setupKey)
         : null,
   })
 })
@@ -50,10 +59,11 @@ setupRoutes.post('/primeiro-admin', async (c) => {
   }))
   if (!body.ok) return body.response
 
-  if (!config.firstAdminSetupKey) {
+  const setupKey = currentSetupKey(c.env)
+  if (!setupKey) {
     return c.json({ erro: 'Instalação inicial não habilitada no servidor.' }, 503)
   }
-  if (!sameSecret(body.data.chaveInstalacao, config.firstAdminSetupKey)) {
+  if (!sameSecret(body.data.chaveInstalacao, setupKey)) {
     return c.json({ erro: 'Chave de instalação inválida.' }, 403)
   }
 
