@@ -29,6 +29,7 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
     var novaSenha by remember(user.id) { mutableStateOf("") }
     var confirmar by remember(user.id) { mutableStateOf("") }
     var erroLocal by remember(user.id) { mutableStateOf<String?>(null) }
+    var confirmarExclusao by remember(user.id) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -93,6 +94,32 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
             enabled = !state.carregando,
         ) {
             Text("Redefinir senha e encerrar sessões")
+        }
+
+        if (confirmarExclusao) {
+            Text(
+                "Esta ação é permanente. A conta e suas sessões de acesso serão removidas.",
+                color = MaterialTheme.colorScheme.error,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { confirmarExclusao = false },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Cancelar") }
+                Button(
+                    onClick = { viewModel.excluirUsuario(user) },
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.carregando,
+                ) { Text("Excluir definitivamente") }
+            }
+        } else {
+            OutlinedButton(
+                onClick = { confirmarExclusao = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.carregando,
+            ) {
+                Text("Excluir conta")
+            }
         }
 
         OutlinedButton(onClick = viewModel::voltarHome, modifier = Modifier.fillMaxWidth()) {
