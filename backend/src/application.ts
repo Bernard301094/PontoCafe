@@ -6,6 +6,7 @@ import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
+import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
 import { reportRoutes } from './routes/report-routes.js'
@@ -22,7 +23,7 @@ app.use('*', cors({
 }))
 
 app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw))
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.4.0' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.5.0' }))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
@@ -31,6 +32,7 @@ app.get('/health', async (c) => {
 app.route('/setup', setupRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
+app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
 app.route('/supervisor', liveRoutes)
