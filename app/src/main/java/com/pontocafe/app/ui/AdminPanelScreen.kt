@@ -39,20 +39,23 @@ fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
         AdminFeedback(viewModel)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = viewModel::abrirColaboradores, modifier = Modifier.weight(1f)) {
+                Text("Colaboradores")
+            }
             Button(onClick = viewModel::abrirNovaConta, modifier = Modifier.weight(1f)) {
                 Text("Nova conta")
             }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
                 Text("Autorizar pausa")
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = viewModel::abrirConfiguracoes, modifier = Modifier.weight(1f)) {
                 Text("Configurar café")
             }
-            OutlinedButton(onClick = viewModel::logout, modifier = Modifier.weight(1f)) {
-                Text("Sair")
-            }
+        }
+        OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth()) {
+            Text("Sair")
         }
 
         Text("Ativar um dispositivo", style = MaterialTheme.typography.titleMedium)
