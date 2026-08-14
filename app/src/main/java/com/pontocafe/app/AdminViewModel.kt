@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pontocafe.app.data.AdminCoffeeRule
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
 import com.pontocafe.app.data.Colaborador
@@ -21,6 +22,7 @@ enum class AdminDestination {
     NEW_ACCOUNT,
     USER_DETAIL,
     AUTHORIZATION,
+    SETTINGS,
 }
 
 data class AdminUiState(
@@ -30,6 +32,7 @@ data class AdminUiState(
     val instalacaoConfigurada: Boolean = false,
     val usuarios: List<AdminUser> = emptyList(),
     val colaboradores: List<Colaborador> = emptyList(),
+    val regrasCafe: List<AdminCoffeeRule> = emptyList(),
     val selecionado: AdminUser? = null,
     val deviceTokenGerado: String? = null,
     val deviceNome: String? = null,
@@ -146,6 +149,17 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
         }
     }
 
+    fun excluirUsuario(user: AdminUser) {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.deleteUser(user.id) }
+                .onSuccess { carregarUsuariosInterno("Conta excluída definitivamente.") }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
+                }
+        }
+    }
+
     fun redefinirSenha(userId: String, novaSenha: String) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
@@ -170,6 +184,47 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
                 .onFailure {
                     state = state.copy(carregando = false, erro = AdminRepository.message(it))
                 }
+        }
+    }
+
+    fun abrirConfiguracoes() {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.coffeeRules() }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.SETTINGS,
+                        regrasCafe = it,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
+                }
+        }
+    }
+
+    fun salvarRegraCafe(
+        periodo: String,
+        inicio: String,
+        fim: String,
+        limiteMinutos: Int,
+        ativo: Boolean,
+    ) {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching {
+                repository.updateCoffeeRule(periodo, inicio, fim, limiteMinutos, ativo)
+            }.onSuccess { updated ->
+                val novas = state.regrasCafe.map { if (it.periodo == updated.periodo) updated else it }
+                state = state.copy(
+                    carregando = false,
+                    regrasCafe = novas,
+                    mensagem = "Regra de ${if (periodo == "MANHA") "manhã" else "tarde"} atualizada.",
+                )
+            }.onFailure {
+                state = state.copy(carregando = false, erro = AdminRepository.message(it))
+            }
         }
     }
 
