@@ -3,6 +3,7 @@ package com.pontocafe.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,20 +35,22 @@ class MainActivity : ComponentActivity() {
         val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository) }
 
         setContent {
-            var adminAreaOpen by remember { mutableStateOf(false) }
+            MaterialTheme {
+                var adminAreaOpen by remember { mutableStateOf(false) }
 
-            if (adminAreaOpen) {
-                val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                AdminArea(adminVm, onClose = { adminAreaOpen = false })
-            } else {
-                val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
-                val state = vm.state
-                when {
-                    !state.deviceConfigured -> DeviceSetupScreen(vm, onAdminClick = { adminAreaOpen = true })
-                    state.needsAuthorization -> AuthorizationScreen(vm)
-                    state.selecionado == null -> EmployeeListScreen(vm, onAdminClick = { adminAreaOpen = true })
-                    state.pausaAtiva != null -> ActiveBreakScreen(vm)
-                    else -> EmployeeActionsScreen(vm)
+                if (adminAreaOpen) {
+                    val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
+                    AdminArea(adminVm, onClose = { adminAreaOpen = false })
+                } else {
+                    val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
+                    val state = vm.state
+                    when {
+                        !state.deviceConfigured -> DeviceSetupScreen(vm, onAdminClick = { adminAreaOpen = true })
+                        state.needsAuthorization -> AuthorizationScreen(vm)
+                        state.selecionado == null -> EmployeeListScreen(vm, onAdminClick = { adminAreaOpen = true })
+                        state.pausaAtiva != null -> ActiveBreakScreen(vm)
+                        else -> EmployeeActionsScreen(vm)
+                    }
                 }
             }
         }
