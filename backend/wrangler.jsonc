@@ -12,6 +12,14 @@
     "AUTHORIZATION_TTL_SECONDS": "180",
     "FACE_VERIFICATION_TTL_SECONDS": "180"
   },
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "CODE_PEPPER",
+      "BIOMETRIC_MASTER_KEY",
+      "FIRST_ADMIN_SETUP_KEY"
+    ]
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
