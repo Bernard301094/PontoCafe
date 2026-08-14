@@ -1,5 +1,8 @@
 package com.pontocafe.app
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -25,12 +28,14 @@ data class AdminUiState(
     val instalacaoConfigurada: Boolean = false,
     val usuarios: List<AdminUser> = emptyList(),
     val selecionado: AdminUser? = null,
+    val deviceTokenGerado: String? = null,
+    val deviceNome: String? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
 
 class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
-    var state by androidx.compose.runtime.mutableStateOf(AdminUiState())
+    var state by mutableStateOf(AdminUiState())
         private set
 
     init {
@@ -160,6 +165,32 @@ class AdminViewModel(private val repository: AdminRepository) : ViewModel() {
                     state = state.copy(carregando = false, erro = AdminRepository.message(it))
                 }
         }
+    }
+
+    fun gerarTokenDispositivo(nome: String) {
+        if (nome.trim().length < 2) {
+            state = state.copy(erro = "Informe um nome para o dispositivo.")
+            return
+        }
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null, deviceTokenGerado = null)
+            runCatching { repository.createDevice(nome) }
+                .onSuccess { device ->
+                    state = state.copy(
+                        carregando = false,
+                        deviceTokenGerado = device.token,
+                        deviceNome = device.nome,
+                        mensagem = "Token gerado. Copie agora: ele não será exibido novamente.",
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = AdminRepository.message(it))
+                }
+        }
+    }
+
+    fun limparTokenGerado() {
+        state = state.copy(deviceTokenGerado = null, deviceNome = null)
     }
 
     fun voltarHome() {
