@@ -39,6 +39,23 @@ data class HorarioCafeResponse(
     val regras: List<RegraCafe>,
 )
 
+data class FaceCatalogResponse(
+    val atualizado: Boolean,
+    val versao: String,
+    val modelo: String,
+    val versaoModelo: String,
+    val limiar: Double,
+    val margem: Double,
+    val templates: List<CachedFaceTemplate>,
+)
+
+data class ConfirmarBiometriaLocalRequest(
+    val colaboradorId: String,
+    val embedding: List<Float>,
+    val modelo: String,
+    val versaoModelo: String,
+)
+
 data class IdentificarBiometriaRequest(val embedding: List<Float>)
 
 data class PausaAbertaResumo(
@@ -116,6 +133,18 @@ interface PontoCafeApi {
     @GET("ponto/horario")
     suspend fun horario(): HorarioCafeResponse
 
+    @GET("ponto/biometria/catalogo")
+    suspend fun catalogoBiometrico(
+        @Query("modelo") modelo: String,
+        @Query("versaoModelo") versaoModelo: String,
+        @Query("versaoAtual") versaoAtual: String? = null,
+    ): FaceCatalogResponse
+
+    @POST("ponto/biometria/confirmar-local")
+    suspend fun confirmarBiometriaLocal(
+        @Body body: ConfirmarBiometriaLocalRequest,
+    ): IdentificarBiometriaResponse
+
     @POST("ponto/biometria/identificar")
     suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
 
@@ -135,6 +164,26 @@ class PontoCafeRepository(
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
 
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
+
+    suspend fun sincronizarCatalogo(
+        modelo: String,
+        versaoModelo: String,
+        versaoAtual: String? = null,
+    ): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
+
+    suspend fun confirmarIdentidadeLocal(
+        colaboradorId: String,
+        embedding: FloatArray,
+        modelo: String,
+        versaoModelo: String,
+    ): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(
+        ConfirmarBiometriaLocalRequest(
+            colaboradorId = colaboradorId,
+            embedding = embedding.toList(),
+            modelo = modelo,
+            versaoModelo = versaoModelo,
+        ),
+    )
 
     suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse =
         api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
