@@ -42,6 +42,9 @@ fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             Button(onClick = viewModel::abrirNovaConta, modifier = Modifier.weight(1f)) {
                 Text("Nova conta")
             }
+            Button(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
+                Text("Autorizar pausa")
+            }
             OutlinedButton(onClick = viewModel::logout, modifier = Modifier.weight(1f)) {
                 Text("Sair")
             }
