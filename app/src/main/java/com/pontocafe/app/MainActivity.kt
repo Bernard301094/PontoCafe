@@ -31,7 +31,11 @@ class MainActivity : ComponentActivity() {
         val deviceTokenStore = SecureDeviceTokenStore(applicationContext)
         val pontoRepository = ApiClient.create(applicationContext, deviceTokenStore)
         val pontoFactory = PontoCafeViewModelFactory {
-            createPontoCafeViewModel(pontoRepository, deviceTokenStore)
+            createPontoCafeViewModel(
+                context = applicationContext,
+                repository = pontoRepository,
+                tokenStore = deviceTokenStore,
+            )
         }
 
         val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
