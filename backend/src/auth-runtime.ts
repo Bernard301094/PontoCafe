@@ -11,15 +11,19 @@ export type Device = { id: string; nome: string }
 export type AppEnv = { Variables: { user: AuthUser; device: Device } }
 
 const secret = process.env.BETTER_AUTH_SECRET
-const systemBaseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL
-const baseURL = process.env.BETTER_AUTH_URL || (systemBaseUrl ? `https://${systemBaseUrl}` : 'http://localhost:3000')
+const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3000'
 if (!secret) throw new Error('Configuração de autenticação ausente.')
 
 export const auth = betterAuth({
   database: pool,
   secret,
   baseURL,
-  emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 10, maxPasswordLength: 128 },
+  emailAndPassword: {
+    enabled: true,
+    disableSignUp: true,
+    minPasswordLength: 10,
+    maxPasswordLength: 128,
+  },
   session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
   advanced: { database: { generateId: 'uuid' } },
   plugins: [bearer({ requireSignature: true }), admin()],
@@ -28,8 +32,14 @@ export const auth = betterAuth({
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers })
   if (!session) return c.json({ erro: 'Não autenticado.' }, 401)
+
   const role = (session.user as typeof session.user & { role?: string }).role
-  c.set('user', { id: session.user.id, nome: session.user.name, email: session.user.email, papel: role === 'admin' ? 'ADMIN' : 'SUPERVISOR' })
+  c.set('user', {
+    id: session.user.id,
+    nome: session.user.name,
+    email: session.user.email,
+    papel: role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
+  })
   await next()
 })
 
