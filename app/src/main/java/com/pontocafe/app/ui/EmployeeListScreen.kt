@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 
 @Composable
-fun EmployeeListScreen(viewModel: PontoCafeViewModel) {
+fun EmployeeListScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = {}) {
     val state = viewModel.state
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -52,6 +53,9 @@ fun EmployeeListScreen(viewModel: PontoCafeViewModel) {
                     }
                 }
             }
+        }
+        OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
+            Text("Área administrativa")
         }
     }
 }
