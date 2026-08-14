@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -73,12 +72,13 @@ fun FaceKioskScreen(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
                 onObservation = { observation ->
-                    if (!state.scanning || state.carregando) return@FaceCameraPreview
-                    val next = liveness.update(observation)
-                    livenessState = next
-                    if (next == LivenessState.CONCLUIDO && !captureRequested) {
-                        captureRequested = true
-                        captureController.request()
+                    if (state.scanning && !state.carregando) {
+                        val next = liveness.update(observation)
+                        livenessState = next
+                        if (next == LivenessState.CONCLUIDO && !captureRequested) {
+                            captureRequested = true
+                            captureController.request()
+                        }
                     }
                 },
                 onFrame = viewModel::processarFrame,
@@ -133,7 +133,7 @@ fun FaceKioskScreen(
                         state.carregando -> "Identificando você..."
                         else -> when (livenessState) {
                             LivenessState.POSICIONE_ROSTO -> "Posicione o rosto no centro"
-                            LivenessState.PISQUE -> "Piscar para confirmar presença"
+                            LivenessState.PISQUE -> "Pisque para confirmar presença"
                             LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
                             LivenessState.CONCLUIDO -> "Rosto capturado"
                         }
