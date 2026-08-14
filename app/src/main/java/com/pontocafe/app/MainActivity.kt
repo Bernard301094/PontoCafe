@@ -13,12 +13,16 @@ import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SecureDeviceTokenStore
-import com.pontocafe.app.ui.ActiveBreakScreen
+import com.pontocafe.app.data.SupervisorApiClient
 import com.pontocafe.app.ui.AdminArea
 import com.pontocafe.app.ui.AuthorizationScreen
 import com.pontocafe.app.ui.DeviceSetupScreen
-import com.pontocafe.app.ui.EmployeeActionsScreen
-import com.pontocafe.app.ui.EmployeeListScreen
+import com.pontocafe.app.ui.FaceKioskScreen
+import com.pontocafe.app.ui.IdentityConfirmationScreen
+import com.pontocafe.app.ui.PointReceiptScreen
+import com.pontocafe.app.ui.SupervisorArea
+
+private enum class AreaRestrita { ADMIN, SUPERVISOR }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,26 +34,46 @@ class MainActivity : ComponentActivity() {
             createPontoCafeViewModel(pontoRepository, deviceTokenStore)
         }
 
-        val adminSessionStore = SecureAdminSessionStore(applicationContext)
-        val adminRepository = AdminApiClient.create(adminSessionStore)
+        val sessionStore = SecureAdminSessionStore(applicationContext)
+        val adminRepository = AdminApiClient.create(sessionStore)
         val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository) }
+        val supervisorRepository = SupervisorApiClient.create(sessionStore)
+        val supervisorFactory = SupervisorViewModelFactory { SupervisorViewModel(supervisorRepository) }
 
         setContent {
             MaterialTheme {
-                var adminAreaOpen by remember { mutableStateOf(false) }
+                var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
 
-                if (adminAreaOpen) {
-                    val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                    AdminArea(adminVm, onClose = { adminAreaOpen = false })
-                } else {
-                    val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
-                    val state = vm.state
-                    when {
-                        !state.deviceConfigured -> DeviceSetupScreen(vm, onAdminClick = { adminAreaOpen = true })
-                        state.needsAuthorization -> AuthorizationScreen(vm)
-                        state.selecionado == null -> EmployeeListScreen(vm, onAdminClick = { adminAreaOpen = true })
-                        state.pausaAtiva != null -> ActiveBreakScreen(vm)
-                        else -> EmployeeActionsScreen(vm)
+                when (areaRestrita) {
+                    AreaRestrita.ADMIN -> {
+                        val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
+                        AdminArea(adminVm, onClose = { areaRestrita = null })
+                    }
+
+                    AreaRestrita.SUPERVISOR -> {
+                        val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
+                        SupervisorArea(supervisorVm, onClose = { areaRestrita = null })
+                    }
+
+                    null -> {
+                        val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
+                        val state = vm.state
+
+                        when {
+                            !state.deviceConfigured -> DeviceSetupScreen(
+                                vm,
+                                onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                            )
+
+                            state.comprovante != null -> PointReceiptScreen(vm)
+                            state.needsAuthorization -> AuthorizationScreen(vm)
+                            state.identificacao != null -> IdentityConfirmationScreen(vm)
+                            else -> FaceKioskScreen(
+                                viewModel = vm,
+                                onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                                onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
+                            )
+                        }
                     }
                 }
             }
