@@ -51,7 +51,6 @@ data class AdminUser(
 )
 
 data class AdminUsersResponse(val usuarios: List<AdminUser>)
-
 data class AdminCollaboratorsResponse(val colaboradores: List<Colaborador>)
 
 data class CreateAdminUserRequest(
@@ -86,11 +85,29 @@ data class AuthorizationCreatedResponse(
     val aviso: String,
 )
 
+data class AdminCoffeeRule(
+    val periodo: String,
+    val inicio: String,
+    val fim: String,
+    val limiteMinutos: Int,
+    val ativo: Boolean,
+)
+
+data class AdminCoffeeRulesResponse(val regras: List<AdminCoffeeRule>)
+data class UpdateCoffeeRuleRequest(
+    val inicio: String,
+    val fim: String,
+    val limiteMinutos: Int,
+    val ativo: Boolean = true,
+)
+data class UpdateCoffeeRuleResponse(val regra: AdminCoffeeRule)
+
 data class SimpleAdminResponse(
     val ok: Boolean = true,
     val ativo: Boolean? = null,
     val perfil: String? = null,
     val sessoesRevogadas: Boolean? = null,
+    val excluido: Boolean? = null,
 )
 
 interface AdminApi {
@@ -118,11 +135,23 @@ interface AdminApi {
     @POST("admin/usuarios/{id}/reativar")
     suspend fun enableUser(@Path("id") id: String): SimpleAdminResponse
 
+    @POST("admin/usuarios/{id}/excluir")
+    suspend fun deleteUser(@Path("id") id: String): SimpleAdminResponse
+
     @PUT("admin/usuarios/{id}/senha")
     suspend fun resetPassword(@Path("id") id: String, @Body body: ChangePasswordRequest): SimpleAdminResponse
 
     @PUT("admin/usuarios/{id}/perfil")
     suspend fun changeProfile(@Path("id") id: String, @Body body: ChangeProfileRequest): SimpleAdminResponse
+
+    @GET("admin/regras-cafe")
+    suspend fun coffeeRules(): AdminCoffeeRulesResponse
+
+    @PUT("admin/regras-cafe/{periodo}")
+    suspend fun updateCoffeeRule(
+        @Path("periodo") periodo: String,
+        @Body body: UpdateCoffeeRuleRequest,
+    ): UpdateCoffeeRuleResponse
 
     @POST("admin/dispositivos")
     suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
@@ -173,6 +202,10 @@ class AdminRepository(
         if (active) api.enableUser(userId) else api.disableUser(userId)
     }
 
+    suspend fun deleteUser(userId: String) {
+        api.deleteUser(userId)
+    }
+
     suspend fun resetPassword(userId: String, newPassword: String) {
         api.resetPassword(userId, ChangePasswordRequest(newPassword))
     }
@@ -180,6 +213,19 @@ class AdminRepository(
     suspend fun changeProfile(userId: String, profile: String) {
         api.changeProfile(userId, ChangeProfileRequest(profile))
     }
+
+    suspend fun coffeeRules() = api.coffeeRules().regras
+
+    suspend fun updateCoffeeRule(
+        period: String,
+        start: String,
+        end: String,
+        limitMinutes: Int,
+        active: Boolean,
+    ) = api.updateCoffeeRule(
+        periodo = period,
+        body = UpdateCoffeeRuleRequest(start, end, limitMinutes, active),
+    ).regra
 
     suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
 
