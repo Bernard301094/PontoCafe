@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.SecureAdminSessionStore
@@ -28,19 +29,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
+
         val deviceTokenStore = SecureDeviceTokenStore(applicationContext)
         val pontoRepository = ApiClient.create(applicationContext, deviceTokenStore)
         val pontoFactory = PontoCafeViewModelFactory {
             createPontoCafeViewModel(
-                context = applicationContext,
                 repository = pontoRepository,
                 tokenStore = deviceTokenStore,
+                embeddingEngine = faceEmbeddingEngine,
             )
         }
 
         val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
         val adminRepository = AdminApiClient.create(adminSessionStore)
-        val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository) }
+        val adminFactory = AdminViewModelFactory {
+            AdminViewModel(adminRepository, faceEmbeddingEngine)
+        }
 
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore)
