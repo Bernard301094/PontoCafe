@@ -48,7 +48,9 @@ Eles devem ser cadastrados em **Settings > Variables & Secrets** como secrets de
 
 Foi criada no Neon uma role dedicada chamada `ponto_cafe_api`, com acesso operacional às tabelas e sequências do schema `public`, sem reutilizar o usuário proprietário `neondb_owner`.
 
-Crie no Cloudflare uma configuração Hyperdrive usando a connection string dessa role e adicione o binding ao Worker com o nome exato:
+Ao criar Hyperdrive, use a **connection string direta do Neon**, sem `-pooler` no hostname. Neon entrega a connection string pooled por padrão, mas o Hyperdrive já mantém o próprio pool global; usar a conexão direta evita pooling duplicado.
+
+Crie no Cloudflare uma configuração Hyperdrive usando a connection string direta dessa role e adicione o binding ao Worker com o nome exato:
 
 ```text
 HYPERDRIVE
