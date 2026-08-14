@@ -14,7 +14,6 @@ type WorkerEnv = {
 
 type BootStage = 'environment' | 'config' | 'db' | 'auth' | 'application'
 
-let appPromise: Promise<typeof import('./application.js')> | null = null
 let bootStage: BootStage = 'environment'
 
 function copyTextBinding(env: WorkerEnv, name: keyof WorkerEnv) {
@@ -58,7 +57,7 @@ function safeBindingDiagnostics(env: WorkerEnv) {
   }
 }
 
-async function loadApplication(env: WorkerEnv, request: Request) {
+async function handleApplication(env: WorkerEnv, request: Request): Promise<Response> {
   bootStage = 'environment'
   process.env.PONTOCAFE_RUNTIME = 'cloudflare'
 
@@ -81,30 +80,29 @@ async function loadApplication(env: WorkerEnv, request: Request) {
   ]
   for (const name of textBindings) copyTextBinding(env, name)
 
-  if (!process.env.BETTER_AUTH_URL) {
-    process.env.BETTER_AUTH_URL = new URL(request.url).origin
-  }
+  process.env.BETTER_AUTH_URL = new URL(request.url).origin
 
   bootStage = 'config'
   assertRequiredRuntimeConfig()
   await import('./config.js')
 
   bootStage = 'db'
-  await import('./db.js')
+  const { withRequestDatabase } = await import('./db.js')
 
-  bootStage = 'auth'
-  await import('./auth-runtime.js')
+  return withRequestDatabase(env.HYPERDRIVE.connectionString, async () => {
+    bootStage = 'auth'
+    await import('./auth-runtime.js')
 
-  bootStage = 'application'
-  appPromise ??= import('./application.js')
-  return appPromise
+    bootStage = 'application'
+    const { default: app } = await import('./application.js')
+    return app.fetch(request, env)
+  })
 }
 
 export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     try {
-      const { default: app } = await loadApplication(env, request)
-      return await app.fetch(request, env)
+      return await handleApplication(env, request)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const bindings = safeBindingDiagnostics(env)
