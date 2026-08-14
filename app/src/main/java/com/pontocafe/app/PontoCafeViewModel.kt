@@ -7,32 +7,35 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
-import com.pontocafe.app.data.Colaborador
-import com.pontocafe.app.data.HorarioCafeResponse
+import com.pontocafe.app.data.FinalizarPausaResponse
+import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
-enum class ScanAction { INICIAR, FINALIZAR }
+enum class TipoComprovantePonto { INICIO, RETORNO }
+
+data class ComprovantePonto(
+    val tipo: TipoComprovantePonto,
+    val nome: String,
+    val horarioRegistrado: String,
+    val retornoAte: String? = null,
+    val duracaoSegundos: Int? = null,
+    val limiteSegundos: Int,
+    val excedeuLimite: Boolean = false,
+    val foraHorario: Boolean = false,
+)
 
 data class PontoCafeUiState(
     val deviceConfigured: Boolean = false,
     val carregando: Boolean = false,
-    val colaboradores: List<Colaborador> = emptyList(),
-    val busca: String = "",
-    val selecionado: Colaborador? = null,
-    val scanAction: ScanAction? = null,
     val scanning: Boolean = false,
+    val scanCycle: Int = 0,
+    val identificacao: IdentificarBiometriaResponse? = null,
     val needsAuthorization: Boolean = false,
-    val authorizationPeriod: String? = null,
-    val authorizationCode: String? = null,
-    val horario: HorarioCafeResponse? = null,
-    val pausaAtiva: IniciarPausaResponse? = null,
-    val elapsedSeconds: Int = 0,
+    val comprovante: ComprovantePonto? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -43,17 +46,16 @@ class PontoCafeViewModel(
     private val embeddingEngine: FaceEmbeddingEngine,
 ) : ViewModel() {
 
-    var state by mutableStateOf(PontoCafeUiState(deviceConfigured = tokenStore.hasToken()))
+    var state by mutableStateOf(
+        PontoCafeUiState(
+            deviceConfigured = tokenStore.hasToken(),
+            scanning = tokenStore.hasToken(),
+        ),
+    )
         private set
 
     val faceModelReady: Boolean get() = embeddingEngine.isReady
     val faceModelName: String get() = embeddingEngine.modelName
-
-    private var timerJob: Job? = null
-
-    init {
-        if (state.deviceConfigured) carregarColaboradores()
-    }
 
     fun configurarDispositivo(token: String) {
         if (token.trim().length < 20) {
@@ -61,100 +63,117 @@ class PontoCafeViewModel(
             return
         }
         tokenStore.save(token)
-        state = state.copy(deviceConfigured = true, erro = null, mensagem = "Dispositivo configurado.")
-        carregarColaboradores()
+        state = PontoCafeUiState(
+            deviceConfigured = true,
+            scanning = true,
+            scanCycle = state.scanCycle + 1,
+            mensagem = "Dispositivo configurado com sucesso.",
+        )
     }
 
     fun removerConfiguracao() {
         tokenStore.clear()
-        timerJob?.cancel()
         state = PontoCafeUiState(deviceConfigured = false)
     }
 
-    fun buscar(valor: String) {
-        state = state.copy(busca = valor)
-        carregarColaboradores(valor)
-    }
-
-    fun carregarColaboradores(busca: String = state.busca) {
-        viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null)
-            runCatching { repository.listarColaboradores(busca) }
-                .onSuccess { state = state.copy(carregando = false, colaboradores = it) }
-                .onFailure {
-                    state = state.copy(
-                        carregando = false,
-                        erro = PontoCafeRepository.mensagemErro(it),
-                    )
-                }
-        }
-    }
-
-    fun selecionar(colaborador: Colaborador) {
+    fun ativarCamera() {
         state = state.copy(
-            selecionado = colaborador,
-            scanAction = null,
-            scanning = false,
+            scanning = true,
+            scanCycle = state.scanCycle + 1,
+            identificacao = null,
             needsAuthorization = false,
-            authorizationPeriod = null,
-            authorizationCode = null,
-            erro = null,
+            comprovante = null,
             mensagem = null,
+            erro = null,
         )
     }
 
-    fun voltarParaLista() {
-        timerJob?.cancel()
-        state = state.copy(
-            selecionado = null,
-            scanAction = null,
-            scanning = false,
-            needsAuthorization = false,
-            authorizationPeriod = null,
-            authorizationCode = null,
-            pausaAtiva = null,
-            elapsedSeconds = 0,
-            erro = null,
-            mensagem = null,
-        )
-    }
+    fun processarFrame(frame: FaceFrame) {
+        if (!state.scanning || state.carregando) return
+        if (!embeddingEngine.isReady) {
+            state = state.copy(
+                scanning = false,
+                erro = "O módulo de reconhecimento facial ainda não está instalado neste dispositivo.",
+            )
+            return
+        }
 
-    fun prepararInicio() {
-        if (state.selecionado == null) return
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.consultarHorario() }
-                .onSuccess { horario ->
-                    if (horario.dentroHorario) {
-                        state = state.copy(
-                            carregando = false,
-                            horario = horario,
-                            needsAuthorization = false,
-                            authorizationPeriod = null,
-                            authorizationCode = null,
-                        )
-                        iniciarLeituraInterna(ScanAction.INICIAR)
-                    } else {
-                        state = state.copy(
-                            carregando = false,
-                            horario = horario,
-                            needsAuthorization = true,
-                            scanAction = null,
-                            scanning = false,
-                            mensagem = "Fora do horário permitido. Solicite um código ao supervisor.",
-                        )
-                    }
-                }
-                .onFailure {
+            state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
+            try {
+                val embedding = embeddingEngine.embed(frame)
+                val identificacao = repository.identificar(embedding)
+                if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
                     state = state.copy(
                         carregando = false,
-                        erro = PontoCafeRepository.mensagemErro(it),
+                        scanning = true,
+                        scanCycle = state.scanCycle + 1,
+                        identificacao = null,
+                        erro = identificacao.mensagem
+                            ?: "Não foi possível reconhecer você. Posicione o rosto novamente.",
                     )
+                    return@launch
                 }
+
+                state = state.copy(
+                    carregando = false,
+                    identificacao = identificacao,
+                    scanning = false,
+                    erro = null,
+                )
+            } catch (error: Throwable) {
+                state = state.copy(
+                    carregando = false,
+                    scanning = true,
+                    scanCycle = state.scanCycle + 1,
+                    identificacao = null,
+                    erro = PontoCafeRepository.mensagemErro(error),
+                )
+            }
         }
+    }
+
+    fun confirmarIdentidade() {
+        val identificacao = state.identificacao ?: return
+        val colaborador = identificacao.colaborador ?: return
+        val token = identificacao.verificacaoToken ?: return
+
+        if (identificacao.acaoSugerida == "FINALIZAR") {
+            finalizarPausa(colaborador.id, colaborador.nome, token)
+            return
+        }
+
+        if (identificacao.dentroHorario == true) {
+            iniciarPausa(
+                colaboradorId = colaborador.id,
+                nome = colaborador.nome,
+                verificacaoToken = token,
+            )
+        } else {
+            state = state.copy(
+                needsAuthorization = true,
+                mensagem = "Fora do horário permitido. Informe o código temporário gerado pelo supervisor.",
+                erro = null,
+            )
+        }
+    }
+
+    fun rejeitarIdentidade() {
+        state = state.copy(
+            identificacao = null,
+            scanning = true,
+            scanCycle = state.scanCycle + 1,
+            needsAuthorization = false,
+            mensagem = "Tudo bem. Vamos tentar identificar novamente.",
+            erro = null,
+        )
     }
 
     fun confirmarAutorizacao(periodo: String, codigo: String) {
+        val identificacao = state.identificacao ?: return
+        val colaborador = identificacao.colaborador ?: return
+        val token = identificacao.verificacaoToken ?: return
+
         if (codigo.length != 6 || codigo.any { !it.isDigit() }) {
             state = state.copy(erro = "Informe o código de 6 dígitos.")
             return
@@ -163,112 +182,101 @@ class PontoCafeViewModel(
             state = state.copy(erro = "Selecione o período autorizado.")
             return
         }
-        state = state.copy(
-            needsAuthorization = false,
-            authorizationPeriod = periodo,
-            authorizationCode = codigo,
-            erro = null,
-            mensagem = "Autorização informada. Faça a verificação facial.",
-        )
-        iniciarLeituraInterna(ScanAction.INICIAR)
-    }
 
-    fun iniciarFinalizacao() {
-        iniciarLeituraInterna(ScanAction.FINALIZAR)
-    }
-
-    private fun iniciarLeituraInterna(action: ScanAction) {
-        state = state.copy(
-            scanAction = action,
-            scanning = true,
-            erro = if (embeddingEngine.isReady) null else
-                "Detecção e prova de vida estão prontas, mas o modelo de reconhecimento 1:1 ainda não foi instalado.",
+        iniciarPausa(
+            colaboradorId = colaborador.id,
+            nome = colaborador.nome,
+            verificacaoToken = token,
+            periodo = periodo,
+            codigoAutorizacao = codigo,
         )
     }
 
-    fun cancelarLeitura() {
-        state = state.copy(scanning = false, scanAction = null, erro = null)
+    fun cancelarAutorizacao() {
+        rejeitarIdentidade()
     }
 
-    fun processarFrame(frame: FaceFrame) {
-        val colaborador = state.selecionado ?: return
-        val action = state.scanAction ?: return
-        if (!state.scanning || !embeddingEngine.isReady) return
-
-        viewModelScope.launch {
-            state = state.copy(carregando = true, scanning = false, erro = null)
-            try {
-                val embedding = embeddingEngine.embed(frame)
-                val verification = repository.verificar(colaborador.id, embedding)
-                if (!verification.reconhecido || verification.verificacaoToken.isNullOrBlank()) {
-                    state = state.copy(carregando = false, erro = "Rosto não reconhecido. Tente novamente.")
-                    return@launch
-                }
-
-                when (action) {
-                    ScanAction.INICIAR -> {
-                        val pausa = repository.iniciar(
-                            colaboradorId = colaborador.id,
-                            verificacaoToken = verification.verificacaoToken,
-                            periodo = state.authorizationPeriod,
-                            codigoAutorizacao = state.authorizationCode,
-                        )
-                        state = state.copy(
-                            carregando = false,
-                            scanAction = null,
-                            authorizationPeriod = null,
-                            authorizationCode = null,
-                            pausaAtiva = pausa,
-                            elapsedSeconds = 0,
-                            mensagem = if (pausa.foraHorario) {
-                                "Pausa iniciada com autorização do supervisor."
-                            } else {
-                                "Pausa iniciada."
-                            },
-                        )
-                        iniciarCronometro()
-                    }
-                    ScanAction.FINALIZAR -> {
-                        val finalizada = repository.finalizar(colaborador.id, verification.verificacaoToken)
-                        timerJob?.cancel()
-                        state = state.copy(
-                            carregando = false,
-                            scanAction = null,
-                            pausaAtiva = null,
-                            elapsedSeconds = finalizada.duracaoSegundos,
-                            mensagem = if (finalizada.excedeuLimite) {
-                                "Pausa finalizada: ${formatarTempo(finalizada.duracaoSegundos)}. Limite excedido."
-                            } else {
-                                "Pausa finalizada: ${formatarTempo(finalizada.duracaoSegundos)}."
-                            },
-                        )
-                    }
-                }
-            } catch (error: Throwable) {
-                state = state.copy(
-                    carregando = false,
-                    scanAction = null,
-                    authorizationPeriod = null,
-                    authorizationCode = null,
-                    erro = PontoCafeRepository.mensagemErro(error),
-                )
-            }
-        }
+    fun concluirComprovante() {
+        ativarCamera()
     }
 
     fun limparMensagem() {
         state = state.copy(mensagem = null, erro = null)
     }
 
-    private fun iniciarCronometro() {
-        timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (state.pausaAtiva != null) {
-                delay(1_000)
-                state = state.copy(elapsedSeconds = state.elapsedSeconds + 1)
+    private fun iniciarPausa(
+        colaboradorId: String,
+        nome: String,
+        verificacaoToken: String,
+        periodo: String? = null,
+        codigoAutorizacao: String? = null,
+    ) {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null)
+            runCatching {
+                repository.iniciar(
+                    colaboradorId = colaboradorId,
+                    verificacaoToken = verificacaoToken,
+                    periodo = periodo,
+                    codigoAutorizacao = codigoAutorizacao,
+                )
+            }.onSuccess { pausa ->
+                state = state.copy(
+                    carregando = false,
+                    needsAuthorization = false,
+                    identificacao = null,
+                    comprovante = comprovanteInicio(nome, pausa),
+                    mensagem = null,
+                    erro = null,
+                )
+            }.onFailure { error ->
+                state = state.copy(
+                    carregando = false,
+                    erro = PontoCafeRepository.mensagemErro(error),
+                )
             }
         }
     }
 
-    private fun formatarTempo(seconds: Int): String = "%02d:%02d".format(seconds / 60, seconds % 60)
+    private fun finalizarPausa(colaboradorId: String, nome: String, verificacaoToken: String) {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null)
+            runCatching { repository.finalizar(colaboradorId, verificacaoToken) }
+                .onSuccess { pausa ->
+                    state = state.copy(
+                        carregando = false,
+                        identificacao = null,
+                        comprovante = comprovanteRetorno(nome, pausa),
+                        mensagem = null,
+                        erro = null,
+                    )
+                }
+                .onFailure { error ->
+                    state = state.copy(
+                        carregando = false,
+                        erro = PontoCafeRepository.mensagemErro(error),
+                    )
+                }
+        }
+    }
+
+    private fun comprovanteInicio(nome: String, pausa: IniciarPausaResponse) = ComprovantePonto(
+        tipo = TipoComprovantePonto.INICIO,
+        nome = nome,
+        horarioRegistrado = pausa.inicioLocal,
+        retornoAte = pausa.retornoAteLocal,
+        limiteSegundos = pausa.limiteSegundos,
+        foraHorario = pausa.foraHorario,
+    )
+
+    private fun comprovanteRetorno(nome: String, pausa: FinalizarPausaResponse) = ComprovantePonto(
+        tipo = TipoComprovantePonto.RETORNO,
+        nome = nome,
+        horarioRegistrado = pausa.fimLocal,
+        duracaoSegundos = pausa.duracaoSegundos,
+        limiteSegundos = pausa.limiteSegundos,
+        excedeuLimite = pausa.excedeuLimite,
+    )
+
+    fun formatarTempo(segundos: Int): String = "%02d:%02d".format(segundos / 60, segundos % 60)
 }
