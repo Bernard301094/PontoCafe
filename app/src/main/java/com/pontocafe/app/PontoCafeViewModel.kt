@@ -152,7 +152,7 @@ class PontoCafeViewModel(
         } else {
             state = state.copy(
                 needsAuthorization = true,
-                mensagem = "Fora do horário permitido. Informe o código temporário gerado pelo supervisor.",
+                mensagem = "Fora do horário permitido. Informe o código temporário gerado pelo administrador.",
                 erro = null,
             )
         }
