@@ -11,8 +11,9 @@ export type Device = { id: string; nome: string }
 export type AppEnv = { Variables: { user: AuthUser; device: Device } }
 
 const secret = process.env.BETTER_AUTH_SECRET
-const baseURL = process.env.BETTER_AUTH_URL
-if (!secret || !baseURL) throw new Error('Configuração de autenticação ausente.')
+const systemBaseUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL
+const baseURL = process.env.BETTER_AUTH_URL || (systemBaseUrl ? `https://${systemBaseUrl}` : 'http://localhost:3000')
+if (!secret) throw new Error('Configuração de autenticação ausente.')
 
 export const auth = betterAuth({
   database: pool,
