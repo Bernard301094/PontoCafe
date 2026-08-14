@@ -26,7 +26,7 @@ create table if not exists regras_cafe (
     periodo text not null unique check (periodo in ('MANHA','TARDE')),
     inicio time not null,
     fim time not null,
-    limite_segundos integer not null default 450 check (limite_segundos > 0),
+    limite_segundos integer not null default 900 check (limite_segundos > 0),
     ativo boolean not null default true
 );
 
@@ -73,7 +73,7 @@ create table if not exists pausas_cafe (
     periodo text not null check (periodo in ('MANHA','TARDE')),
     inicio_em timestamptz not null default now(),
     fim_em timestamptz,
-    limite_segundos integer not null default 450 check (limite_segundos > 0),
+    limite_segundos integer not null default 900 check (limite_segundos > 0),
     fora_horario boolean not null default false,
     autorizacao_id uuid references autorizacoes(id),
     dispositivo_inicio_id uuid not null references dispositivos(id),
@@ -106,8 +106,8 @@ create index if not exists ix_verificacoes_expiracao on verificacoes_faciais (ex
 
 insert into regras_cafe (id, periodo, inicio, fim, limite_segundos)
 values
-    ('00000000-0000-4000-8000-000000000001','MANHA','08:00','10:00',450),
-    ('00000000-0000-4000-8000-000000000002','TARDE','15:00','17:00',450)
+    ('00000000-0000-4000-8000-000000000001','MANHA','08:00','10:00',900),
+    ('00000000-0000-4000-8000-000000000002','TARDE','15:00','17:00',900)
 on conflict (periodo) do update set
     inicio=excluded.inicio,
     fim=excluded.fim,
