@@ -24,6 +24,14 @@ function copyTextBinding(env: WorkerEnv, name: keyof WorkerEnv) {
   }
 }
 
+function assertRequiredRuntimeConfig() {
+  const required = ['DATABASE_URL', 'CODE_PEPPER', 'BIOMETRIC_MASTER_KEY'] as const
+  const missing = required.filter((name) => !process.env[name]?.trim())
+  if (missing.length > 0) {
+    throw new Error(`Configuração ausente: ${missing.join(', ')}`)
+  }
+}
+
 async function loadApplication(env: WorkerEnv, request: Request) {
   bootStage = 'environment'
   process.env.PONTOCAFE_RUNTIME = 'cloudflare'
@@ -52,6 +60,7 @@ async function loadApplication(env: WorkerEnv, request: Request) {
   }
 
   bootStage = 'config'
+  assertRequiredRuntimeConfig()
   await import('./config.js')
 
   bootStage = 'db'
@@ -71,18 +80,22 @@ export default {
       const { default: app } = await loadApplication(env, request)
       return await app.fetch(request)
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       console.error(JSON.stringify({
         evento: 'worker_boot_failure',
         etapa: bootStage,
-        erro: error instanceof Error ? error.message : String(error),
+        erro: message,
       }))
-      return Response.json(
-        {
-          erro: 'Não foi possível iniciar a API do Ponto Café.',
-          etapa: bootStage,
-        },
-        { status: 500 },
-      )
+
+      const response: Record<string, string> = {
+        erro: 'Não foi possível iniciar a API do Ponto Café.',
+        etapa: bootStage,
+      }
+      if (bootStage === 'environment' || bootStage === 'config' || bootStage === 'auth') {
+        response.detalhe = message
+      }
+
+      return Response.json(response, { status: 500 })
     }
   },
 }
