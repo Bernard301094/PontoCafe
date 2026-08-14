@@ -17,6 +17,7 @@ export const config = {
   appTimezone: process.env.APP_TIMEZONE?.trim() || 'America/Fortaleza',
   codePepper: required('CODE_PEPPER'),
   biometricMasterKey: required('BIOMETRIC_MASTER_KEY'),
+  firstAdminSetupKey: process.env.FIRST_ADMIN_SETUP_KEY?.trim() || null,
   sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 12),
   faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72),
   authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180),
