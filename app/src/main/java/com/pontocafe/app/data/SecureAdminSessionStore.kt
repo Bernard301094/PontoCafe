@@ -10,10 +10,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class SecureAdminSessionStore(context: Context) {
-    private val prefs = context.getSharedPreferences("pontocafe_admin_secure", Context.MODE_PRIVATE)
-    private val keyAlias = "pontocafe_admin_session_key"
-    private val tokenKey = "admin_bearer_token"
+class SecureAdminSessionStore(
+    context: Context,
+    namespace: String = "admin",
+) {
+    private val safeNamespace = namespace.lowercase().replace(Regex("[^a-z0-9_]"), "_")
+    private val prefs = context.getSharedPreferences("pontocafe_${safeNamespace}_secure", Context.MODE_PRIVATE)
+    private val keyAlias = "pontocafe_${safeNamespace}_session_key"
+    private val tokenKey = "${safeNamespace}_bearer_token"
 
     fun hasToken(): Boolean = prefs.contains(tokenKey)
 
