@@ -52,6 +52,8 @@ data class AdminUser(
 
 data class AdminUsersResponse(val usuarios: List<AdminUser>)
 
+data class AdminCollaboratorsResponse(val colaboradores: List<Colaborador>)
+
 data class CreateAdminUserRequest(
     val nome: String,
     val email: String,
@@ -67,6 +69,20 @@ data class DeviceCreatedResponse(
     val id: String,
     val nome: String,
     val token: String,
+    val aviso: String,
+)
+
+data class CreateAuthorizationRequest(
+    val colaboradorId: String,
+    val periodo: String,
+    val motivo: String,
+)
+
+data class AuthorizationCreatedResponse(
+    val id: String,
+    val codigo: String,
+    val expiraEm: String?,
+    val expiraEmSegundos: Int,
     val aviso: String,
 )
 
@@ -110,6 +126,12 @@ interface AdminApi {
 
     @POST("admin/dispositivos")
     suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
+
+    @GET("admin/colaboradores")
+    suspend fun collaborators(): AdminCollaboratorsResponse
+
+    @POST("admin/autorizacoes")
+    suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
 }
 
 class AdminRepository(
@@ -160,6 +182,20 @@ class AdminRepository(
     }
 
     suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
+
+    suspend fun collaborators() = api.collaborators().colaboradores
+
+    suspend fun createAuthorization(
+        collaboratorId: String,
+        period: String,
+        reason: String,
+    ) = api.createAuthorization(
+        CreateAuthorizationRequest(
+            colaboradorId = collaboratorId,
+            periodo = period,
+            motivo = reason.trim(),
+        ),
+    )
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() = sessionStore.clear()
