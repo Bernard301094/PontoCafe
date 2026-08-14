@@ -7,6 +7,7 @@
   "scripts": {
     "typecheck": "npm --workspace backend run typecheck",
     "deploy": "npm --workspace backend run deploy",
+    "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs",
     "preview": "npm --workspace backend run preview"
   }
 }
