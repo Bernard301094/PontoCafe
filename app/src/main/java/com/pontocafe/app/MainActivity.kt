@@ -14,6 +14,7 @@ import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SecureDeviceTokenStore
+import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SupervisorApiClient
 import com.pontocafe.app.ui.AdminArea
 import com.pontocafe.app.ui.AuthorizationScreen
@@ -32,11 +33,13 @@ class MainActivity : ComponentActivity() {
         val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
 
         val deviceTokenStore = SecureDeviceTokenStore(applicationContext)
+        val faceCatalogStore = SecureFaceCatalogStore(applicationContext)
         val pontoRepository = ApiClient.create(applicationContext, deviceTokenStore)
         val pontoFactory = PontoCafeViewModelFactory {
             createPontoCafeViewModel(
                 repository = pontoRepository,
                 tokenStore = deviceTokenStore,
+                faceCatalogStore = faceCatalogStore,
                 embeddingEngine = faceEmbeddingEngine,
             )
         }
