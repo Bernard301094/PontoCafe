@@ -1,6 +1,8 @@
 package com.pontocafe.app.camera
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.Rect
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -25,6 +27,7 @@ import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 data class FaceObservation(
@@ -43,6 +46,21 @@ data class FaceObservation(
 
     val eyesOpen: Boolean
         get() = leftEyeOpen != null && rightEyeOpen != null && leftEyeOpen > 0.70f && rightEyeOpen > 0.70f
+}
+
+data class FaceFrame(
+    val bitmap: Bitmap,
+    val faceBounds: Rect,
+)
+
+class FrameCaptureController {
+    private val captureNext = AtomicBoolean(false)
+
+    fun request() {
+        captureNext.set(true)
+    }
+
+    internal fun consume(): Boolean = captureNext.compareAndSet(true, false)
 }
 
 enum class LivenessState {
@@ -81,10 +99,18 @@ private fun Face.toObservation(total: Int) = FaceObservation(
     roll = headEulerAngleZ,
 )
 
+private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
+    if (degrees == 0) return bitmap
+    val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+}
+
 @SuppressLint("UnsafeOptInUsageError")
 private fun analyzer(
     detector: FaceDetector,
+    captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
+    onFrame: (FaceFrame) -> Unit,
 ) = ImageAnalysis.Analyzer { imageProxy ->
     val mediaImage = imageProxy.image
     if (mediaImage == null) {
@@ -92,7 +118,8 @@ private fun analyzer(
         return@Analyzer
     }
 
-    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+    val rotation = imageProxy.imageInfo.rotationDegrees
+    val image = InputImage.fromMediaImage(mediaImage, rotation)
     detector.process(image)
         .addOnSuccessListener { faces ->
             val observation = if (faces.size == 1) {
@@ -101,6 +128,13 @@ private fun analyzer(
                 FaceObservation(faceCount = faces.size)
             }
             onObservation(observation)
+
+            if (faces.size == 1 && captureController.consume()) {
+                runCatching {
+                    val bitmap = rotate(imageProxy.toBitmap(), rotation)
+                    FaceFrame(bitmap = bitmap, faceBounds = Rect(faces.first().boundingBox))
+                }.onSuccess(onFrame)
+            }
         }
         .addOnFailureListener {
             onObservation(FaceObservation())
@@ -113,7 +147,9 @@ private fun analyzer(
 @Composable
 fun FaceCameraPreview(
     modifier: Modifier = Modifier,
+    captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
+    onFrame: (FaceFrame) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -151,7 +187,12 @@ fun FaceCameraPreview(
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { it.setAnalyzer(executor, analyzer(detector, onObservation)) }
+                .also {
+                    it.setAnalyzer(
+                        executor,
+                        analyzer(detector, captureController, onObservation, onFrame),
+                    )
+                }
 
             provider.unbindAll()
             provider.bindToLifecycle(
@@ -165,7 +206,6 @@ fun FaceCameraPreview(
 
     DisposableEffect(Unit) {
         onDispose {
-            runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
             detector.close()
             executor.shutdown()
         }
