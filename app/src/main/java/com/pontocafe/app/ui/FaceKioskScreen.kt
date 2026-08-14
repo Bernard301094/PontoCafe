@@ -60,6 +60,10 @@ fun FaceKioskScreen(
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var captureRequested by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        viewModel.sincronizarBiometrias(force = false)
+    }
+
     LaunchedEffect(state.scanCycle) {
         liveness.reset()
         captureRequested = false
@@ -72,7 +76,12 @@ fun FaceKioskScreen(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
                 onObservation = { observation ->
-                    if (state.scanning && !state.carregando) {
+                    if (
+                        state.scanning &&
+                        state.catalogoBiometricoPronto &&
+                        !state.sincronizandoBiometrias &&
+                        !state.carregando
+                    ) {
                         val next = liveness.update(observation)
                         livenessState = next
                         if (next == LivenessState.CONCLUIDO && !captureRequested) {
@@ -106,7 +115,11 @@ fun FaceKioskScreen(
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text("Ponto Café", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text("15 min por período", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "15 min por período · ${state.totalBiometrias} rostos sincronizados",
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
             Surface(color = Color.Black.copy(alpha = 0.62f), shape = RoundedCornerShape(18.dp)) {
@@ -130,7 +143,9 @@ fun FaceKioskScreen(
                 Text(
                     text = when {
                         !viewModel.faceModelReady -> "Reconhecimento facial indisponível"
-                        state.carregando -> "Identificando você..."
+                        state.sincronizandoBiometrias -> "Sincronizando rostos cadastrados..."
+                        !state.catalogoBiometricoPronto -> "Nenhum rosto disponível para reconhecimento"
+                        state.carregando -> "Confirmando sua identidade..."
                         else -> when (livenessState) {
                             LivenessState.POSICIONE_ROSTO -> "Posicione o rosto no centro"
                             LivenessState.PISQUE -> "Pisque para confirmar presença"
@@ -143,13 +158,20 @@ fun FaceKioskScreen(
                 )
                 Text(
                     text = when {
-                        !viewModel.faceModelReady -> "O módulo de reconhecimento precisa ser instalado antes do uso."
-                        state.carregando -> "Aguarde um instante."
-                        else -> "Não é necessário procurar seu nome."
+                        !viewModel.faceModelReady -> "O modelo facial precisa estar disponível no APK."
+                        state.sincronizandoBiometrias -> "Aguarde alguns segundos."
+                        !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador e toque em sincronizar."
+                        state.carregando -> "O candidato foi encontrado localmente e está sendo validado pelo servidor."
+                        else -> "A identificação inicial acontece neste dispositivo. Não é necessário procurar seu nome."
                     },
                     color = Color.White.copy(alpha = 0.75f),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (!state.catalogoBiometricoPronto && !state.sincronizandoBiometrias && viewModel.faceModelReady) {
+                    Button(onClick = { viewModel.sincronizarBiometrias(force = true) }) {
+                        Text("Sincronizar agora")
+                    }
+                }
                 state.erro?.let {
                     Text(it, color = Color(0xFFFFC7C7), style = MaterialTheme.typography.bodySmall)
                 }
