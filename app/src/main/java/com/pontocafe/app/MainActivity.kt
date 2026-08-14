@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,11 +58,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
+                var sincronizarAoVoltarDoAdmin by remember { mutableStateOf(false) }
 
                 when (areaRestrita) {
                     AreaRestrita.ADMIN -> {
                         val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                        AdminArea(adminVm, onClose = { areaRestrita = null })
+                        AdminArea(
+                            adminVm,
+                            onClose = {
+                                sincronizarAoVoltarDoAdmin = true
+                                areaRestrita = null
+                            },
+                        )
                     }
 
                     AreaRestrita.SUPERVISOR -> {
@@ -72,6 +80,13 @@ class MainActivity : ComponentActivity() {
                     null -> {
                         val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
                         val state = vm.state
+
+                        LaunchedEffect(sincronizarAoVoltarDoAdmin) {
+                            if (sincronizarAoVoltarDoAdmin) {
+                                vm.sincronizarBiometrias(force = true)
+                                sincronizarAoVoltarDoAdmin = false
+                            }
+                        }
 
                         when {
                             !state.deviceConfigured -> DeviceSetupScreen(
