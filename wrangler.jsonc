@@ -1,3 +1,4 @@
+// Redeploy trigger: 2026-08-14T19:57:00-03:00
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pontocafe",
