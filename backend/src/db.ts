@@ -2,15 +2,18 @@ import { Pool, type PoolClient, type QueryResultRow } from 'pg'
 import { config } from './config.js'
 
 const globalForDb = globalThis as typeof globalThis & { pontoCafePool?: Pool }
+const cloudflareRuntime = process.env.PONTOCAFE_RUNTIME === 'cloudflare'
 
 export const pool = globalForDb.pontoCafePool ?? new Pool({
   connectionString: config.databaseUrl,
-  max: 5,
-  idleTimeoutMillis: 20_000,
+  max: cloudflareRuntime ? 1 : 5,
+  idleTimeoutMillis: cloudflareRuntime ? 5_000 : 20_000,
   connectionTimeoutMillis: 10_000,
+  allowExitOnIdle: cloudflareRuntime,
 })
 
-if (process.env.NODE_ENV !== 'production') globalForDb.pontoCafePool = pool
+// Reutilizar o pool dentro da mesma isolate/processo evita abrir conexões desnecessárias.
+globalForDb.pontoCafePool = pool
 
 export async function query<T extends QueryResultRow>(text: string, values: unknown[] = []) {
   return pool.query<T>(text, values)
