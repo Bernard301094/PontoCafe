@@ -102,6 +102,25 @@ data class UpdateCoffeeRuleRequest(
 )
 data class UpdateCoffeeRuleResponse(val regra: AdminCoffeeRule)
 
+data class CreateCollaboratorRequest(
+    val matricula: String?,
+    val nome: String,
+    val setor: String?,
+    val turno: String?,
+)
+
+data class BiometricEnrollmentRequest(
+    val embedding: List<Float>,
+    val modelo: String,
+    val versaoModelo: String,
+)
+
+data class BiometricEnrollmentResponse(
+    val ok: Boolean,
+    val colaboradorId: String,
+    val dimensao: Int,
+)
+
 data class SimpleAdminResponse(
     val ok: Boolean = true,
     val ativo: Boolean? = null,
@@ -158,6 +177,15 @@ interface AdminApi {
 
     @GET("admin/colaboradores")
     suspend fun collaborators(): AdminCollaboratorsResponse
+
+    @POST("admin/colaboradores")
+    suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
+
+    @PUT("admin/colaboradores/{id}/biometria")
+    suspend fun saveBiometric(
+        @Path("id") id: String,
+        @Body body: BiometricEnrollmentRequest,
+    ): BiometricEnrollmentResponse
 
     @POST("admin/autorizacoes")
     suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
@@ -230,6 +258,34 @@ class AdminRepository(
     suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
 
     suspend fun collaborators() = api.collaborators().colaboradores
+
+    suspend fun createCollaborator(
+        registration: String?,
+        name: String,
+        sector: String?,
+        shift: String?,
+    ) = api.createCollaborator(
+        CreateCollaboratorRequest(
+            matricula = registration?.trim()?.ifBlank { null },
+            nome = name.trim(),
+            setor = sector?.trim()?.ifBlank { null },
+            turno = shift?.trim()?.ifBlank { null },
+        ),
+    )
+
+    suspend fun saveBiometric(
+        collaboratorId: String,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+    ) = api.saveBiometric(
+        collaboratorId,
+        BiometricEnrollmentRequest(
+            embedding = embedding.toList(),
+            modelo = model,
+            versaoModelo = modelVersion,
+        ),
+    )
 
     suspend fun createAuthorization(
         collaboratorId: String,
