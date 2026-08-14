@@ -31,6 +31,7 @@ class LiteRtFaceEmbeddingEngine(
         get() = runCatching { context.assets.openFd(assetName).close() }.isSuccess
 
     override val modelName: String = "FaceNet 128D · LiteRT"
+    override val modelVersion: String = MODEL_VERSION
 
     override suspend fun embed(frame: FaceFrame): FloatArray = withContext(Dispatchers.Default) {
         if (!isReady) {
@@ -113,7 +114,7 @@ class LiteRtFaceEmbeddingEngine(
             squared += delta * delta
         }
         val calculatedStd = sqrt(squared / raw.size).toFloat()
-        val minimumStd = (1f / sqrt(raw.size.toFloat()))
+        val minimumStd = 1f / sqrt(raw.size.toFloat())
         val std = max(calculatedStd, minimumStd)
 
         return ByteBuffer.allocateDirect(raw.size * Float.SIZE_BYTES)
@@ -135,6 +136,7 @@ class LiteRtFaceEmbeddingEngine(
 
     companion object {
         const val MODEL_ASSET = "facenet.tflite"
+        const val MODEL_VERSION = "facenet-128d-160-v1"
         const val INPUT_SIZE = 160
         const val EMBEDDING_SIZE = 128
         const val FACE_MARGIN = 0.18f
