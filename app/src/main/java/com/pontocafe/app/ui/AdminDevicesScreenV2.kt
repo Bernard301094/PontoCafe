@@ -322,6 +322,13 @@ private fun DeviceCardV2(
     var confirmPin by remember(device.id) { mutableStateOf("") }
     var dangerAction by remember(device.id) { mutableStateOf<DeviceDangerAction?>(null) }
 
+    LaunchedEffect(viewModel.state.pinAtualizadoDeviceId) {
+        if (viewModel.state.pinAtualizadoDeviceId == device.id) {
+            newPin = ""
+            confirmPin = ""
+        }
+    }
+
     dangerAction?.let { action ->
         val title = when (action) {
             DeviceDangerAction.DEACTIVATE -> "Desativar dispositivo?"
@@ -398,11 +405,7 @@ private fun DeviceCardV2(
                 SecurePinFieldV2("Novo PIN", newPin, enabled = !viewModel.state.carregando) { newPin = it }
                 SecurePinFieldV2("Confirmar novo PIN", confirmPin, enabled = !viewModel.state.carregando) { confirmPin = it }
                 OutlinedButton(
-                    onClick = {
-                        viewModel.alterarPin(device, newPin)
-                        newPin = ""
-                        confirmPin = ""
-                    },
+                    onClick = { viewModel.alterarPin(device, newPin) },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !viewModel.state.carregando && newPin.length in 4..12 && newPin == confirmPin,
                 ) { Text(if (device.pinConfigurado) "Alterar PIN" else "Definir PIN") }
