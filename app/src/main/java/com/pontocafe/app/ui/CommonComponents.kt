@@ -44,6 +44,22 @@ fun PontoCafeHeader(subtitle: String? = null) {
 }
 
 @Composable
+fun PontoCafeScreenHeader(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    backLabel: String = "Voltar",
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (onBack != null) {
+            TextButton(onClick = onBack) {
+                Text("← $backLabel", fontWeight = FontWeight.SemiBold)
+            }
+        }
+        PontoCafeHeader(title)
+    }
+}
+
+@Composable
 fun SectionTitle(title: String, subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
