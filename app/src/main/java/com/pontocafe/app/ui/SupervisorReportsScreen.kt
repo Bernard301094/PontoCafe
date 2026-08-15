@@ -40,7 +40,7 @@ import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProducer
-import com.patrykandpatrick.vico.compose.cartesian.data.columnSeries
+import com.patrykandpatrick.vico.compose.cartesian.data.columnModel
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.pontocafe.app.SupervisorViewModel
@@ -217,8 +217,7 @@ private fun ExcessChart(report: SupervisorReportResponse, viewModel: SupervisorV
     val modelProducer = remember { CartesianChartModelProducer() }
     LaunchedEffect(top) {
         modelProducer.runTransaction {
-            @Suppress("DEPRECATION")
-            columnSeries { series(top.map { it.excessoTotalSegundos / 60.0 }) }
+            columnModel { series(top.map { it.excessoTotalSegundos / 60.0 }) }
         }
     }
     Card(
