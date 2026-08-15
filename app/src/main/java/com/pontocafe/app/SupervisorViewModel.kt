@@ -10,7 +10,9 @@ import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.PausaSupervisor
+import com.pontocafe.app.data.SupervisorReportResponse
 import com.pontocafe.app.data.SupervisorRepository
+import java.time.LocalDate
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
@@ -22,6 +24,7 @@ enum class SupervisorDestination {
     COLABORADORES,
     NOVO_COLABORADOR,
     BIOMETRIA,
+    RELATORIOS,
 }
 
 data class SupervisorUiState(
@@ -30,6 +33,9 @@ data class SupervisorUiState(
     val pausasAtivas: List<PausaSupervisor> = emptyList(),
     val historico: List<PausaSupervisor> = emptyList(),
     val colaboradores: List<Colaborador> = emptyList(),
+    val relatorio: SupervisorReportResponse? = null,
+    val relatorioInicio: String? = null,
+    val relatorioFim: String? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
@@ -104,12 +110,20 @@ class SupervisorViewModel(
                     erro = null,
                 )
             }
-            .onFailure {
-                repository.clearActiveSession()
-                state = SupervisorUiState(
-                    destination = SupervisorDestination.LOGIN,
-                    erro = "Sua sessão expirou ou não possui acesso de supervisor.",
-                )
+            .onFailure { error ->
+                if (SupervisorRepository.isAuthFailure(error)) {
+                    repository.clearActiveSession()
+                    state = SupervisorUiState(
+                        destination = SupervisorDestination.LOGIN,
+                        erro = "Sua sessão expirou ou não possui acesso de supervisor.",
+                    )
+                } else {
+                    state = state.copy(
+                        destination = SupervisorDestination.AO_VIVO,
+                        carregando = false,
+                        erro = "Sem conexão com o servidor. Sua sessão foi preservada e os últimos dados continuam disponíveis.",
+                    )
+                }
             }
     }
 
@@ -128,6 +142,42 @@ class SupervisorViewModel(
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
         }
+    }
+
+    fun abrirRelatorios(dias: Int = 7) {
+        val fim = LocalDate.now()
+        val inicio = fim.minusDays((dias.coerceAtLeast(1) - 1).toLong())
+        carregarRelatorio(inicio.toString(), fim.toString())
+    }
+
+    fun carregarRelatorio(inicio: String, fim: String) {
+        viewModelScope.launch {
+            state = state.copy(
+                destination = SupervisorDestination.RELATORIOS,
+                carregando = true,
+                relatorioInicio = inicio,
+                relatorioFim = fim,
+                erro = null,
+                mensagem = null,
+            )
+            runCatching { repository.report(inicio, fim) }
+                .onSuccess {
+                    state = state.copy(
+                        destination = SupervisorDestination.RELATORIOS,
+                        carregando = false,
+                        relatorio = it,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    suspend fun baixarRelatorioCsv(): ByteArray {
+        val inicio = state.relatorioInicio ?: LocalDate.now().toString()
+        val fim = state.relatorioFim ?: inicio
+        return repository.reportCsv(inicio, fim)
     }
 
     fun abrirColaboradores() {
@@ -184,12 +234,6 @@ class SupervisorViewModel(
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
         }
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    @Deprecated("Compatibilidade interna: matrícula não é utilizada")
-    fun criarColaborador(matricula: String, nome: String, setor: String, turno: String) {
-        criarColaborador(nome, setor, turno)
     }
 
     fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
