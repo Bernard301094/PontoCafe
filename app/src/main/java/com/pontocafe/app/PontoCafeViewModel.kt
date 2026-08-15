@@ -75,11 +75,14 @@ class PontoCafeViewModel(
     }
 
     fun configurarDispositivo(token: String) {
-        if (token.trim().length < 20) {
-            state = state.copy(erro = "Token do dispositivo inválido.")
+        val normalizedToken = token.trim()
+        if (!Regex("^[A-Za-z0-9]{10}$").matches(normalizedToken)) {
+            state = state.copy(
+                erro = "Token inválido. Informe exatamente 10 letras ou números, respeitando maiúsculas e minúsculas.",
+            )
             return
         }
-        tokenStore.save(token)
+        tokenStore.save(normalizedToken)
         faceCatalogStore.clear()
         state = PontoCafeUiState(
             deviceConfigured = true,
@@ -161,7 +164,7 @@ class PontoCafeViewModel(
                         erro = if (catalogo?.templates?.isEmpty() != false) {
                             "Nenhum rosto está cadastrado neste dispositivo. Peça ao administrador para cadastrar e sincronizar os colaboradores."
                         } else {
-                            "Não foi possível reconhecer você com segurança. Posicione o rosto novamente."
+                            "ROSTO NÃO RECONHECIDO. Não foi possível identificar você com segurança. Posicione o rosto dentro do contorno e tente novamente."
                         },
                     )
                     return@launch
@@ -181,7 +184,7 @@ class PontoCafeViewModel(
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         erro = identificacao.mensagem
-                            ?: "Não foi possível confirmar sua identidade. Tente novamente.",
+                            ?: "ROSTO NÃO RECONHECIDO. Não foi possível confirmar sua identidade. Tente novamente.",
                     )
                     return@launch
                 }
