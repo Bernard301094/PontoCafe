@@ -175,13 +175,13 @@ interface AdminApi {
     @POST("admin/device-activation")
     suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
 
-    @GET("admin/colaboradores")
+    @GET("gestao/colaboradores")
     suspend fun collaborators(): AdminCollaboratorsResponse
 
-    @POST("admin/colaboradores")
+    @POST("gestao/colaboradores")
     suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
 
-    @PUT("admin/colaboradores/{id}/biometria")
+    @PUT("gestao/colaboradores/{id}/biometria")
     suspend fun saveBiometric(
         @Path("id") id: String,
         @Body body: BiometricEnrollmentRequest,
