@@ -40,35 +40,15 @@ data class CollaboratorMutationResponse(
 )
 
 interface SupervisorApi {
-    @POST("api/auth/sign-in/email")
-    suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
-
-    @POST("api/auth/sign-out")
-    suspend fun signOut(): Response<Unit>
-
-    @GET("supervisor/pausas/ativas")
-    suspend fun pausasAtivas(): PausasSupervisorResponse
-
-    @GET("supervisor/pausas")
-    suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
-
-    @GET("gestao/colaboradores")
-    suspend fun collaborators(): ColaboradoresResponse
-
-    @POST("gestao/colaboradores")
-    suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
-
-    @PUT("gestao/colaboradores/{id}/biometria")
-    suspend fun saveBiometric(
-        @Path("id") id: String,
-        @Body body: BiometricEnrollmentRequest,
-    ): BiometricEnrollmentResponse
-
-    @POST("gestao/colaboradores/{id}/biometria/excluir")
-    suspend fun deleteBiometric(@Path("id") id: String): CollaboratorMutationResponse
-
-    @POST("gestao/colaboradores/{id}/excluir")
-    suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
+    @POST("api/auth/sign-in/email") suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
+    @POST("api/auth/sign-out") suspend fun signOut(): Response<Unit>
+    @GET("supervisor/pausas/ativas") suspend fun pausasAtivas(): PausasSupervisorResponse
+    @GET("supervisor/pausas") suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
+    @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
+    @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
+    @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
+    @POST("gestao/colaboradores/{id}/biometria/excluir") suspend fun deleteBiometric(@Path("id") id: String): CollaboratorMutationResponse
+    @POST("gestao/colaboradores/{id}/excluir") suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
 class SupervisorRepository(
@@ -78,26 +58,16 @@ class SupervisorRepository(
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
-        val bearer = response.headers()["set-auth-token"]
-            ?: error("O servidor não retornou a sessão do supervisor.")
+        val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão do supervisor.")
         sessionStore.save(bearer)
-        try {
-            api.pausasAtivas()
-        } catch (error: Throwable) {
-            sessionStore.clear()
-            throw error
-        }
+        try { api.pausasAtivas() } catch (error: Throwable) { sessionStore.clear(); throw error }
     }
 
     suspend fun pausasAtivas() = api.pausasAtivas().pausas
     suspend fun historico(data: String? = null) = api.historico(data).pausas
     suspend fun collaborators() = api.collaborators().colaboradores
 
-    suspend fun createCollaborator(
-        name: String,
-        sector: String?,
-        shift: String?,
-    ) = api.createCollaborator(
+    suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
         CreateCollaboratorRequest(
             nome = name.trim(),
             setor = sector?.trim()?.ifBlank { null },
@@ -105,28 +75,18 @@ class SupervisorRepository(
         ),
     )
 
-    suspend fun saveBiometric(
-        collaboratorId: String,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
-    ) = api.saveBiometric(
+    @Deprecated("Matrícula não é mais utilizada")
+    suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
+        createCollaborator(name, sector, shift)
+
+    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
         collaboratorId,
-        BiometricEnrollmentRequest(
-            embedding = embedding.toList(),
-            modelo = model,
-            versaoModelo = modelVersion,
-        ),
+        BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
     )
 
     suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
     suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
-
-    suspend fun signOut() {
-        runCatching { api.signOut() }
-        sessionStore.clear()
-    }
-
+    suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() = sessionStore.clear()
 
@@ -139,26 +99,12 @@ object SupervisorApiClient {
     fun create(sessionStore: SecureAdminSessionStore): SupervisorRepository {
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder().apply {
-                sessionStore.read()?.takeIf { it.isNotBlank() }?.let {
-                    header("Authorization", "Bearer $it")
-                }
+                sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
             }.build()
             chain.proceed(request)
         }
-
-        val client = OkHttpClient.Builder()
-            .addInterceptor(authInterceptor)
-            .build()
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
-        return SupervisorRepository(
-            api = retrofit.create(SupervisorApi::class.java),
-            sessionStore = sessionStore,
-        )
+        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+        val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build()
+        return SupervisorRepository(retrofit.create(SupervisorApi::class.java), sessionStore)
     }
 }
