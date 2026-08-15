@@ -13,6 +13,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 
 data class SetupStatusResponse(
@@ -59,6 +60,7 @@ data class AdminDevice(
     val ativo: Boolean,
     val criadoEm: String,
     val atualizadoEm: String,
+    val ultimoAcessoEm: String? = null,
     val pinConfigurado: Boolean,
 )
 
@@ -70,6 +72,46 @@ data class UpdateDevicePinResponse(
     val nome: String,
     val pinConfigurado: Boolean,
 )
+data class RenameDeviceRequest(val nome: String)
+data class DeviceLifecycleResponse(
+    val ok: Boolean,
+    val dispositivoId: String,
+    val nome: String,
+    val ativo: Boolean,
+)
+data class DeviceTokenRotationResponse(
+    val ok: Boolean,
+    val dispositivoId: String,
+    val nome: String,
+    val token: String,
+    val ativo: Boolean,
+    val aviso: String,
+)
+
+data class AuditEvent(
+    val id: String,
+    val atorTipo: String,
+    val atorNome: String,
+    val acao: String,
+    val entidade: String?,
+    val entidadeId: String?,
+    val detalhes: Map<String, Any?>? = null,
+    val criadoEm: String,
+    val criadoLocal: String,
+)
+data class AuditEventsResponse(val eventos: List<AuditEvent>)
+
+data class AdminOperationalSummary(
+    val colaboradoresAtivos: Int,
+    val rostosPendentes: Int,
+    val dispositivosAtivos: Int,
+    val dispositivosSemPin: Int,
+    val dispositivosInativos: Int,
+    val supervisoresAtivos: Int,
+    val administradoresAtivos: Int,
+    val pausasAbertas: Int,
+)
+data class AdminOperationalSummaryResponse(val resumo: AdminOperationalSummary)
 
 data class CreateAdminUserRequest(
     val nome: String,
@@ -169,6 +211,20 @@ interface AdminApi {
     @GET("admin/devices") suspend fun devices(): AdminDevicesResponse
     @PUT("admin/devices/{id}/unlock-pin")
     suspend fun updateDevicePin(@Path("id") id: String, @Body body: UpdateDevicePinRequest): UpdateDevicePinResponse
+    @PUT("admin/devices/{id}/nome")
+    suspend fun renameDevice(@Path("id") id: String, @Body body: RenameDeviceRequest): Response<Unit>
+    @POST("admin/devices/{id}/desativar")
+    suspend fun deactivateDevice(@Path("id") id: String): DeviceLifecycleResponse
+    @POST("admin/devices/{id}/novo-token")
+    suspend fun rotateDeviceToken(@Path("id") id: String): DeviceTokenRotationResponse
+
+    @GET("admin/auditoria") suspend fun audit(
+        @Query("limite") limite: Int = 100,
+        @Query("acao") acao: String? = null,
+    ): AuditEventsResponse
+    @GET("admin/operacao/resumo") suspend fun operationalSummary(): AdminOperationalSummaryResponse
+    @GET("health") suspend fun health(): SystemHealthResponse
+    @GET("app-status") suspend fun appStatus(): AppStatusResponse
 
     @GET("gestao/colaboradores") suspend fun collaborators(): AdminCollaboratorsResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
@@ -192,7 +248,12 @@ class AdminRepository(
         if (!response.isSuccessful) throw HttpException(response)
         val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão administrativa.")
         sessionStore.save(bearer)
-        try { api.users() } catch (error: Throwable) { sessionStore.clear(); throw error }
+        try {
+            api.users()
+        } catch (error: Throwable) {
+            if (isAuthFailure(error)) sessionStore.clear()
+            throw error
+        }
     }
 
     suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
@@ -209,11 +270,19 @@ class AdminRepository(
     suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean) =
         api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
 
-    suspend fun createDevice(name: String, pin: String) =
-        api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
+    suspend fun createDevice(name: String, pin: String) = api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
     suspend fun devices() = api.devices().dispositivos
-    suspend fun updateDevicePin(deviceId: String, pin: String) =
-        api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
+    suspend fun updateDevicePin(deviceId: String, pin: String) = api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
+    suspend fun renameDevice(deviceId: String, name: String) {
+        ensureSuccess(api.renameDevice(deviceId, RenameDeviceRequest(name.trim())))
+    }
+    suspend fun deactivateDevice(deviceId: String) = api.deactivateDevice(deviceId)
+    suspend fun rotateDeviceToken(deviceId: String) = api.rotateDeviceToken(deviceId)
+
+    suspend fun audit(limit: Int = 100, action: String? = null) = api.audit(limit, action).eventos
+    suspend fun operationalSummary() = api.operationalSummary().resumo
+    suspend fun health() = api.health()
+    suspend fun appStatus() = api.appStatus()
 
     suspend fun collaborators() = api.collaborators().colaboradores
     suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
@@ -242,6 +311,9 @@ class AdminRepository(
     private fun ensureSuccess(response: Response<*>) { if (!response.isSuccessful) throw HttpException(response) }
 
     companion object {
+        fun isAuthFailure(error: Throwable): Boolean =
+            error is HttpException && (error.code() == 401 || error.code() == 403)
+
         fun message(error: Throwable): String {
             if (error is HttpException) {
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
@@ -264,6 +336,7 @@ object AdminApiClient {
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder().apply {
                 sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+                header("X-App-Version", BuildConfig.VERSION_NAME)
             }.build()
             chain.proceed(request)
         }
