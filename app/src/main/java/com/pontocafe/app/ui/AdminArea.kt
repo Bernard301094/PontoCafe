@@ -1,6 +1,8 @@
 package com.pontocafe.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.People
@@ -17,8 +19,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import com.pontocafe.app.AdminDestination
 import com.pontocafe.app.AdminDeviceViewModel
@@ -51,7 +51,7 @@ fun AdminArea(
 
     if (mostrandoDispositivos) {
         BackHandler { setDevicesOpen(false) }
-        AdminDevicesScreen(
+        AdminDevicesScreenV2(
             viewModel = deviceViewModel,
             onBack = { setDevicesOpen(false) },
         )
