@@ -186,6 +186,12 @@ class SupervisorViewModel(
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    @Deprecated("Compatibilidade interna: matrícula não é utilizada")
+    fun criarColaborador(matricula: String, nome: String, setor: String, turno: String) {
+        criarColaborador(nome, setor, turno)
+    }
+
     fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
         biometricSamples.clear()
         state = state.copy(
