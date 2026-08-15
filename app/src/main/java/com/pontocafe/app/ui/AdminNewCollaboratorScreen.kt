@@ -21,9 +21,8 @@ import com.pontocafe.app.AdminViewModel
 @Composable
 fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
     var nome by remember { mutableStateOf("") }
-    var matricula by remember { mutableStateOf("") }
-    var setor by remember { mutableStateOf("") }
-    var turno by remember { mutableStateOf("") }
+    var setor by remember { mutableStateOf("Produção") }
+    var turno by remember { mutableStateOf("A") }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -38,13 +37,6 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
             onValueChange = { nome = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nome completo") },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = matricula,
-            onValueChange = { matricula = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Matrícula") },
             singleLine = true,
         )
         OutlinedTextField(
@@ -63,7 +55,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
         )
 
         Button(
-            onClick = { viewModel.criarColaborador(matricula, nome, setor, turno) },
+            onClick = { viewModel.criarColaborador("", nome, setor, turno) },
             modifier = Modifier.fillMaxWidth(),
             enabled = nome.trim().length >= 2 && !viewModel.state.carregando,
         ) {
