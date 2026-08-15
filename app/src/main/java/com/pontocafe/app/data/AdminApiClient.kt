@@ -103,7 +103,6 @@ data class UpdateCoffeeRuleRequest(
 data class UpdateCoffeeRuleResponse(val regra: AdminCoffeeRule)
 
 data class CreateCollaboratorRequest(
-    val matricula: String?,
     val nome: String,
     val setor: String?,
     val turno: String?,
@@ -166,7 +165,7 @@ interface AdminApi {
     @GET("admin/regras-cafe")
     suspend fun coffeeRules(): AdminCoffeeRulesResponse
 
-    @PUT("admin/regras-cafe/{periodo}")
+    @PUT("admin/regras-cafe/{periodo")
     suspend fun updateCoffeeRule(
         @Path("periodo") periodo: String,
         @Body body: UpdateCoffeeRuleRequest,
@@ -196,115 +195,52 @@ class AdminRepository(
     private val sessionStore: SecureAdminSessionStore,
 ) {
     suspend fun setupStatus() = api.setupStatus()
-
-    suspend fun createFirstAdmin(nome: String, email: String, senha: String, chave: String) {
-        ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave)))
-    }
+    suspend fun createFirstAdmin(nome: String, email: String, senha: String, chave: String) { ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave))) }
 
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
-        val bearer = response.headers()["set-auth-token"]
-            ?: error("O servidor não retornou a sessão administrativa.")
+        val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão administrativa.")
         sessionStore.save(bearer)
-        try {
-            api.users()
-        } catch (error: Throwable) {
-            sessionStore.clear()
-            throw error
-        }
+        try { api.users() } catch (error: Throwable) { sessionStore.clear(); throw error }
     }
 
-    suspend fun signOut() {
-        runCatching { api.signOut() }
-        sessionStore.clear()
-    }
-
+    suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
     suspend fun users() = api.users().usuarios
-
-    suspend fun createUser(nome: String, email: String, senha: String, perfil: String) {
-        ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil)))
-    }
-
-    suspend fun setActive(userId: String, active: Boolean) {
-        if (active) api.enableUser(userId) else api.disableUser(userId)
-    }
-
-    suspend fun deleteUser(userId: String) {
-        api.deleteUser(userId)
-    }
-
-    suspend fun resetPassword(userId: String, newPassword: String) {
-        api.resetPassword(userId, ChangePasswordRequest(newPassword))
-    }
-
-    suspend fun changeProfile(userId: String, profile: String) {
-        api.changeProfile(userId, ChangeProfileRequest(profile))
-    }
-
+    suspend fun createUser(nome: String, email: String, senha: String, perfil: String) { ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil))) }
+    suspend fun setActive(userId: String, active: Boolean) { if (active) api.enableUser(userId) else api.disableUser(userId) }
+    suspend fun deleteUser(userId: String) { api.deleteUser(userId) }
+    suspend fun resetPassword(userId: String, newPassword: String) { api.resetPassword(userId, ChangePasswordRequest(newPassword)) }
+    suspend fun changeProfile(userId: String, profile: String) { api.changeProfile(userId, ChangeProfileRequest(profile)) }
     suspend fun coffeeRules() = api.coffeeRules().regras
-
-    suspend fun updateCoffeeRule(
-        period: String,
-        start: String,
-        end: String,
-        limitMinutes: Int,
-        active: Boolean,
-    ) = api.updateCoffeeRule(
-        periodo = period,
-        body = UpdateCoffeeRuleRequest(start, end, limitMinutes, active),
-    ).regra
-
+    suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean) = api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
     suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
-
     suspend fun collaborators() = api.collaborators().colaboradores
 
     suspend fun createCollaborator(
-        registration: String?,
         name: String,
         sector: String?,
         shift: String?,
     ) = api.createCollaborator(
         CreateCollaboratorRequest(
-            matricula = registration?.trim()?.ifBlank { null },
             nome = name.trim(),
             setor = sector?.trim()?.ifBlank { null },
             turno = shift?.trim()?.ifBlank { null },
         ),
     )
 
-    suspend fun saveBiometric(
-        collaboratorId: String,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
-    ) = api.saveBiometric(
+    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
         collaboratorId,
-        BiometricEnrollmentRequest(
-            embedding = embedding.toList(),
-            modelo = model,
-            versaoModelo = modelVersion,
-        ),
+        BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
     )
 
-    suspend fun createAuthorization(
-        collaboratorId: String,
-        period: String,
-        reason: String,
-    ) = api.createAuthorization(
-        CreateAuthorizationRequest(
-            colaboradorId = collaboratorId,
-            periodo = period,
-            motivo = reason.trim(),
-        ),
+    suspend fun createAuthorization(collaboratorId: String, period: String, reason: String) = api.createAuthorization(
+        CreateAuthorizationRequest(collaboratorId, period, reason.trim()),
     )
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() = sessionStore.clear()
-
-    private fun ensureSuccess(response: Response<*>) {
-        if (!response.isSuccessful) throw HttpException(response)
-    }
+    private fun ensureSuccess(response: Response<*>) { if (!response.isSuccessful) throw HttpException(response) }
 
     companion object {
         fun message(error: Throwable): String {
@@ -327,23 +263,12 @@ object AdminApiClient {
     fun create(sessionStore: SecureAdminSessionStore): AdminRepository {
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder().apply {
-                sessionStore.read()?.takeIf { it.isNotBlank() }?.let {
-                    header("Authorization", "Bearer $it")
-                }
+                sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
             }.build()
             chain.proceed(request)
         }
-
-        val client = OkHttpClient.Builder()
-            .addInterceptor(authInterceptor)
-            .build()
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
+        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+        val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build()
         return AdminRepository(retrofit.create(AdminApi::class.java), sessionStore)
     }
 }
