@@ -89,12 +89,17 @@ class SupervisorViewModel(
     }
 
     private suspend fun atualizarAoVivoInterno() {
-        runCatching { repository.pausasAtivas() }
-            .onSuccess {
+        runCatching {
+            val pausas = repository.pausasAtivas()
+            val colaboradores = repository.collaborators()
+            pausas to colaboradores
+        }
+            .onSuccess { (pausas, colaboradores) ->
                 state = state.copy(
                     destination = SupervisorDestination.AO_VIVO,
                     carregando = false,
-                    pausasAtivas = it,
+                    pausasAtivas = pausas,
+                    colaboradores = colaboradores,
                     sessaoAdministrativa = repository.usingAdminSession(),
                     erro = null,
                 )
