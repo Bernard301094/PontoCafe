@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,14 +28,68 @@ fun AdminPanelScreen(
     onDevicesClick: () -> Unit,
 ) {
     val state = viewModel.state
+    val activeUsers = state.usuarios.count { it.ativo }
+    val activeSupervisors = state.usuarios.count { it.ativo && it.perfil == "SUPERVISOR" }
+    val activeAdmins = state.usuarios.count { it.ativo && it.perfil == "ADMIN" }
+    val pendingFaces = state.colaboradores.count { !it.rostoCadastrado }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         PontoCafeHeader("Painel do Administrador")
+        Text(
+            "Visão geral da operação, acessos e segurança do Ponto Café.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         AdminFeedback(viewModel)
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MetricCard(
+                value = activeUsers.toString(),
+                label = "Contas ativas",
+                modifier = Modifier.weight(1f),
+                emphasized = true,
+            )
+            MetricCard(
+                value = activeSupervisors.toString(),
+                label = "Supervisores",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MetricCard(
+                value = activeAdmins.toString(),
+                label = "Administradores",
+                modifier = Modifier.weight(1f),
+            )
+            MetricCard(
+                value = if (state.colaboradores.isEmpty()) "—" else pendingFaces.toString(),
+                label = "Rostos pendentes",
+                modifier = Modifier.weight(1f),
+                emphasized = pendingFaces > 0,
+            )
+        }
+
+        if (state.colaboradores.isNotEmpty() && pendingFaces > 0) {
+            OperationalAlertCard(
+                title = "$pendingFaces rostos pendentes",
+                text = "Existem colaboradores que ainda não podem utilizar o reconhecimento facial neste dispositivo.",
+                actionLabel = "Ver pendentes",
+                onClick = viewModel::abrirColaboradores,
+            )
+        }
+
+        SectionTitle(
+            title = "Ações rápidas",
+            subtitle = "As tarefas administrativas mais usadas ficam disponíveis aqui.",
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = viewModel::abrirColaboradores, modifier = Modifier.weight(1f)) {
                 Text("Colaboradores")
@@ -44,52 +99,65 @@ fun AdminPanelScreen(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
                 Text("Autorizar pausa")
             }
-            Button(onClick = viewModel::abrirConfiguracoes, modifier = Modifier.weight(1f)) {
-                Text("Configurar café")
+            OutlinedButton(onClick = viewModel::abrirConfiguracoes, modifier = Modifier.weight(1f)) {
+                Text("Regras do café")
             }
         }
-        Button(onClick = onDevicesClick, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onDevicesClick, modifier = Modifier.fillMaxWidth()) {
             Text("Dispositivos e PIN de desbloqueio")
         }
 
-        Text(
-            "Em Dispositivos e PIN você pode gerar o token de ativação de um novo aparelho e definir ou alterar o PIN usado para sair do modo Ponto em cada dispositivo.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SectionTitle(
+            title = "Contas de acesso",
+            subtitle = "Toque em uma conta para administrar perfil, senha ou status.",
         )
 
-        Text("Contas de acesso", style = MaterialTheme.typography.titleMedium)
+        if (state.usuarios.isEmpty() && !state.carregando) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Nenhuma conta encontrada", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Cadastre um Supervisor ou Administrador para começar.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             items(state.usuarios, key = { it.id }) { user ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { viewModel.selecionarUsuario(user) },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(user.nome, fontWeight = FontWeight.SemiBold)
-                        Text(user.email)
-                        Text(
-                            "${if (user.perfil == "ADMIN") "Administrador" else "Supervisor"} · ${if (user.ativo) "Ativo" else "Desativado"}",
-                            color = if (user.ativo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        )
-                    }
+                    AccountSummaryRow(
+                        name = user.nome,
+                        email = user.email,
+                        profile = user.perfil,
+                        active = user.ativo,
+                        modifier = Modifier.padding(14.dp),
+                    )
                 }
             }
         }
 
-        OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth()) {
-            Text("Encerrar sessão do Administrador")
-        }
-        OutlinedButton(
-            onClick = onClose,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Voltar ao Ponto Café")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) {
+                Text("Voltar ao Ponto")
+            }
+            OutlinedButton(onClick = viewModel::logout, modifier = Modifier.weight(1f)) {
+                Text("Sair")
+            }
         }
     }
 }
