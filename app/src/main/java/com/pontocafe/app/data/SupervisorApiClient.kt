@@ -81,6 +81,7 @@ class SupervisorRepository(
     suspend fun pausasAtivas() = api.pausasAtivas().pausas
     suspend fun historico(data: String? = null) = api.historico(data).pausas
     suspend fun collaborators() = api.collaborators().colaboradores
+        .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 
     suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
         CreateCollaboratorRequest(
