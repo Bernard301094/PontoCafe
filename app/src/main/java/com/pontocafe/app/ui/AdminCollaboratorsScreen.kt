@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +17,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,25 +31,45 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.Colaborador
+
+private enum class PeopleFilter(val label: String) {
+    ALL("Todos"),
+    COLLABORATORS("Colaboradores"),
+    ACCESS("Acessos"),
+}
 
 @Composable
 fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
     var busca by remember { mutableStateOf("") }
+    var filtro by remember { mutableStateOf(PeopleFilter.ALL) }
     var editando by remember { mutableStateOf<Colaborador?>(null) }
+
     val total = state.colaboradores.size
     val pendentes = state.colaboradores.count { !it.rostoCadastrado }
     val cadastrados = total - pendentes
     val primeiroPendente = state.colaboradores
         .filter { !it.rostoCadastrado }
         .minByOrNull { it.nome.lowercase() }
-    val filtrados = state.colaboradores
-        .filter { busca.isBlank() || it.nome.contains(busca, ignoreCase = true) }
+
+    val colaboradoresFiltrados = state.colaboradores
+        .filter {
+            busca.isBlank() ||
+                it.nome.contains(busca, ignoreCase = true) ||
+                it.setor.orEmpty().contains(busca, ignoreCase = true)
+        }
         .sortedWith(compareBy({ it.rostoCadastrado }, { it.nome.lowercase() }))
+
+    val contasFiltradas = state.usuarios
+        .filter {
+            busca.isBlank() ||
+                it.nome.contains(busca, ignoreCase = true) ||
+                it.email.contains(busca, ignoreCase = true)
+        }
+        .sortedWith(compareBy({ it.perfil != "SUPERVISOR" }, { it.nome.lowercase() }))
 
     editando?.let { colaborador ->
         EditCollaboratorDialog(
@@ -66,63 +89,63 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = PontoCafeSpacing.lg),
+        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
     ) {
         item(key = "header") {
             PontoCafeScreenHeader(
-                title = "Colaboradores",
-                onBack = viewModel::voltarHome,
-                backLabel = "Painel",
+                title = "Pessoas",
+                eyebrow = "Equipe e acessos",
             )
         }
 
         item(key = "intro") {
             Text(
-                "Gerencie quem registra o ponto por reconhecimento facial. O Administrador pode corrigir nome, setor e turno sem perder biometria ou histórico.",
+                "Colaboradores usam reconhecimento facial para registrar o café. Supervisores e administradores possuem contas de acesso separadas.",
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         item(key = "feedback") { AdminFeedback(viewModel) }
 
-        item(key = "metrics-row") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                MetricCard(total.toString(), "Colaboradores", Modifier.weight(1f))
-                MetricCard(cadastrados.toString(), "Rostos cadastrados", Modifier.weight(1f))
+        if (total > 0) {
+            item(key = "face-progress") {
+                ThinProgressSummary(
+                    completed = cadastrados,
+                    total = total,
+                    title = "Cadastro facial",
+                    detail = "$cadastrados de $total colaboradores prontos para reconhecimento",
+                )
             }
-        }
-
-        item(key = "pending-metric") {
-            MetricCard(
-                pendentes.toString(),
-                "Pendentes de registro facial",
-                Modifier.fillMaxWidth(),
-                emphasized = pendentes > 0,
-            )
         }
 
         if (pendentes > 0 && primeiroPendente != null) {
             item(key = "pending-alert") {
                 OperationalAlertCard(
-                    title = "$pendentes rostos pendentes",
-                    text = "Os colaboradores pendentes aparecem primeiro para agilizar o cadastro facial.",
+                    title = "$pendentes rostos aguardando cadastro",
+                    text = "Pendência operacional: essas pessoas ainda não conseguem utilizar reconhecimento facial.",
                     actionLabel = "Cadastrar próximo",
                     onClick = { viewModel.cadastrarOuAtualizarRosto(primeiroPendente) },
+                    tone = PontoCafeTone.WARNING,
                 )
             }
         }
 
-        item(key = "new-collaborator") {
-            Button(
-                onClick = viewModel::abrirNovoColaborador,
+        item(key = "actions") {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                Text("Novo colaborador")
+                Button(
+                    onClick = viewModel::abrirNovoColaborador,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Novo colaborador") }
+                OutlinedButton(
+                    onClick = viewModel::abrirNovaConta,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Novo acesso") }
             }
         }
 
@@ -131,70 +154,165 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
                 value = busca,
                 onValueChange = { busca = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buscar colaborador") },
-                placeholder = { Text("Digite o nome") },
+                label = { Text("Buscar pessoa") },
+                placeholder = { Text("Nome, setor ou e-mail") },
                 singleLine = true,
             )
         }
 
-        item(key = "list-title") {
-            SectionTitle(
-                title = "Lista de colaboradores",
-                subtitle = "${filtrados.size} resultado(s) · pendentes de rosto aparecem primeiro.",
-            )
+        item(key = "filters") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                PeopleFilter.entries.forEach { item ->
+                    FilterChip(
+                        selected = filtro == item,
+                        onClick = { filtro = item },
+                        label = { Text(item.label) },
+                    )
+                }
+            }
         }
 
-        items(filtrados, key = { "collaborator-${it.id}" }) { colaborador ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        InitialAvatar(colaborador.nome)
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
-                            val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
-                                .filter { it.isNotBlank() }
-                                .joinToString(" · ")
-                            if (detalhe.isNotBlank()) {
-                                Text(
-                                    detalhe,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            StatusPill(
-                                if (colaborador.rostoCadastrado) "Rosto cadastrado" else "Rosto pendente",
-                                positive = colaborador.rostoCadastrado,
-                            )
-                        }
-                    }
-                    Row(
+        if (filtro != PeopleFilter.ACCESS) {
+            item(key = "collaborators-title") {
+                SectionTitle(
+                    title = "Colaboradores",
+                    subtitle = "${colaboradoresFiltrados.size} resultado(s) · quem tem rosto pendente aparece primeiro.",
+                )
+            }
+
+            if (colaboradoresFiltrados.isEmpty()) {
+                item(key = "collaborators-empty") {
+                    EmptyPeopleCard("Nenhum colaborador encontrado", "Tente outro termo de busca ou cadastre uma nova pessoa.")
+                }
+            } else {
+                items(colaboradoresFiltrados, key = { "collaborator-${it.id}" }) { colaborador ->
+                    CollaboratorPersonCard(
+                        colaborador = colaborador,
+                        carregando = state.carregando,
+                        onEdit = { editando = colaborador },
+                        onBiometric = { viewModel.cadastrarOuAtualizarRosto(colaborador) },
+                    )
+                }
+            }
+        }
+
+        if (filtro != PeopleFilter.COLLABORATORS) {
+            item(key = "accounts-title") {
+                SectionTitle(
+                    title = "Contas de acesso",
+                    subtitle = "${contasFiltradas.size} conta(s) de Supervisor ou Administrador.",
+                )
+            }
+
+            if (contasFiltradas.isEmpty()) {
+                item(key = "accounts-empty") {
+                    EmptyPeopleCard(
+                        "Nenhuma conta encontrada",
+                        "Cadastre um Supervisor para delegar o acompanhamento operacional.",
+                    )
+                }
+            } else {
+                items(contasFiltradas, key = { "account-${it.id}" }) { user ->
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        onClick = { viewModel.selecionarUsuario(user) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
-                        OutlinedButton(
-                            onClick = { editando = colaborador },
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.carregando,
-                        ) { Text("Editar dados") }
-                        Button(
-                            onClick = { viewModel.cadastrarOuAtualizarRosto(colaborador) },
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.carregando,
-                        ) {
-                            Text(if (colaborador.rostoCadastrado) "Atualizar rosto" else "Cadastrar rosto")
-                        }
+                        AccountSummaryRow(
+                            name = user.nome,
+                            email = user.email,
+                            profile = user.perfil,
+                            active = user.ativo,
+                            modifier = Modifier.padding(PontoCafeSpacing.md),
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CollaboratorPersonCard(
+    colaborador: Colaborador,
+    carregando: Boolean,
+    onEdit: () -> Unit,
+    onBiometric: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                InitialAvatar(colaborador.nome)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(colaborador.nome, style = MaterialTheme.typography.titleMedium)
+                    val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                    if (detalhe.isNotBlank()) {
+                        Text(
+                            detalhe,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    StatusPill(
+                        text = if (colaborador.rostoCadastrado) "Rosto cadastrado" else "Rosto pendente",
+                        tone = if (colaborador.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                OutlinedButton(
+                    onClick = onEdit,
+                    modifier = Modifier.weight(1f),
+                    enabled = !carregando,
+                ) { Text("Editar") }
+                Button(
+                    onClick = onBiometric,
+                    modifier = Modifier.weight(1f),
+                    enabled = !carregando,
+                ) {
+                    Text(if (colaborador.rostoCadastrado) "Atualizar rosto" else "Cadastrar rosto")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPeopleCard(title: String, text: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -214,9 +332,9 @@ private fun EditCollaboratorDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar colaborador") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 Text(
-                    "Corrija os dados digitados. A biometria e os registros de pausa deste colaborador serão mantidos.",
+                    "Corrija os dados digitados. A biometria e os registros de pausa serão mantidos.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
@@ -246,7 +364,7 @@ private fun EditCollaboratorDialog(
             Button(
                 onClick = { onSave(nome, setor, turno) },
                 enabled = !carregando && nome.trim().length >= 2,
-            ) { Text("Salvar alterações") }
+            ) { Text("Salvar") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !carregando) { Text("Cancelar") }
