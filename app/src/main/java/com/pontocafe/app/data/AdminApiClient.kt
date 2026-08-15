@@ -185,12 +185,15 @@ data class BiometricEnrollmentRequest(
     val embedding: List<Float>,
     val modelo: String,
     val versaoModelo: String,
+    val amostras: List<List<Float>>? = null,
 )
 
 data class BiometricEnrollmentResponse(
     val ok: Boolean,
     val colaboradorId: String,
     val dimensao: Int,
+    val verificacaoDuplicidade: Boolean? = null,
+    val limiteDuplicidade: Double? = null,
 )
 
 data class SimpleAdminResponse(
@@ -403,10 +406,21 @@ class AdminRepository(
     suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
         createCollaborator(name, sector, shift)
 
-    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String): BiometricEnrollmentResponse {
+    suspend fun saveBiometric(
+        collaboratorId: String,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+        samples: List<FloatArray> = emptyList(),
+    ): BiometricEnrollmentResponse {
         val result = api.saveBiometric(
             collaboratorId,
-            BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
+            BiometricEnrollmentRequest(
+                embedding = embedding.toList(),
+                modelo = model,
+                versaoModelo = modelVersion,
+                amostras = samples.takeIf { it.isNotEmpty() }?.map { it.toList() },
+            ),
         )
         collaboratorsCache = null
         summaryCache = null
@@ -442,8 +456,12 @@ class AdminRepository(
         fun message(error: Throwable): String {
             if (error is HttpException) {
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
-                val apiMessage = runCatching { body?.let { JSONObject(it).optString("erro") } }.getOrNull()
-                if (!apiMessage.isNullOrBlank()) return apiMessage
+                val json = runCatching { body?.let(::JSONObject) }.getOrNull()
+                val apiMessage = json?.optString("erro")?.takeIf { it.isNotBlank() }
+                val requestId = json?.optString("requestId")?.takeIf { it.isNotBlank() }
+                if (apiMessage != null) {
+                    return if (requestId != null) "$apiMessage · ID $requestId" else apiMessage
+                }
                 return when (error.code()) {
                     401 -> "E-mail ou senha inválidos."
                     403 -> "Acesso não autorizado."
