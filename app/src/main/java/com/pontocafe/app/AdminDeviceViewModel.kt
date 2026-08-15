@@ -31,10 +31,8 @@ class AdminDeviceViewModel(
     var state by mutableStateOf(AdminDeviceUiState())
         private set
 
-    init {
-        carregar()
-    }
-
+    // A carga é iniciada explicitamente ao abrir a tela de dispositivos.
+    // Isso evita uma chamada /admin antes de o usuário terminar o login.
     fun carregar() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null)
@@ -70,9 +68,11 @@ class AdminDeviceViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
-            runCatching { repository.createDevice(cleanName, cleanPin) }
-                .onSuccess { created ->
-                    val devices = repository.devices()
+            runCatching {
+                val created = repository.createDevice(cleanName, cleanPin)
+                created to repository.devices()
+            }
+                .onSuccess { (created, devices) ->
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
@@ -97,9 +97,11 @@ class AdminDeviceViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.updateDevicePin(dispositivo.id, cleanPin) }
-                .onSuccess {
-                    val devices = repository.devices()
+            runCatching {
+                repository.updateDevicePin(dispositivo.id, cleanPin)
+                repository.devices()
+            }
+                .onSuccess { devices ->
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
@@ -120,11 +122,14 @@ class AdminDeviceViewModel(
         }
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.renameDevice(dispositivo.id, cleanName) }
-                .onSuccess {
+            runCatching {
+                repository.renameDevice(dispositivo.id, cleanName)
+                repository.devices()
+            }
+                .onSuccess { devices ->
                     state = state.copy(
                         carregando = false,
-                        dispositivos = repository.devices(),
+                        dispositivos = devices,
                         mensagem = "Dispositivo renomeado para $cleanName.",
                     )
                 }
@@ -135,11 +140,14 @@ class AdminDeviceViewModel(
     fun desativar(dispositivo: AdminDevice) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.deactivateDevice(dispositivo.id) }
-                .onSuccess {
+            runCatching {
+                repository.deactivateDevice(dispositivo.id)
+                repository.devices()
+            }
+                .onSuccess { devices ->
                     state = state.copy(
                         carregando = false,
-                        dispositivos = repository.devices(),
+                        dispositivos = devices,
                         mensagem = "${dispositivo.nome} foi desativado. O token atual não poderá mais registrar pontos.",
                     )
                 }
@@ -150,11 +158,14 @@ class AdminDeviceViewModel(
     fun rotacionarToken(dispositivo: AdminDevice) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
-            runCatching { repository.rotateDeviceToken(dispositivo.id) }
-                .onSuccess { rotated ->
+            runCatching {
+                val rotated = repository.rotateDeviceToken(dispositivo.id)
+                rotated to repository.devices()
+            }
+                .onSuccess { (rotated, devices) ->
                     state = state.copy(
                         carregando = false,
-                        dispositivos = repository.devices(),
+                        dispositivos = devices,
                         tokenGerado = rotated.token,
                         tokenDeviceName = rotated.nome,
                         tokenRotacionado = true,
