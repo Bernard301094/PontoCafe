@@ -2,10 +2,14 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,11 +49,21 @@ fun AdminDevicesScreen(
     var confirmarPin by remember { mutableStateOf("") }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            PontoCafeHeader("Dispositivos e segurança")
+        item(key = "header") {
+            PontoCafeScreenHeader(
+                title = "Dispositivos e segurança",
+                onBack = onBack,
+                backLabel = "Painel",
+            )
             Text(
                 "Administre o PIN, nome e credenciais de cada aparelho que funciona como Ponto Café.",
                 modifier = Modifier.padding(top = 6.dp),
@@ -57,26 +71,26 @@ fun AdminDevicesScreen(
             )
         }
 
-        item {
+        item(key = "health") {
             SystemHealthCard(viewModel)
         }
 
         state.mensagem?.let { message ->
-            item {
+            item(key = "message") {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Text(message, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
         }
         state.erro?.let { error ->
-            item {
+            item(key = "error") {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Text(error, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
                 }
             }
         }
 
-        item {
+        item(key = "new-device") {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -109,7 +123,7 @@ fun AdminDevicesScreen(
         }
 
         state.tokenGerado?.let { token ->
-            item {
+            item(key = "generated-token") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -141,25 +155,20 @@ fun AdminDevicesScreen(
             }
         }
 
-        item {
+        item(key = "devices-title") {
             SectionTitle(
                 "Dispositivos cadastrados",
                 "${state.dispositivos.count { it.ativo }} ativo(s) · ${state.dispositivos.count { !it.ativo }} inativo(s)",
             )
         }
 
-        items(state.dispositivos, key = { it.id }) { dispositivo ->
+        items(state.dispositivos, key = { "device-${it.id}" }) { dispositivo ->
             DeviceSecurityCard(viewModel, dispositivo)
         }
 
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = viewModel::carregar, modifier = Modifier.weight(1f)) {
-                    Text("Atualizar")
-                }
-                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-                    Text("Voltar ao painel")
-                }
+        item(key = "refresh") {
+            OutlinedButton(onClick = viewModel::carregar, modifier = Modifier.fillMaxWidth()) {
+                Text("Atualizar dispositivos")
             }
         }
     }
