@@ -26,6 +26,7 @@ data class OfflinePontoEvent(
     val nome: String,
     val ocorridoEm: String,
     val score: Double,
+    val embedding: List<Float>,
     val appVersion: String,
     val modelo: String,
     val versaoModelo: String,
@@ -146,6 +147,7 @@ class SecurePontoOfflineStore(context: Context) {
     fun queueOfflineStart(
         colaborador: Colaborador,
         score: Double,
+        embedding: FloatArray,
         model: String,
         modelVersion: String,
         rule: RegraCafe,
@@ -153,6 +155,7 @@ class SecurePontoOfflineStore(context: Context) {
         val current = readInternal()
         require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
         require(current.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
+        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
 
         val now = ZonedDateTime.now(timezone)
         val event = OfflinePontoEvent(
@@ -162,6 +165,7 @@ class SecurePontoOfflineStore(context: Context) {
             nome = colaborador.nome,
             ocorridoEm = now.toInstant().toString(),
             score = score,
+            embedding = embedding.toList(),
             appVersion = BuildConfig.VERSION_NAME,
             modelo = model,
             versaoModelo = modelVersion,
@@ -188,11 +192,13 @@ class SecurePontoOfflineStore(context: Context) {
     fun queueOfflineFinish(
         colaborador: Colaborador,
         score: Double,
+        embedding: FloatArray,
         model: String,
         modelVersion: String,
     ): Pair<LocalOpenPause, Int> {
         val current = readInternal()
         require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
+        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
         val open = current.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
             ?: error("Não existe pausa local aberta para este colaborador.")
         val now = ZonedDateTime.now(timezone)
@@ -203,6 +209,7 @@ class SecurePontoOfflineStore(context: Context) {
             nome = colaborador.nome,
             ocorridoEm = now.toInstant().toString(),
             score = score,
+            embedding = embedding.toList(),
             appVersion = BuildConfig.VERSION_NAME,
             modelo = model,
             versaoModelo = modelVersion,
