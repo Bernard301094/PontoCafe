@@ -48,7 +48,7 @@ fun AuthorizationScreen(viewModel: PontoCafeViewModel) {
             }
         }
 
-        Text("Solicite ao administrador um código temporário de 6 dígitos.")
+        Text("Solicite ao Supervisor ou Administrador um código temporário de 6 dígitos.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = periodo == "MANHA",
