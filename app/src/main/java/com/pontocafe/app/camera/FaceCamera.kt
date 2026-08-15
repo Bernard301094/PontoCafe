@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -22,7 +23,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Size as ComposeSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +36,7 @@ import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -141,6 +143,7 @@ private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
 @SuppressLint("UnsafeOptInUsageError")
 private fun analyzer(
     detector: FaceDetector,
+    executor: Executor,
     captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
@@ -156,7 +159,7 @@ private fun analyzer(
     val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
     val image = InputImage.fromMediaImage(mediaImage, rotation)
     detector.process(image)
-        .addOnSuccessListener { faces ->
+        .addOnSuccessListener(executor) { faces ->
             val observation = if (faces.size == 1) {
                 faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
             } else {
@@ -171,10 +174,10 @@ private fun analyzer(
                 }.onSuccess(onFrame)
             }
         }
-        .addOnFailureListener {
+        .addOnFailureListener(executor) {
             onObservation(FaceObservation())
         }
-        .addOnCompleteListener {
+        .addOnCompleteListener(executor) {
             imageProxy.close()
         }
 }
@@ -195,7 +198,7 @@ private fun FacePositionGuide(modifier: Modifier = Modifier) {
         drawOval(
             color = guideColor,
             topLeft = Offset(left, top),
-            size = Size(guideWidth, guideHeight),
+            size = ComposeSize(guideWidth, guideHeight),
             style = Stroke(width = strokeWidth),
         )
 
@@ -241,6 +244,7 @@ fun FaceCameraPreview(
     val currentOnObservation = rememberUpdatedState(onObservation)
     val currentOnFrame = rememberUpdatedState(onFrame)
     val executor = remember { Executors.newSingleThreadExecutor() }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val detector = remember {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -275,6 +279,7 @@ fun FaceCameraPreview(
                 it.setSurfaceProvider(view.surfaceProvider)
             }
             val analysis = ImageAnalysis.Builder()
+                .setTargetResolution(Size(640, 480))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
@@ -282,9 +287,14 @@ fun FaceCameraPreview(
                         executor,
                         analyzer(
                             detector = detector,
+                            executor = executor,
                             captureController = captureController,
-                            onObservation = { observation -> currentOnObservation.value(observation) },
-                            onFrame = { frame -> currentOnFrame.value(frame) },
+                            onObservation = { observation ->
+                                mainExecutor.execute { currentOnObservation.value(observation) }
+                            },
+                            onFrame = { frame ->
+                                mainExecutor.execute { currentOnFrame.value(frame) }
+                            },
                         ),
                     )
                 }
@@ -296,7 +306,7 @@ fun FaceCameraPreview(
                 preview,
                 analysis,
             )
-        }, ContextCompat.getMainExecutor(context))
+        }, mainExecutor)
     }
 
     DisposableEffect(Unit) {
