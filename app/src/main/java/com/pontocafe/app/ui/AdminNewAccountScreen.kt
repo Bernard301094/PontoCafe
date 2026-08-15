@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.FormDraftRegistry
+import com.pontocafe.app.trackAccountDraftSubmission
 
 @Composable
 fun AdminNewAccountScreen(viewModel: AdminViewModel) {
@@ -58,7 +59,10 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             carregando = state.carregando,
             initialProfile = AccountProfile.SUPERVISOR,
             showHeader = false,
-            onSubmit = viewModel::criarConta,
+            onSubmit = { input ->
+                viewModel.trackAccountDraftSubmission(draftState)
+                viewModel.criarConta(input)
+            },
         )
         AdminFeedback(viewModel)
     }
