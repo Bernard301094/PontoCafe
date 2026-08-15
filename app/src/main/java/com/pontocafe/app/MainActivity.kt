@@ -22,6 +22,7 @@ import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.AdminReliabilityApiClient
 import com.pontocafe.app.data.ApiClient
+import com.pontocafe.app.data.AppHealthMonitor
 import com.pontocafe.app.data.AppNavigationStateStore
 import com.pontocafe.app.data.KioskModeStore
 import com.pontocafe.app.data.SecureAdminSessionStore
@@ -43,8 +44,12 @@ import com.pontocafe.app.ui.SupervisorAreaShell
 private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
 
 class MainActivity : FragmentActivity() {
+    private lateinit var appHealthMonitor: AppHealthMonitor
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        appHealthMonitor = AppHealthMonitor(applicationContext).also { it.start() }
 
         val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
         val navigationStore = AppNavigationStateStore(applicationContext)
@@ -283,5 +288,10 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (::appHealthMonitor.isInitialized) appHealthMonitor.stop()
+        super.onDestroy()
     }
 }
