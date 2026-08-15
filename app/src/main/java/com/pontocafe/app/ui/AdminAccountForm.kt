@@ -1,14 +1,17 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -34,7 +38,6 @@ data class NewAccountInput(
     val perfil: AccountProfile,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminAccountForm(
     carregando: Boolean = false,
@@ -45,23 +48,29 @@ fun AdminAccountForm(
     var senha by remember { mutableStateOf("") }
     var confirmarSenha by remember { mutableStateOf("") }
     var perfil by remember { mutableStateOf(AccountProfile.SUPERVISOR) }
-    var perfilAberto by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Cadastrar conta", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(16.dp))
+        PontoCafeHeader("Nova conta de acesso")
+        Text(
+            "Defina quem poderá acessar as áreas restritas do Ponto Café.",
+            modifier = Modifier.padding(top = 6.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(22.dp))
+        SectionTitle("Informações pessoais")
+        Spacer(Modifier.height(10.dp))
 
         OutlinedTextField(
             value = nome,
             onValueChange = { nome = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Nome") },
+            label = { Text("Nome completo") },
             singleLine = true,
             enabled = !carregando,
         )
-        Spacer(Modifier.height(12.dp))
-
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -70,7 +79,39 @@ fun AdminAccountForm(
             singleLine = true,
             enabled = !carregando,
         )
-        Spacer(Modifier.height(12.dp))
+
+        Spacer(Modifier.height(22.dp))
+        SectionTitle(
+            title = "Perfil de acesso",
+            subtitle = "Escolha o nível de permissão desta conta.",
+        )
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ProfileChoiceCard(
+                title = "Supervisor",
+                description = "Pausas, colaboradores e biometria.",
+                selected = perfil == AccountProfile.SUPERVISOR,
+                onClick = { perfil = AccountProfile.SUPERVISOR },
+                modifier = Modifier.weight(1f),
+                enabled = !carregando,
+            )
+            ProfileChoiceCard(
+                title = "Administrador",
+                description = "Controle total do sistema e acessos.",
+                selected = perfil == AccountProfile.ADMIN,
+                onClick = { perfil = AccountProfile.ADMIN },
+                modifier = Modifier.weight(1f),
+                enabled = !carregando,
+            )
+        }
+
+        Spacer(Modifier.height(22.dp))
+        SectionTitle("Segurança", "A senha será usada para iniciar sessão neste perfil.")
+        Spacer(Modifier.height(10.dp))
 
         OutlinedTextField(
             value = senha,
@@ -82,8 +123,7 @@ fun AdminAccountForm(
             visualTransformation = PasswordVisualTransformation(),
             supportingText = { Text("Mínimo de 10 caracteres") },
         )
-        Spacer(Modifier.height(12.dp))
-
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = confirmarSenha,
             onValueChange = { confirmarSenha = it },
@@ -92,46 +132,29 @@ fun AdminAccountForm(
             singleLine = true,
             enabled = !carregando,
             visualTransformation = PasswordVisualTransformation(),
-        )
-        Spacer(Modifier.height(12.dp))
-
-        ExposedDropdownMenuBox(
-            expanded = perfilAberto,
-            onExpandedChange = { if (!carregando) perfilAberto = !perfilAberto },
-        ) {
-            OutlinedTextField(
-                value = perfil.label,
-                onValueChange = {},
-                modifier = Modifier
-                    .menuAnchor()
-                    .fillMaxWidth(),
-                readOnly = true,
-                label = { Text("Perfil") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = perfilAberto) },
-                enabled = !carregando,
-            )
-            ExposedDropdownMenu(
-                expanded = perfilAberto,
-                onDismissRequest = { perfilAberto = false },
-            ) {
-                AccountProfile.entries.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        onClick = {
-                            perfil = option
-                            perfilAberto = false
-                        },
-                    )
+            supportingText = {
+                when {
+                    confirmarSenha.isBlank() -> Text("Repita a senha")
+                    senha == confirmarSenha -> Text("As senhas coincidem")
+                    else -> Text("As senhas ainda não coincidem")
                 }
-            }
-        }
+            },
+        )
 
         erro?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Text(
+                    it,
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(22.dp))
         Button(
             onClick = {
                 erro = when {
@@ -155,7 +178,52 @@ fun AdminAccountForm(
             modifier = Modifier.fillMaxWidth(),
             enabled = !carregando,
         ) {
-            Text(if (carregando) "Cadastrando..." else "Cadastrar conta")
+            Text(if (carregando) "Cadastrando..." else "Criar conta")
+        }
+    }
+}
+
+@Composable
+private fun ProfileChoiceCard(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+) {
+    Card(
+        modifier = modifier,
+        onClick = onClick,
+        enabled = enabled,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        ),
+        border = BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                title,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (selected) "Selecionado" else "Selecionar",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
