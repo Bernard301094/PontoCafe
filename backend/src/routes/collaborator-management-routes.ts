@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { evaluateDuplicateBiometric } from '../biometric-duplicate-policy.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { cosineSimilarity, decryptEmbedding, encryptEmbedding, newId } from '../security.js'
@@ -151,7 +152,6 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
   }
 
   const duplicateThreshold = Math.max(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
-  const strongSampleThreshold = Math.min(0.99, duplicateThreshold + 0.08)
   const actor = c.get('user')
 
   const result = await transaction(async (client) => {
@@ -192,6 +192,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       scoreConsolidado: number
       melhorAmostra: number
       amostrasCoincidentes: number
+      limiteAmostraForte: number
     } | null = null
 
     for (const row of existing.rows) {
@@ -202,23 +203,18 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
 
         const consolidatedScore = cosineSimilarity(stored, body.data.embedding)
         const sampleScores = samples.map((sample) => cosineSimilarity(stored, sample))
-        const bestSample = sampleScores.length > 0 ? Math.max(...sampleScores) : -1
-        const matchingSamples = sampleScores.filter((score) => score >= duplicateThreshold).length
-        const isDuplicate =
-          consolidatedScore >= duplicateThreshold ||
-          matchingSamples >= 2 ||
-          bestSample >= strongSampleThreshold
-        const strongestScore = Math.max(consolidatedScore, bestSample)
+        const evidence = evaluateDuplicateBiometric(consolidatedScore, sampleScores, duplicateThreshold)
 
-        if (isDuplicate && (!duplicate || strongestScore > duplicate.score)) {
+        if (evidence.duplicate && (!duplicate || evidence.strongestScore > duplicate.score)) {
           duplicate = {
             colaboradorId: row.colaborador_id,
             nome: row.nome,
             ativo: row.ativo,
-            score: strongestScore,
-            scoreConsolidado: consolidatedScore,
-            melhorAmostra: bestSample,
-            amostrasCoincidentes: matchingSamples,
+            score: evidence.strongestScore,
+            scoreConsolidado: evidence.consolidatedScore,
+            melhorAmostra: evidence.bestSampleScore,
+            amostrasCoincidentes: evidence.matchingSamples,
+            limiteAmostraForte: evidence.strongSampleThreshold,
           }
         }
       } catch (error) {
@@ -257,6 +253,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       ],
     )
 
+    const policy = evaluateDuplicateBiometric(-1, [], duplicateThreshold)
     await client.query(
       `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
        values ($1,$2,'CADASTRAR_ATUALIZAR_ROSTO','COLABORADOR',$3,$4::jsonb)`,
@@ -270,13 +267,13 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
           dimensao: expectedDimension,
           verificacaoDuplicidade: true,
           limiteDuplicidade: duplicateThreshold,
-          limiteAmostraForte: strongSampleThreshold,
+          limiteAmostraForte: policy.strongSampleThreshold,
           amostrasVerificadas: samples.length,
         }),
       ],
     )
 
-    return { status: 'OK' as const, nome: current.nome }
+    return { status: 'OK' as const, nome: current.nome, strongSampleThreshold: policy.strongSampleThreshold }
   })
 
   if (result.status === 'NOT_FOUND') {
@@ -297,6 +294,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       melhorSimilaridadeAmostra: Number(duplicate.melhorAmostra.toFixed(4)),
       amostrasCoincidentes: duplicate.amostrasCoincidentes,
       limiteDuplicidade: duplicateThreshold,
+      limiteAmostraForte: duplicate.limiteAmostraForte,
     }, 409)
   }
 
@@ -308,6 +306,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     amostrasVerificadas: samples.length,
     verificacaoDuplicidade: true,
     limiteDuplicidade: duplicateThreshold,
+    limiteAmostraForte: result.strongSampleThreshold,
   })
 })
 
