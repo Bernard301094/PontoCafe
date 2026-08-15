@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,11 +41,7 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = if (comprovante.tipo == TipoComprovantePonto.INICIO) {
-                "Pausa iniciada"
-            } else {
-                "Pausa finalizada"
-            },
+            text = if (comprovante.tipo == TipoComprovantePonto.INICIO) "Pausa iniciada" else "Pausa finalizada",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -53,6 +50,25 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(top = 6.dp),
         )
+
+        if (comprovante.pendenteSincronizacao) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+            ) {
+                Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Salvo com segurança neste aparelho",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Text(
+                        "Sem conexão com o servidor. O registro será enviado automaticamente quando a internet voltar.",
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
@@ -116,11 +132,21 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
                         )
                     }
                 } else {
+                    val duration = comprovante.duracaoSegundos ?: 0
+                    val excess = (duration - comprovante.limiteSegundos).coerceAtLeast(0)
                     Text(
                         if (comprovante.excedeuLimite) "Limite excedido" else "Dentro do limite",
                         fontWeight = FontWeight.SemiBold,
                         color = if (comprovante.excedeuLimite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     )
+                    if (excess > 0) {
+                        Text(
+                            "${viewModel.formatarTempo(excess)} acima do limite",
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                     Text(
                         "Limite do período: ${viewModel.formatarTempo(comprovante.limiteSegundos)}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
