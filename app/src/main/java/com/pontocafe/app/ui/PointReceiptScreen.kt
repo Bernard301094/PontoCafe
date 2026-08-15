@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
@@ -29,8 +31,12 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
     val comprovante = viewModel.state.comprovante ?: return
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val success = !comprovante.excedeuLimite
+    val view = LocalView.current
 
     LaunchedEffect(comprovante) {
+        view.performHapticFeedback(
+            if (success) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT,
+        )
         delay(5_000)
         viewModel.concluirComprovante()
     }
