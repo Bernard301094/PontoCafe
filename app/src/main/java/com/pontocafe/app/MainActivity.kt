@@ -3,11 +3,15 @@ package com.pontocafe.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
@@ -68,84 +72,89 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PontoCafeTheme {
-                var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
-                var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
-                var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
-                var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
+                    var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
+                    var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
+                    var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
 
-                when (areaRestrita) {
-                    AreaRestrita.ADMIN -> {
-                        val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                        val adminDeviceVm: AdminDeviceViewModel = viewModel(
-                            key = "admin-devices",
-                            factory = adminDeviceFactory,
-                        )
-                        AdminArea(
-                            viewModel = adminVm,
-                            deviceViewModel = adminDeviceVm,
-                            onClose = {
-                                sincronizarCatalogoAoVoltar = true
-                                areaRestrita = null
-                            },
-                        )
-                    }
-
-                    AreaRestrita.SUPERVISOR -> {
-                        val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
-                        SupervisorArea(
-                            supervisorVm,
-                            onClose = {
-                                sincronizarCatalogoAoVoltar = true
-                                areaRestrita = null
-                            },
-                        )
-                    }
-
-                    AreaRestrita.LOGIN -> RestrictedLoginModeScreen(
-                        onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
-                        onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
-                        onBackToPonto = { areaRestrita = null },
-                    )
-
-                    null -> {
-                        val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
-                        val state = vm.state
-
-                        LaunchedEffect(state.deviceConfigured) {
-                            if (state.deviceConfigured) {
-                                vm.atualizarConectividadeESincronizar()
-                                adminSessionDisponivel = adminRepository.validarSessaoSalva()
-                                supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
-                            }
+                    when (areaRestrita) {
+                        AreaRestrita.ADMIN -> {
+                            val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
+                            val adminDeviceVm: AdminDeviceViewModel = viewModel(
+                                key = "admin-devices",
+                                factory = adminDeviceFactory,
+                            )
+                            AdminArea(
+                                viewModel = adminVm,
+                                deviceViewModel = adminDeviceVm,
+                                onClose = {
+                                    sincronizarCatalogoAoVoltar = true
+                                    areaRestrita = null
+                                },
+                            )
                         }
 
-                        LaunchedEffect(sincronizarCatalogoAoVoltar) {
-                            if (sincronizarCatalogoAoVoltar) {
-                                vm.sincronizarBiometrias(force = true)
-                                vm.atualizarConectividadeESincronizar()
-                                adminSessionDisponivel = adminRepository.validarSessaoSalva()
-                                supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
-                                sincronizarCatalogoAoVoltar = false
-                            }
+                        AreaRestrita.SUPERVISOR -> {
+                            val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
+                            SupervisorArea(
+                                supervisorVm,
+                                onClose = {
+                                    sincronizarCatalogoAoVoltar = true
+                                    areaRestrita = null
+                                },
+                            )
                         }
 
-                        when {
-                            !state.deviceConfigured -> DeviceSetupScreen(
-                                vm,
-                                onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
-                            )
+                        AreaRestrita.LOGIN -> RestrictedLoginModeScreen(
+                            onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                            onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
+                            onBackToPonto = { areaRestrita = null },
+                        )
 
-                            state.comprovante != null -> PointReceiptScreen(vm)
-                            state.needsAuthorization -> AuthorizationScreen(vm)
-                            state.identificacao != null -> IdentityConfirmationScreen(vm)
-                            else -> FaceKioskScreen(
-                                viewModel = vm,
-                                hasAdminSession = adminSessionDisponivel,
-                                hasSupervisorSession = supervisorSessionDisponivel,
-                                onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
-                                onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
-                                onLoginModeClick = { areaRestrita = AreaRestrita.LOGIN },
-                            )
+                        null -> {
+                            val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
+                            val state = vm.state
+
+                            LaunchedEffect(state.deviceConfigured) {
+                                if (state.deviceConfigured) {
+                                    vm.atualizarConectividadeESincronizar()
+                                    adminSessionDisponivel = adminRepository.validarSessaoSalva()
+                                    supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
+                                }
+                            }
+
+                            LaunchedEffect(sincronizarCatalogoAoVoltar) {
+                                if (sincronizarCatalogoAoVoltar) {
+                                    vm.sincronizarBiometrias(force = true)
+                                    vm.atualizarConectividadeESincronizar()
+                                    adminSessionDisponivel = adminRepository.validarSessaoSalva()
+                                    supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
+                                    sincronizarCatalogoAoVoltar = false
+                                }
+                            }
+
+                            when {
+                                !state.deviceConfigured -> DeviceSetupScreen(
+                                    vm,
+                                    onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                                )
+
+                                state.comprovante != null -> PointReceiptScreen(vm)
+                                state.needsAuthorization -> AuthorizationScreen(vm)
+                                state.identificacao != null -> IdentityConfirmationScreen(vm)
+                                else -> FaceKioskScreen(
+                                    viewModel = vm,
+                                    hasAdminSession = adminSessionDisponivel,
+                                    hasSupervisorSession = supervisorSessionDisponivel,
+                                    onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                                    onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
+                                    onLoginModeClick = { areaRestrita = AreaRestrita.LOGIN },
+                                )
+                            }
                         }
                     }
                 }
