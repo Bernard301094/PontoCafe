@@ -31,8 +31,6 @@ class AdminDeviceViewModel(
     var state by mutableStateOf(AdminDeviceUiState())
         private set
 
-    // A carga é iniciada explicitamente ao abrir a tela de dispositivos.
-    // Isso evita uma chamada /admin antes de o usuário terminar o login.
     fun carregar() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null)
@@ -80,8 +78,6 @@ class AdminDeviceViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
             runCatching { repository.createDevice(cleanName, cleanPin) }
                 .onSuccess { created ->
-                    // O código de ativação é de exibição única. Mesmo que o refresh
-                    // seguinte falhe, nunca descartamos este resultado já confirmado.
                     val (devices, refreshed) = atualizarListaOu(state.dispositivos)
                     state = state.copy(
                         carregando = false,
@@ -175,6 +171,32 @@ class AdminDeviceViewModel(
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun excluirPermanentemente(dispositivo: AdminDevice) {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.deleteDevice(dispositivo.id) }
+                .onSuccess {
+                    val local = state.dispositivos.filterNot { it.id == dispositivo.id }
+                    val (devices, refreshed) = atualizarListaOu(local)
+                    state = state.copy(
+                        carregando = false,
+                        dispositivos = devices,
+                        mensagem = mensagemComRefresh(
+                            "${dispositivo.nome} foi excluído definitivamente.",
+                            refreshed,
+                        ),
+                        erro = null,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(
+                        carregando = false,
+                        erro = AdminRepository.message(it),
+                    )
+                }
         }
     }
 
