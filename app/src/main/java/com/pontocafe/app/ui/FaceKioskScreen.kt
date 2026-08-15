@@ -51,13 +51,16 @@ import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import kotlinx.coroutines.launch
 
-private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN }
+private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
 @Composable
 fun FaceKioskScreen(
     viewModel: PontoCafeViewModel,
+    hasAdminSession: Boolean,
+    hasSupervisorSession: Boolean,
     onAdminClick: () -> Unit,
     onSupervisorClick: () -> Unit,
+    onLoginModeClick: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -96,13 +99,17 @@ fun FaceKioskScreen(
     }
 
     restrictedAreaRequest?.let { target ->
-        val areaName = if (target == RestrictedAreaRequest.SUPERVISOR) "Supervisor" else "Administrador"
+        val instruction = when (target) {
+            RestrictedAreaRequest.ADMIN -> "Informe o PIN deste dispositivo para abrir o perfil Administrador já salvo."
+            RestrictedAreaRequest.SUPERVISOR -> "Informe o PIN deste dispositivo para abrir o perfil Supervisor já salvo."
+            RestrictedAreaRequest.LOGIN -> "Informe o PIN deste dispositivo para sair do modo Ponto e abrir o início de sessão."
+        }
         AlertDialog(
             onDismissRequest = { if (!unlockLoading) fecharSolicitacaoAcesso() },
             title = { Text("Sair do modo Ponto") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Informe o PIN deste dispositivo para abrir a área $areaName.")
+                    Text(instruction)
                     OutlinedTextField(
                         value = exitPin,
                         onValueChange = { value ->
@@ -137,6 +144,7 @@ fun FaceKioskScreen(
                                 when (destination) {
                                     RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
                                     RestrictedAreaRequest.ADMIN -> onAdminClick()
+                                    RestrictedAreaRequest.LOGIN -> onLoginModeClick()
                                 }
                             }.onFailure { error ->
                                 unlockLoading = false
@@ -146,7 +154,7 @@ fun FaceKioskScreen(
                         }
                     },
                 ) {
-                    Text(if (unlockLoading) "Verificando..." else "Entrar")
+                    Text(if (unlockLoading) "Verificando..." else "Desbloquear")
                 }
             },
             dismissButton = {
@@ -223,7 +231,7 @@ fun FaceKioskScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
                         "Ponto Café",
@@ -233,11 +241,20 @@ fun FaceKioskScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
-                        Text("Supervisor", color = Color.White, maxLines = 1)
+                    if (hasAdminSession) {
+                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
+                            Text("Admin", color = Color.White, maxLines = 1)
+                        }
                     }
-                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
-                        Text("Admin", color = Color.White, maxLines = 1)
+                    if (hasSupervisorSession) {
+                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
+                            Text("Supervisor", color = Color.White, maxLines = 1)
+                        }
+                    }
+                    if (!hasAdminSession && !hasSupervisorSession) {
+                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN }) {
+                            Text("Sair do Ponto", color = Color.White, maxLines = 1)
+                        }
                     }
                 }
                 Text(
