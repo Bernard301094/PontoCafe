@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -179,6 +180,8 @@ fun FaceCameraPreview(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentOnObservation = rememberUpdatedState(onObservation)
+    val currentOnFrame = rememberUpdatedState(onFrame)
     val executor = remember { Executors.newSingleThreadExecutor() }
     val detector = remember {
         FaceDetection.getClient(
@@ -216,7 +219,12 @@ fun FaceCameraPreview(
                 .also {
                     it.setAnalyzer(
                         executor,
-                        analyzer(detector, captureController, onObservation, onFrame),
+                        analyzer(
+                            detector = detector,
+                            captureController = captureController,
+                            onObservation = { observation -> currentOnObservation.value(observation) },
+                            onFrame = { frame -> currentOnFrame.value(frame) },
+                        ),
                     )
                 }
 
