@@ -4,6 +4,7 @@ import { secureHeaders } from 'hono/secure-headers'
 import { auth, type AppEnv } from './auth-runtime.js'
 import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
+import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
@@ -81,6 +82,12 @@ async function safeAuthResponseFailure(response: Response) {
   }
 }
 
+// Fluxo de login/logout usado pelo APK. Mantém as mesmas URLs e o mesmo
+// set-auth-token esperado pelo cliente, mas evita o handler genérico que estava
+// retornando 500 no Cloudflare Worker.
+app.route('/api/auth', authRoutes)
+
+// Demais endpoints de Better Auth continuam disponíveis para compatibilidade.
 app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   try {
     const response = await auth.handler(c.req.raw)
