@@ -218,9 +218,8 @@ class MainActivity : FragmentActivity() {
 
                                 LaunchedEffect(state.deviceConfigured) {
                                     if (state.deviceConfigured) {
-                                        vm.atualizarConectividadeESincronizar()
-                                        adminSessionDisponivel = adminRepository.validarSessaoSalva()
-                                        supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
+                                        adminSessionDisponivel = adminSessionStore.hasToken()
+                                        supervisorSessionDisponivel = supervisorSessionStore.hasToken()
                                     }
                                 }
 
@@ -228,8 +227,8 @@ class MainActivity : FragmentActivity() {
                                     if (sincronizarCatalogoAoVoltar) {
                                         vm.sincronizarBiometrias(force = true)
                                         vm.atualizarConectividadeESincronizar()
-                                        adminSessionDisponivel = adminRepository.validarSessaoSalva()
-                                        supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
+                                        adminSessionDisponivel = adminSessionStore.hasToken()
+                                        supervisorSessionDisponivel = supervisorSessionStore.hasToken()
                                         sincronizarCatalogoAoVoltar = false
                                     }
                                 }
