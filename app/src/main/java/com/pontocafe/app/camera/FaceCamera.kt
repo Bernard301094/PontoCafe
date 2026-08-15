@@ -28,6 +28,7 @@ import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 
 data class FaceObservation(
@@ -35,11 +36,31 @@ data class FaceObservation(
     val bounds: Rect? = null,
     val leftEyeOpen: Float? = null,
     val rightEyeOpen: Float? = null,
+    val pitch: Float = 0f,
     val yaw: Float = 0f,
     val roll: Float = 0f,
+    val imageWidth: Int = 0,
+    val imageHeight: Int = 0,
 ) {
+    val faceWidthRatio: Float
+        get() = if (imageWidth > 0 && bounds != null) bounds.width().toFloat() / imageWidth else 0f
+
+    val isCentered: Boolean
+        get() {
+            val box = bounds ?: return false
+            if (imageWidth <= 0 || imageHeight <= 0) return false
+            val centerX = box.exactCenterX()
+            val centerY = box.exactCenterY()
+            return abs(centerX - imageWidth / 2f) <= imageWidth * 0.22f &&
+                abs(centerY - imageHeight / 2f) <= imageHeight * 0.25f
+        }
+
+    val isWellPositioned: Boolean
+        get() = faceCount == 1 && bounds != null && isCentered &&
+            faceWidthRatio in 0.22f..0.68f && abs(roll) <= 12f
+
     val isFrontal: Boolean
-        get() = faceCount == 1 && kotlin.math.abs(yaw) <= 15f && kotlin.math.abs(roll) <= 12f
+        get() = isWellPositioned && abs(yaw) <= 15f && abs(pitch) <= 15f
 
     val eyesClosed: Boolean
         get() = leftEyeOpen != null && rightEyeOpen != null && leftEyeOpen < 0.35f && rightEyeOpen < 0.35f
@@ -90,13 +111,16 @@ class BlinkLiveness {
     }
 }
 
-private fun Face.toObservation(total: Int) = FaceObservation(
+private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = FaceObservation(
     faceCount = total,
     bounds = boundingBox,
     leftEyeOpen = leftEyeOpenProbability,
     rightEyeOpen = rightEyeOpenProbability,
+    pitch = headEulerAngleX,
     yaw = headEulerAngleY,
     roll = headEulerAngleZ,
+    imageWidth = imageWidth,
+    imageHeight = imageHeight,
 )
 
 private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
@@ -119,13 +143,15 @@ private fun analyzer(
     }
 
     val rotation = imageProxy.imageInfo.rotationDegrees
+    val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
+    val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
     val image = InputImage.fromMediaImage(mediaImage, rotation)
     detector.process(image)
         .addOnSuccessListener { faces ->
             val observation = if (faces.size == 1) {
-                faces.first().toObservation(faces.size)
+                faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
             } else {
-                FaceObservation(faceCount = faces.size)
+                FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
             }
             onObservation(observation)
 
