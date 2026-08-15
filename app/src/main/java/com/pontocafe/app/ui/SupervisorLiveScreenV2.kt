@@ -38,7 +38,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.PausaSupervisor
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 fun SupervisorLiveScreenV2(
@@ -47,23 +46,14 @@ fun SupervisorLiveScreenV2(
 ) {
     val state = viewModel.state
     val lifecycleOwner = LocalLifecycleOwner.current
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val now = System.currentTimeMillis()
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            now = System.currentTimeMillis()
             viewModel.atualizarPausasAoVivoSilencioso()
-            launch {
-                while (true) {
-                    delay(1_000)
-                    now = System.currentTimeMillis()
-                }
-            }
-            launch {
-                while (true) {
-                    delay(5_000)
-                    viewModel.atualizarPausasAoVivoSilencioso()
-                }
+            while (true) {
+                delay(5_000)
+                viewModel.atualizarPausasAoVivoSilencioso()
             }
         }
     }
@@ -71,7 +61,6 @@ fun SupervisorLiveScreenV2(
     val alert = rememberSupervisorLiveActivityAlert(
         pausasAtivas = state.pausasAtivas,
         enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
-        agoraEmMillis = now,
     )
     val pendingFaces = state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() }
     val overdue = state.pausasAtivas.count { supervisorLiveSeconds(it, now) > it.limiteSegundos }
@@ -107,6 +96,7 @@ fun SupervisorLiveScreenV2(
             StatusPill(
                 text = when {
                     !state.conexaoAoVivoOk -> "Conexão instável"
+                    secondsSinceUpdate != null && secondsSinceUpdate < 10 -> "Sincronizado"
                     secondsSinceUpdate != null -> "Atualizado há ${secondsSinceUpdate}s"
                     else -> "Conectando"
                 },
@@ -194,7 +184,7 @@ fun SupervisorLiveScreenV2(
             }
         } else {
             items(state.pausasAtivas, key = { "pause-${it.id}" }) { pause ->
-                LivePauseCard(pause, now)
+                LivePauseCard(pause)
             }
         }
 
@@ -227,10 +217,16 @@ fun SupervisorLiveScreenV2(
 }
 
 @Composable
-private fun LivePauseCard(
-    pause: PausaSupervisor,
-    now: Long,
-) {
+private fun LivePauseCard(pause: PausaSupervisor) {
+    var now by remember(pause.id) { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(pause.id) {
+        while (true) {
+            delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+
     val seconds = supervisorLiveSeconds(pause, now)
     val overdue = seconds > pause.limiteSegundos
     val remaining = (pause.limiteSegundos - seconds).coerceAtLeast(0)
