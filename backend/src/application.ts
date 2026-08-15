@@ -30,6 +30,17 @@ function redactAuthMessage(message: string): string {
     .slice(0, 240)
 }
 
+function classifyAuthMessage(message: string): string {
+  const combined = message.toLowerCase()
+  if (combined.includes('different request') || combined.includes('different io context')) return 'AUTH_CROSS_REQUEST_IO'
+  if (combined.includes('contexto de banco') || combined.includes('database context')) return 'AUTH_DATABASE_CONTEXT'
+  if (combined.includes('connection') || combined.includes('pool') || combined.includes('socket')) return 'AUTH_DATABASE_CONNECTION'
+  if (combined.includes('column') || combined.includes('relation') || combined.includes('does not exist')) return 'AUTH_DATABASE_SCHEMA'
+  if (combined.includes('permission') || combined.includes('privilege')) return 'AUTH_DATABASE_PERMISSION'
+  if (combined.includes('scrypt') || combined.includes('crypto') || combined.includes('password')) return 'AUTH_PASSWORD_CRYPTO'
+  return 'AUTH_RUNTIME_FAILURE'
+}
+
 function safeAuthFailure(error: unknown) {
   const err = error instanceof Error ? error : new Error(String(error))
   const cause = err.cause && typeof err.cause === 'object' ? err.cause as Record<string, unknown> : null
@@ -39,27 +50,48 @@ function safeAuthFailure(error: unknown) {
     : typeof cause?.code === 'string'
       ? cause.code
       : null
-  const combined = `${err.message} ${causeMessage}`.toLowerCase()
-
-  let codigo = 'AUTH_RUNTIME_FAILURE'
-  if (combined.includes('different request') || combined.includes('different io context')) codigo = 'AUTH_CROSS_REQUEST_IO'
-  else if (combined.includes('contexto de banco') || combined.includes('database context')) codigo = 'AUTH_DATABASE_CONTEXT'
-  else if (combined.includes('connection') || combined.includes('pool') || combined.includes('socket')) codigo = 'AUTH_DATABASE_CONNECTION'
-  else if (combined.includes('column') || combined.includes('relation') || combined.includes('does not exist')) codigo = 'AUTH_DATABASE_SCHEMA'
-  else if (combined.includes('permission') || combined.includes('privilege')) codigo = 'AUTH_DATABASE_PERMISSION'
-  else if (combined.includes('scrypt') || combined.includes('crypto') || combined.includes('password')) codigo = 'AUTH_PASSWORD_CRYPTO'
+  const message = causeMessage || err.message
 
   return {
-    codigo,
+    codigo: classifyAuthMessage(message),
     tipo: err.name,
     codigoInterno: rawCode && /^[A-Z0-9_]{2,16}$/i.test(rawCode) ? rawCode : null,
-    mensagem: redactAuthMessage(causeMessage || err.message),
+    mensagem: redactAuthMessage(message),
+  }
+}
+
+async function safeAuthResponseFailure(response: Response) {
+  let rawBody = ''
+  try {
+    rawBody = await response.clone().text()
+  } catch {
+    rawBody = ''
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  const message = rawBody || `Better Auth retornou HTTP ${response.status} sem corpo.`
+
+  return {
+    codigo: classifyAuthMessage(message),
+    tipo: 'BetterAuthResponse',
+    codigoInterno: null,
+    statusOriginal: response.status,
+    contentType: contentType.slice(0, 80),
+    mensagem: redactAuthMessage(message),
   }
 }
 
 app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   try {
-    return await auth.handler(c.req.raw)
+    const response = await auth.handler(c.req.raw)
+
+    if (response.status >= 500) {
+      const diagnostico = await safeAuthResponseFailure(response)
+      console.error(JSON.stringify({ evento: 'better_auth_5xx_response', ...diagnostico }))
+      return c.json({ erro: 'Falha interna de autenticação.', diagnostico }, 500)
+    }
+
+    return response
   } catch (error) {
     const diagnostico = safeAuthFailure(error)
     console.error(JSON.stringify({ evento: 'better_auth_runtime_failure', ...diagnostico }))
