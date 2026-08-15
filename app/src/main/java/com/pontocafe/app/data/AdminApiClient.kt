@@ -79,6 +79,12 @@ data class DeviceLifecycleResponse(
     val nome: String,
     val ativo: Boolean,
 )
+data class DeviceDeleteResponse(
+    val ok: Boolean,
+    val dispositivoId: String,
+    val nome: String,
+    val excluido: Boolean,
+)
 data class DeviceTokenRotationResponse(
     val ok: Boolean,
     val dispositivoId: String,
@@ -169,6 +175,12 @@ data class CreateCollaboratorRequest(
     val turno: String?,
 )
 
+data class UpdateCollaboratorRequest(
+    val nome: String,
+    val setor: String?,
+    val turno: String?,
+)
+
 data class BiometricEnrollmentRequest(
     val embedding: List<Float>,
     val modelo: String,
@@ -217,6 +229,8 @@ interface AdminApi {
     suspend fun deactivateDevice(@Path("id") id: String): DeviceLifecycleResponse
     @POST("admin/devices/{id}/novo-token")
     suspend fun rotateDeviceToken(@Path("id") id: String): DeviceTokenRotationResponse
+    @POST("admin/devices/{id}/excluir")
+    suspend fun deleteDevice(@Path("id") id: String): DeviceDeleteResponse
 
     @GET("admin/auditoria") suspend fun audit(
         @Query("limite") limite: Int = 100,
@@ -228,6 +242,8 @@ interface AdminApi {
 
     @GET("gestao/colaboradores") suspend fun collaborators(): AdminCollaboratorsResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
+    @PUT("gestao/colaboradores/{id}")
+    suspend fun updateCollaborator(@Path("id") id: String, @Body body: UpdateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}/biometria")
     suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
 
@@ -278,6 +294,7 @@ class AdminRepository(
     }
     suspend fun deactivateDevice(deviceId: String) = api.deactivateDevice(deviceId)
     suspend fun rotateDeviceToken(deviceId: String) = api.rotateDeviceToken(deviceId)
+    suspend fun deleteDevice(deviceId: String) = api.deleteDevice(deviceId)
 
     suspend fun audit(limit: Int = 100, action: String? = null) = api.audit(limit, action).eventos
     suspend fun operationalSummary() = api.operationalSummary().resumo
@@ -292,6 +309,15 @@ class AdminRepository(
             turno = shift?.trim()?.ifBlank { null },
         ),
     )
+    suspend fun updateCollaborator(collaboratorId: String, name: String, sector: String?, shift: String?) =
+        api.updateCollaborator(
+            collaboratorId,
+            UpdateCollaboratorRequest(
+                nome = name.trim(),
+                setor = sector?.trim()?.ifBlank { null },
+                turno = shift?.trim()?.ifBlank { null },
+            ),
+        )
 
     @Deprecated("Matrícula não é mais utilizada")
     suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
