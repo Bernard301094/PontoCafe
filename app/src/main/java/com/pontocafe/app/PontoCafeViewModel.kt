@@ -82,15 +82,29 @@ class PontoCafeViewModel(
             )
             return
         }
-        tokenStore.save(normalizedToken)
-        faceCatalogStore.clear()
-        state = PontoCafeUiState(
-            deviceConfigured = true,
-            scanning = true,
-            scanCycle = state.scanCycle + 1,
-            mensagem = "Dispositivo configurado com sucesso.",
-        )
-        sincronizarBiometrias(force = true)
+        if (state.carregando) return
+
+        viewModelScope.launch {
+            state = state.copy(carregando = true, mensagem = null, erro = null)
+            runCatching { repository.activateDevice(normalizedToken) }
+                .onSuccess { deviceToken ->
+                    tokenStore.save(deviceToken)
+                    faceCatalogStore.clear()
+                    state = PontoCafeUiState(
+                        deviceConfigured = true,
+                        scanning = true,
+                        scanCycle = state.scanCycle + 1,
+                        mensagem = "Dispositivo configurado com sucesso.",
+                    )
+                    sincronizarBiometrias(force = true)
+                }
+                .onFailure { error ->
+                    state = state.copy(
+                        carregando = false,
+                        erro = PontoCafeRepository.mensagemErro(error),
+                    )
+                }
+        }
     }
 
     fun removerConfiguracao() {
