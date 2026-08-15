@@ -14,7 +14,6 @@ import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
 import com.pontocafe.app.data.AuditEvent
 import com.pontocafe.app.data.Colaborador
-import com.pontocafe.app.ui.NewAccountInput
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
@@ -26,11 +25,11 @@ enum class AdminDestination {
     HOME,
     NEW_ACCOUNT,
     USER_DETAIL,
-    AUTHORIZATION,
-    SETTINGS,
     COLLABORATORS,
     NEW_COLLABORATOR,
     BIOMETRIC_ENROLLMENT,
+    SETTINGS,
+    AUTHORIZATION,
     AUDIT,
 }
 
@@ -40,67 +39,92 @@ data class AdminUiState(
     val primeiroAdminNecessario: Boolean = false,
     val instalacaoConfigurada: Boolean = false,
     val usuarios: List<AdminUser> = emptyList(),
+    val selecionado: AdminUser? = null,
     val colaboradores: List<Colaborador> = emptyList(),
+    val colaboradorSelecionado: Colaborador? = null,
     val regrasCafe: List<AdminCoffeeRule> = emptyList(),
     val auditoria: List<AuditEvent> = emptyList(),
     val resumoOperacional: AdminOperationalSummary? = null,
-    val selecionado: AdminUser? = null,
-    val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
     val deviceTokenGerado: String? = null,
     val deviceNome: String? = null,
     val authorizationCode: String? = null,
-    val authorizationEmployeeName: String? = null,
-    val authorizationExpiresSeconds: Int? = null,
+    val authorizationExpirySeconds: Int? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
 
 class AdminViewModel(
     private val repository: AdminRepository,
-    private val embeddingEngine: FaceEmbeddingEngine,
+    val embeddingEngine: FaceEmbeddingEngine,
 ) : ViewModel() {
     var state by mutableStateOf(AdminUiState())
         private set
 
     private val biometricSamples = mutableListOf<FloatArray>()
 
-    val faceModelReady: Boolean get() = embeddingEngine.isReady
-
     init {
-        carregarEstadoInicial()
+        inicializar()
     }
 
-    private fun carregarEstadoInicial() {
+    private fun inicializar() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null)
             runCatching { repository.setupStatus() }
-                .onSuccess { setup ->
-                    if (repository.hasSession() && !setup.primeiroAdminNecessario) {
-                        carregarUsuariosInterno()
-                    } else {
-                        state = state.copy(
+                .onSuccess { status ->
+                    when {
+                        status.primeiroAdminNecessario -> state = state.copy(
                             carregando = false,
-                            primeiroAdminNecessario = setup.primeiroAdminNecessario,
-                            instalacaoConfigurada = setup.instalacaoConfigurada,
-                            destination = if (setup.primeiroAdminNecessario) AdminDestination.FIRST_SETUP else AdminDestination.LOGIN,
+                            primeiroAdminNecessario = true,
+                            instalacaoConfigurada = status.instalacaoConfigurada,
+                            destination = AdminDestination.FIRST_SETUP,
+                        )
+                        repository.hasSession() -> carregarUsuariosInterno()
+                        else -> state = state.copy(
+                            carregando = false,
+                            primeiroAdminNecessario = false,
+                            instalacaoConfigurada = status.instalacaoConfigurada,
+                            destination = AdminDestination.LOGIN,
                         )
                     }
                 }
-                .onFailure { error ->
-                    state = if (repository.hasSession()) {
-                        state.copy(
-                            carregando = false,
-                            destination = AdminDestination.HOME,
-                            erro = "Sem conexão com o servidor. Sua sessão foi preservada e os dados serão atualizados quando a conexão voltar.",
-                        )
-                    } else {
-                        state.copy(carregando = false, destination = AdminDestination.LOGIN, erro = AdminRepository.message(error))
-                    }
+                .onFailure {
+                    state = state.copy(
+                        carregando = false,
+                        destination = if (repository.hasSession()) AdminDestination.HOME else AdminDestination.LOGIN,
+                        erro = AdminRepository.message(it),
+                    )
                 }
         }
+    }
+
+    private suspend fun carregarUsuariosInterno(message: String? = null) {
+        runCatching { repository.users() }
+            .onSuccess { users ->
+                val summary = runCatching { repository.operationalSummary() }.getOrNull()
+                state = state.copy(
+                    carregando = false,
+                    destination = AdminDestination.HOME,
+                    usuarios = users,
+                    resumoOperacional = summary,
+                    selecionado = null,
+                    mensagem = message,
+                    erro = null,
+                )
+            }
+            .onFailure { error ->
+                state = if (repository.hasSession()) {
+                    state.copy(
+                        carregando = false,
+                        destination = AdminDestination.HOME,
+                        erro = "Sem conexão com o servidor. Sua sessão foi preservada e os dados serão atualizados quando a conexão voltar.",
+                    )
+                } else {
+                    state.copy(carregando = false, destination = AdminDestination.LOGIN, erro = AdminRepository.message(error))
+                }
+            }
     }
 
     fun login(email: String, senha: String) {
@@ -132,7 +156,7 @@ class AdminViewModel(
         state = state.copy(destination = AdminDestination.NEW_ACCOUNT, erro = null, mensagem = null)
     }
 
-    fun criarConta(input: NewAccountInput) {
+    fun criarConta(input: com.pontocafe.app.ui.NewAccountInput) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.createUser(input.nome, input.email, input.senha, input.perfil.name) }
@@ -318,12 +342,14 @@ class AdminViewModel(
                     return@launch
                 }
 
-                val combined = combineBiometricSamples(biometricSamples)
+                val samplesForValidation = biometricSamples.map { it.copyOf() }
+                val combined = combineBiometricSamples(samplesForValidation)
                 repository.saveBiometric(
                     collaboratorId = colaborador.id,
                     embedding = combined,
                     model = embeddingEngine.modelName,
                     modelVersion = embeddingEngine.modelVersion,
+                    samples = samplesForValidation,
                 )
 
                 val colaboradores = repository.collaborators()
@@ -335,7 +361,7 @@ class AdminViewModel(
                     colaboradorSelecionado = null,
                     biometricStepIndex = 0,
                     biometricSamplesCaptured = 0,
-                    mensagem = "Rosto de ${colaborador.nome} cadastrado com 5 amostras com sucesso.",
+                    mensagem = "Rosto de ${colaborador.nome} cadastrado com 5 amostras e verificação de duplicidade.",
                     erro = null,
                 )
             } catch (error: Throwable) {
@@ -389,20 +415,28 @@ class AdminViewModel(
         }
     }
 
-    fun gerarTokenDispositivo(nome: String) {
+    /**
+     * Fluxo legado mantido apenas por compatibilidade com telas antigas. As telas
+     * 0.7 usam AdminDeviceViewModel e sempre exigem PIN antes de gerar o código.
+     */
+    fun gerarTokenDispositivo(nome: String, pin: String) {
         if (nome.trim().length < 2) {
             state = state.copy(erro = "Informe um nome para o dispositivo.")
             return
         }
+        if (!Regex("^\\d{4,12}$").matches(pin.trim())) {
+            state = state.copy(erro = "O PIN deve ter entre 4 e 12 números.")
+            return
+        }
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, deviceTokenGerado = null)
-            runCatching { repository.createDevice(nome) }
+            runCatching { repository.createDevice(nome, pin) }
                 .onSuccess { device ->
                     state = state.copy(
                         carregando = false,
                         deviceTokenGerado = device.token,
                         deviceNome = device.nome,
-                        mensagem = "Token gerado. Copie agora: ele não será exibido novamente.",
+                        mensagem = "Código gerado. Copie agora: ele não será exibido novamente.",
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -434,26 +468,20 @@ class AdminViewModel(
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
             runCatching { repository.createAuthorization(colaborador.id, periodo, motivo) }
-                .onSuccess { authorization ->
+                .onSuccess { auth ->
                     state = state.copy(
                         carregando = false,
-                        authorizationCode = authorization.codigo,
-                        authorizationEmployeeName = colaborador.nome,
-                        authorizationExpiresSeconds = authorization.expiraEmSegundos,
-                        mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
+                        authorizationCode = auth.codigo,
+                        authorizationExpirySeconds = auth.expiraEmSegundos,
+                        mensagem = "Código temporário gerado para ${colaborador.nome}.",
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun limparAutorizacaoGerada() {
-        state = state.copy(
-            authorizationCode = null,
-            authorizationEmployeeName = null,
-            authorizationExpiresSeconds = null,
-            mensagem = null,
-        )
+    fun limparAutorizacao() {
+        state = state.copy(authorizationCode = null, authorizationExpirySeconds = null, mensagem = null)
     }
 
     fun voltarHome() {
@@ -464,87 +492,78 @@ class AdminViewModel(
             colaboradorSelecionado = null,
             biometricStepIndex = 0,
             biometricSamplesCaptured = 0,
-            authorizationCode = null,
-            authorizationEmployeeName = null,
-            authorizationExpiresSeconds = null,
             erro = null,
+            mensagem = null,
         )
     }
 
     fun logout() {
-        biometricSamples.clear()
         viewModelScope.launch {
-            state = state.copy(carregando = true)
+            state = state.copy(carregando = true, erro = null)
             repository.signOut()
-            state = AdminUiState(destination = AdminDestination.LOGIN, mensagem = "Sessão encerrada.")
+            state = AdminUiState(destination = AdminDestination.LOGIN, carregando = false)
         }
     }
 
-    fun limparAviso() {
+    fun restaurarNavegacao(destinationName: String?, userId: String?, collaboratorId: String?) {
+        val destination = destinationName?.let { name ->
+            runCatching { AdminDestination.valueOf(name) }.getOrNull()
+        } ?: return
+        if (destination in setOf(AdminDestination.LOADING, AdminDestination.LOGIN, AdminDestination.FIRST_SETUP)) return
+
+        when (destination) {
+            AdminDestination.HOME -> state = state.copy(destination = AdminDestination.HOME)
+            AdminDestination.COLLABORATORS -> abrirColaboradores()
+            AdminDestination.SETTINGS -> abrirConfiguracoes()
+            AdminDestination.AUDIT -> abrirAuditoria()
+            AdminDestination.AUTHORIZATION -> abrirAutorizacao()
+            AdminDestination.USER_DETAIL -> {
+                val user = state.usuarios.firstOrNull { it.id == userId }
+                if (user != null) selecionarUsuario(user) else state = state.copy(destination = AdminDestination.HOME)
+            }
+            AdminDestination.NEW_ACCOUNT -> state = state.copy(destination = AdminDestination.NEW_ACCOUNT)
+            AdminDestination.NEW_COLLABORATOR -> state = state.copy(destination = AdminDestination.NEW_COLLABORATOR)
+            AdminDestination.BIOMETRIC_ENROLLMENT -> {
+                val collaborator = state.colaboradores.firstOrNull { it.id == collaboratorId }
+                if (collaborator != null) cadastrarOuAtualizarRosto(collaborator) else abrirColaboradores()
+            }
+            AdminDestination.LOADING,
+            AdminDestination.LOGIN,
+            AdminDestination.FIRST_SETUP -> Unit
+        }
+    }
+
+    fun limparFeedback() {
         state = state.copy(erro = null, mensagem = null)
-    }
-
-    fun formatarTempo(segundos: Int): String = "%02d:%02d".format(segundos / 60, segundos % 60)
-
-    private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
-        require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
-        val dimension = samples.first().size
-        require(dimension > 0 && samples.all { it.size == dimension }) { "Amostras faciais incompatíveis." }
-
-        val combined = FloatArray(dimension)
-        samples.forEach { sample ->
-            for (index in 0 until dimension) combined[index] += sample[index]
-        }
-        for (index in combined.indices) combined[index] /= samples.size.toFloat()
-
-        var sumSquares = 0.0
-        combined.forEach { value -> sumSquares += value * value }
-        val norm = sqrt(sumSquares).toFloat()
-        require(norm > 1e-12f) { "Não foi possível consolidar as amostras faciais." }
-        for (index in combined.indices) combined[index] /= norm
-        return combined
-    }
-
-    private suspend fun carregarUsuariosInterno(message: String? = null) {
-        runCatching { repository.users() }
-            .onSuccess { usuarios ->
-                val colaboradores = runCatching { repository.collaborators() }.getOrElse { state.colaboradores }
-                val resumo = runCatching { repository.operationalSummary() }.getOrNull()
-                state = state.copy(
-                    carregando = false,
-                    destination = AdminDestination.HOME,
-                    usuarios = usuarios,
-                    colaboradores = colaboradores,
-                    resumoOperacional = resumo,
-                    selecionado = null,
-                    mensagem = message,
-                    erro = null,
-                )
-            }
-            .onFailure { error ->
-                if (AdminRepository.isAuthFailure(error)) {
-                    repository.clearSession()
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.LOGIN,
-                        erro = "Sua sessão administrativa expirou ou não possui acesso de administrador.",
-                    )
-                } else {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.HOME,
-                        erro = "Sem conexão. Sua sessão foi preservada e os últimos dados disponíveis continuam na tela.",
-                    )
-                }
-            }
     }
 
     companion object {
         private const val BIOMETRIC_SAMPLE_COUNT = 5
+
+        fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
+            require(samples.isNotEmpty()) { "Nenhuma amostra biométrica foi capturada." }
+            val dimension = samples.first().size
+            require(dimension > 0 && samples.all { it.size == dimension }) { "As amostras biométricas possuem dimensões incompatíveis." }
+
+            val average = FloatArray(dimension)
+            samples.forEach { sample ->
+                for (index in sample.indices) average[index] += sample[index]
+            }
+            for (index in average.indices) average[index] /= samples.size.toFloat()
+
+            var normSquared = 0.0
+            average.forEach { value -> normSquared += value.toDouble() * value.toDouble() }
+            val norm = sqrt(normSquared).toFloat()
+            require(norm > 0f && norm.isFinite()) { "Não foi possível normalizar as amostras biométricas." }
+            for (index in average.indices) average[index] /= norm
+            return average
+        }
     }
 }
 
-class AdminViewModelFactory(private val creator: () -> AdminViewModel) : ViewModelProvider.Factory {
+class AdminViewModelFactory(
+    private val creator: () -> AdminViewModel,
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(AdminViewModel::class.java))
