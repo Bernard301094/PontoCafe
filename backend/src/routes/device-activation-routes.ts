@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
-import { query } from '../db.js'
+import { transaction } from '../db.js'
+import { errorPayload, logServerError } from '../observability.js'
 import { hashDeviceUnlockPin, hashToken, newDeviceToken, newId } from '../security.js'
 import { parseJson } from './shared.js'
 
@@ -15,60 +16,67 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
   }))
   if (!body.ok) return body.response
 
-  try {
+  const actor = c.get('user')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const id = newId()
     const token = newDeviceToken(10)
     const unlockPinHash = body.data.pin ? hashDeviceUnlockPin(id, body.data.pin) : null
-    const details = JSON.stringify({
-      nome: body.data.nome,
-      pinConfigurado: unlockPinHash !== null,
-    })
 
-    // Dispositivo e auditoria são persistidos pela mesma instrução SQL. Além de
-    // manter atomicidade, isso evita abrir uma transação explícita sobre
-    // Hyperdrive apenas para duas escritas relacionadas.
-    const created = await query<{ id: string; nome: string }>(
-      `with novo_dispositivo as (
-         insert into dispositivos (id,nome,token_hash,unlock_pin_hash,unlock_pin_updated_at)
-         values ($1,$2,$3,$4,case when $4 is null then null else now() end)
-         returning id,nome
-       ), auditoria_criacao as (
-         insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
-         select $5,'ADMIN','CRIAR_DISPOSITIVO','DISPOSITIVO',id,$6::jsonb
-           from novo_dispositivo
-         returning id
-       )
-       select id,nome from novo_dispositivo`,
-      [
-        id,
-        body.data.nome,
-        hashToken(token),
-        unlockPinHash,
-        c.get('user').id,
-        details,
-      ],
-    )
+    try {
+      const device = await transaction(async (client) => {
+        const created = await client.query<{ id: string; nome: string }>(
+          `insert into dispositivos (id,nome,token_hash,unlock_pin_hash,unlock_pin_updated_at)
+           values ($1,$2,$3,$4,case when $4 is null then null else now() end)
+           returning id,nome`,
+          [id, body.data.nome, hashToken(token), unlockPinHash],
+        )
+        const row = created.rows[0]
+        if (!row) throw new Error('DEVICE_NOT_PERSISTED')
 
-    const device = created.rows[0]
-    if (!device) throw new Error('DEVICE_NOT_PERSISTED')
+        await client.query(
+          `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+           values ($1,'ADMIN','CRIAR_DISPOSITIVO','DISPOSITIVO',$2,$3::jsonb)`,
+          [
+            actor.id,
+            row.id,
+            JSON.stringify({
+              nome: row.nome,
+              pinConfigurado: unlockPinHash !== null,
+            }),
+          ],
+        )
 
-    return c.json({
-      id: device.id,
-      nome: device.nome,
-      token,
-      pinConfigurado: unlockPinHash !== null,
-      aviso: 'Este token de 10 caracteres é exibido uma única vez.',
-    }, 201)
-  } catch (error) {
-    const databaseError = error as { code?: string; constraint?: string; name?: string }
-    console.error('Falha ao criar dispositivo.', {
-      code: databaseError.code ?? null,
-      constraint: databaseError.constraint ?? null,
-      name: databaseError.name ?? null,
-    })
-    return c.json({
-      erro: 'Não foi possível criar o dispositivo. Tente novamente em alguns segundos.',
-      codigo: 'DEVICE_CREATE_FAILED',
-    }, 500)
+        return row
+      })
+
+      return c.json({
+        id: device.id,
+        nome: device.nome,
+        token,
+        pinConfigurado: unlockPinHash !== null,
+        aviso: 'Este código de ativação de 10 caracteres é exibido uma única vez.',
+        requestId: c.get('requestId'),
+      }, 201)
+    } catch (error) {
+      const databaseError = error as { code?: string; constraint?: string }
+      const tokenCollision = databaseError.code === '23505' && databaseError.constraint === 'dispositivos_token_hash_key'
+      if (tokenCollision && attempt < 2) continue
+
+      logServerError(c, 'device_create_failure', error, {
+        attempt: attempt + 1,
+        tokenCollision,
+      })
+      return c.json(
+        errorPayload(
+          c,
+          'Não foi possível criar o dispositivo. Tente novamente em alguns segundos.',
+          tokenCollision ? 'DEVICE_TOKEN_COLLISION' : 'DEVICE_CREATE_FAILED',
+        ),
+        500,
+      )
+    }
   }
+
+  return c.json(errorPayload(c, 'Não foi possível gerar um código de ativação único.', 'DEVICE_TOKEN_COLLISION'), 500)
 })
