@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,8 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LockClock
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -23,14 +31,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.AdminCoffeeRule
 
 @Composable
-fun AdminRulesScreen(viewModel: AdminViewModel) {
+fun AdminRulesScreen(
+    viewModel: AdminViewModel,
+    onDevicesClick: () -> Unit,
+) {
     val state = viewModel.state
     LazyColumn(
         modifier = Modifier
@@ -38,29 +50,119 @@ fun AdminRulesScreen(viewModel: AdminViewModel) {
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = PontoCafeSpacing.lg),
+        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
     ) {
         item(key = "header") {
             PontoCafeScreenHeader(
-                title = "Horários e tempo de café",
-                onBack = viewModel::voltarHome,
-                backLabel = "Painel",
+                title = "Gestão",
+                eyebrow = "Administração",
             )
         }
         item(key = "intro") {
             Text(
-                "As alterações entram em vigor no servidor e valem para todos os dispositivos.",
+                "Configurações operacionais, segurança e rastreabilidade em um único lugar.",
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        item(key = "feedback") {
-            AdminFeedback(viewModel)
+        item(key = "feedback") { AdminFeedback(viewModel) }
+
+        item(key = "management-title") {
+            SectionTitle("Ferramentas", "Acesse as áreas administrativas menos frequentes.")
+        }
+        item(key = "management-grid-1") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                ManagementTile(
+                    title = "Dispositivos",
+                    subtitle = "PIN, tokens e saúde",
+                    icon = Icons.Default.Devices,
+                    onClick = onDevicesClick,
+                    modifier = Modifier.weight(1f),
+                )
+                ManagementTile(
+                    title = "Autorizações",
+                    subtitle = "Exceções fora do horário",
+                    icon = Icons.Default.LockClock,
+                    onClick = viewModel::abrirAutorizacao,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item(key = "management-grid-2") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                ManagementTile(
+                    title = "Auditoria",
+                    subtitle = "Ações e segurança",
+                    icon = Icons.Default.History,
+                    onClick = viewModel::abrirAuditoria,
+                    modifier = Modifier.weight(1f),
+                )
+                ManagementTile(
+                    title = "Regras",
+                    subtitle = "Horários e duração",
+                    icon = Icons.Default.Schedule,
+                    onClick = {},
+                    modifier = Modifier.weight(1f),
+                    enabled = false,
+                )
+            }
+        }
+
+        item(key = "rules-title") {
+            SectionTitle(
+                "Horários e tempo de café",
+                "As alterações entram em vigor no servidor e valem para todos os dispositivos.",
+            )
         }
         state.regrasCafe.forEach { regra ->
             item(key = "rule-${regra.periodo}") {
                 CoffeeRuleEditor(viewModel, regra)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManagementTile(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Card(
+        modifier = modifier,
+        onClick = onClick,
+        enabled = enabled,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -74,21 +176,36 @@ private fun CoffeeRuleEditor(viewModel: AdminViewModel, regra: AdminCoffeeRule) 
     var ativo by remember(regra) { mutableStateOf(regra.ativo) }
     var erroLocal by remember(regra) { mutableStateOf<String?>(null) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    if (regra.periodo == "MANHA") "Período da manhã" else "Período da tarde",
-                    fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.titleMedium,
-                )
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    Text(
+                        if (regra.periodo == "MANHA") "Período da manhã" else "Período da tarde",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        if (ativo) "Regra ativa" else "Regra pausada",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Switch(checked = ativo, onCheckedChange = { ativo = it })
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 OutlinedTextField(
                     value = inicio,
                     onValueChange = { inicio = it.take(5) },
@@ -134,7 +251,7 @@ private fun CoffeeRuleEditor(viewModel: AdminViewModel, regra: AdminCoffeeRule) 
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !viewModel.state.carregando,
             ) {
-                Text("Salvar alterações")
+                Text("Salvar regra")
             }
         }
     }
