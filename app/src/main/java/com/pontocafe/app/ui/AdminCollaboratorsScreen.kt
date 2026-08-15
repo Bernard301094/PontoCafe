@@ -30,9 +30,7 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
     var busca by remember { mutableStateOf("") }
     val filtrados = state.colaboradores.filter {
-        busca.isBlank() ||
-            it.nome.contains(busca, ignoreCase = true) ||
-            (it.matricula?.contains(busca, ignoreCase = true) == true)
+        busca.isBlank() || it.nome.contains(busca, ignoreCase = true)
     }
 
     Column(
@@ -60,7 +58,7 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
             onValueChange = { busca = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Buscar colaborador") },
-            placeholder = { Text("Nome ou matrícula") },
+            placeholder = { Text("Nome") },
             singleLine = true,
         )
 
@@ -75,17 +73,21 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
-                        val detalhe = listOfNotNull(colaborador.matricula, colaborador.setor, colaborador.turno)
+                        val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
                             .filter { it.isNotBlank() }
                             .joinToString(" · ")
                         if (detalhe.isNotBlank()) {
                             Text(detalhe, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text(
+                            if (colaborador.rostoCadastrado) "Rosto cadastrado" else "Pendente de registro de rosto",
+                            color = if (colaborador.rostoCadastrado) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        )
                         Button(
                             onClick = { viewModel.cadastrarOuAtualizarRosto(colaborador) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Cadastrar ou atualizar rosto")
+                            Text(if (colaborador.rostoCadastrado) "Atualizar rosto" else "Cadastrar rosto")
                         }
                     }
                 }
