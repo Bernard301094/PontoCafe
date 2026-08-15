@@ -138,6 +138,7 @@ app.route('/ponto', pontoStatusRoutes)
 app.route('/ponto', offlineRoutes)
 app.route('/supervisor', liveRoutes)
 app.route('/supervisor', reportRoutes)
+app.route('/supervisor', authorizationRoutes)
 
 app.notFound((c) => c.json({ erro: 'Rota não encontrada.' }, 404))
 app.onError((error, c) => {
