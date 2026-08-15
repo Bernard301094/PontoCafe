@@ -10,6 +10,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 
@@ -32,6 +34,12 @@ data class PausaSupervisor(
 
 data class PausasSupervisorResponse(val pausas: List<PausaSupervisor>)
 
+data class CollaboratorMutationResponse(
+    val ok: Boolean = true,
+    val excluido: Boolean? = null,
+    val rostoExcluido: Boolean? = null,
+)
+
 interface SupervisorApi {
     @POST("api/auth/sign-in/email")
     suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
@@ -44,6 +52,24 @@ interface SupervisorApi {
 
     @GET("supervisor/pausas")
     suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
+
+    @GET("gestao/colaboradores")
+    suspend fun collaborators(): ColaboradoresResponse
+
+    @POST("gestao/colaboradores")
+    suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
+
+    @PUT("gestao/colaboradores/{id}/biometria")
+    suspend fun saveBiometric(
+        @Path("id") id: String,
+        @Body body: BiometricEnrollmentRequest,
+    ): BiometricEnrollmentResponse
+
+    @POST("gestao/colaboradores/{id}/biometria/excluir")
+    suspend fun deleteBiometric(@Path("id") id: String): CollaboratorMutationResponse
+
+    @POST("gestao/colaboradores/{id}/excluir")
+    suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
 class SupervisorRepository(
@@ -66,6 +92,38 @@ class SupervisorRepository(
 
     suspend fun pausasAtivas() = api.pausasAtivas().pausas
     suspend fun historico(data: String? = null) = api.historico(data).pausas
+    suspend fun collaborators() = api.collaborators().colaboradores
+
+    suspend fun createCollaborator(
+        registration: String?,
+        name: String,
+        sector: String?,
+        shift: String?,
+    ) = api.createCollaborator(
+        CreateCollaboratorRequest(
+            matricula = registration?.trim()?.ifBlank { null },
+            nome = name.trim(),
+            setor = sector?.trim()?.ifBlank { null },
+            turno = shift?.trim()?.ifBlank { null },
+        ),
+    )
+
+    suspend fun saveBiometric(
+        collaboratorId: String,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+    ) = api.saveBiometric(
+        collaboratorId,
+        BiometricEnrollmentRequest(
+            embedding = embedding.toList(),
+            modelo = model,
+            versaoModelo = modelVersion,
+        ),
+    )
+
+    suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
+    suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
 
     suspend fun signOut() {
         runCatching { api.signOut() }
