@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -103,7 +102,7 @@ fun FaceKioskScreen(
     val liveness = remember { BlinkLiveness() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
-    var stableChallengeFrames by remember { mutableStateOf(0) }
+    val stableChallengeFrames = remember { intArrayOf(0) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
@@ -179,15 +178,10 @@ fun FaceKioskScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.sincronizarBiometrias(force = false)
-        viewModel.atualizarConectividadeESincronizar()
-    }
-
     LaunchedEffect(state.scanCycle) {
         liveness.reset()
         challenge = KioskLivenessChallenge.entries.random()
-        stableChallengeFrames = 0
+        stableChallengeFrames[0] = 0
         captureRequested = false
         detectedFaces = 0
         livenessState = LivenessState.POSICIONE_ROSTO
@@ -214,14 +208,14 @@ fun FaceKioskScreen(
                         } else {
                             livenessState = if (observation.isWellPositioned) LivenessState.PISQUE else LivenessState.POSICIONE_ROSTO
                             if (challenge.accepts(observation)) {
-                                stableChallengeFrames += 1
-                                if (stableChallengeFrames >= 4) {
+                                stableChallengeFrames[0] += 1
+                                if (stableChallengeFrames[0] >= 4) {
                                     livenessState = LivenessState.CONCLUIDO
                                     captureRequested = true
                                     captureController.request()
                                 }
                             } else {
-                                stableChallengeFrames = 0
+                                stableChallengeFrames[0] = 0
                             }
                         }
                     }
