@@ -21,6 +21,7 @@ export const config = {
   sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 12),
   faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72),
   faceIdentificationMargin: numberEnv('FACE_IDENTIFICATION_MARGIN', 0.06),
+  faceEnrollmentDuplicateThreshold: numberEnv('FACE_ENROLLMENT_DUPLICATE_THRESHOLD', 0.88),
   authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180),
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180),
 }
