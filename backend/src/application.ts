@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { auth, type AppEnv } from './auth-runtime.js'
+import { config } from './config.js'
 import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
+import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
@@ -13,6 +15,7 @@ import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
+import { offlineRoutes } from './routes/offline-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
 import { reportRoutes } from './routes/report-routes.js'
@@ -23,7 +26,7 @@ const app = new Hono<AppEnv>()
 app.use('*', secureHeaders())
 app.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version'],
   exposeHeaders: ['set-auth-token'],
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
@@ -107,7 +110,14 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.6.1' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0' }))
+app.get('/app-status', (c) => c.json({
+  apiVersion: '0.7.0',
+  latestAndroidVersion: config.latestAndroidVersion,
+  minimumAndroidVersion: config.minimumAndroidVersion,
+  timezone: config.appTimezone,
+  offlineMaxEventAgeHours: config.offlineMaxEventAgeHours,
+}))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
@@ -119,11 +129,13 @@ app.route('/admin', deviceActivationRoutes)
 app.route('/admin', deviceManagementRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
+app.route('/admin', auditRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
+app.route('/ponto', offlineRoutes)
 app.route('/supervisor', liveRoutes)
 app.route('/supervisor', reportRoutes)
 
