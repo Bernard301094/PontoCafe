@@ -12,6 +12,7 @@ type WorkerEnv = {
   AUTHORIZATION_TTL_SECONDS?: string
   FACE_VERIFICATION_TTL_SECONDS?: string
   OFFLINE_MAX_EVENT_AGE_HOURS?: string
+  BIOMETRIC_RETENTION_DAYS?: string
   APP_LATEST_ANDROID_VERSION?: string
   APP_MIN_ANDROID_VERSION?: string
 }
@@ -48,6 +49,7 @@ const textBindingNames = [
   'AUTHORIZATION_TTL_SECONDS',
   'FACE_VERIFICATION_TTL_SECONDS',
   'OFFLINE_MAX_EVENT_AGE_HOURS',
+  'BIOMETRIC_RETENTION_DAYS',
   'APP_LATEST_ANDROID_VERSION',
   'APP_MIN_ANDROID_VERSION',
 ] as const satisfies ReadonlyArray<keyof WorkerEnv>
@@ -66,7 +68,7 @@ function safeBindingDiagnostics(env: WorkerEnv) {
   }
 }
 
-async function handleApplication(env: WorkerEnv, request: Request): Promise<Response> {
+function prepareEnvironment(env: WorkerEnv, origin?: string) {
   bootStage = 'environment'
   process.env.PONTOCAFE_RUNTIME = 'cloudflare'
 
@@ -76,8 +78,12 @@ async function handleApplication(env: WorkerEnv, request: Request): Promise<Resp
   process.env.DATABASE_URL = env.HYPERDRIVE.connectionString
 
   for (const name of textBindingNames) copyTextBinding(env, name)
+  if (origin) process.env.BETTER_AUTH_URL = origin
+  return env.HYPERDRIVE.connectionString
+}
 
-  process.env.BETTER_AUTH_URL = new URL(request.url).origin
+async function handleApplication(env: WorkerEnv, request: Request): Promise<Response> {
+  const connectionString = prepareEnvironment(env, new URL(request.url).origin)
 
   bootStage = 'config'
   assertRequiredRuntimeConfig()
@@ -86,13 +92,28 @@ async function handleApplication(env: WorkerEnv, request: Request): Promise<Resp
   bootStage = 'db'
   const { withRequestDatabase } = await import('./db.js')
 
-  return withRequestDatabase(env.HYPERDRIVE.connectionString, async () => {
+  return withRequestDatabase(connectionString, async () => {
     bootStage = 'auth'
     await import('./auth-runtime.js')
 
     bootStage = 'application'
     const { default: app } = await import('./application.js')
     return app.fetch(request, env)
+  })
+}
+
+async function runScheduledMaintenance(env: WorkerEnv): Promise<void> {
+  const connectionString = prepareEnvironment(env)
+  bootStage = 'config'
+  assertRequiredRuntimeConfig()
+  await import('./config.js')
+
+  bootStage = 'db'
+  const { withRequestDatabase } = await import('./db.js')
+  await withRequestDatabase(connectionString, async () => {
+    const { cleanupExpiredBiometrics } = await import('./maintenance.js')
+    const result = await cleanupExpiredBiometrics()
+    console.log(JSON.stringify({ evento: 'biometric_retention_maintenance', ...result }))
   })
 }
 
@@ -120,6 +141,19 @@ export default {
       }
 
       return Response.json(response, { status: 500 })
+    }
+  },
+
+  async scheduled(_controller: unknown, env: WorkerEnv): Promise<void> {
+    try {
+      await runScheduledMaintenance(env)
+    } catch (error) {
+      console.error(JSON.stringify({
+        evento: 'scheduled_maintenance_failure',
+        etapa: bootStage,
+        tipo: error instanceof Error ? error.name : typeof error,
+      }))
+      throw error
     }
   },
 }
