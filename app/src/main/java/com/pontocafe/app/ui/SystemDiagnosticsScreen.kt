@@ -19,17 +19,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
+import com.pontocafe.app.BuildConfig
+import com.pontocafe.app.data.AppHealthStore
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun SystemDiagnosticsScreen(
     viewModel: AdminReliabilityViewModel,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val state = viewModel.state
     val diagnostic = state.diagnostic
+    val localHealth = remember(diagnostic, state.loading) { AppHealthStore(context.applicationContext).snapshot() }
 
     LaunchedEffect(Unit) {
         if (diagnostic == null) viewModel.openSystemDiagnostics()
@@ -95,6 +104,27 @@ fun SystemDiagnosticsScreen(
             }
         }
 
+        item("local-health-title") {
+            SectionTitle("Saúde deste aparelho", "Telemetria local sem PIN, senha, token, foto ou embedding.")
+        }
+        item("local-health") {
+            DiagnosticCard(
+                "Ponto Café ${BuildConfig.VERSION_NAME}",
+                listOf(
+                    "Último início" to formatHealthTime(localHealth.lastStartMillis),
+                    "Crashes registrados" to localHealth.crashCount.toString(),
+                    "Último crash" to if (localHealth.lastCrashMillis > 0) {
+                        "${formatHealthTime(localHealth.lastCrashMillis)} · ${localHealth.lastCrashType ?: "erro"}"
+                    } else "nenhum",
+                    "Local do último crash" to (localHealth.lastCrashLocation ?: "—"),
+                    "Travamentos >5 s" to localHealth.stallCount.toString(),
+                    "Último travamento" to if (localHealth.lastStallMillis > 0) {
+                        "${formatHealthTime(localHealth.lastStallMillis)} · ${localHealth.lastStallDurationMillis} ms"
+                    } else "nenhum",
+                ),
+            )
+        }
+
         item("refresh") {
             Button(onClick = viewModel::openSystemDiagnostics, modifier = Modifier.fillMaxWidth(), enabled = !state.loading) {
                 Text("Executar diagnóstico novamente")
@@ -120,4 +150,13 @@ private fun DiagnosticCard(title: String, rows: List<Pair<String, String>>) {
             }
         }
     }
+}
+
+private fun formatHealthTime(value: Long): String {
+    if (value <= 0L) return "—"
+    return runCatching {
+        Instant.ofEpochMilli(value)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))
+    }.getOrDefault("—")
 }
