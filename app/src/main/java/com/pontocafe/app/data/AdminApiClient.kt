@@ -254,6 +254,12 @@ class AdminRepository(
     private val api: AdminApi,
     private val sessionStore: SecureAdminSessionStore,
 ) {
+    @Volatile private var usersCache: List<AdminUser>? = null
+    @Volatile private var rulesCache: List<AdminCoffeeRule>? = null
+    @Volatile private var devicesCache: List<AdminDevice>? = null
+    @Volatile private var collaboratorsCache: List<Colaborador>? = null
+    @Volatile private var summaryCache: AdminOperationalSummary? = null
+
     suspend fun setupStatus() = api.setupStatus()
     suspend fun createFirstAdmin(nome: String, email: String, senha: String, chave: String) {
         ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave)))
@@ -265,52 +271,123 @@ class AdminRepository(
         val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão administrativa.")
         sessionStore.save(bearer)
         try {
-            api.users()
+            usersCache = api.users().usuarios
         } catch (error: Throwable) {
             if (isAuthFailure(error)) sessionStore.clear()
             throw error
         }
     }
 
-    suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
-    suspend fun users() = api.users().usuarios
+    suspend fun signOut() {
+        runCatching { api.signOut() }
+        sessionStore.clear()
+        clearCaches()
+    }
+
+    suspend fun users(): List<AdminUser> = usersCache ?: api.users().usuarios.also { usersCache = it }
+
     suspend fun createUser(nome: String, email: String, senha: String, perfil: String) {
         ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil)))
+        usersCache = null
+        summaryCache = null
     }
-    suspend fun setActive(userId: String, active: Boolean) { if (active) api.enableUser(userId) else api.disableUser(userId) }
-    suspend fun deleteUser(userId: String) { api.deleteUser(userId) }
-    suspend fun resetPassword(userId: String, newPassword: String) { api.resetPassword(userId, ChangePasswordRequest(newPassword)) }
-    suspend fun changeProfile(userId: String, profile: String) { api.changeProfile(userId, ChangeProfileRequest(profile)) }
 
-    suspend fun coffeeRules() = api.coffeeRules().regras
-    suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean) =
-        api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
+    suspend fun setActive(userId: String, active: Boolean) {
+        if (active) api.enableUser(userId) else api.disableUser(userId)
+        usersCache = null
+        summaryCache = null
+    }
 
-    suspend fun createDevice(name: String, pin: String) = api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
-    suspend fun devices() = api.devices().dispositivos
-    suspend fun updateDevicePin(deviceId: String, pin: String) = api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
+    suspend fun deleteUser(userId: String) {
+        api.deleteUser(userId)
+        usersCache = null
+        summaryCache = null
+    }
+
+    suspend fun resetPassword(userId: String, newPassword: String) {
+        api.resetPassword(userId, ChangePasswordRequest(newPassword))
+    }
+
+    suspend fun changeProfile(userId: String, profile: String) {
+        api.changeProfile(userId, ChangeProfileRequest(profile))
+        usersCache = null
+        summaryCache = null
+    }
+
+    suspend fun coffeeRules(): List<AdminCoffeeRule> = rulesCache ?: api.coffeeRules().regras.also { rulesCache = it }
+
+    suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean): AdminCoffeeRule {
+        val updated = api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
+        rulesCache = null
+        return updated
+    }
+
+    suspend fun createDevice(name: String, pin: String): DeviceCreatedResponse {
+        val created = api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
+        devicesCache = null
+        summaryCache = null
+        return created
+    }
+
+    suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos.also { devicesCache = it }
+
+    suspend fun updateDevicePin(deviceId: String, pin: String): UpdateDevicePinResponse {
+        val updated = api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
+        devicesCache = null
+        summaryCache = null
+        return updated
+    }
+
     suspend fun renameDevice(deviceId: String, name: String) {
         ensureSuccess(api.renameDevice(deviceId, RenameDeviceRequest(name.trim())))
+        devicesCache = null
     }
-    suspend fun deactivateDevice(deviceId: String) = api.deactivateDevice(deviceId)
-    suspend fun rotateDeviceToken(deviceId: String) = api.rotateDeviceToken(deviceId)
-    suspend fun deleteDevice(deviceId: String) = api.deleteDevice(deviceId)
+
+    suspend fun deactivateDevice(deviceId: String): DeviceLifecycleResponse {
+        val result = api.deactivateDevice(deviceId)
+        devicesCache = null
+        summaryCache = null
+        return result
+    }
+
+    suspend fun rotateDeviceToken(deviceId: String): DeviceTokenRotationResponse {
+        val result = api.rotateDeviceToken(deviceId)
+        devicesCache = null
+        summaryCache = null
+        return result
+    }
+
+    suspend fun deleteDevice(deviceId: String): DeviceDeleteResponse {
+        val result = api.deleteDevice(deviceId)
+        devicesCache = null
+        summaryCache = null
+        return result
+    }
 
     suspend fun audit(limit: Int = 100, action: String? = null) = api.audit(limit, action).eventos
-    suspend fun operationalSummary() = api.operationalSummary().resumo
+    suspend fun operationalSummary(): AdminOperationalSummary =
+        summaryCache ?: api.operationalSummary().resumo.also { summaryCache = it }
     suspend fun health() = api.health()
     suspend fun appStatus() = api.appStatus()
 
-    suspend fun collaborators() = api.collaborators().colaboradores
-    suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
-        CreateCollaboratorRequest(
-            nome = name.trim(),
-            setor = sector?.trim()?.ifBlank { null },
-            turno = shift?.trim()?.ifBlank { null },
-        ),
-    )
-    suspend fun updateCollaborator(collaboratorId: String, name: String, sector: String?, shift: String?) =
-        api.updateCollaborator(
+    suspend fun collaborators(): List<Colaborador> =
+        collaboratorsCache ?: api.collaborators().colaboradores.also { collaboratorsCache = it }
+
+    suspend fun createCollaborator(name: String, sector: String?, shift: String?): Colaborador {
+        val created = api.createCollaborator(
+            CreateCollaboratorRequest(
+                nome = name.trim(),
+                setor = sector?.trim()?.ifBlank { null },
+                turno = shift?.trim()?.ifBlank { null },
+            ),
+        )
+        collaboratorsCache = null
+        summaryCache = null
+        return created
+    }
+
+    suspend fun updateCollaborator(collaboratorId: String, name: String, sector: String?, shift: String?): Colaborador {
+        val updated = api.updateCollaborator(
             collaboratorId,
             UpdateCollaboratorRequest(
                 nome = name.trim(),
@@ -318,23 +395,45 @@ class AdminRepository(
                 turno = shift?.trim()?.ifBlank { null },
             ),
         )
+        collaboratorsCache = null
+        return updated
+    }
 
     @Deprecated("Matrícula não é mais utilizada")
     suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
         createCollaborator(name, sector, shift)
 
-    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
-        collaboratorId,
-        BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
-    )
+    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String): BiometricEnrollmentResponse {
+        val result = api.saveBiometric(
+            collaboratorId,
+            BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
+        )
+        collaboratorsCache = null
+        summaryCache = null
+        return result
+    }
 
     suspend fun createAuthorization(collaboratorId: String, period: String, reason: String) = api.createAuthorization(
         CreateAuthorizationRequest(collaboratorId, period, reason.trim()),
     )
 
     fun hasSession() = sessionStore.hasToken()
-    fun clearSession() = sessionStore.clear()
-    private fun ensureSuccess(response: Response<*>) { if (!response.isSuccessful) throw HttpException(response) }
+    fun clearSession() {
+        sessionStore.clear()
+        clearCaches()
+    }
+
+    private fun clearCaches() {
+        usersCache = null
+        rulesCache = null
+        devicesCache = null
+        collaboratorsCache = null
+        summaryCache = null
+    }
+
+    private fun ensureSuccess(response: Response<*>) {
+        if (!response.isSuccessful) throw HttpException(response)
+    }
 
     companion object {
         fun isAuthFailure(error: Throwable): Boolean =
