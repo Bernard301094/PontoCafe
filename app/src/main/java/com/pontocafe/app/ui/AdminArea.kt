@@ -45,5 +45,6 @@ fun AdminArea(
         AdminDestination.COLLABORATORS -> AdminCollaboratorsScreen(viewModel)
         AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
         AdminDestination.BIOMETRIC_ENROLLMENT -> AdminBiometricEnrollmentScreen(viewModel)
+        AdminDestination.AUDIT -> AdminAuditScreen(viewModel)
     }
 }
