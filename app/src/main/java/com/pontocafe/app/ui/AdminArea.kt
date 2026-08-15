@@ -42,11 +42,13 @@ fun AdminArea(
     reliabilityViewModel: AdminReliabilityViewModel,
     kioskModeStore: KioskModeStore,
     initialDevicesOpen: Boolean = false,
+    initialKioskOpen: Boolean = false,
     onDevicesOpenChanged: (Boolean) -> Unit = {},
+    onKioskOpenChanged: (Boolean) -> Unit = {},
     onClose: () -> Unit,
 ) {
     var showingDevices by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
-    var showingKiosk by remember { mutableStateOf(false) }
+    var showingKiosk by remember(initialKioskOpen) { mutableStateOf(initialKioskOpen) }
 
     LaunchedEffect(showingDevices) {
         if (showingDevices) deviceViewModel.carregar()
@@ -55,6 +57,11 @@ fun AdminArea(
     fun setDevicesOpen(open: Boolean) {
         showingDevices = open
         onDevicesOpenChanged(open)
+    }
+
+    fun setKioskOpen(open: Boolean) {
+        showingKiosk = open
+        onKioskOpenChanged(open)
     }
 
     val reliabilityDestination = reliabilityViewModel.state.destination
@@ -69,11 +76,11 @@ fun AdminArea(
     }
 
     if (showingKiosk) {
-        BackHandler { showingKiosk = false }
+        BackHandler { setKioskOpen(false) }
         KioskModeScreen(
             activity = activity,
             store = kioskModeStore,
-            onBack = { showingKiosk = false },
+            onBack = { setKioskOpen(false) },
         )
         return
     }
@@ -176,7 +183,7 @@ fun AdminArea(
                     reliabilityViewModel = reliabilityViewModel,
                     onDevicesClick = { setDevicesOpen(true) },
                     onSyncClick = reliabilityViewModel::openSyncCenter,
-                    onKioskClick = { showingKiosk = true },
+                    onKioskClick = { setKioskOpen(true) },
                 )
             }
         }
