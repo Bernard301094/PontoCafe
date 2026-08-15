@@ -12,10 +12,6 @@ const periodSchema = z.object({
   fim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 }).refine((value) => value.inicio <= value.fim)
 
-function parsePeriod(c: Parameters<typeof reportRoutes.get>[1] extends never ? never : any) {
-  return periodSchema.safeParse({ inicio: c.req.query('inicio'), fim: c.req.query('fim') })
-}
-
 reportRoutes.get('/relatorios/resumo', async (c) => {
   const parsed = periodSchema.safeParse({ inicio: c.req.query('inicio'), fim: c.req.query('fim') })
   if (!parsed.success) return c.json({ erro: 'Informe início e fim em YYYY-MM-DD.' }, 400)
