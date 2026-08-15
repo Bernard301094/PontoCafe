@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 enum class AccountProfile(val label: String) {
@@ -117,31 +116,25 @@ fun AdminAccountForm(
         SectionTitle("Segurança", "A senha será usada para iniciar sessão neste perfil.")
         Spacer(Modifier.height(10.dp))
 
-        OutlinedTextField(
+        SecurePasswordField(
             value = senha,
             onValueChange = { senha = it },
+            label = "Senha",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Senha") },
-            singleLine = true,
             enabled = !carregando,
-            visualTransformation = PasswordVisualTransformation(),
-            supportingText = { Text("Mínimo de 10 caracteres") },
+            supportingText = "Mínimo de 10 caracteres",
         )
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
+        SecurePasswordField(
             value = confirmarSenha,
             onValueChange = { confirmarSenha = it },
+            label = "Confirmar senha",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Confirmar senha") },
-            singleLine = true,
             enabled = !carregando,
-            visualTransformation = PasswordVisualTransformation(),
-            supportingText = {
-                when {
-                    confirmarSenha.isBlank() -> Text("Repita a senha")
-                    senha == confirmarSenha -> Text("As senhas coincidem")
-                    else -> Text("As senhas ainda não coincidem")
-                }
+            supportingText = when {
+                confirmarSenha.isBlank() -> "Repita a senha"
+                senha == confirmarSenha -> "As senhas coincidem"
+                else -> "As senhas ainda não coincidem"
             },
         )
 
