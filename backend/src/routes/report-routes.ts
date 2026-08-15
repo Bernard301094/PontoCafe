@@ -7,14 +7,36 @@ import { query } from '../db.js'
 export const reportRoutes = new Hono<AppEnv>()
 reportRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
+const dateSchema = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number)
+    const date = new Date(Date.UTC(year, month - 1, day))
+    return date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+  }, 'Data inválida.')
+
 const periodSchema = z.object({
-  inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  fim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-}).refine((value) => value.inicio <= value.fim)
+  inicio: dateSchema,
+  fim: dateSchema,
+})
+  .refine((value) => value.inicio <= value.fim, 'O início deve ser anterior ou igual ao fim.')
+  .refine((value) => {
+    const start = Date.parse(`${value.inicio}T00:00:00Z`)
+    const end = Date.parse(`${value.fim}T00:00:00Z`)
+    return (end - start) / 86_400_000 <= 366
+  }, 'O período máximo para um relatório é de 367 dias incluindo as duas datas.')
+
+function parsePeriod(c: { req: { query(name: string): string | undefined } }) {
+  return periodSchema.safeParse({ inicio: c.req.query('inicio'), fim: c.req.query('fim') })
+}
 
 reportRoutes.get('/relatorios/resumo', async (c) => {
-  const parsed = periodSchema.safeParse({ inicio: c.req.query('inicio'), fim: c.req.query('fim') })
-  if (!parsed.success) return c.json({ erro: 'Informe início e fim em YYYY-MM-DD.' }, 400)
+  const parsed = parsePeriod(c)
+  if (!parsed.success) {
+    return c.json({ erro: parsed.error.issues[0]?.message || 'Informe início e fim em YYYY-MM-DD.' }, 400)
+  }
   const values = [config.appTimezone, parsed.data.inicio, parsed.data.fim]
 
   const summary = await query<{
@@ -82,8 +104,10 @@ reportRoutes.get('/relatorios/resumo', async (c) => {
 })
 
 reportRoutes.get('/relatorios/csv', async (c) => {
-  const parsed = periodSchema.safeParse({ inicio: c.req.query('inicio'), fim: c.req.query('fim') })
-  if (!parsed.success) return c.json({ erro: 'Informe início e fim em YYYY-MM-DD.' }, 400)
+  const parsed = parsePeriod(c)
+  if (!parsed.success) {
+    return c.json({ erro: parsed.error.issues[0]?.message || 'Informe início e fim em YYYY-MM-DD.' }, 400)
+  }
 
   const rows = await query<{
     data: string
@@ -111,7 +135,9 @@ reportRoutes.get('/relatorios/csv', async (c) => {
   )
 
   const escapeCsv = (value: unknown) => {
-    const text = value == null ? '' : String(value)
+    let text = value == null ? '' : String(value)
+    // Evita CSV/Formula Injection quando o arquivo é aberto em Excel/Sheets.
+    if (/^[=+\-@]/.test(text)) text = `'${text}`
     return `"${text.replace(/"/g, '""')}"`
   }
   const header = ['data','nome','setor','periodo','inicio','fim','duracao_segundos','limite_segundos','fora_horario']
@@ -122,5 +148,6 @@ reportRoutes.get('/relatorios/csv', async (c) => {
 
   c.header('Content-Type', 'text/csv; charset=utf-8')
   c.header('Content-Disposition', `attachment; filename="pontocafe-${parsed.data.inicio}-${parsed.data.fim}.csv"`)
+  c.header('Cache-Control', 'no-store')
   return c.body(csv)
 })
