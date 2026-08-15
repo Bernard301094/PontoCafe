@@ -28,14 +28,14 @@ export const config = {
   codePepper: required('CODE_PEPPER'),
   biometricMasterKey: required('BIOMETRIC_MASTER_KEY'),
   firstAdminSetupKey: process.env.FIRST_ADMIN_SETUP_KEY?.trim() || null,
-  sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 12, 1, 168),
+  sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 168, 1, 168),
   faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72, 0.5, 0.99),
   faceIdentificationMargin: numberEnv('FACE_IDENTIFICATION_MARGIN', 0.06, 0.01, 0.3),
   faceEnrollmentDuplicateThreshold: numberEnv('FACE_ENROLLMENT_DUPLICATE_THRESHOLD', 0.88, 0.7, 0.999),
   authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180, 30, 900),
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180, 30, 900),
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
-  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '0.5.1'),
+  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '0.5.2'),
   minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.4.0'),
 }
 
