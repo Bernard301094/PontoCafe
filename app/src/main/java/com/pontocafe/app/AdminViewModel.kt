@@ -14,6 +14,7 @@ import com.pontocafe.app.data.AdminUser
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.ui.NewAccountInput
 import kotlinx.coroutines.launch
+import kotlin.math.sqrt
 
 
 enum class AdminDestination {
@@ -41,6 +42,8 @@ data class AdminUiState(
     val selecionado: AdminUser? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
+    val biometricStepIndex: Int = 0,
+    val biometricSamplesCaptured: Int = 0,
     val deviceTokenGerado: String? = null,
     val deviceNome: String? = null,
     val authorizationCode: String? = null,
@@ -56,6 +59,8 @@ class AdminViewModel(
 ) : ViewModel() {
     var state by mutableStateOf(AdminUiState())
         private set
+
+    private val biometricSamples = mutableListOf<FloatArray>()
 
     val faceModelReady: Boolean get() = embeddingEngine.isReady
 
@@ -164,6 +169,7 @@ class AdminViewModel(
     }
 
     fun abrirColaboradores() {
+        biometricSamples.clear()
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.collaborators() }
@@ -173,6 +179,8 @@ class AdminViewModel(
                         destination = AdminDestination.COLLABORATORS,
                         colaboradores = it,
                         colaboradorSelecionado = null,
+                        biometricStepIndex = 0,
+                        biometricSamplesCaptured = 0,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -192,12 +200,15 @@ class AdminViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.createCollaborator(matricula, nome, setor, turno) }
                 .onSuccess { colaborador ->
+                    biometricSamples.clear()
                     state = state.copy(
                         carregando = false,
                         destination = AdminDestination.BIOMETRIC_ENROLLMENT,
                         colaboradorSelecionado = colaborador,
                         biometricScanCycle = state.biometricScanCycle + 1,
-                        mensagem = "Colaborador cadastrado. Agora cadastre o rosto.",
+                        biometricStepIndex = 0,
+                        biometricSamplesCaptured = 0,
+                        mensagem = "Colaborador cadastrado. Agora cadastre o rosto em 5 etapas.",
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -205,16 +216,19 @@ class AdminViewModel(
     }
 
     fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
+        biometricSamples.clear()
         state = state.copy(
             destination = AdminDestination.BIOMETRIC_ENROLLMENT,
             colaboradorSelecionado = colaborador,
             biometricScanCycle = state.biometricScanCycle + 1,
+            biometricStepIndex = 0,
+            biometricSamplesCaptured = 0,
             erro = null,
             mensagem = null,
         )
     }
 
-    fun processarBiometria(frame: FaceFrame) {
+    fun processarAmostraBiometrica(frame: FaceFrame) {
         val colaborador = state.colaboradorSelecionado ?: return
         if (state.carregando) return
         if (!embeddingEngine.isReady) {
@@ -223,33 +237,55 @@ class AdminViewModel(
         }
 
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = "Processando o rosto...")
-            runCatching {
+            state = state.copy(carregando = true, erro = null, mensagem = "Processando amostra facial...")
+            try {
                 val embedding = embeddingEngine.embed(frame)
+                require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) {
+                    "A amostra facial gerada é inválida."
+                }
+                biometricSamples += embedding.copyOf()
+
+                val captured = biometricSamples.size
+                if (captured < BIOMETRIC_SAMPLE_COUNT) {
+                    state = state.copy(
+                        carregando = false,
+                        biometricStepIndex = captured,
+                        biometricSamplesCaptured = captured,
+                        biometricScanCycle = state.biometricScanCycle + 1,
+                        mensagem = "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada.",
+                        erro = null,
+                    )
+                    return@launch
+                }
+
+                val combined = combineBiometricSamples(biometricSamples)
                 repository.saveBiometric(
                     collaboratorId = colaborador.id,
-                    embedding = embedding,
+                    embedding = combined,
                     model = embeddingEngine.modelName,
                     modelVersion = embeddingEngine.modelVersion,
                 )
-            }.onSuccess {
-                runCatching { repository.collaborators() }
-                    .onSuccess { colaboradores ->
-                        state = state.copy(
-                            carregando = false,
-                            destination = AdminDestination.COLLABORATORS,
-                            colaboradores = colaboradores,
-                            colaboradorSelecionado = null,
-                            mensagem = "Rosto de ${colaborador.nome} cadastrado com sucesso.",
-                            erro = null,
-                        )
-                    }
-                    .onFailure { error ->
-                        state = state.copy(carregando = false, erro = AdminRepository.message(error))
-                    }
-            }.onFailure { error ->
+
+                val colaboradores = repository.collaborators()
+                biometricSamples.clear()
                 state = state.copy(
                     carregando = false,
+                    destination = AdminDestination.COLLABORATORS,
+                    colaboradores = colaboradores,
+                    colaboradorSelecionado = null,
+                    biometricStepIndex = 0,
+                    biometricSamplesCaptured = 0,
+                    mensagem = "Rosto de ${colaborador.nome} cadastrado com 5 amostras com sucesso.",
+                    erro = null,
+                )
+            } catch (error: Throwable) {
+                val completedSequence = biometricSamples.size >= BIOMETRIC_SAMPLE_COUNT
+                if (completedSequence) biometricSamples.clear()
+                val captured = biometricSamples.size.coerceAtMost(BIOMETRIC_SAMPLE_COUNT - 1)
+                state = state.copy(
+                    carregando = false,
+                    biometricStepIndex = captured,
+                    biometricSamplesCaptured = captured,
                     biometricScanCycle = state.biometricScanCycle + 1,
                     mensagem = null,
                     erro = AdminRepository.message(error),
@@ -259,7 +295,14 @@ class AdminViewModel(
     }
 
     fun voltarColaboradores() {
-        state = state.copy(destination = AdminDestination.COLLABORATORS, colaboradorSelecionado = null, erro = null)
+        biometricSamples.clear()
+        state = state.copy(
+            destination = AdminDestination.COLLABORATORS,
+            colaboradorSelecionado = null,
+            biometricStepIndex = 0,
+            biometricSamplesCaptured = 0,
+            erro = null,
+        )
     }
 
     fun abrirConfiguracoes() {
@@ -354,10 +397,13 @@ class AdminViewModel(
     }
 
     fun voltarHome() {
+        biometricSamples.clear()
         state = state.copy(
             destination = AdminDestination.HOME,
             selecionado = null,
             colaboradorSelecionado = null,
+            biometricStepIndex = 0,
+            biometricSamplesCaptured = 0,
             authorizationCode = null,
             authorizationEmployeeName = null,
             authorizationExpiresSeconds = null,
@@ -366,6 +412,7 @@ class AdminViewModel(
     }
 
     fun logout() {
+        biometricSamples.clear()
         viewModelScope.launch {
             state = state.copy(carregando = true)
             repository.signOut()
@@ -375,6 +422,25 @@ class AdminViewModel(
 
     fun limparAviso() {
         state = state.copy(erro = null, mensagem = null)
+    }
+
+    private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
+        require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
+        val dimension = samples.first().size
+        require(dimension > 0 && samples.all { it.size == dimension }) { "Amostras faciais incompatíveis." }
+
+        val combined = FloatArray(dimension)
+        samples.forEach { sample ->
+            for (index in 0 until dimension) combined[index] += sample[index]
+        }
+        for (index in combined.indices) combined[index] /= samples.size.toFloat()
+
+        var sumSquares = 0.0
+        combined.forEach { value -> sumSquares += value * value }
+        val norm = sqrt(sumSquares).toFloat()
+        require(norm > 1e-12f) { "Não foi possível consolidar as amostras faciais." }
+        for (index in combined.indices) combined[index] /= norm
+        return combined
     }
 
     private suspend fun carregarUsuariosInterno(message: String? = null) {
@@ -397,6 +463,10 @@ class AdminViewModel(
                     erro = "Sua sessão administrativa expirou ou não possui acesso de administrador.",
                 )
             }
+    }
+
+    companion object {
+        private const val BIOMETRIC_SAMPLE_COUNT = 5
     }
 }
 
