@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
@@ -78,9 +76,10 @@ fun PontoCafeScreenHeader(
     onBack: (() -> Unit)? = null,
     backLabel: String = "Voltar",
     eyebrow: String? = "Ponto Café",
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
@@ -176,11 +175,7 @@ fun MetricCard(
 }
 
 @Composable
-fun StatusPill(
-    text: String,
-    positive: Boolean,
-    modifier: Modifier = Modifier,
-) {
+fun StatusPill(text: String, positive: Boolean, modifier: Modifier = Modifier) {
     StatusPill(
         text = text,
         tone = if (positive) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
@@ -189,17 +184,9 @@ fun StatusPill(
 }
 
 @Composable
-fun StatusPill(
-    text: String,
-    tone: PontoCafeTone,
-    modifier: Modifier = Modifier,
-) {
+fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier) {
     val (container, content) = toneColors(tone)
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = container,
-    ) {
+    Surface(modifier = modifier, shape = CircleShape, color = container) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -214,11 +201,7 @@ fun StatusPill(
             if (icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = content)
             }
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = content,
-            )
+            Text(text = text, style = MaterialTheme.typography.labelMedium, color = content)
         }
     }
 }
@@ -235,9 +218,7 @@ fun ProfilePill(profile: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
-    val initials = name
-        .trim()
-        .split(Regex("\\s+"))
+    val initials = name.trim().split(Regex("\\s+"))
         .filter { it.isNotBlank() }
         .take(2)
         .joinToString("") { it.first().uppercase() }
@@ -250,11 +231,7 @@ fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(
-                initials,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
+            Text(initials, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }
@@ -288,21 +265,10 @@ fun OperationalAlertCard(
                     tint = content,
                     modifier = Modifier.size(20.dp),
                 )
-                Text(
-                    title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = content,
-                )
+                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = content)
             }
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = content.copy(alpha = 0.84f),
-            )
-            TextButton(onClick = onClick) {
-                Text(actionLabel, color = content)
-            }
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = content.copy(alpha = 0.84f))
+            TextButton(onClick = onClick) { Text(actionLabel, color = content) }
         }
     }
 }
@@ -385,27 +351,16 @@ fun MessageCard(viewModel: PontoCafeViewModel) {
             border = BorderStroke(1.dp, content.copy(alpha = 0.1f)),
         ) {
             Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = if (isError) "Atenção" else "Informação",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = content,
-                )
+                Text(if (isError) "Atenção" else "Informação", style = MaterialTheme.typography.titleMedium, color = content)
                 Text(message, style = MaterialTheme.typography.bodyMedium, color = content)
-                TextButton(onClick = viewModel::limparMensagem) {
-                    Text("Fechar", color = content)
-                }
+                TextButton(onClick = viewModel::limparMensagem) { Text("Fechar", color = content) }
             }
         }
     }
 }
 
 @Composable
-fun ThinProgressSummary(
-    completed: Int,
-    total: Int,
-    title: String,
-    detail: String,
-) {
+fun ThinProgressSummary(completed: Int, total: Int, title: String, detail: String) {
     val fraction = if (total <= 0) 0f else (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -421,18 +376,10 @@ fun ThinProgressSummary(
                 Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             }
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction)
-                        .height(7.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth(fraction).height(7.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
                 )
             }
         }
