@@ -23,9 +23,10 @@ import com.pontocafe.app.ui.DeviceSetupScreen
 import com.pontocafe.app.ui.FaceKioskScreen
 import com.pontocafe.app.ui.IdentityConfirmationScreen
 import com.pontocafe.app.ui.PointReceiptScreen
+import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorArea
 
-private enum class AreaRestrita { ADMIN, SUPERVISOR }
+private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,6 +97,12 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    AreaRestrita.LOGIN -> RestrictedLoginModeScreen(
+                        onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
+                        onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
+                        onBackToPonto = { areaRestrita = null },
+                    )
+
                     null -> {
                         val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
                         val state = vm.state
@@ -118,8 +125,11 @@ class MainActivity : ComponentActivity() {
                             state.identificacao != null -> IdentityConfirmationScreen(vm)
                             else -> FaceKioskScreen(
                                 viewModel = vm,
+                                hasAdminSession = adminSessionStore.hasToken(),
+                                hasSupervisorSession = supervisorSessionStore.hasToken(),
                                 onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
                                 onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
+                                onLoginModeClick = { areaRestrita = AreaRestrita.LOGIN },
                             )
                         }
                     }
