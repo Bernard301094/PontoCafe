@@ -77,29 +77,18 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
     var excluirColaborador by remember { mutableStateOf<Colaborador?>(null) }
 
     val filtrados = state.colaboradores.filter {
-        busca.isBlank() ||
-            it.nome.contains(busca, ignoreCase = true) ||
-            (it.matricula?.contains(busca, ignoreCase = true) == true)
+        busca.isBlank() || it.nome.contains(busca, ignoreCase = true)
     }
 
     excluirRostoDe?.let { colaborador ->
         AlertDialog(
             onDismissRequest = { excluirRostoDe = null },
             title = { Text("Excluir rosto?") },
-            text = {
-                Text("A biometria de ${colaborador.nome} será removida. O colaborador continuará cadastrado e poderá ter o rosto registrado novamente.")
-            },
+            text = { Text("A biometria de ${colaborador.nome} será removida. O colaborador continuará cadastrado e poderá ter o rosto registrado novamente.") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        excluirRostoDe = null
-                        viewModel.excluirRosto(colaborador)
-                    },
-                ) { Text("Excluir rosto") }
+                Button(onClick = { excluirRostoDe = null; viewModel.excluirRosto(colaborador) }) { Text("Excluir rosto") }
             },
-            dismissButton = {
-                TextButton(onClick = { excluirRostoDe = null }) { Text("Cancelar") }
-            },
+            dismissButton = { TextButton(onClick = { excluirRostoDe = null }) { Text("Cancelar") } },
         )
     }
 
@@ -107,20 +96,11 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
         AlertDialog(
             onDismissRequest = { excluirColaborador = null },
             title = { Text("Excluir colaborador?") },
-            text = {
-                Text("${colaborador.nome} será removido da lista ativa e o rosto será excluído. O histórico de pausas será preservado para auditoria.")
-            },
+            text = { Text("${colaborador.nome} será removido da lista ativa e o rosto será excluído. O histórico de pausas será preservado para auditoria.") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        excluirColaborador = null
-                        viewModel.excluirColaborador(colaborador)
-                    },
-                ) { Text("Excluir colaborador") }
+                Button(onClick = { excluirColaborador = null; viewModel.excluirColaborador(colaborador) }) { Text("Excluir colaborador") }
             },
-            dismissButton = {
-                TextButton(onClick = { excluirColaborador = null }) { Text("Cancelar") }
-            },
+            dismissButton = { TextButton(onClick = { excluirColaborador = null }) { Text("Cancelar") } },
         )
     }
 
@@ -136,12 +116,8 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
         SupervisorManagementFeedback(viewModel)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = viewModel::abrirNovoColaborador, modifier = Modifier.weight(1f)) {
-                Text("Novo colaborador")
-            }
-            OutlinedButton(onClick = viewModel::voltarAoVivo, modifier = Modifier.weight(1f)) {
-                Text("Voltar")
-            }
+            Button(onClick = viewModel::abrirNovoColaborador, modifier = Modifier.weight(1f)) { Text("Novo colaborador") }
+            OutlinedButton(onClick = viewModel::voltarAoVivo, modifier = Modifier.weight(1f)) { Text("Voltar") }
         }
 
         OutlinedTextField(
@@ -149,7 +125,7 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
             onValueChange = { busca = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Buscar colaborador") },
-            placeholder = { Text("Nome ou matrícula") },
+            placeholder = { Text("Nome") },
             singleLine = true,
         )
 
@@ -164,19 +140,14 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
-                        val detalhe = listOfNotNull(colaborador.matricula, colaborador.setor, colaborador.turno)
+                        val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
                             .filter { it.isNotBlank() }
                             .joinToString(" · ")
-                        if (detalhe.isNotBlank()) {
-                            Text(detalhe, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        if (detalhe.isNotBlank()) Text(detalhe, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
                         Text(
-                            if (colaborador.rostoCadastrado) "Rosto cadastrado" else "Sem rosto cadastrado",
-                            color = if (colaborador.rostoCadastrado) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
+                            if (colaborador.rostoCadastrado) "Rosto cadastrado" else "Pendente de registro de rosto",
+                            color = if (colaborador.rostoCadastrado) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             fontWeight = FontWeight.Medium,
                         )
 
@@ -193,16 +164,12 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
                                 onClick = { excluirRostoDe = colaborador },
                                 modifier = Modifier.weight(1f),
                                 enabled = colaborador.rostoCadastrado && !state.carregando,
-                            ) {
-                                Text("Excluir rosto")
-                            }
+                            ) { Text("Excluir rosto") }
                             OutlinedButton(
                                 onClick = { excluirColaborador = colaborador },
                                 modifier = Modifier.weight(1f),
                                 enabled = !state.carregando,
-                            ) {
-                                Text("Excluir colaborador")
-                            }
+                            ) { Text("Excluir colaborador") }
                         }
                     }
                 }
@@ -214,9 +181,8 @@ fun SupervisorCollaboratorsScreen(viewModel: SupervisorViewModel) {
 @Composable
 fun SupervisorNewCollaboratorScreen(viewModel: SupervisorViewModel) {
     var nome by remember { mutableStateOf("") }
-    var matricula by remember { mutableStateOf("") }
-    var setor by remember { mutableStateOf("") }
-    var turno by remember { mutableStateOf("") }
+    var setor by remember { mutableStateOf("Produção") }
+    var turno by remember { mutableStateOf("A") }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -231,13 +197,6 @@ fun SupervisorNewCollaboratorScreen(viewModel: SupervisorViewModel) {
             onValueChange = { nome = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nome completo") },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = matricula,
-            onValueChange = { matricula = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Matrícula") },
             singleLine = true,
         )
         OutlinedTextField(
@@ -256,18 +215,14 @@ fun SupervisorNewCollaboratorScreen(viewModel: SupervisorViewModel) {
         )
 
         Button(
-            onClick = { viewModel.criarColaborador(matricula, nome, setor, turno) },
+            onClick = { viewModel.criarColaborador("", nome, setor, turno) },
             modifier = Modifier.fillMaxWidth(),
             enabled = nome.trim().length >= 2 && !viewModel.state.carregando,
-        ) {
-            Text("Salvar e cadastrar rosto")
-        }
+        ) { Text("Salvar e cadastrar rosto") }
         OutlinedButton(
             onClick = viewModel::voltarColaboradores,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Cancelar")
-        }
+        ) { Text("Cancelar") }
     }
 }
 
@@ -294,10 +249,7 @@ private enum class SupervisorEnrollmentPose(
     }
 }
 
-private fun supervisorPositioningHint(
-    observation: FaceObservation,
-    pose: SupervisorEnrollmentPose,
-): String {
+private fun supervisorPositioningHint(observation: FaceObservation, pose: SupervisorEnrollmentPose): String {
     return when {
         observation.faceCount == 0 -> "ROSTO NÃO DETECTADO — encaixe o rosto dentro do contorno"
         observation.faceCount > 1 -> "Deixe apenas uma pessoa visível"
@@ -319,9 +271,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
     val currentPose = poses[stepIndex]
 
     var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
-        )
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -351,7 +301,6 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                 onObservation = { observation ->
                     if (!state.carregando && !captureRequested) {
                         cameraHint = supervisorPositioningHint(observation, currentPose)
-
                         if (currentPose == SupervisorEnrollmentPose.BLINK) {
                             val next = liveness.update(observation)
                             livenessState = next
@@ -373,9 +322,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                                     cameraHint = "Posição confirmada. Capturando..."
                                     captureController.request()
                                 }
-                            } else {
-                                stableFrames = 0
-                            }
+                            } else stableFrames = 0
                         }
                     }
                 },
@@ -388,9 +335,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text("A câmera é necessária para cadastrar o rosto.", color = Color.White)
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Permitir câmera")
-                }
+                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Permitir câmera") }
             }
         }
 
@@ -408,9 +353,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                     Text("Cadastrar rosto", color = Color.White, fontWeight = FontWeight.Bold)
                     Text(colaborador.nome, color = Color.White.copy(alpha = 0.78f))
                 }
-                TextButton(onClick = viewModel::voltarColaboradores) {
-                    Text("Cancelar", color = Color.White)
-                }
+                TextButton(onClick = viewModel::voltarColaboradores) { Text("Cancelar", color = Color.White) }
             }
         }
 
@@ -424,11 +367,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "Etapa ${stepIndex + 1} de ${poses.size} · ${currentPose.title}",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                )
+                Text("Etapa ${stepIndex + 1} de ${poses.size} · ${currentPose.title}", color = Color.White, fontWeight = FontWeight.Bold)
                 Text(
                     text = when {
                         !viewModel.faceModelReady -> "Modelo facial não instalado"
@@ -439,14 +378,8 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                     color = if (cameraHint.startsWith("ROSTO NÃO DETECTADO")) Color(0xFFFFC7C7) else Color.White,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    "${state.biometricSamplesCaptured} de ${poses.size} amostras capturadas",
-                    color = Color.White.copy(alpha = 0.72f),
-                )
-                Text(
-                    "Somente o template facial combinado e cifrado será salvo. Nenhuma foto é armazenada.",
-                    color = Color.White.copy(alpha = 0.75f),
-                )
+                Text("${state.biometricSamplesCaptured} de ${poses.size} amostras capturadas", color = Color.White.copy(alpha = 0.72f))
+                Text("Somente o template facial combinado e cifrado será salvo. Nenhuma foto é armazenada.", color = Color.White.copy(alpha = 0.75f))
                 state.mensagem?.let { Text(it, color = Color(0xFFD7F3E4)) }
                 state.erro?.let { Text(it, color = Color(0xFFFFC7C7)) }
             }
