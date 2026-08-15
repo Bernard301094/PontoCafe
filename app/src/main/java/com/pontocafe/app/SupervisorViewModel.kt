@@ -34,6 +34,7 @@ data class SupervisorUiState(
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
+    val sessaoAdministrativa: Boolean = false,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -45,6 +46,7 @@ class SupervisorViewModel(
     var state by mutableStateOf(
         SupervisorUiState(
             destination = if (repository.hasSession()) SupervisorDestination.AO_VIVO else SupervisorDestination.LOGIN,
+            sessaoAdministrativa = repository.usingAdminSession(),
         ),
     )
         private set
@@ -61,7 +63,10 @@ class SupervisorViewModel(
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.signIn(email.trim().lowercase(), senha) }
-                .onSuccess { atualizarAoVivoInterno() }
+                .onSuccess {
+                    state = state.copy(sessaoAdministrativa = false)
+                    atualizarAoVivoInterno()
+                }
                 .onFailure {
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
@@ -79,11 +84,12 @@ class SupervisorViewModel(
                     destination = SupervisorDestination.AO_VIVO,
                     carregando = false,
                     pausasAtivas = it,
+                    sessaoAdministrativa = repository.usingAdminSession(),
                     erro = null,
                 )
             }
             .onFailure {
-                repository.clearSession()
+                repository.clearActiveSession()
                 state = SupervisorUiState(
                     destination = SupervisorDestination.LOGIN,
                     erro = "Sua sessão expirou ou não possui acesso de supervisor.",
@@ -137,7 +143,7 @@ class SupervisorViewModel(
         )
     }
 
-    fun criarColaborador(matricula: String, nome: String, setor: String, turno: String) {
+    fun criarColaborador(nome: String, setor: String, turno: String) {
         if (nome.trim().length < 2) {
             state = state.copy(erro = "Informe o nome do colaborador.")
             return
@@ -145,7 +151,7 @@ class SupervisorViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.createCollaborator(matricula, nome, setor, turno) }
+            runCatching { repository.createCollaborator(nome, setor, turno) }
                 .onSuccess { colaborador ->
                     biometricSamples.clear()
                     state = state.copy(
@@ -299,7 +305,7 @@ class SupervisorViewModel(
     fun sair() {
         biometricSamples.clear()
         viewModelScope.launch {
-            repository.signOut()
+            repository.signOutSupervisor()
             state = SupervisorUiState(destination = SupervisorDestination.LOGIN)
         }
     }
