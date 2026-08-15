@@ -69,13 +69,9 @@ fun AdminDevicesScreen(
                 PinField("Confirmar PIN", confirmarPin) { confirmarPin = it }
                 Button(
                     onClick = {
-                        if (pin != confirmarPin) {
-                            viewModel.limparAviso()
-                        } else {
-                            viewModel.criarDispositivo(nome, pin)
-                            pin = ""
-                            confirmarPin = ""
-                        }
+                        viewModel.criarDispositivo(nome, pin)
+                        pin = ""
+                        confirmarPin = ""
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.carregando && nome.trim().length >= 2 && pin.length in 4..12 && pin == confirmarPin,
@@ -136,6 +132,11 @@ private fun DevicePinCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(dispositivo.nome, fontWeight = FontWeight.SemiBold)
+            Text(
+                "ID ${dispositivo.id.take(8)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
             Text(
                 when {
                     !dispositivo.ativo -> "Dispositivo inativo"
