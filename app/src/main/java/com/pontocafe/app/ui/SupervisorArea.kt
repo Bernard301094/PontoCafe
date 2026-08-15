@@ -25,13 +25,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.PausaSupervisor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
@@ -132,23 +136,31 @@ private fun tempoAoVivo(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
 @Composable
 private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
     val state = viewModel.state
+    val lifecycleOwner = LocalLifecycleOwner.current
     var agoraEmMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val liveAlert = rememberSupervisorLiveActivityAlert(
         pausasAtivas = state.pausasAtivas,
         enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
+        agoraEmMillis = agoraEmMillis,
     )
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             agoraEmMillis = System.currentTimeMillis()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(5_000)
             viewModel.atualizarPausasAoVivoSilencioso()
+
+            launch {
+                while (true) {
+                    delay(1_000)
+                    agoraEmMillis = System.currentTimeMillis()
+                }
+            }
+            launch {
+                while (true) {
+                    delay(5_000)
+                    viewModel.atualizarPausasAoVivoSilencioso()
+                }
+            }
         }
     }
 
