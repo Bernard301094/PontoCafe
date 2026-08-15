@@ -20,6 +20,8 @@ data class Colaborador(
     val setor: String?,
     val turno: String?,
     val rostoCadastrado: Boolean = false,
+    @Deprecated("Matrícula não é mais utilizada pelo Ponto Café")
+    val matricula: String? = null,
 )
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
@@ -85,11 +87,7 @@ data class IdentificarBiometriaResponse(
     val limiteSegundos: Int? = null,
 )
 
-data class VerificarBiometriaRequest(
-    val colaboradorId: String,
-    val embedding: List<Float>,
-)
-
+data class VerificarBiometriaRequest(val colaboradorId: String, val embedding: List<Float>)
 data class VerificarBiometriaResponse(
     val reconhecido: Boolean,
     val score: Double,
@@ -114,11 +112,7 @@ data class IniciarPausaResponse(
     val retornoAteLocal: String,
 )
 
-data class FinalizarPausaRequest(
-    val colaboradorId: String,
-    val verificacaoToken: String,
-)
-
+data class FinalizarPausaRequest(val colaboradorId: String, val verificacaoToken: String)
 data class FinalizarPausaResponse(
     val id: String,
     val inicioLocal: String,
@@ -130,92 +124,31 @@ data class FinalizarPausaResponse(
 )
 
 interface PontoCafeApi {
-    @POST("setup/device-activation")
-    suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
-
-    @GET("ponto/colaboradores")
-    suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
-
-    @GET("ponto/horario")
-    suspend fun horario(): HorarioCafeResponse
-
-    @GET("ponto/biometria/catalogo")
-    suspend fun catalogoBiometrico(
+    @POST("setup/device-activation") suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
+    @GET("ponto/colaboradores") suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
+    @GET("ponto/horario") suspend fun horario(): HorarioCafeResponse
+    @GET("ponto/biometria/catalogo") suspend fun catalogoBiometrico(
         @Query("modelo") modelo: String,
         @Query("versaoModelo") versaoModelo: String,
         @Query("versaoAtual") versaoAtual: String? = null,
     ): FaceCatalogResponse
-
-    @POST("ponto/biometria/confirmar-local")
-    suspend fun confirmarBiometriaLocal(
-        @Body body: ConfirmarBiometriaLocalRequest,
-    ): IdentificarBiometriaResponse
-
-    @POST("ponto/biometria/identificar")
-    suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
-
-    @POST("ponto/biometria/verificar")
-    suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
-
-    @POST("ponto/pausas/iniciar")
-    suspend fun iniciarPausa(@Body body: IniciarPausaRequest): IniciarPausaResponse
-
-    @POST("ponto/pausas/finalizar")
-    suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): FinalizarPausaResponse
+    @POST("ponto/biometria/confirmar-local") suspend fun confirmarBiometriaLocal(@Body body: ConfirmarBiometriaLocalRequest): IdentificarBiometriaResponse
+    @POST("ponto/biometria/identificar") suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
+    @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
+    @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): IniciarPausaResponse
+    @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): FinalizarPausaResponse
 }
 
-class PontoCafeRepository(
-    private val api: PontoCafeApi,
-) {
-    suspend fun activateDevice(token: String): String =
-        api.activateDevice(DeviceActivationRequest(token)).token
-
+class PontoCafeRepository(private val api: PontoCafeApi) {
+    suspend fun activateDevice(token: String): String = api.activateDevice(DeviceActivationRequest(token)).token
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
-
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
-
-    suspend fun sincronizarCatalogo(
-        modelo: String,
-        versaoModelo: String,
-        versaoAtual: String? = null,
-    ): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
-
-    suspend fun confirmarIdentidadeLocal(
-        colaboradorId: String,
-        embedding: FloatArray,
-        modelo: String,
-        versaoModelo: String,
-    ): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(
-        ConfirmarBiometriaLocalRequest(
-            colaboradorId = colaboradorId,
-            embedding = embedding.toList(),
-            modelo = modelo,
-            versaoModelo = versaoModelo,
-        ),
-    )
-
-    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse =
-        api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
-
-    suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
-        api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
-
-    suspend fun iniciar(
-        colaboradorId: String,
-        verificacaoToken: String,
-        periodo: String? = null,
-        codigoAutorizacao: String? = null,
-    ): IniciarPausaResponse = api.iniciarPausa(
-        IniciarPausaRequest(
-            colaboradorId = colaboradorId,
-            verificacaoToken = verificacaoToken,
-            periodo = periodo,
-            codigoAutorizacao = codigoAutorizacao,
-        ),
-    )
-
-    suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse =
-        api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken))
+    suspend fun sincronizarCatalogo(modelo: String, versaoModelo: String, versaoAtual: String? = null): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
+    suspend fun confirmarIdentidadeLocal(colaboradorId: String, embedding: FloatArray, modelo: String, versaoModelo: String): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo))
+    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse = api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
+    suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
+    suspend fun iniciar(colaboradorId: String, verificacaoToken: String, periodo: String? = null, codigoAutorizacao: String? = null): IniciarPausaResponse = api.iniciarPausa(IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao))
+    suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse = api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken))
 
     companion object {
         fun mensagemErro(error: Throwable): String {
@@ -239,17 +172,8 @@ object ApiClient {
             }.build()
             chain.proceed(request)
         }
-
-        val okHttp = OkHttpClient.Builder()
-            .addInterceptor(tokenInterceptor)
-            .build()
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
-            .client(okHttp)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
+        val okHttp = OkHttpClient.Builder().addInterceptor(tokenInterceptor).build()
+        val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(okHttp).addConverterFactory(GsonConverterFactory.create()).build()
         return PontoCafeRepository(retrofit.create(PontoCafeApi::class.java))
     }
 }
