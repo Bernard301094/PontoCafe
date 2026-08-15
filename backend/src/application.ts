@@ -9,6 +9,7 @@ import { adminRoutes } from './routes/admin-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
+import { biometricCalibrationRoutes } from './routes/biometric-calibration-routes.js'
 import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
@@ -150,6 +151,8 @@ app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
+// Calibração específica precisa preceder a versão compatível mantida em workforceRoutes.
+app.route('/gestao', biometricCalibrationRoutes)
 // Rotas específicas (importar/lote/histórico) precisam preceder /colaboradores/:id.
 app.route('/gestao', workforceRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
