@@ -71,6 +71,32 @@ fun AdminDevicesScreenV2(
         }
     }
 
+    state.tokenGerado?.let { token ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Text(if (state.tokenRotacionado) "Novo código de ativação" else "Dispositivo criado")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    Text(state.tokenDeviceName ?: "Dispositivo", style = MaterialTheme.typography.titleSmall)
+                    SelectionContainer {
+                        Text(token, style = MaterialTheme.typography.headlineMedium)
+                    }
+                    Text(
+                        "Copie este código de 10 caracteres agora. Por segurança, ele é exibido somente neste momento.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = viewModel::limparToken) {
+                    Text("Já copiei")
+                }
+            },
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -213,7 +239,7 @@ fun AdminDevicesScreenV2(
                             Text(if (state.carregando) "Gerando código…" else "Cadastrar e gerar código")
                         }
                         Text(
-                            "Os dados só serão limpos depois que o servidor confirmar a criação do dispositivo.",
+                            "Os dados só serán limpos depois que o servidor confirmar a criação do dispositivo.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
