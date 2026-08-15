@@ -23,7 +23,7 @@ data class BiometricCalibrationMetrics(
     val observacao: String,
 )
 
-private interface BiometricCalibrationMetricsApi {
+interface BiometricCalibrationMetricsApi {
     @GET("gestao/biometria/calibracao/resumo")
     suspend fun summary(): BiometricCalibrationMetrics
 }
