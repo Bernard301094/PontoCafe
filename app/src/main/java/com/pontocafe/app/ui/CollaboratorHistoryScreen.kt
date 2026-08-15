@@ -72,8 +72,12 @@ fun CollaboratorHistoryScreen(
 
         if (history == null) {
             item("loading") {
-                Card(Modifier.fillMaxWidth()) {
-                    Text(if (state.loading) "Carregando histórico…" else "Histórico indisponível.", Modifier.padding(PontoCafeSpacing.md))
+                if (state.loading) {
+                    PontoCafeLoadingSkeleton(rows = 5)
+                } else {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text("Histórico indisponível.", Modifier.padding(PontoCafeSpacing.md))
+                    }
                 }
             }
             return@LazyColumn
