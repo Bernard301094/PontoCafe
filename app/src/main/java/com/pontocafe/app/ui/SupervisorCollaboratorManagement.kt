@@ -215,7 +215,7 @@ fun SupervisorNewCollaboratorScreen(viewModel: SupervisorViewModel) {
         )
 
         Button(
-            onClick = { viewModel.criarColaborador("", nome, setor, turno) },
+            onClick = { viewModel.criarColaborador(nome, setor, turno) },
             modifier = Modifier.fillMaxWidth(),
             enabled = nome.trim().length >= 2 && !viewModel.state.carregando,
         ) { Text("Salvar e cadastrar rosto") }
@@ -266,7 +266,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
     val context = LocalContext.current
     val state = viewModel.state
     val colaborador = state.colaboradorSelecionado ?: return
-    val poses = remember { SupervisorEnrollmentPose.entries }
+    val poses = remember(colaborador.id) { SupervisorEnrollmentPose.entries.shuffled() }
     val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)
     val currentPose = poses[stepIndex]
 
@@ -379,7 +379,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text("${state.biometricSamplesCaptured} de ${poses.size} amostras capturadas", color = Color.White.copy(alpha = 0.72f))
-                Text("Somente o template facial combinado e cifrado será salvo. Nenhuma foto é armazenada.", color = Color.White.copy(alpha = 0.75f))
+                Text("A ordem das etapas muda a cada cadastro. Somente o template facial combinado e cifrado será salvo; nenhuma foto é armazenada.", color = Color.White.copy(alpha = 0.75f))
                 state.mensagem?.let { Text(it, color = Color(0xFFD7F3E4)) }
                 state.erro?.let { Text(it, color = Color(0xFFFFC7C7)) }
             }
