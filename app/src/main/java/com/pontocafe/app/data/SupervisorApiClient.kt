@@ -3,6 +3,7 @@ package com.pontocafe.app.data
 import com.pontocafe.app.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import retrofit2.HttpException
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -33,6 +34,34 @@ data class PausaSupervisor(
 
 data class PausasSupervisorResponse(val pausas: List<PausaSupervisor>)
 
+data class ReportSummary(
+    val totalPausas: Int,
+    val colaboradores: Int,
+    val mediaSegundos: Int?,
+    val acimaLimite: Int,
+    val foraHorario: Int,
+)
+data class ReportDay(
+    val data: String,
+    val pausas: Int,
+    val acimaLimite: Int,
+    val foraHorario: Int,
+)
+data class ReportDelay(
+    val colaboradorId: String,
+    val nome: String,
+    val ocorrencias: Int,
+    val maiorDuracaoSegundos: Int,
+    val excessoTotalSegundos: Int,
+)
+data class ReportPeriod(val inicio: String, val fim: String)
+data class SupervisorReportResponse(
+    val periodo: ReportPeriod,
+    val resumo: ReportSummary,
+    val porDia: List<ReportDay>,
+    val maioresAtrasos: List<ReportDelay>,
+)
+
 data class CollaboratorMutationResponse(
     val ok: Boolean = true,
     val excluido: Boolean? = null,
@@ -44,6 +73,14 @@ interface SupervisorApi {
     @POST("api/auth/sign-out") suspend fun signOut(): Response<Unit>
     @GET("supervisor/pausas/ativas") suspend fun pausasAtivas(): PausasSupervisorResponse
     @GET("supervisor/pausas") suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
+    @GET("supervisor/relatorios/resumo") suspend fun report(
+        @Query("inicio") inicio: String,
+        @Query("fim") fim: String,
+    ): SupervisorReportResponse
+    @GET("supervisor/relatorios/csv") suspend fun reportCsv(
+        @Query("inicio") inicio: String,
+        @Query("fim") fim: String,
+    ): ResponseBody
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(
@@ -73,13 +110,15 @@ class SupervisorRepository(
         try {
             api.pausasAtivas()
         } catch (error: Throwable) {
-            supervisorSessionStore.clear()
+            if (isAuthFailure(error)) supervisorSessionStore.clear()
             throw error
         }
     }
 
     suspend fun pausasAtivas() = api.pausasAtivas().pausas
     suspend fun historico(data: String? = null) = api.historico(data).pausas
+    suspend fun report(inicio: String, fim: String) = api.report(inicio, fim)
+    suspend fun reportCsv(inicio: String, fim: String): ByteArray = api.reportCsv(inicio, fim).bytes()
     suspend fun collaborators() = api.collaborators().colaboradores
         .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 
@@ -116,6 +155,7 @@ class SupervisorRepository(
     }
 
     companion object {
+        fun isAuthFailure(error: Throwable): Boolean = AdminRepository.isAuthFailure(error)
         fun message(error: Throwable): String = AdminRepository.message(error)
     }
 }
@@ -128,6 +168,7 @@ object SupervisorApiClient {
             val token = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
             val request = chain.request().newBuilder().apply {
                 token?.let { header("Authorization", "Bearer $it") }
+                header("X-App-Version", BuildConfig.VERSION_NAME)
             }.build()
             chain.proceed(request)
         }
