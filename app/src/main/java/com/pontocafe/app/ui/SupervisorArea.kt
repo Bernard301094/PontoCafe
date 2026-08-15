@@ -34,6 +34,9 @@ fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
         SupervisorDestination.LOGIN -> SupervisorLoginScreen(viewModel, onClose)
         SupervisorDestination.AO_VIVO -> SupervisorLiveScreen(viewModel, onClose)
         SupervisorDestination.HISTORICO -> SupervisorHistoryScreen(viewModel)
+        SupervisorDestination.COLABORADORES -> SupervisorCollaboratorsScreen(viewModel)
+        SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorScreen(viewModel)
+        SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreen(viewModel)
     }
 }
 
@@ -48,7 +51,7 @@ private fun SupervisorLoginScreen(viewModel: SupervisorViewModel, onClose: () ->
     ) {
         PontoCafeHeader("Acesso do Supervisor")
         Text(
-            "Perfil somente leitura para acompanhar as pausas de café.",
+            "Acompanhe as pausas e gerencie o cadastro de colaboradores e rostos.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 18.dp),
         )
@@ -91,7 +94,7 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
     ) {
         PontoCafeHeader("Pessoas no café")
         Text(
-            "Somente consulta. O Supervisor não cadastra, exclui nem altera dados.",
+            "O Supervisor acompanha as pausas e pode administrar colaboradores e biometria facial.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -102,6 +105,13 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 Text("Histórico")
             }
         }
+        Button(
+            onClick = viewModel::abrirColaboradores,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Gerenciar colaboradores e rostos")
+        }
+        state.mensagem?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.erro?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (state.pausasAtivas.isEmpty() && !state.carregando) {
             Card(modifier = Modifier.fillMaxWidth()) {
