@@ -8,7 +8,7 @@ import { parseJson } from './shared.js'
 export const deviceActivationRoutes = new Hono<AppEnv>()
 deviceActivationRoutes.use('*', requireUser, requireRole('ADMIN'))
 
-deviceActivationRoutes.post('/', async (c) => {
+deviceActivationRoutes.post('/device-activation', async (c) => {
   const body = await parseJson(c, z.object({ nome: z.string().trim().min(2).max(120) }))
   if (!body.ok) return body.response
 
