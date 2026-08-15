@@ -157,8 +157,6 @@ deviceManagementRoutes.post('/devices/:id/novo-token', async (c) => {
     const row = updated.rows[0]
     if (!row) return null
 
-    // A revogação e a auditoria pertencem à mesma transação. Se o log falhar,
-    // o token antigo continua válido e nenhum código de recuperação é perdido.
     await auditDevice(client, c.get('user').id, 'ROTACIONAR_TOKEN_DISPOSITIVO', deviceId, {
       nome: row.nome,
       tokenAnteriorRevogado: true,
@@ -175,4 +173,51 @@ deviceManagementRoutes.post('/devices/:id/novo-token', async (c) => {
     ativo: true,
     aviso: 'O token anterior foi revogado. Use este código de 10 caracteres para ativar novamente o dispositivo.',
   })
+})
+
+deviceManagementRoutes.post('/devices/:id/excluir', async (c) => {
+  const deviceId = c.req.param('id')
+  if (!uuidSchema.safeParse(deviceId).success) return c.json({ erro: 'Dispositivo inválido.' }, 400)
+
+  const result = await transaction(async (client) => {
+    const found = await client.query<{ id: string; nome: string }>(
+      'select id,nome from dispositivos where id=$1 for update',
+      [deviceId],
+    )
+    const device = found.rows[0]
+    if (!device) return { status: 'NOT_FOUND' as const }
+
+    const history = await client.query<{ total: number }>(
+      `select count(*)::int as total
+         from pausas_cafe
+        where dispositivo_inicio_id=$1 or dispositivo_fim_id=$1`,
+      [deviceId],
+    )
+    const totalHistory = history.rows[0]?.total ?? 0
+    if (totalHistory > 0) {
+      return { status: 'HAS_HISTORY' as const, totalHistory }
+    }
+
+    // Verificações faciais são temporárias e podem ser removidas junto com um
+    // aparelho nunca usado em pausas. O histórico de ponto, quando existe,
+    // bloqueia a exclusão física para preservar rastreabilidade.
+    await client.query('delete from verificacoes_faciais where dispositivo_id=$1', [deviceId])
+    await auditDevice(client, c.get('user').id, 'EXCLUIR_DISPOSITIVO', deviceId, {
+      nome: device.nome,
+      exclusaoPermanente: true,
+    })
+    await client.query('delete from dispositivos where id=$1', [deviceId])
+    return { status: 'OK' as const, nome: device.nome }
+  })
+
+  if (result.status === 'NOT_FOUND') return c.json({ erro: 'Dispositivo não encontrado.' }, 404)
+  if (result.status === 'HAS_HISTORY') {
+    return c.json({
+      erro: `Este dispositivo possui ${result.totalHistory} registro(s) histórico(s) de pausa. Para preservar a auditoria, desative-o em vez de excluí-lo.`,
+      codigo: 'DISPOSITIVO_COM_HISTORICO',
+      registrosHistoricos: result.totalHistory,
+    }, 409)
+  }
+
+  return c.json({ ok: true, dispositivoId: deviceId, nome: result.nome, excluido: true })
 })
