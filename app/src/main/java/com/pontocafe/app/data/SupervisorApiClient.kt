@@ -148,9 +148,15 @@ class SupervisorRepository(
         embedding: FloatArray,
         model: String,
         modelVersion: String,
+        samples: List<FloatArray> = emptyList(),
     ) = api.saveBiometric(
         collaboratorId,
-        BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
+        BiometricEnrollmentRequest(
+            embedding = embedding.toList(),
+            modelo = model,
+            versaoModelo = modelVersion,
+            amostras = samples.takeIf { it.isNotEmpty() }?.map { it.toList() },
+        ),
     )
 
     suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
