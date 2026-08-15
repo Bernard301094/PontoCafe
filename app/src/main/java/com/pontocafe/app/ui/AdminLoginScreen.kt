@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 
@@ -91,13 +90,11 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 singleLine = true,
                 enabled = !state.carregando,
             )
-            OutlinedTextField(
+            SecurePasswordField(
                 value = senha,
                 onValueChange = { senha = it },
+                label = "Senha",
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Senha") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
                 enabled = !state.carregando,
             )
             AdminFeedback(viewModel)
