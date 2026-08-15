@@ -1,3 +1,7 @@
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,8 +18,8 @@ val faceModelBlobSha = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
 val faceModelUrl = "https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/$faceModelCommit/app/src/main/assets/facenet.tflite"
 val faceModelFile = layout.projectDirectory.file("src/main/assets/facenet.tflite").asFile
 
-fun gitBlobSha(file: java.io.File): String {
-    val digest = java.security.MessageDigest.getInstance("SHA-1")
+fun gitBlobSha(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-1")
     digest.update("blob ${file.length()}\u0000".toByteArray(Charsets.UTF_8))
     file.inputStream().use { input ->
         val buffer = ByteArray(64 * 1024)
@@ -25,7 +29,7 @@ fun gitBlobSha(file: java.io.File): String {
             digest.update(buffer, 0, count)
         }
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
 }
 
 val prepareFaceModel by tasks.registering {
@@ -38,7 +42,7 @@ val prepareFaceModel by tasks.registering {
         val currentValid = faceModelFile.exists() && gitBlobSha(faceModelFile) == faceModelBlobSha
         if (!currentValid) {
             faceModelFile.delete()
-            java.net.URI(faceModelUrl).toURL().openStream().use { input ->
+            URI(faceModelUrl).toURL().openStream().use { input ->
                 faceModelFile.outputStream().use { output -> input.copyTo(output) }
             }
         }
