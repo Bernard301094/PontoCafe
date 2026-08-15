@@ -53,12 +53,14 @@ class MainActivity : ComponentActivity() {
 
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore)
-        val supervisorFactory = SupervisorViewModelFactory { SupervisorViewModel(supervisorRepository) }
+        val supervisorFactory = SupervisorViewModelFactory {
+            SupervisorViewModel(supervisorRepository, faceEmbeddingEngine)
+        }
 
         setContent {
             MaterialTheme {
                 var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
-                var sincronizarAoVoltarDoAdmin by remember { mutableStateOf(false) }
+                var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
 
                 when (areaRestrita) {
                     AreaRestrita.ADMIN -> {
@@ -66,7 +68,7 @@ class MainActivity : ComponentActivity() {
                         AdminArea(
                             adminVm,
                             onClose = {
-                                sincronizarAoVoltarDoAdmin = true
+                                sincronizarCatalogoAoVoltar = true
                                 areaRestrita = null
                             },
                         )
@@ -74,17 +76,23 @@ class MainActivity : ComponentActivity() {
 
                     AreaRestrita.SUPERVISOR -> {
                         val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
-                        SupervisorArea(supervisorVm, onClose = { areaRestrita = null })
+                        SupervisorArea(
+                            supervisorVm,
+                            onClose = {
+                                sincronizarCatalogoAoVoltar = true
+                                areaRestrita = null
+                            },
+                        )
                     }
 
                     null -> {
                         val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
                         val state = vm.state
 
-                        LaunchedEffect(sincronizarAoVoltarDoAdmin) {
-                            if (sincronizarAoVoltarDoAdmin) {
+                        LaunchedEffect(sincronizarCatalogoAoVoltar) {
+                            if (sincronizarCatalogoAoVoltar) {
                                 vm.sincronizarBiometrias(force = true)
-                                sincronizarAoVoltarDoAdmin = false
+                                sincronizarCatalogoAoVoltar = false
                             }
                         }
 
