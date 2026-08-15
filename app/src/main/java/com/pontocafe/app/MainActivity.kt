@@ -85,6 +85,7 @@ class MainActivity : FragmentActivity() {
                 ) {
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val initialAdminSession = remember { adminSessionStore.hasToken() }
+                    val initialSupervisorSession = remember { supervisorSessionStore.hasToken() }
                     val savedArea = remember {
                         navigationStore.readArea()?.let { value ->
                             runCatching { AreaRestrita.valueOf(value) }.getOrNull()
@@ -102,13 +103,23 @@ class MainActivity : FragmentActivity() {
                     val savedAdminDevicesOpen = remember {
                         initialAdminSession && navigationStore.isAdminDevicesOpen()
                     }
+                    val protectedSessionAtLaunch = remember(savedArea) {
+                        (savedArea == AreaRestrita.ADMIN && initialAdminSession) ||
+                            (savedArea == AreaRestrita.SUPERVISOR && initialSupervisorSession)
+                    }
 
                     var areaRestrita by remember { mutableStateOf(savedArea) }
-                    var restrictedLocked by remember { mutableStateOf(navigationStore.isRestrictedLocked()) }
+                    var restrictedLocked by remember {
+                        mutableStateOf(navigationStore.isRestrictedLocked() || protectedSessionAtLaunch)
+                    }
                     var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
                     var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
                     var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
                     var adminNavigationRestored by remember { mutableStateOf(!initialAdminSession) }
+
+                    LaunchedEffect(protectedSessionAtLaunch) {
+                        if (protectedSessionAtLaunch) navigationStore.setRestrictedLocked(true)
+                    }
 
                     fun hasSessionFor(area: AreaRestrita?): Boolean = when (area) {
                         AreaRestrita.ADMIN -> adminSessionStore.hasToken()
@@ -183,6 +194,7 @@ class MainActivity : FragmentActivity() {
                                             userId = savedAdminUserId,
                                             collaboratorId = savedAdminCollaboratorId,
                                         )
+                                        return@LaunchedEffect
                                     }
                                     if (adminNavigationRestored) {
                                         navigationStore.saveAdminState(
