@@ -24,6 +24,9 @@ data class Colaborador(
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
 
+data class DeviceActivationRequest(val token: String)
+data class DeviceActivationResponse(val token: String)
+
 data class RegraCafe(
     val periodo: String,
     val inicio: String,
@@ -127,6 +130,9 @@ data class FinalizarPausaResponse(
 )
 
 interface PontoCafeApi {
+    @POST("setup/device-activation")
+    suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
+
     @GET("ponto/colaboradores")
     suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
 
@@ -161,6 +167,9 @@ interface PontoCafeApi {
 class PontoCafeRepository(
     private val api: PontoCafeApi,
 ) {
+    suspend fun activateDevice(token: String): String =
+        api.activateDevice(DeviceActivationRequest(token)).token
+
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
 
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
