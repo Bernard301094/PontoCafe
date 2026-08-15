@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.FormDraftRegistry
 import com.pontocafe.app.SupervisorViewModel
+import com.pontocafe.app.trackCollaboratorDraftSubmission
 
 @Composable
 fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
@@ -73,6 +74,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
         Button(
             onClick = {
                 draftState.markSubmitted()
+                viewModel.trackCollaboratorDraftSubmission(draftState)
                 viewModel.criarColaborador(draft.nome, draft.setor, draft.turno)
             },
             modifier = Modifier.fillMaxWidth(),
