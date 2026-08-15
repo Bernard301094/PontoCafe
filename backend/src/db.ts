@@ -4,6 +4,13 @@ import { config } from './config.js'
 
 type DatabaseScope = { pool: Pool }
 
+export type TransactionStage = 'DB_CONNECT' | 'DB_BEGIN' | 'DB_BODY' | 'DB_COMMIT' | 'DB_ROLLBACK'
+
+type TransactionOptions = {
+  onStage?: (stage: TransactionStage) => void
+  onRollbackFailure?: (rollbackError: unknown, originalError: unknown) => void
+}
+
 const databaseScope = new AsyncLocalStorage<DatabaseScope>()
 const cloudflareRuntime = process.env.PONTOCAFE_RUNTIME === 'cloudflare'
 let localPool: Pool | null = null
@@ -58,17 +65,39 @@ export async function query<T extends QueryResultRow>(text: string, values: unkn
   return currentPool().query<T>(text, values)
 }
 
-export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await currentPool().connect()
+export async function transaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  options: TransactionOptions = {},
+): Promise<T> {
+  let client: PoolClient | null = null
+  let destroyClient = false
+
   try {
+    options.onStage?.('DB_CONNECT')
+    client = await currentPool().connect()
+
+    options.onStage?.('DB_BEGIN')
     await client.query('BEGIN')
+
+    options.onStage?.('DB_BODY')
     const result = await fn(client)
+
+    options.onStage?.('DB_COMMIT')
     await client.query('COMMIT')
     return result
-  } catch (error) {
-    await client.query('ROLLBACK')
-    throw error
+  } catch (originalError) {
+    if (client) {
+      try {
+        options.onStage?.('DB_ROLLBACK')
+        await client.query('ROLLBACK')
+      } catch (rollbackError) {
+        destroyClient = true
+        options.onRollbackFailure?.(rollbackError, originalError)
+      }
+    }
+
+    throw originalError
   } finally {
-    client.release()
+    client?.release(destroyClient)
   }
 }
