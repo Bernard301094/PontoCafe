@@ -4,10 +4,12 @@ import { secureHeaders } from 'hono/secure-headers'
 import { auth, type AppEnv } from './auth-runtime.js'
 import { config } from './config.js'
 import { query } from './db.js'
+import { errorPayload, logServerError, requestIdMiddleware } from './observability.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
+import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
 import { deviceManagementRoutes } from './routes/device-management-routes.js'
@@ -18,17 +20,20 @@ import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { offlineRoutes } from './routes/offline-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
+import { reliabilityRoutes } from './routes/reliability-routes.js'
 import { reportRoutes } from './routes/report-routes.js'
 import { setupRoutes } from './routes/setup-routes.js'
 import { userManagementRoutes } from './routes/user-management-routes.js'
+import { workforceRoutes } from './routes/workforce-routes.js'
 
 const app = new Hono<AppEnv>()
 
+app.use('*', requestIdMiddleware())
 app.use('*', secureHeaders())
 app.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version'],
-  exposeHeaders: ['set-auth-token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version', 'X-Request-Id'],
+  exposeHeaders: ['set-auth-token', 'X-Request-Id', 'Server-Timing'],
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
 
@@ -99,29 +104,39 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
 
     if (response.status >= 500) {
       const diagnostico = await safeAuthResponseFailure(response)
-      console.error(JSON.stringify({ evento: 'better_auth_5xx_response', ...diagnostico }))
-      return c.json({ erro: 'Falha interna de autenticação.', diagnostico }, 500)
+      console.error(JSON.stringify({ evento: 'better_auth_5xx_response', requestId: c.get('requestId'), ...diagnostico }))
+      return c.json({ erro: 'Falha interna de autenticação.', requestId: c.get('requestId'), diagnostico }, 500)
     }
 
+    response.headers.set('X-Request-Id', c.get('requestId'))
     return response
   } catch (error) {
     const diagnostico = safeAuthFailure(error)
-    console.error(JSON.stringify({ evento: 'better_auth_runtime_failure', ...diagnostico }))
-    return c.json({ erro: 'Falha interna de autenticação.', diagnostico }, 500)
+    console.error(JSON.stringify({ evento: 'better_auth_runtime_failure', requestId: c.get('requestId'), ...diagnostico }))
+    return c.json({ erro: 'Falha interna de autenticação.', requestId: c.get('requestId'), diagnostico }, 500)
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0', requestId: c.get('requestId') }))
 app.get('/app-status', (c) => c.json({
   apiVersion: '0.7.0',
   latestAndroidVersion: config.latestAndroidVersion,
   minimumAndroidVersion: config.minimumAndroidVersion,
   timezone: config.appTimezone,
   offlineMaxEventAgeHours: config.offlineMaxEventAgeHours,
+  biometricRetentionDays: config.biometricRetentionDays,
+  requestId: c.get('requestId'),
 }))
 app.get('/health', async (c) => {
+  const startedAt = Date.now()
   const result = await query<{ agora: string }>('select now()::text as agora')
-  return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
+  return c.json({
+    status: 'ok',
+    banco: 'ok',
+    servidor: result.rows[0]?.agora,
+    latenciaBancoMs: Math.max(0, Date.now() - startedAt),
+    requestId: c.get('requestId'),
+  })
 })
 
 app.route('/setup', deviceSetupRoutes)
@@ -129,10 +144,14 @@ app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
 app.route('/admin', deviceManagementRoutes)
 app.route('/admin', userManagementRoutes)
+// Rotas 0.7 ficam antes das rotas legadas equivalentes para manter compatibilidade sem duplicar comportamento.
+app.route('/admin', coffeeRuleRoutes)
+app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
+app.route('/gestao', workforceRoutes)
 app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
@@ -142,10 +161,10 @@ app.route('/supervisor', liveRoutes)
 app.route('/supervisor', reportRoutes)
 app.route('/supervisor', authorizationRoutes)
 
-app.notFound((c) => c.json({ erro: 'Rota não encontrada.' }, 404))
+app.notFound((c) => c.json(errorPayload(c, 'Rota não encontrada.', 'ROUTE_NOT_FOUND'), 404))
 app.onError((error, c) => {
-  console.error(error)
-  return c.json({ erro: 'Erro interno do servidor.' }, 500)
+  logServerError(c, 'unhandled_api_error', error, { path: c.req.path, method: c.req.method })
+  return c.json(errorPayload(c, 'Erro interno do servidor.', 'UNEXPECTED_ERROR'), 500)
 })
 
 export default app
