@@ -32,6 +32,7 @@ enum class ReliabilityDestination {
 
 data class AdminReliabilityUiState(
     val destination: ReliabilityDestination = ReliabilityDestination.NONE,
+    val targetCollaboratorId: String? = null,
     val loading: Boolean = false,
     val rules: List<CoffeeRuleV2> = emptyList(),
     val history: CollaboratorHistoryResponse? = null,
@@ -88,6 +89,7 @@ class AdminReliabilityViewModel(
         viewModelScope.launch {
             state = state.copy(
                 destination = ReliabilityDestination.COLLABORATOR_HISTORY,
+                targetCollaboratorId = collaboratorId,
                 loading = true,
                 history = null,
                 error = null,
@@ -100,7 +102,7 @@ class AdminReliabilityViewModel(
     }
 
     fun refreshHistory(days: Int = 30) {
-        val id = state.history?.colaborador?.id ?: return
+        val id = state.targetCollaboratorId ?: state.history?.colaborador?.id ?: return
         openHistory(id, days)
     }
 
@@ -141,6 +143,7 @@ class AdminReliabilityViewModel(
         viewModelScope.launch {
             state = state.copy(
                 destination = ReliabilityDestination.BIOMETRIC_DIAGNOSTICS,
+                targetCollaboratorId = null,
                 loading = true,
                 biometricSummary = null,
                 calibration = null,
@@ -185,7 +188,9 @@ class AdminReliabilityViewModel(
                 .onSuccess {
                     state = state.copy(loading = false, message = "Biometria excluída com sucesso.")
                     onWorkforceChanged()
-                    state.history?.takeIf { it.colaborador.id == collaboratorId }?.let { openHistory(collaboratorId, state.history?.periodoDias ?: 30) }
+                    if (state.targetCollaboratorId == collaboratorId) {
+                        openHistory(collaboratorId, state.history?.periodoDias ?: 30)
+                    }
                 }
                 .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
         }
@@ -209,6 +214,7 @@ class AdminReliabilityViewModel(
     fun openSyncCenter() {
         state = state.copy(
             destination = ReliabilityDestination.SYNC_CENTER,
+            targetCollaboratorId = null,
             syncCenter = offlineStore.syncCenterSnapshot(),
             error = null,
             message = null,
@@ -253,6 +259,7 @@ class AdminReliabilityViewModel(
         viewModelScope.launch {
             state = state.copy(
                 destination = ReliabilityDestination.SYSTEM_DIAGNOSTICS,
+                targetCollaboratorId = null,
                 loading = true,
                 diagnostic = null,
                 error = null,
@@ -267,6 +274,7 @@ class AdminReliabilityViewModel(
     fun closeDetail() {
         state = state.copy(
             destination = ReliabilityDestination.NONE,
+            targetCollaboratorId = null,
             history = null,
             calibration = null,
             diagnostic = null,
