@@ -4,12 +4,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,9 +33,21 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
     val state = viewModel.state
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        PontoCafeScreenHeader(
+            title = "Área administrativa",
+            onBack = onClose,
+            backLabel = "Ponto Café",
+        )
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -40,9 +56,8 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 modifier = Modifier.padding(22.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                PontoCafeHeader("Área administrativa")
                 Text(
-                    "Entre com uma conta de Administrador para acessar configurações, usuários, dispositivos e segurança.",
+                    "Entre com uma conta de Administrador para acessar configurações, contas, dispositivos e segurança.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 ProfilePill("ADMIN")
@@ -73,9 +88,6 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                     enabled = email.isNotBlank() && senha.length >= 10 && !state.carregando,
                 ) {
                     Text(if (state.carregando) "Entrando..." else "Entrar")
-                }
-                OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-                    Text("Voltar ao Ponto Café")
                 }
             }
         }
