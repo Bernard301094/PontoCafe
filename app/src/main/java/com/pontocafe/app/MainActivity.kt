@@ -106,8 +106,11 @@ class MainActivity : FragmentActivity() {
                     val savedAdminCollaboratorId = remember {
                         if (initialAdminSession) navigationStore.readAdminCollaboratorId() else null
                     }
-                    val savedAdminDevicesOpen = remember {
-                        initialAdminSession && navigationStore.isAdminDevicesOpen()
+                    val savedReliabilityDestination = remember {
+                        if (initialAdminSession) navigationStore.readAdminReliabilityDestination() else null
+                    }
+                    val savedReliabilityCollaboratorId = remember {
+                        if (initialAdminSession) navigationStore.readAdminReliabilityCollaboratorId() else null
                     }
                     val protectedSessionAtLaunch = remember(savedArea) {
                         (savedArea == AreaRestrita.ADMIN && initialAdminSession) ||
@@ -122,6 +125,13 @@ class MainActivity : FragmentActivity() {
                     var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
                     var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
                     var adminNavigationRestored by remember { mutableStateOf(!initialAdminSession) }
+                    var reliabilityNavigationRestored by remember { mutableStateOf(!initialAdminSession) }
+                    var adminDevicesOpenPersisted by remember {
+                        mutableStateOf(initialAdminSession && navigationStore.isAdminDevicesOpen())
+                    }
+                    var adminKioskOpenPersisted by remember {
+                        mutableStateOf(initialAdminSession && navigationStore.isAdminKioskOpen())
+                    }
 
                     LaunchedEffect(protectedSessionAtLaunch) {
                         if (protectedSessionAtLaunch) navigationStore.setRestrictedLocked(true)
@@ -221,14 +231,50 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
 
+                                LaunchedEffect(adminNavigationRestored) {
+                                    if (!adminNavigationRestored || reliabilityNavigationRestored) return@LaunchedEffect
+                                    reliabilityNavigationRestored = true
+                                    when (savedReliabilityDestination?.let { runCatching { ReliabilityDestination.valueOf(it) }.getOrNull() }) {
+                                        ReliabilityDestination.COLLABORATOR_HISTORY -> {
+                                            savedReliabilityCollaboratorId?.let { reliabilityVm.openHistory(it) }
+                                        }
+                                        ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> reliabilityVm.openBiometricDiagnostics()
+                                        ReliabilityDestination.SYNC_CENTER -> reliabilityVm.openSyncCenter()
+                                        ReliabilityDestination.SYSTEM_DIAGNOSTICS -> reliabilityVm.openSystemDiagnostics()
+                                        ReliabilityDestination.NONE,
+                                        null -> Unit
+                                    }
+                                }
+
+                                LaunchedEffect(
+                                    reliabilityVm.state.destination,
+                                    reliabilityVm.state.targetCollaboratorId,
+                                    reliabilityNavigationRestored,
+                                ) {
+                                    if (reliabilityNavigationRestored) {
+                                        navigationStore.saveAdminReliabilityState(
+                                            destination = reliabilityVm.state.destination.name,
+                                            collaboratorId = reliabilityVm.state.targetCollaboratorId,
+                                        )
+                                    }
+                                }
+
                                 AdminArea(
                                     activity = this@MainActivity,
                                     viewModel = adminVm,
                                     deviceViewModel = adminDeviceVm,
                                     reliabilityViewModel = reliabilityVm,
                                     kioskModeStore = kioskModeStore,
-                                    initialDevicesOpen = savedAdminDevicesOpen,
-                                    onDevicesOpenChanged = navigationStore::setAdminDevicesOpen,
+                                    initialDevicesOpen = adminDevicesOpenPersisted,
+                                    initialKioskOpen = adminKioskOpenPersisted,
+                                    onDevicesOpenChanged = { open ->
+                                        adminDevicesOpenPersisted = open
+                                        navigationStore.setAdminDevicesOpen(open)
+                                    },
+                                    onKioskOpenChanged = { open ->
+                                        adminKioskOpenPersisted = open
+                                        navigationStore.setAdminKioskOpen(open)
+                                    },
                                     onClose = ::backToPonto,
                                 )
                             }
