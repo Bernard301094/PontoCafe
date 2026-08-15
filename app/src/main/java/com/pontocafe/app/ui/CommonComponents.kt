@@ -1,16 +1,31 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,19 +33,33 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 
+enum class PontoCafeTone { NEUTRAL, SUCCESS, WARNING, INFO, DANGER }
+
+@Composable
+private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
+    val semantic = LocalPontoCafeSemanticColors.current
+    return when (tone) {
+        PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        PontoCafeTone.SUCCESS -> semantic.successContainer to semantic.onSuccessContainer
+        PontoCafeTone.WARNING -> semantic.warningContainer to semantic.onWarningContainer
+        PontoCafeTone.INFO -> semantic.infoContainer to semantic.onInfoContainer
+        PontoCafeTone.DANGER -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+    }
+}
+
 @Composable
 fun PontoCafeHeader(subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(
             text = "Ponto Café",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
         if (!subtitle.isNullOrBlank()) {
@@ -48,25 +77,60 @@ fun PontoCafeScreenHeader(
     title: String,
     onBack: (() -> Unit)? = null,
     backLabel: String = "Voltar",
+    eyebrow: String? = "Ponto Café",
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+    ) {
         if (onBack != null) {
-            TextButton(onClick = onBack) {
-                Text("← $backLabel", fontWeight = FontWeight.SemiBold)
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = backLabel,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
-        PontoCafeHeader(title)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (!eyebrow.isNullOrBlank()) {
+                Text(
+                    eyebrow.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
     }
 }
 
 @Composable
 fun SectionTitle(title: String, subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
         if (!subtitle.isNullOrBlank()) {
             Text(
                 subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -80,31 +144,31 @@ fun MetricCard(
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
 ) {
+    val semantic = LocalPontoCafeSemanticColors.current
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = if (emphasized) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
+            containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surface,
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (emphasized) 2.dp else 0.dp),
+        border = BorderStroke(
+            1.dp,
+            if (emphasized) semantic.warning.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
         ) {
             Text(
                 value,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = if (emphasized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.headlineMedium,
+                color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (emphasized) semantic.onWarningContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
             )
         }
@@ -117,37 +181,56 @@ fun StatusPill(
     positive: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    StatusPill(
+        text = text,
+        tone = if (positive) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun StatusPill(
+    text: String,
+    tone: PontoCafeTone,
+    modifier: Modifier = Modifier,
+) {
+    val (container, content) = toneColors(tone)
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = if (positive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+        shape = CircleShape,
+        color = container,
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (positive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val icon = when (tone) {
+                PontoCafeTone.SUCCESS -> Icons.Default.CheckCircle
+                PontoCafeTone.WARNING, PontoCafeTone.DANGER -> Icons.Default.Warning
+                PontoCafeTone.INFO -> Icons.Default.Info
+                PontoCafeTone.NEUTRAL -> null
+            }
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = content)
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = content,
+            )
+        }
     }
 }
 
 @Composable
 fun ProfilePill(profile: String, modifier: Modifier = Modifier) {
     val admin = profile.equals("ADMIN", ignoreCase = true)
-    Surface(
+    StatusPill(
+        text = if (admin) "Administrador" else "Supervisor",
+        tone = if (admin) PontoCafeTone.INFO else PontoCafeTone.NEUTRAL,
         modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = if (admin) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-    ) {
-        Text(
-            text = if (admin) "Administrador" else "Supervisor",
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (admin) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-        )
-    }
+    )
 }
 
 @Composable
@@ -164,12 +247,12 @@ fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
         modifier = modifier.size(46.dp),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 initials,
                 style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
@@ -182,28 +265,43 @@ fun OperationalAlertCard(
     text: String,
     actionLabel: String,
     onClick: () -> Unit,
+    tone: PontoCafeTone = PontoCafeTone.WARNING,
 ) {
+    val (container, content) = toneColors(tone)
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        colors = CardDefaults.cardColors(containerColor = container),
+        border = BorderStroke(1.dp, content.copy(alpha = 0.12f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (tone == PontoCafeTone.DANGER) Icons.Default.Warning else Icons.Default.Info,
+                    contentDescription = null,
+                    tint = content,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                )
+            }
             Text(
                 text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
+                color = content.copy(alpha = 0.84f),
             )
             TextButton(onClick = onClick) {
-                Text(actionLabel)
+                Text(actionLabel, color = content)
             }
         }
     }
@@ -220,13 +318,14 @@ fun AccountSummaryRow(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
         InitialAvatar(name)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 name,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -239,7 +338,10 @@ fun AccountSummaryRow(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ProfilePill(profile)
-                StatusPill(if (active) "Ativo" else "Desativado", active)
+                StatusPill(
+                    if (active) "Ativo" else "Desativado",
+                    tone = if (active) PontoCafeTone.SUCCESS else PontoCafeTone.NEUTRAL,
+                )
             }
         }
     }
@@ -247,11 +349,15 @@ fun AccountSummaryRow(
 
 @Composable
 fun RulesCard() {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Horários de café", fontWeight = FontWeight.SemiBold)
-            Text("Manhã · 08:00–10:00 · 15 minutos")
-            Text("Tarde · 15:00–17:00 · 15 minutos")
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Horários de café", style = MaterialTheme.typography.titleMedium)
+            Text("Manhã · 08:00–10:00 · 15 minutos", style = MaterialTheme.typography.bodyMedium)
+            Text("Tarde · 15:00–17:00 · 15 minutos", style = MaterialTheme.typography.bodyMedium)
             Text(
                 "O tempo de um período não acumula para o outro.",
                 style = MaterialTheme.typography.bodySmall,
@@ -264,27 +370,70 @@ fun RulesCard() {
 @Composable
 fun MessageCard(viewModel: PontoCafeViewModel) {
     val state = viewModel.state
-    val message = state.erro ?: state.mensagem ?: return
-    val isError = state.erro != null
-
-    Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-        ),
+    val message = state.erro ?: state.mensagem
+    AnimatedVisibility(
+        visible = message != null,
+        enter = fadeIn() + scaleIn(initialScale = 0.98f),
+        exit = fadeOut() + scaleOut(targetScale = 0.98f),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                text = if (isError) "Atenção" else "Informação",
-                fontWeight = FontWeight.SemiBold,
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Text(
-                message,
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            TextButton(onClick = viewModel::limparMensagem) {
-                Text("Fechar")
+        if (message == null) return@AnimatedVisibility
+        val isError = state.erro != null
+        val (container, content) = toneColors(if (isError) PontoCafeTone.DANGER else PontoCafeTone.INFO)
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = container),
+            border = BorderStroke(1.dp, content.copy(alpha = 0.1f)),
+        ) {
+            Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = if (isError) "Atenção" else "Informação",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                )
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = content)
+                TextButton(onClick = viewModel::limparMensagem) {
+                    Text("Fechar", color = content)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ThinProgressSummary(
+    completed: Int,
+    total: Int,
+    title: String,
+    detail: String,
+) {
+    val fraction = if (total <= 0) 0f else (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(7.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction)
+                        .height(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
             }
         }
     }
