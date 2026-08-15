@@ -1,6 +1,6 @@
 {
   "name": "pontocafe-api",
-  "version": "0.5.1",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
@@ -8,10 +8,12 @@
     "dev": "tsx src/local.ts",
     "start": "tsx src/local.ts",
     "dev:worker": "wrangler dev",
+    "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "deploy": "npm run typecheck && wrangler deploy",
-    "preview": "npm run typecheck && wrangler versions upload",
-    "deploy:dry": "npm run typecheck && wrangler deploy --dry-run",
+    "validate": "npm run test && npm run typecheck",
+    "deploy": "npm run validate && wrangler deploy",
+    "preview": "npm run validate && wrangler versions upload",
+    "deploy:dry": "npm run validate && wrangler deploy --dry-run",
     "cf:types": "wrangler types",
     "auth:migrate": "tsx src/migrate-auth.ts",
     "auth:bootstrap": "tsx src/bootstrap-admin.ts"
