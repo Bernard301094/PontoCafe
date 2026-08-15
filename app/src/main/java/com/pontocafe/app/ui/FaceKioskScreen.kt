@@ -47,12 +47,14 @@ import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
 import java.security.MessageDigest
 
-private const val SUPERVISOR_EXIT_PIN_SHA256 = "51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f"
+private const val EXIT_PIN_SHA256 = "51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f"
 
-private fun supervisorExitPinValido(pin: String): Boolean {
+private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN }
+
+private fun exitPinValido(pin: String): Boolean {
     val digest = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray(Charsets.UTF_8))
     val encoded = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    return MessageDigest.isEqual(encoded.toByteArray(), SUPERVISOR_EXIT_PIN_SHA256.toByteArray())
+    return MessageDigest.isEqual(encoded.toByteArray(), EXIT_PIN_SHA256.toByteArray())
 }
 
 @Composable
@@ -78,51 +80,56 @@ fun FaceKioskScreen(
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
-    var solicitarPinSupervisor by remember { mutableStateOf(false) }
-    var pinSupervisor by remember { mutableStateOf("") }
-    var pinSupervisorInvalido by remember { mutableStateOf(false) }
+    var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
+    var exitPin by remember { mutableStateOf("") }
+    var exitPinInvalido by remember { mutableStateOf(false) }
 
-    if (solicitarPinSupervisor) {
+    fun fecharSolicitacaoAcesso() {
+        restrictedAreaRequest = null
+        exitPin = ""
+        exitPinInvalido = false
+    }
+
+    restrictedAreaRequest?.let { target ->
+        val areaName = if (target == RestrictedAreaRequest.SUPERVISOR) "Supervisor" else "Administrador"
         AlertDialog(
-            onDismissRequest = {
-                solicitarPinSupervisor = false
-                pinSupervisor = ""
-                pinSupervisorInvalido = false
-            },
-            title = { Text("Acesso do Supervisor") },
+            onDismissRequest = { fecharSolicitacaoAcesso() },
+            title = { Text("Sair do modo Ponto") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Informe a senha para sair do modo Ponto e abrir a área do Supervisor.")
+                    Text("Informe a senha para abrir a área $areaName.")
                     OutlinedTextField(
-                        value = pinSupervisor,
+                        value = exitPin,
                         onValueChange = { value ->
-                            pinSupervisor = value.filter(Char::isDigit).take(8)
-                            pinSupervisorInvalido = false
+                            exitPin = value.filter(Char::isDigit).take(8)
+                            exitPinInvalido = false
                         },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Senha") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        isError = pinSupervisorInvalido,
+                        isError = exitPinInvalido,
                         supportingText = {
-                            if (pinSupervisorInvalido) Text("Senha incorreta.")
+                            if (exitPinInvalido) Text("Senha incorreta.")
                         },
                     )
                 }
             },
             confirmButton = {
                 Button(
-                    enabled = pinSupervisor.length == 8,
+                    enabled = exitPin.length == 8,
                     onClick = {
-                        if (supervisorExitPinValido(pinSupervisor)) {
-                            solicitarPinSupervisor = false
-                            pinSupervisor = ""
-                            pinSupervisorInvalido = false
-                            onSupervisorClick()
+                        if (exitPinValido(exitPin)) {
+                            val destination = target
+                            fecharSolicitacaoAcesso()
+                            when (destination) {
+                                RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
+                                RestrictedAreaRequest.ADMIN -> onAdminClick()
+                            }
                         } else {
-                            pinSupervisorInvalido = true
-                            pinSupervisor = ""
+                            exitPinInvalido = true
+                            exitPin = ""
                         }
                     },
                 ) {
@@ -130,13 +137,7 @@ fun FaceKioskScreen(
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        solicitarPinSupervisor = false
-                        pinSupervisor = ""
-                        pinSupervisorInvalido = false
-                    },
-                ) {
+                TextButton(onClick = { fecharSolicitacaoAcesso() }) {
                     Text("Cancelar")
                 }
             },
@@ -216,10 +217,10 @@ fun FaceKioskScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    TextButton(onClick = { solicitarPinSupervisor = true }) {
+                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
                         Text("Supervisor", color = Color.White, maxLines = 1)
                     }
-                    TextButton(onClick = onAdminClick) {
+                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
                         Text("Admin", color = Color.White, maxLines = 1)
                     }
                 }
