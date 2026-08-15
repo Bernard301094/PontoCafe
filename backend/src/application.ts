@@ -6,6 +6,7 @@ import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
+import { deviceActivationRoutes } from './routes/device-activation-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
@@ -113,6 +114,7 @@ app.get('/health', async (c) => {
 })
 
 app.route('/setup', setupRoutes)
+app.route('/admin/device-activation', deviceActivationRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/ponto', localBiometricRoutes)
