@@ -20,6 +20,7 @@ data class Colaborador(
     val nome: String,
     val setor: String?,
     val turno: String?,
+    val rostoCadastrado: Boolean = false,
 )
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
