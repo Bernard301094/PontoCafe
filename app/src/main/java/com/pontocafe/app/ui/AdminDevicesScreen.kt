@@ -71,9 +71,7 @@ fun AdminDevicesScreen(
             )
         }
 
-        item(key = "health") {
-            SystemHealthCard(viewModel)
-        }
+        item(key = "health") { SystemHealthCard(viewModel) }
 
         state.mensagem?.let { message ->
             item(key = "message") {
@@ -209,6 +207,7 @@ private fun DeviceSecurityCard(
     var novoNome by remember(dispositivo.id, dispositivo.nome) { mutableStateOf(dispositivo.nome) }
     var confirmarDesativacao by remember(dispositivo.id) { mutableStateOf(false) }
     var confirmarRotacao by remember(dispositivo.id) { mutableStateOf(false) }
+    var confirmarExclusao by remember(dispositivo.id) { mutableStateOf(false) }
 
     if (confirmarDesativacao) {
         AlertDialog(
@@ -231,6 +230,27 @@ private fun DeviceSecurityCard(
                 Button(onClick = { confirmarRotacao = false; viewModel.rotacionarToken(dispositivo) }) { Text("Revogar e gerar novo") }
             },
             dismissButton = { TextButton(onClick = { confirmarRotacao = false }) { Text("Cancelar") } },
+        )
+    }
+
+    if (confirmarExclusao) {
+        AlertDialog(
+            onDismissRequest = { confirmarExclusao = false },
+            title = { Text("Excluir dispositivo definitivamente?") },
+            text = {
+                Text(
+                    "Esta ação remove permanentemente ${dispositivo.nome} e suas credenciais. Se o aparelho já tiver sido usado em registros de pausa, a exclusão será bloqueada para preservar o histórico; nesse caso, use Desativar.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmarExclusao = false
+                        viewModel.excluirPermanentemente(dispositivo)
+                    },
+                ) { Text("Excluir definitivamente") }
+            },
+            dismissButton = { TextButton(onClick = { confirmarExclusao = false }) { Text("Cancelar") } },
         )
     }
 
@@ -304,6 +324,14 @@ private fun DeviceSecurityCard(
                     modifier = Modifier.weight(1f),
                     enabled = dispositivo.ativo && !viewModel.state.carregando,
                 ) { Text("Desativar") }
+            }
+
+            OutlinedButton(
+                onClick = { confirmarExclusao = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !viewModel.state.carregando,
+            ) {
+                Text("Excluir permanentemente", color = MaterialTheme.colorScheme.error)
             }
         }
     }
