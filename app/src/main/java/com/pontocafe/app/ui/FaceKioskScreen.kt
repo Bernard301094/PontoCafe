@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -122,9 +123,7 @@ fun FaceKioskScreen(
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         isError = unlockError != null,
-                        supportingText = {
-                            Text(unlockError ?: "4 a 12 números")
-                        },
+                        supportingText = { Text(unlockError ?: "4 a 12 números") },
                         enabled = !unlockLoading,
                     )
                 }
@@ -137,39 +136,33 @@ fun FaceKioskScreen(
                         unlockLoading = true
                         unlockError = null
                         scope.launch {
-                            runCatching {
-                                unlockRepository.validarPinSaida(exitPin, destination.name)
-                            }.onSuccess {
-                                fecharSolicitacaoAcesso()
-                                when (destination) {
-                                    RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
-                                    RestrictedAreaRequest.ADMIN -> onAdminClick()
-                                    RestrictedAreaRequest.LOGIN -> onLoginModeClick()
+                            runCatching { unlockRepository.validarPinSaida(exitPin, destination.name) }
+                                .onSuccess {
+                                    fecharSolicitacaoAcesso()
+                                    when (destination) {
+                                        RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
+                                        RestrictedAreaRequest.ADMIN -> onAdminClick()
+                                        RestrictedAreaRequest.LOGIN -> onLoginModeClick()
+                                    }
                                 }
-                            }.onFailure { error ->
-                                unlockLoading = false
-                                exitPin = ""
-                                unlockError = PontoCafeRepository.mensagemErro(error)
-                            }
+                                .onFailure { error ->
+                                    unlockLoading = false
+                                    exitPin = ""
+                                    unlockError = PontoCafeRepository.mensagemErro(error)
+                                }
                         }
                     },
-                ) {
-                    Text(if (unlockLoading) "Verificando..." else "Desbloquear")
-                }
+                ) { Text(if (unlockLoading) "Verificando..." else "Desbloquear") }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { fecharSolicitacaoAcesso() },
-                    enabled = !unlockLoading,
-                ) {
-                    Text("Cancelar")
-                }
+                TextButton(onClick = { fecharSolicitacaoAcesso() }, enabled = !unlockLoading) { Text("Cancelar") }
             },
         )
     }
 
     LaunchedEffect(Unit) {
         viewModel.sincronizarBiometrias(force = false)
+        viewModel.atualizarConectividadeESincronizar()
     }
 
     LaunchedEffect(state.scanCycle) {
@@ -187,10 +180,8 @@ fun FaceKioskScreen(
                 onObservation = { observation ->
                     detectedFaces = observation.faceCount
                     if (
-                        state.scanning &&
-                        state.catalogoBiometricoPronto &&
-                        !state.sincronizandoBiometrias &&
-                        !state.carregando
+                        state.scanning && state.catalogoBiometricoPronto &&
+                        !state.sincronizandoBiometrias && !state.carregando
                     ) {
                         val next = liveness.update(observation)
                         livenessState = next
@@ -209,18 +200,12 @@ fun FaceKioskScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text("A câmera é necessária para registrar o Ponto Café.", color = Color.White)
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Permitir câmera")
-                }
+                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Permitir câmera") }
             }
         }
 
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .align(Alignment.TopCenter),
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).align(Alignment.TopCenter),
             color = Color.Black.copy(alpha = 0.68f),
             shape = RoundedCornerShape(20.dp),
         ) {
@@ -258,8 +243,12 @@ fun FaceKioskScreen(
                     }
                 }
                 Text(
-                    "15 min por período · ${state.totalBiometrias} rostos sincronizados",
-                    color = Color.White.copy(alpha = 0.75f),
+                    if (state.modoOffline) {
+                        "● OFFLINE · ${state.totalBiometrias} rostos · ${state.eventosPendentes} registro(s) pendente(s)"
+                    } else {
+                        "● Online · ${state.totalBiometrias} rostos · ${state.eventosPendentes} pendente(s)"
+                    },
+                    color = if (state.modoOffline) Color(0xFFFFD18A) else Color(0xFFB7F5D9),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -268,11 +257,7 @@ fun FaceKioskScreen(
         }
 
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(18.dp)
-                .align(Alignment.BottomCenter),
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(18.dp).align(Alignment.BottomCenter),
             color = Color.Black.copy(alpha = 0.72f),
             shape = RoundedCornerShape(24.dp),
         ) {
@@ -281,11 +266,8 @@ fun FaceKioskScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val noFaceVisible = state.scanning &&
-                    state.catalogoBiometricoPronto &&
-                    !state.sincronizandoBiometrias &&
-                    !state.carregando &&
-                    detectedFaces == 0
+                val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
+                    !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
                 val multipleFacesVisible = state.scanning && detectedFaces > 1
 
                 Text(
@@ -303,11 +285,7 @@ fun FaceKioskScreen(
                             LivenessState.CONCLUIDO -> "Rosto capturado"
                         }
                     },
-                    color = if (noFaceVisible || multipleFacesVisible) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        Color.White
-                    },
+                    color = if (noFaceVisible || multipleFacesVisible) MaterialTheme.colorScheme.error else Color.White,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -316,17 +294,37 @@ fun FaceKioskScreen(
                         !viewModel.faceModelReady -> "O modelo facial precisa estar disponível no APK."
                         state.sincronizandoBiometrias -> "Aguarde alguns segundos."
                         !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador ou Supervisor e toque em sincronizar."
-                        state.carregando -> "O candidato foi encontrado localmente e está sendo validado pelo servidor."
+                        state.carregando -> if (state.modoOffline) "Validando localmente neste aparelho." else "O candidato foi encontrado localmente e está sendo validado."
                         noFaceVisible -> "Não conseguimos localizar um rosto. Encaixe todo o rosto dentro da figura na tela e olhe para a câmera."
                         multipleFacesVisible -> "Deixe apenas uma pessoa diante da câmera para continuar."
+                        state.modoOffline -> "Modo offline seguro: pontos dentro do horário ficam cifrados neste aparelho e serão sincronizados automaticamente."
                         else -> "A identificação inicial acontece neste dispositivo. Não é necessário procurar seu nome."
                     },
                     color = Color.White.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodySmall,
                 )
+
+                if (state.modoOffline) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFF5A4300).copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(14.dp),
+                    ) {
+                        Text(
+                            "Sem conexão. Pausas fora do horário continuam exigindo o servidor e não são liberadas offline.",
+                            modifier = Modifier.padding(12.dp),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+
                 if (!state.catalogoBiometricoPronto && !state.sincronizandoBiometrias && viewModel.faceModelReady) {
-                    Button(onClick = { viewModel.sincronizarBiometrias(force = true) }) {
-                        Text("Sincronizar agora")
+                    Button(onClick = { viewModel.sincronizarBiometrias(force = true) }) { Text("Sincronizar rostos") }
+                }
+                if (state.eventosPendentes > 0 && !state.modoOffline) {
+                    OutlinedButton(onClick = viewModel::sincronizarPendenciasOffline) {
+                        Text(if (state.sincronizandoPendencias) "Sincronizando..." else "Sincronizar ${state.eventosPendentes} registro(s)")
                     }
                 }
                 state.erro?.let { error ->
@@ -341,19 +339,11 @@ fun FaceKioskScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            if (error.contains("reconhec", ignoreCase = true) || error.contains("identidade", ignoreCase = true)) {
-                                Text(
-                                    "ROSTO NÃO RECONHECIDO",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleSmall,
-                                )
-                            } else {
-                                Text(
-                                    "ATENÇÃO",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleSmall,
-                                )
-                            }
+                            Text(
+                                if (error.contains("reconhec", ignoreCase = true) || error.contains("identidade", ignoreCase = true)) "ROSTO NÃO RECONHECIDO" else "ATENÇÃO",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall,
+                            )
                             Text(error, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
