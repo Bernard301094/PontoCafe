@@ -165,7 +165,7 @@ interface AdminApi {
     @GET("admin/regras-cafe")
     suspend fun coffeeRules(): AdminCoffeeRulesResponse
 
-    @PUT("admin/regras-cafe/{periodo")
+    @PUT("admin/regras-cafe/{periodo}")
     suspend fun updateCoffeeRule(
         @Path("periodo") periodo: String,
         @Body body: UpdateCoffeeRuleRequest,
