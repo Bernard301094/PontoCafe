@@ -1,11 +1,15 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -15,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
@@ -24,6 +27,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
     val comprovante = viewModel.state.comprovante ?: return
+    val start = comprovante.tipo == TipoComprovantePonto.INICIO
+    val success = !comprovante.excedeuLimite
 
     LaunchedEffect(comprovante) {
         delay(5_000)
@@ -31,143 +36,140 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding()
+            .padding(PontoCafeSpacing.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        PontoCafeSuccessAnimation(Modifier.size(104.dp))
+
         Text(
-            text = "✓",
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = if (comprovante.tipo == TipoComprovantePonto.INICIO) "Pausa iniciada" else "Pausa finalizada",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+            text = if (start) "Pausa iniciada" else "Retorno registrado",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onBackground,
         )
         Text(
             text = comprovante.nome,
             style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(top = 6.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = PontoCafeSpacing.xs),
         )
 
-        if (comprovante.pendenteSincronizacao) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-            ) {
-                Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Salvo com segurança neste aparelho",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                    Text(
-                        "Sem conexão com o servidor. O registro será enviado automaticamente quando a internet voltar.",
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
-            }
-        }
+        StatusPill(
+            text = when {
+                comprovante.pendenteSincronizacao -> "Salvo offline"
+                !start && comprovante.excedeuLimite -> "Limite excedido"
+                else -> "Registro confirmado"
+            },
+            tone = when {
+                comprovante.pendenteSincronizacao -> PontoCafeTone.INFO
+                !start && comprovante.excedeuLimite -> PontoCafeTone.WARNING
+                else -> PontoCafeTone.SUCCESS
+            },
+            modifier = Modifier.padding(top = PontoCafeSpacing.md),
+        )
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = PontoCafeSpacing.xl),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            Card(modifier = Modifier.weight(1f)) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        if (comprovante.tipo == TipoComprovantePonto.INICIO) "Ponto registrado às" else "Retorno registrado às",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        comprovante.horarioRegistrado,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
-            Card(modifier = Modifier.weight(1f)) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (comprovante.tipo == TipoComprovantePonto.INICIO) {
-                        Text("Volte até", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            comprovante.retornoAte ?: "--:--",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    } else {
-                        Text("Tempo utilizado", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            viewModel.formatarTempo(comprovante.duracaoSegundos ?: 0),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (comprovante.excedeuLimite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth().padding(top = 14.dp)) {
             Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(PontoCafeSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
-                if (comprovante.tipo == TipoComprovantePonto.INICIO) {
-                    Text(
-                        viewModel.formatarTempo(comprovante.limiteSegundos),
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+                ) {
+                    ReceiptValue(
+                        label = if (start) "Registrado às" else "Retorno às",
+                        value = comprovante.horarioRegistrado,
+                        modifier = Modifier.weight(1f),
                     )
-                    Text("Tempo disponível para retornar")
+                    ReceiptValue(
+                        label = if (start) "Volte até" else "Tempo utilizado",
+                        value = if (start) {
+                            comprovante.retornoAte ?: "--:--"
+                        } else {
+                            viewModel.formatarTempo(comprovante.duracaoSegundos ?: 0)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                if (start) {
+                    Text(
+                        "Você tem ${viewModel.formatarTempo(comprovante.limiteSegundos)} para retornar.",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
                     if (comprovante.foraHorario) {
                         Text(
-                            "Pausa iniciada com autorização do supervisor.",
+                            "Pausa iniciada com autorização fora do horário.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 6.dp),
                         )
                     }
                 } else {
                     val duration = comprovante.duracaoSegundos ?: 0
                     val excess = (duration - comprovante.limiteSegundos).coerceAtLeast(0)
                     Text(
-                        if (comprovante.excedeuLimite) "Limite excedido" else "Dentro do limite",
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (comprovante.excedeuLimite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    )
-                    if (excess > 0) {
-                        Text(
-                            "${viewModel.formatarTempo(excess)} acima do limite",
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    Text(
-                        "Limite do período: ${viewModel.formatarTempo(comprovante.limiteSegundos)}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
+                        if (success) {
+                            "Retorno dentro do limite de ${viewModel.formatarTempo(comprovante.limiteSegundos)}."
+                        } else {
+                            "${viewModel.formatarTempo(excess)} acima do limite permitido."
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (success) {
+                            LocalPontoCafeSemanticColors.current.success
+                        } else {
+                            LocalPontoCafeSemanticColors.current.warning
+                        },
                     )
                 }
             }
         }
 
+        if (comprovante.pendenteSincronizacao) {
+            Text(
+                "O registro está protegido neste aparelho e será sincronizado automaticamente quando a conexão voltar.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = PontoCafeSpacing.md),
+            )
+        }
+
         Text(
-            "A tela voltará automaticamente para a câmera.",
+            "Voltando automaticamente para a câmera...",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(top = 16.dp),
+            modifier = Modifier.padding(top = PontoCafeSpacing.xl),
         )
 
         Button(
             onClick = viewModel::concluirComprovante,
-            modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = PontoCafeSpacing.md),
         ) {
-            Text("Concluir agora")
+            Text("Concluir")
         }
+    }
+}
+
+@Composable
+private fun ReceiptValue(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
