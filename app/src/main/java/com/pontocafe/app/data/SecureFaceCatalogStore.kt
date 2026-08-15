@@ -43,6 +43,12 @@ class SecureFaceCatalogStore(context: Context) {
     private val catalogKey = "catalogo_facial"
     private val gson = Gson()
 
+    @Volatile
+    private var cachedCatalog: CachedFaceCatalog? = null
+
+    @Volatile
+    private var cacheLoaded: Boolean = false
+
     fun save(catalog: CachedFaceCatalog) {
         val plaintext = gson.toJson(catalog).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -50,11 +56,20 @@ class SecureFaceCatalogStore(context: Context) {
         val encrypted = cipher.doFinal(plaintext)
         val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
         prefs.edit().putString(catalogKey, payload).apply()
+        cachedCatalog = catalog
+        cacheLoaded = true
     }
 
     fun read(): CachedFaceCatalog? {
-        val payload = prefs.getString(catalogKey, null) ?: return null
-        return runCatching {
+        if (cacheLoaded) return cachedCatalog
+        val payload = prefs.getString(catalogKey, null)
+        if (payload == null) {
+            cachedCatalog = null
+            cacheLoaded = true
+            return null
+        }
+
+        val catalog = runCatching {
             val bytes = Base64.decode(payload, Base64.NO_WRAP)
             require(bytes.size > 12)
             val iv = bytes.copyOfRange(0, 12)
@@ -63,13 +78,21 @@ class SecureFaceCatalogStore(context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
             gson.fromJson(json, CachedFaceCatalog::class.java)
-        }.getOrElse {
+        }.getOrNull()
+
+        if (catalog == null) {
             clear()
-            null
+            return null
         }
+
+        cachedCatalog = catalog
+        cacheLoaded = true
+        return catalog
     }
 
     fun clear() {
+        cachedCatalog = null
+        cacheLoaded = true
         prefs.edit().remove(catalogKey).apply()
     }
 
