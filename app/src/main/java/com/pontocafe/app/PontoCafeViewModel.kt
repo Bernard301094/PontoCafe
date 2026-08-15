@@ -74,6 +74,7 @@ class PontoCafeViewModel(
     private val offlineGraceMillis = 12 * 60 * 60 * 1000L
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+    private var pendingOfflineEmbedding: FloatArray? = null
 
     var state by mutableStateOf(
         PontoCafeUiState(
@@ -114,6 +115,7 @@ class PontoCafeViewModel(
                     tokenStore.save(deviceToken)
                     faceCatalogStore.clear()
                     offlineStore.clear()
+                    pendingOfflineEmbedding = null
                     state = PontoCafeUiState(
                         deviceConfigured = true,
                         scanning = true,
@@ -136,6 +138,7 @@ class PontoCafeViewModel(
         tokenStore.clear()
         faceCatalogStore.clear()
         offlineStore.clear()
+        pendingOfflineEmbedding = null
         state = PontoCafeUiState(deviceConfigured = false)
     }
 
@@ -146,8 +149,7 @@ class PontoCafeViewModel(
             runCatching {
                 val horario = repository.consultarHorario()
                 offlineStore.saveRules(horario.regras)
-                val appStatus = runCatching { repository.appStatus() }.getOrNull()
-                appStatus
+                runCatching { repository.appStatus() }.getOrNull()
             }.onSuccess { appStatus ->
                 marcarServidorOnline(appStatus)
                 sincronizarPendenciasOfflineInterno()
@@ -158,10 +160,11 @@ class PontoCafeViewModel(
                         erro = "Este dispositivo não está mais autorizado. Solicite uma nova ativação ao Administrador.",
                     )
                 } else {
+                    val offlineAllowed = offlineStore.canOperateOffline(offlineGraceMillis)
                     state = state.copy(
-                        modoOffline = offlineStore.canOperateOffline(offlineGraceMillis),
+                        modoOffline = offlineAllowed,
                         eventosPendentes = offlineStore.pendingCount(),
-                        erro = if (offlineStore.canOperateOffline(offlineGraceMillis)) null else state.erro,
+                        erro = if (offlineAllowed) null else state.erro,
                     )
                 }
             }
@@ -190,6 +193,7 @@ class PontoCafeViewModel(
     }
 
     fun ativarCamera() {
+        pendingOfflineEmbedding = null
         state = state.copy(
             scanning = true,
             scanCycle = state.scanCycle + 1,
@@ -215,6 +219,7 @@ class PontoCafeViewModel(
         }
 
         viewModelScope.launch {
+            pendingOfflineEmbedding = null
             state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
             try {
                 val embedding = embeddingEngine.embed(frame)
@@ -252,6 +257,7 @@ class PontoCafeViewModel(
                         modelo = embeddingEngine.modelName,
                         versaoModelo = embeddingEngine.modelVersion,
                     ).also {
+                        pendingOfflineEmbedding = null
                         offlineStore.markServerOk()
                         state = state.copy(
                             modoOffline = false,
@@ -262,10 +268,12 @@ class PontoCafeViewModel(
                     if (!PontoCafeRepository.isTemporaryFailure(error) || !offlineStore.canOperateOffline(offlineGraceMillis)) {
                         throw error
                     }
+                    pendingOfflineEmbedding = embedding.copyOf()
                     identificacaoOffline(match.colaborador, match.score)
                 }
 
                 if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
+                    pendingOfflineEmbedding = null
                     state = state.copy(
                         carregando = false,
                         scanning = true,
@@ -286,6 +294,7 @@ class PontoCafeViewModel(
                     erro = null,
                 )
             } catch (error: Throwable) {
+                pendingOfflineEmbedding = null
                 state = state.copy(
                     carregando = false,
                     scanning = true,
@@ -312,7 +321,7 @@ class PontoCafeViewModel(
         return IdentificarBiometriaResponse(
             reconhecido = true,
             motivo = "MODO_OFFLINE",
-            mensagem = "Identidade confirmada localmente. O registro será sincronizado quando a conexão voltar.",
+            mensagem = "Identidade confirmada localmente. O registro será revalidado biometricamente pelo servidor quando a conexão voltar.",
             score = score,
             verificacaoToken = OFFLINE_VERIFICATION_TOKEN,
             colaborador = colaborador,
@@ -376,8 +385,13 @@ class PontoCafeViewModel(
         val token = identificacao.verificacaoToken ?: return
 
         if (state.modoOffline || token == OFFLINE_VERIFICATION_TOKEN) {
+            val embedding = pendingOfflineEmbedding
+            if (embedding == null) {
+                state = state.copy(erro = "A amostra biométrica offline expirou. Faça o reconhecimento novamente.")
+                return
+            }
             if (identificacao.acaoSugerida == "FINALIZAR") {
-                finalizarPausaOffline(colaborador)
+                finalizarPausaOffline(colaborador, embedding)
             } else {
                 val rule = offlineStore.currentRule()
                 if (rule == null) {
@@ -386,12 +400,13 @@ class PontoCafeViewModel(
                         needsAuthorization = false,
                     )
                 } else {
-                    iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, rule)
+                    iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, embedding, rule)
                 }
             }
             return
         }
 
+        pendingOfflineEmbedding = null
         if (identificacao.acaoSugerida == "FINALIZAR") {
             finalizarPausa(colaborador.id, colaborador.nome, token)
             return
@@ -413,6 +428,7 @@ class PontoCafeViewModel(
     }
 
     fun rejeitarIdentidade() {
+        pendingOfflineEmbedding = null
         state = state.copy(
             identificacao = null,
             scanning = true,
@@ -425,6 +441,7 @@ class PontoCafeViewModel(
 
     fun confirmarAutorizacao(periodo: String, codigo: String) {
         if (state.modoOffline) {
+            pendingOfflineEmbedding = null
             state = state.copy(
                 erro = "A autorização fora do horário exige conexão com o servidor.",
                 needsAuthorization = false,
@@ -482,6 +499,7 @@ class PontoCafeViewModel(
                     codigoAutorizacao = codigoAutorizacao,
                 )
             }.onSuccess { pausa ->
+                pendingOfflineEmbedding = null
                 offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
                 state = state.copy(
                     carregando = false,
@@ -509,6 +527,7 @@ class PontoCafeViewModel(
             state = state.copy(carregando = true, erro = null)
             runCatching { repository.finalizar(colaboradorId, verificacaoToken) }
                 .onSuccess { pausa ->
+                    pendingOfflineEmbedding = null
                     offlineStore.recordOnlineFinish(colaboradorId)
                     state = state.copy(
                         carregando = false,
@@ -534,17 +553,20 @@ class PontoCafeViewModel(
     private fun iniciarPausaOffline(
         colaborador: com.pontocafe.app.data.Colaborador,
         score: Double,
+        embedding: FloatArray,
         rule: RegraCafe,
     ) {
         runCatching {
             offlineStore.queueOfflineStart(
                 colaborador = colaborador,
                 score = score,
+                embedding = embedding,
                 model = embeddingEngine.modelName,
                 modelVersion = embeddingEngine.modelVersion,
                 rule = rule,
             )
         }.onSuccess { local ->
+            pendingOfflineEmbedding = null
             state = state.copy(
                 carregando = false,
                 needsAuthorization = false,
@@ -567,16 +589,21 @@ class PontoCafeViewModel(
         }
     }
 
-    private fun finalizarPausaOffline(colaborador: com.pontocafe.app.data.Colaborador) {
+    private fun finalizarPausaOffline(
+        colaborador: com.pontocafe.app.data.Colaborador,
+        embedding: FloatArray,
+    ) {
         val score = state.identificacao?.score ?: 0.0
         runCatching {
             offlineStore.queueOfflineFinish(
                 colaborador = colaborador,
                 score = score,
+                embedding = embedding,
                 model = embeddingEngine.modelName,
                 modelVersion = embeddingEngine.modelVersion,
             )
         }.onSuccess { (open, duration) ->
+            pendingOfflineEmbedding = null
             state = state.copy(
                 carregando = false,
                 identificacao = null,
