@@ -1,6 +1,7 @@
 package com.pontocafe.app
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -19,8 +20,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
+import com.pontocafe.app.data.AdminReliabilityApiClient
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.AppNavigationStateStore
+import com.pontocafe.app.data.KioskModeStore
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.data.SecureFaceCatalogStore
@@ -45,6 +48,11 @@ class MainActivity : FragmentActivity() {
 
         val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
         val navigationStore = AppNavigationStateStore(applicationContext)
+        val kioskModeStore = KioskModeStore(applicationContext)
+        val kioskSettings = kioskModeStore.read()
+        if (kioskSettings.enabled && kioskSettings.keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
 
         val deviceTokenStore = SecureDeviceTokenStore(applicationContext)
         val faceCatalogStore = SecureFaceCatalogStore(applicationContext)
@@ -62,6 +70,7 @@ class MainActivity : FragmentActivity() {
 
         val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
         val adminRepository = AdminApiClient.create(adminSessionStore)
+        val adminReliabilityRepository = AdminReliabilityApiClient.create(adminSessionStore)
         val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository, faceEmbeddingEngine) }
         val adminDeviceFactory = AdminDeviceViewModelFactory { AdminDeviceViewModel(adminRepository) }
 
@@ -172,6 +181,21 @@ class MainActivity : FragmentActivity() {
                             AreaRestrita.ADMIN -> {
                                 val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
                                 val adminDeviceVm: AdminDeviceViewModel = viewModel(key = "admin-devices", factory = adminDeviceFactory)
+                                val reliabilityFactory = remember(adminVm) {
+                                    AdminReliabilityViewModelFactory {
+                                        AdminReliabilityViewModel(
+                                            repository = adminReliabilityRepository,
+                                            pontoRepository = pontoRepository,
+                                            offlineStore = offlineStore,
+                                            embeddingEngine = faceEmbeddingEngine,
+                                            onWorkforceChanged = { adminVm.abrirColaboradores() },
+                                        )
+                                    }
+                                }
+                                val reliabilityVm: AdminReliabilityViewModel = viewModel(
+                                    key = "admin-reliability",
+                                    factory = reliabilityFactory,
+                                )
 
                                 LaunchedEffect(adminVm.state.destination) {
                                     if (!adminNavigationRestored && adminVm.state.destination == AdminDestination.HOME) {
@@ -193,8 +217,11 @@ class MainActivity : FragmentActivity() {
                                 }
 
                                 AdminArea(
+                                    activity = this@MainActivity,
                                     viewModel = adminVm,
                                     deviceViewModel = adminDeviceVm,
+                                    reliabilityViewModel = reliabilityVm,
+                                    kioskModeStore = kioskModeStore,
                                     initialDevicesOpen = savedAdminDevicesOpen,
                                     onDevicesOpenChanged = navigationStore::setAdminDevicesOpen,
                                     onClose = ::backToPonto,
