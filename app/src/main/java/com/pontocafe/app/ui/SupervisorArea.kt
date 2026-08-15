@@ -98,17 +98,10 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) {
-                Text("Atualizar")
-            }
-            OutlinedButton(onClick = viewModel::abrirHistorico, modifier = Modifier.weight(1f)) {
-                Text("Histórico")
-            }
+            Button(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) { Text("Atualizar") }
+            OutlinedButton(onClick = viewModel::abrirHistorico, modifier = Modifier.weight(1f)) { Text("Histórico") }
         }
-        Button(
-            onClick = viewModel::abrirColaboradores,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        Button(onClick = viewModel::abrirColaboradores, modifier = Modifier.fillMaxWidth()) {
             Text("Gerenciar colaboradores e rostos")
         }
         state.mensagem?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
@@ -127,12 +120,8 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) {
-                Text("Voltar ao Ponto")
-            }
-            OutlinedButton(onClick = viewModel::sair, modifier = Modifier.weight(1f)) {
-                Text("Sair")
-            }
+            OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Voltar ao Ponto") }
+            OutlinedButton(onClick = viewModel::sair, modifier = Modifier.weight(1f)) { Text("Sair") }
         }
     }
 }
@@ -176,9 +165,8 @@ private fun SupervisorPauseCard(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(pausa.nome, fontWeight = FontWeight.SemiBold)
-            val detalhe = listOfNotNull(pausa.matricula, pausa.setor).filter { it.isNotBlank() }.joinToString(" · ")
-            if (detalhe.isNotBlank()) {
-                Text(detalhe, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            pausa.setor?.takeIf { it.isNotBlank() }?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 if (ativa) {
