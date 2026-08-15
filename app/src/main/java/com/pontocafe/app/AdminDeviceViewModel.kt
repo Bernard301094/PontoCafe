@@ -23,6 +23,7 @@ data class AdminDeviceUiState(
     val tokenGerado: String? = null,
     val tokenDeviceName: String? = null,
     val tokenRotacionado: Boolean = false,
+    val pinAtualizadoDeviceId: String? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -113,7 +114,12 @@ class AdminDeviceViewModel(
         }
 
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                pinAtualizadoDeviceId = null,
+            )
             runCatching { repository.updateDevicePin(dispositivo.id, cleanPin) }
                 .onSuccess {
                     val local = state.dispositivos.map { item ->
@@ -123,12 +129,20 @@ class AdminDeviceViewModel(
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
-                        mensagem = mensagemComRefresh("PIN de ${dispositivo.nome} atualizado com sucesso.", refreshed),
+                        pinAtualizadoDeviceId = dispositivo.id,
+                        mensagem = mensagemComRefresh(
+                            "PIN de ${dispositivo.nome} atualizado com sucesso e já está valendo.",
+                            refreshed,
+                        ),
                         erro = null,
                     )
                 }
                 .onFailure { error ->
-                    state = state.copy(carregando = false, erro = AdminRepository.message(error))
+                    state = state.copy(
+                        carregando = false,
+                        pinAtualizadoDeviceId = null,
+                        erro = AdminRepository.message(error),
+                    )
                 }
         }
     }
