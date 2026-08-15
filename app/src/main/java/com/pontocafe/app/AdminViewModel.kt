@@ -9,8 +9,10 @@ import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AdminCoffeeRule
+import com.pontocafe.app.data.AdminOperationalSummary
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
+import com.pontocafe.app.data.AuditEvent
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.ui.NewAccountInput
 import kotlinx.coroutines.launch
@@ -29,6 +31,7 @@ enum class AdminDestination {
     COLLABORATORS,
     NEW_COLLABORATOR,
     BIOMETRIC_ENROLLMENT,
+    AUDIT,
 }
 
 data class AdminUiState(
@@ -39,6 +42,8 @@ data class AdminUiState(
     val usuarios: List<AdminUser> = emptyList(),
     val colaboradores: List<Colaborador> = emptyList(),
     val regrasCafe: List<AdminCoffeeRule> = emptyList(),
+    val auditoria: List<AuditEvent> = emptyList(),
+    val resumoOperacional: AdminOperationalSummary? = null,
     val selecionado: AdminUser? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
@@ -84,8 +89,16 @@ class AdminViewModel(
                         )
                     }
                 }
-                .onFailure {
-                    state = state.copy(carregando = false, destination = AdminDestination.LOGIN, erro = AdminRepository.message(it))
+                .onFailure { error ->
+                    state = if (repository.hasSession()) {
+                        state.copy(
+                            carregando = false,
+                            destination = AdminDestination.HOME,
+                            erro = "Sem conexão com o servidor. Sua sessão foi preservada e os dados serão atualizados quando a conexão voltar.",
+                        )
+                    } else {
+                        state.copy(carregando = false, destination = AdminDestination.LOGIN, erro = AdminRepository.message(error))
+                    }
                 }
         }
     }
@@ -164,6 +177,21 @@ class AdminViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.changeProfile(user.id, perfil) }
                 .onSuccess { carregarUsuariosInterno("Perfil atualizado.") }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun abrirAuditoria() {
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.audit(150) }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.AUDIT,
+                        auditoria = it,
+                    )
+                }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
@@ -448,25 +476,34 @@ class AdminViewModel(
     private suspend fun carregarUsuariosInterno(message: String? = null) {
         runCatching { repository.users() }
             .onSuccess { usuarios ->
-                val colaboradores = runCatching { repository.collaborators() }
-                    .getOrElse { state.colaboradores }
+                val colaboradores = runCatching { repository.collaborators() }.getOrElse { state.colaboradores }
+                val resumo = runCatching { repository.operationalSummary() }.getOrNull()
                 state = state.copy(
                     carregando = false,
                     destination = AdminDestination.HOME,
                     usuarios = usuarios,
                     colaboradores = colaboradores,
+                    resumoOperacional = resumo,
                     selecionado = null,
                     mensagem = message,
                     erro = null,
                 )
             }
-            .onFailure {
-                repository.clearSession()
-                state = state.copy(
-                    carregando = false,
-                    destination = AdminDestination.LOGIN,
-                    erro = "Sua sessão administrativa expirou ou não possui acesso de administrador.",
-                )
+            .onFailure { error ->
+                if (AdminRepository.isAuthFailure(error)) {
+                    repository.clearSession()
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.LOGIN,
+                        erro = "Sua sessão administrativa expirou ou não possui acesso de administrador.",
+                    )
+                } else {
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.HOME,
+                        erro = "Sem conexão. Sua sessão foi preservada e os últimos dados disponíveis continuam na tela.",
+                    )
+                }
             }
     }
 
