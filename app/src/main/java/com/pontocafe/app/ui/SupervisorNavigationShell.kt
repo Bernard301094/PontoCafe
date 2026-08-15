@@ -65,7 +65,7 @@ fun SupervisorAreaShell(
     ) {
         when (current) {
             SupervisorPrimaryDestination.LIVE -> SupervisorLiveScreenV2(viewModel, onClose)
-            SupervisorPrimaryDestination.PEOPLE,
+            SupervisorPrimaryDestination.PEOPLE -> SupervisorPeopleScreenV2(viewModel)
             SupervisorPrimaryDestination.REPORTS -> SupervisorArea(viewModel, onClose)
         }
     }
