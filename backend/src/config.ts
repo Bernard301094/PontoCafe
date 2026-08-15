@@ -24,6 +24,9 @@ export const config = {
   faceEnrollmentDuplicateThreshold: numberEnv('FACE_ENROLLMENT_DUPLICATE_THRESHOLD', 0.88),
   authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180),
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180),
+  offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24),
+  latestAndroidVersion: process.env.APP_LATEST_ANDROID_VERSION?.trim() || '0.5.0',
+  minimumAndroidVersion: process.env.APP_MIN_ANDROID_VERSION?.trim() || '0.4.0',
 }
 
 export function biometricKey(): Buffer {
