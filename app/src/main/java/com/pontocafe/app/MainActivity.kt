@@ -12,10 +12,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
@@ -84,22 +84,31 @@ class MainActivity : FragmentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val lifecycleOwner = LocalLifecycleOwner.current
+                    val initialAdminSession = remember { adminSessionStore.hasToken() }
                     val savedArea = remember {
                         navigationStore.readArea()?.let { value ->
                             runCatching { AreaRestrita.valueOf(value) }.getOrNull()
                         }
                     }
-                    val savedAdminDestination = remember { navigationStore.readAdminDestination() }
-                    val savedAdminUserId = remember { navigationStore.readAdminUserId() }
-                    val savedAdminCollaboratorId = remember { navigationStore.readAdminCollaboratorId() }
-                    val savedAdminDevicesOpen = remember { navigationStore.isAdminDevicesOpen() }
+                    val savedAdminDestination = remember {
+                        if (initialAdminSession) navigationStore.readAdminDestination() else null
+                    }
+                    val savedAdminUserId = remember {
+                        if (initialAdminSession) navigationStore.readAdminUserId() else null
+                    }
+                    val savedAdminCollaboratorId = remember {
+                        if (initialAdminSession) navigationStore.readAdminCollaboratorId() else null
+                    }
+                    val savedAdminDevicesOpen = remember {
+                        initialAdminSession && navigationStore.isAdminDevicesOpen()
+                    }
 
                     var areaRestrita by remember { mutableStateOf(savedArea) }
                     var restrictedLocked by remember { mutableStateOf(navigationStore.isRestrictedLocked()) }
                     var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
                     var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
                     var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
-                    var adminNavigationRestored by remember { mutableStateOf(false) }
+                    var adminNavigationRestored by remember { mutableStateOf(!initialAdminSession) }
 
                     fun hasSessionFor(area: AreaRestrita?): Boolean = when (area) {
                         AreaRestrita.ADMIN -> adminSessionStore.hasToken()
