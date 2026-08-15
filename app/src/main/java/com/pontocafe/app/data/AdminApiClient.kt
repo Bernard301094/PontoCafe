@@ -229,6 +229,14 @@ class AdminRepository(
         ),
     )
 
+    @Deprecated("Matrícula não é mais utilizada")
+    suspend fun createCollaborator(
+        registration: String?,
+        name: String,
+        sector: String?,
+        shift: String?,
+    ) = createCollaborator(name, sector, shift)
+
     suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
         collaboratorId,
         BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
