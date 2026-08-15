@@ -63,8 +63,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.4.0"
+        versionCode = 2
+        versionName = "0.5.0"
     }
 
     buildTypes {
@@ -105,7 +105,6 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraX")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
-    // LiteRT via Google Play Services. O arquivo facenet.tflite é validado antes do build.
     implementation("com.google.android.gms:play-services-tflite-java:16.5.0")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
