@@ -53,7 +53,6 @@ private enum class EnrollmentPose(
         if (!observation.isWellPositioned) return false
         return when (this) {
             FRONT -> abs(observation.yaw) <= 10f && abs(observation.pitch) <= 10f
-            // Em uma câmera frontal, a direita da imagem processada corresponde à esquerda de quem está diante dela.
             LEFT -> observation.yaw in 18f..38f && abs(observation.pitch) <= 15f
             RIGHT -> observation.yaw in -38f..-18f && abs(observation.pitch) <= 15f
             UP -> observation.pitch in 12f..30f && abs(observation.yaw) <= 15f
@@ -79,7 +78,7 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
     val context = LocalContext.current
     val state = viewModel.state
     val colaborador = state.colaboradorSelecionado ?: return
-    val poses = remember { EnrollmentPose.entries }
+    val poses = remember(colaborador.id) { EnrollmentPose.entries.shuffled() }
     val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)
     val currentPose = poses[stepIndex]
 
@@ -209,7 +208,7 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                     color = Color.White.copy(alpha = 0.72f),
                 )
                 Text(
-                    "Somente o template facial combinado e cifrado será salvo. Nenhuma foto é armazenada.",
+                    "A ordem das etapas muda a cada cadastro. Somente o template facial combinado e cifrado será salvo; nenhuma foto é armazenada.",
                     color = Color.White.copy(alpha = 0.75f),
                 )
                 state.mensagem?.let { Text(it, color = Color(0xFFD7F3E4)) }
