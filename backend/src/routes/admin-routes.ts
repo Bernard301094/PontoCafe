@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { auth, requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { config } from '../config.js'
 import { query } from '../db.js'
-import { encryptEmbedding, hashToken, newId, newToken } from '../security.js'
+import { cosineSimilarity, decryptEmbedding, encryptEmbedding, hashToken, newId, newToken } from '../security.js'
 import { embeddingSchema, parseJson, periodoSchema, uuidSchema } from './shared.js'
 
 export const adminRoutes = new Hono<AppEnv>()
@@ -307,12 +308,74 @@ adminRoutes.post('/colaboradores', async (c) => {
 adminRoutes.put('/colaboradores/:id/biometria', async (c) => {
   const colaboradorId = c.req.param('id')
   if (!uuidSchema.safeParse(colaboradorId).success) return c.json({ erro: 'Colaborador inválido.' }, 400)
-  const body = await parseJson(c, z.object({ embedding: embeddingSchema, modelo: z.string().trim().min(2).max(100), versaoModelo: z.string().trim().min(1).max(50) }))
+  const body = await parseJson(c, z.object({
+    embedding: embeddingSchema,
+    modelo: z.string().trim().min(2).max(100),
+    versaoModelo: z.string().trim().min(1).max(50),
+  }))
   if (!body.ok) return body.response
+
+  const collaborator = await query<{ id: string; nome: string }>(
+    'select id,nome from colaboradores where id=$1 limit 1',
+    [colaboradorId],
+  )
+  if (!collaborator.rows[0]) return c.json({ erro: 'Colaborador não encontrado.' }, 404)
+
+  const existing = await query<{
+    colaborador_id: string
+    nome: string
+    template_cifrado: Buffer
+    iv: Buffer
+    auth_tag: Buffer
+    dimensao: number
+  }>(
+    `select t.colaborador_id,col.nome,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
+       from templates_faciais t
+       join colaboradores col on col.id=t.colaborador_id
+      where t.colaborador_id<>$1
+        and col.ativo=true
+        and t.modelo=$2
+        and t.versao_modelo=$3`,
+    [colaboradorId, body.data.modelo, body.data.versaoModelo],
+  )
+
+  const duplicateThreshold = Math.min(
+    0.99,
+    Math.max(config.faceEnrollmentDuplicateThreshold, config.faceThreshold + 0.05),
+  )
+  let duplicate: { colaboradorId: string; nome: string; score: number } | null = null
+
+  for (const row of existing.rows) {
+    if (row.dimensao !== body.data.embedding.length) continue
+    try {
+      const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
+      if (stored.length !== row.dimensao) continue
+      const score = cosineSimilarity(stored, body.data.embedding)
+      if (score >= duplicateThreshold && (!duplicate || score > duplicate.score)) {
+        duplicate = { colaboradorId: row.colaborador_id, nome: row.nome, score }
+      }
+    } catch (error) {
+      console.error(JSON.stringify({
+        evento: 'template_ignorado_ao_verificar_duplicidade',
+        colaboradorId: row.colaborador_id,
+        erro: error instanceof Error ? error.message : 'erro desconhecido',
+      }))
+    }
+  }
+
+  if (duplicate) {
+    return c.json({
+      erro: `Este rosto parece já estar cadastrado para ${duplicate.nome}. Verifique o colaborador antes de continuar.`,
+      codigo: 'BIOMETRIA_DUPLICADA',
+      colaboradorExistenteId: duplicate.colaboradorId,
+      similaridade: Number(duplicate.score.toFixed(4)),
+    }, 409)
+  }
+
   const encrypted = encryptEmbedding(body.data.embedding)
   await query(`insert into templates_faciais (id,colaborador_id,template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo)
     values ($1,$2,$3,$4,$5,$6,$7,$8)
     on conflict (colaborador_id) do update set template_cifrado=excluded.template_cifrado,iv=excluded.iv,auth_tag=excluded.auth_tag,dimensao=excluded.dimensao,modelo=excluded.modelo,versao_modelo=excluded.versao_modelo,atualizado_em=now()`,
     [newId(), colaboradorId, encrypted.ciphertext, encrypted.iv, encrypted.authTag, body.data.embedding.length, body.data.modelo, body.data.versaoModelo])
-  return c.json({ ok: true, colaboradorId, dimensao: body.data.embedding.length })
+  return c.json({ ok: true, colaboradorId, dimensao: body.data.embedding.length, amostrasConsolidadas: 5 })
 })
