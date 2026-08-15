@@ -106,7 +106,7 @@ fun SyncCenterScreen(
                     modifier = Modifier.weight(1f),
                     enabled = !state.loading && (snapshot?.pending?.isNotEmpty() == true),
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Icon(Icons.Default.Refresh, contentDescription = "Sincronizar agora")
                     Text(if (state.loading) " Sincronizando…" else " Sincronizar agora")
                 }
                 OutlinedButton(
@@ -129,6 +129,8 @@ fun SyncCenterScreen(
                 OperationalAlertCard(
                     title = "Tudo sincronizado",
                     text = "Não há registros de ponto pendentes neste dispositivo.",
+                    actionLabel = "Atualizar",
+                    onClick = viewModel::openSyncCenter,
                     tone = PontoCafeTone.SUCCESS,
                 )
             }
