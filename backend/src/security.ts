@@ -1,8 +1,19 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto'
 import { config, biometricKey } from './config.js'
 
+const DEVICE_TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+
 export const newId = () => randomUUID()
 export const newToken = () => randomBytes(32).toString('base64url')
+export const newDeviceToken = (length = 10) => {
+  if (!Number.isInteger(length) || length < 1 || length > 64) {
+    throw new Error('Tamanho de token de dispositivo inválido.')
+  }
+  return Array.from(
+    { length },
+    () => DEVICE_TOKEN_ALPHABET[randomInt(DEVICE_TOKEN_ALPHABET.length)],
+  ).join('')
+}
 export const hashToken = (value: string) => createHash('sha256').update(value).digest('hex')
 export const hashAuthorizationCode = (code: string) => createHmac('sha256', config.codePepper).update(code).digest('hex')
 export const generateAuthorizationCode = () => randomInt(100000, 1000000).toString()
