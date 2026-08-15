@@ -26,6 +26,9 @@ class AppNavigationStateStore(context: Context) {
     fun readAdminUserId(): String? = prefs.getString(KEY_ADMIN_USER_ID, null)
     fun readAdminCollaboratorId(): String? = prefs.getString(KEY_ADMIN_COLLABORATOR_ID, null)
     fun isAdminDevicesOpen(): Boolean = prefs.getBoolean(KEY_ADMIN_DEVICES_OPEN, false)
+    fun isAdminKioskOpen(): Boolean = prefs.getBoolean(KEY_ADMIN_KIOSK_OPEN, false)
+    fun readAdminReliabilityDestination(): String? = prefs.getString(KEY_ADMIN_RELIABILITY_DESTINATION, null)
+    fun readAdminReliabilityCollaboratorId(): String? = prefs.getString(KEY_ADMIN_RELIABILITY_COLLABORATOR_ID, null)
 
     fun saveAdminState(
         destination: String,
@@ -43,12 +46,32 @@ class AppNavigationStateStore(context: Context) {
         prefs.edit().putBoolean(KEY_ADMIN_DEVICES_OPEN, open).apply()
     }
 
+    fun setAdminKioskOpen(open: Boolean) {
+        prefs.edit().putBoolean(KEY_ADMIN_KIOSK_OPEN, open).apply()
+    }
+
+    fun saveAdminReliabilityState(destination: String?, collaboratorId: String?) {
+        prefs.edit().apply {
+            if (destination.isNullOrBlank() || destination == "NONE") {
+                remove(KEY_ADMIN_RELIABILITY_DESTINATION)
+                remove(KEY_ADMIN_RELIABILITY_COLLABORATOR_ID)
+            } else {
+                putString(KEY_ADMIN_RELIABILITY_DESTINATION, destination)
+                if (collaboratorId == null) remove(KEY_ADMIN_RELIABILITY_COLLABORATOR_ID)
+                else putString(KEY_ADMIN_RELIABILITY_COLLABORATOR_ID, collaboratorId)
+            }
+        }.apply()
+    }
+
     fun clearAdminNavigation() {
         prefs.edit()
             .remove(KEY_ADMIN_DESTINATION)
             .remove(KEY_ADMIN_USER_ID)
             .remove(KEY_ADMIN_COLLABORATOR_ID)
             .remove(KEY_ADMIN_DEVICES_OPEN)
+            .remove(KEY_ADMIN_KIOSK_OPEN)
+            .remove(KEY_ADMIN_RELIABILITY_DESTINATION)
+            .remove(KEY_ADMIN_RELIABILITY_COLLABORATOR_ID)
             .apply()
     }
 
@@ -59,5 +82,8 @@ class AppNavigationStateStore(context: Context) {
         private const val KEY_ADMIN_USER_ID = "admin_user_id"
         private const val KEY_ADMIN_COLLABORATOR_ID = "admin_collaborator_id"
         private const val KEY_ADMIN_DEVICES_OPEN = "admin_devices_open"
+        private const val KEY_ADMIN_KIOSK_OPEN = "admin_kiosk_open"
+        private const val KEY_ADMIN_RELIABILITY_DESTINATION = "admin_reliability_destination"
+        private const val KEY_ADMIN_RELIABILITY_COLLABORATOR_ID = "admin_reliability_collaborator_id"
     }
 }
