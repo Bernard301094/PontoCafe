@@ -99,7 +99,7 @@ fun AdminAccountForm(
             onValueChange = { nome = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nome completo") },
-            placeholder = { Text("Ex.: João Paulo Pereira") },
+            placeholder = { Text("Ex.: nome e sobrenome") },
             singleLine = true,
             enabled = !carregando,
         )
