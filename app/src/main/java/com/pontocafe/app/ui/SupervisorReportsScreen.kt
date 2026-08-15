@@ -219,7 +219,7 @@ private fun createPdfReport(
 
     document.finishPage(page)
     val file = reportFile(context, "pontocafe-${report.periodo.inicio}-${report.periodo.fim}.pdf")
-    file.outputStream().use(document::writeTo)
+    file.outputStream().use { output -> document.writeTo(output) }
     document.close()
     return file
 }
