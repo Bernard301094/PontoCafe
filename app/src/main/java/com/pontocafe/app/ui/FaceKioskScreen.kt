@@ -59,6 +59,7 @@ fun FaceKioskScreen(
     val liveness = remember { BlinkLiveness() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var captureRequested by remember { mutableStateOf(false) }
+    var detectedFaces by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.sincronizarBiometrias(force = false)
@@ -67,6 +68,7 @@ fun FaceKioskScreen(
     LaunchedEffect(state.scanCycle) {
         liveness.reset()
         captureRequested = false
+        detectedFaces = 0
         livenessState = LivenessState.POSICIONE_ROSTO
     }
 
@@ -76,6 +78,7 @@ fun FaceKioskScreen(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
                 onObservation = { observation ->
+                    detectedFaces = observation.faceCount
                     if (
                         state.scanning &&
                         state.catalogoBiometricoPronto &&
@@ -140,21 +143,35 @@ fun FaceKioskScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val noFaceVisible = state.scanning &&
+                    state.catalogoBiometricoPronto &&
+                    !state.sincronizandoBiometrias &&
+                    !state.carregando &&
+                    detectedFaces == 0
+                val multipleFacesVisible = state.scanning && detectedFaces > 1
+
                 Text(
                     text = when {
                         !viewModel.faceModelReady -> "Reconhecimento facial indisponível"
                         state.sincronizandoBiometrias -> "Sincronizando rostos cadastrados..."
                         !state.catalogoBiometricoPronto -> "Nenhum rosto disponível para reconhecimento"
                         state.carregando -> "Confirmando sua identidade..."
+                        noFaceVisible -> "ROSTO NÃO DETECTADO"
+                        multipleFacesVisible -> "MAIS DE UM ROSTO DETECTADO"
                         else -> when (livenessState) {
-                            LivenessState.POSICIONE_ROSTO -> "Posicione o rosto no centro"
+                            LivenessState.POSICIONE_ROSTO -> "Posicione o rosto dentro do contorno"
                             LivenessState.PISQUE -> "Pisque para confirmar presença"
                             LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
                             LivenessState.CONCLUIDO -> "Rosto capturado"
                         }
                     },
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
+                    color = if (noFaceVisible || multipleFacesVisible) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        Color.White
+                    },
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
                     text = when {
@@ -162,9 +179,11 @@ fun FaceKioskScreen(
                         state.sincronizandoBiometrias -> "Aguarde alguns segundos."
                         !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador e toque em sincronizar."
                         state.carregando -> "O candidato foi encontrado localmente e está sendo validado pelo servidor."
+                        noFaceVisible -> "Não conseguimos localizar um rosto. Encaixe todo o rosto dentro da figura na tela e olhe para a câmera."
+                        multipleFacesVisible -> "Deixe apenas uma pessoa diante da câmera para continuar."
                         else -> "A identificação inicial acontece neste dispositivo. Não é necessário procurar seu nome."
                     },
-                    color = Color.White.copy(alpha = 0.75f),
+                    color = Color.White.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (!state.catalogoBiometricoPronto && !state.sincronizandoBiometrias && viewModel.faceModelReady) {
@@ -172,8 +191,34 @@ fun FaceKioskScreen(
                         Text("Sincronizar agora")
                     }
                 }
-                state.erro?.let {
-                    Text(it, color = Color(0xFFFFC7C7), style = MaterialTheme.typography.bodySmall)
+                state.erro?.let { error ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (error.contains("reconhec", ignoreCase = true) || error.contains("identidade", ignoreCase = true)) {
+                                Text(
+                                    "ROSTO NÃO RECONHECIDO",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                            } else {
+                                Text(
+                                    "ATENÇÃO",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                            }
+                            Text(error, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
             }
         }
