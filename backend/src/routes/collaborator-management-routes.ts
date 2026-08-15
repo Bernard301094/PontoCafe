@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
@@ -10,7 +10,7 @@ export const collaboratorManagementRoutes = new Hono<AppEnv>()
 collaboratorManagementRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
 async function audit(
-  c: Parameters<Parameters<typeof collaboratorManagementRoutes.post>[1]>[0],
+  c: Context<AppEnv>,
   action: string,
   collaboratorId: string,
   details: Record<string, unknown> = {},
