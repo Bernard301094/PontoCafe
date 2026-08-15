@@ -67,6 +67,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
                 var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
+                var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
+                var supervisorSessionDisponivel by remember { mutableStateOf(supervisorSessionStore.hasToken()) }
 
                 when (areaRestrita) {
                     AreaRestrita.ADMIN -> {
@@ -106,9 +108,18 @@ class MainActivity : ComponentActivity() {
                         val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
                         val state = vm.state
 
+                        LaunchedEffect(state.deviceConfigured) {
+                            if (state.deviceConfigured) {
+                                adminSessionDisponivel = adminRepository.validarSessaoSalva()
+                                supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
+                            }
+                        }
+
                         LaunchedEffect(sincronizarCatalogoAoVoltar) {
                             if (sincronizarCatalogoAoVoltar) {
                                 vm.sincronizarBiometrias(force = true)
+                                adminSessionDisponivel = adminRepository.validarSessaoSalva()
+                                supervisorSessionDisponivel = supervisorRepository.validarSessaoSalva()
                                 sincronizarCatalogoAoVoltar = false
                             }
                         }
@@ -124,8 +135,8 @@ class MainActivity : ComponentActivity() {
                             state.identificacao != null -> IdentityConfirmationScreen(vm)
                             else -> FaceKioskScreen(
                                 viewModel = vm,
-                                hasAdminSession = adminSessionStore.hasToken(),
-                                hasSupervisorSession = supervisorSessionStore.hasToken(),
+                                hasAdminSession = adminSessionDisponivel,
+                                hasSupervisorSession = supervisorSessionDisponivel,
                                 onAdminClick = { areaRestrita = AreaRestrita.ADMIN },
                                 onSupervisorClick = { areaRestrita = AreaRestrita.SUPERVISOR },
                                 onLoginModeClick = { areaRestrita = AreaRestrita.LOGIN },
