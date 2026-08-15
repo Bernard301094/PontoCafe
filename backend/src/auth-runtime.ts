@@ -35,7 +35,10 @@ function createAuth() {
     },
     session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
     advanced: { database: { generateId: 'uuid' } },
-    plugins: [bearer({ requireSignature: true }), admin()],
+    // O token gerado pelo Ponto Café já é um segredo aleatório de 256 bits.
+    // No modo padrão, o plugin Bearer o converte internamente no cookie assinado
+    // que Better Auth espera antes de consultar a sessão.
+    plugins: [bearer(), admin()],
   })
 }
 
