@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
@@ -159,7 +161,11 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopCenter),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(16.dp)
+                .align(Alignment.TopCenter),
             color = Color.Black.copy(alpha = 0.72f),
             shape = RoundedCornerShape(20.dp),
         ) {
@@ -173,13 +179,17 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                     Text(colaborador.nome, color = Color.White.copy(alpha = 0.78f))
                 }
                 TextButton(onClick = viewModel::voltarColaboradores) {
-                    Text("Cancelar", color = Color.White)
+                    Text("← Voltar", color = Color.White)
                 }
             }
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(18.dp).align(Alignment.BottomCenter),
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(18.dp)
+                .align(Alignment.BottomCenter),
             color = Color.Black.copy(alpha = 0.78f),
             shape = RoundedCornerShape(24.dp),
         ) {
