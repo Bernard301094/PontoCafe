@@ -54,6 +54,16 @@ class AdminDeviceViewModel(
         }
     }
 
+    private suspend fun atualizarListaOu(fallback: List<AdminDevice>): Pair<List<AdminDevice>, Boolean> =
+        runCatching { repository.devices() }
+            .fold(
+                onSuccess = { it to true },
+                onFailure = { fallback to false },
+            )
+
+    private fun mensagemComRefresh(base: String, atualizado: Boolean): String =
+        if (atualizado) base else "$base A lista não pôde ser atualizada agora; toque em Atualizar quando a conexão voltar."
+
     fun criarDispositivo(nome: String, pin: String) {
         val cleanName = nome.trim()
         val cleanPin = pin.trim()
@@ -68,18 +78,22 @@ class AdminDeviceViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
-            runCatching {
-                val created = repository.createDevice(cleanName, cleanPin)
-                created to repository.devices()
-            }
-                .onSuccess { (created, devices) ->
+            runCatching { repository.createDevice(cleanName, cleanPin) }
+                .onSuccess { created ->
+                    // O código de ativação é de exibição única. Mesmo que o refresh
+                    // seguinte falhe, nunca descartamos este resultado já confirmado.
+                    val (devices, refreshed) = atualizarListaOu(state.dispositivos)
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
                         tokenGerado = created.token,
                         tokenDeviceName = created.nome,
                         tokenRotacionado = false,
-                        mensagem = "Dispositivo criado com PIN próprio. Copie o token de ativação agora.",
+                        mensagem = mensagemComRefresh(
+                            "Dispositivo criado com PIN próprio. Copie o token de ativação agora.",
+                            refreshed,
+                        ),
+                        erro = null,
                     )
                 }
                 .onFailure { error ->
@@ -97,15 +111,17 @@ class AdminDeviceViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.updateDevicePin(dispositivo.id, cleanPin)
-                repository.devices()
-            }
-                .onSuccess { devices ->
+            runCatching { repository.updateDevicePin(dispositivo.id, cleanPin) }
+                .onSuccess {
+                    val local = state.dispositivos.map { item ->
+                        if (item.id == dispositivo.id) item.copy(pinConfigurado = true) else item
+                    }
+                    val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
-                        mensagem = "PIN de ${dispositivo.nome} atualizado com sucesso.",
+                        mensagem = mensagemComRefresh("PIN de ${dispositivo.nome} atualizado com sucesso.", refreshed),
+                        erro = null,
                     )
                 }
                 .onFailure { error ->
@@ -122,15 +138,17 @@ class AdminDeviceViewModel(
         }
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.renameDevice(dispositivo.id, cleanName)
-                repository.devices()
-            }
-                .onSuccess { devices ->
+            runCatching { repository.renameDevice(dispositivo.id, cleanName) }
+                .onSuccess {
+                    val local = state.dispositivos.map { item ->
+                        if (item.id == dispositivo.id) item.copy(nome = cleanName) else item
+                    }
+                    val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
-                        mensagem = "Dispositivo renomeado para $cleanName.",
+                        mensagem = mensagemComRefresh("Dispositivo renomeado para $cleanName.", refreshed),
+                        erro = null,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -140,15 +158,20 @@ class AdminDeviceViewModel(
     fun desativar(dispositivo: AdminDevice) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching {
-                repository.deactivateDevice(dispositivo.id)
-                repository.devices()
-            }
-                .onSuccess { devices ->
+            runCatching { repository.deactivateDevice(dispositivo.id) }
+                .onSuccess {
+                    val local = state.dispositivos.map { item ->
+                        if (item.id == dispositivo.id) item.copy(ativo = false) else item
+                    }
+                    val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
-                        mensagem = "${dispositivo.nome} foi desativado. O token atual não poderá mais registrar pontos.",
+                        mensagem = mensagemComRefresh(
+                            "${dispositivo.nome} foi desativado. O token atual não poderá mais registrar pontos.",
+                            refreshed,
+                        ),
+                        erro = null,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -158,18 +181,23 @@ class AdminDeviceViewModel(
     fun rotacionarToken(dispositivo: AdminDevice) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
-            runCatching {
-                val rotated = repository.rotateDeviceToken(dispositivo.id)
-                rotated to repository.devices()
-            }
-                .onSuccess { (rotated, devices) ->
+            runCatching { repository.rotateDeviceToken(dispositivo.id) }
+                .onSuccess { rotated ->
+                    val local = state.dispositivos.map { item ->
+                        if (item.id == dispositivo.id) item.copy(ativo = true) else item
+                    }
+                    val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
                         tokenGerado = rotated.token,
                         tokenDeviceName = rotated.nome,
                         tokenRotacionado = true,
-                        mensagem = "Token anterior revogado. Use o novo código para ativar novamente este aparelho.",
+                        mensagem = mensagemComRefresh(
+                            "Token anterior revogado. Use o novo código para ativar novamente este aparelho.",
+                            refreshed,
+                        ),
+                        erro = null,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
