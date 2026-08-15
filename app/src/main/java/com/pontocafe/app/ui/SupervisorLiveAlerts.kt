@@ -38,12 +38,19 @@ data class SupervisorLiveAlert(
 @Composable
 fun rememberSupervisorLiveActivityAlert(
     pausasAtivas: List<PausaSupervisor>,
+    enabled: Boolean,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var alert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
 
-    LaunchedEffect(pausasAtivas) {
+    LaunchedEffect(pausasAtivas, enabled) {
+        if (!enabled) {
+            baseline = null
+            alert = null
+            return@LaunchedEffect
+        }
+
         val atual = pausasAtivas.associateBy { it.id }
         val anterior = baseline
 
