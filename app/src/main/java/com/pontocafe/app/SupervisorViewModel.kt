@@ -41,6 +41,8 @@ data class SupervisorUiState(
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
     val sessaoAdministrativa: Boolean = false,
+    val ultimaAtualizacaoAoVivoEmMillis: Long? = null,
+    val conexaoAoVivoOk: Boolean = true,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -58,6 +60,8 @@ class SupervisorViewModel(
         private set
 
     private val biometricSamples = mutableListOf<FloatArray>()
+    private var atualizacaoAoVivoEmAndamento = false
+    private var atualizacaoPausasEmAndamento = false
 
     val faceModelReady: Boolean get() = embeddingEngine.isReady
 
@@ -91,40 +95,87 @@ class SupervisorViewModel(
     }
 
     fun atualizarAoVivo() {
+        if (atualizacaoAoVivoEmAndamento || atualizacaoPausasEmAndamento) return
         viewModelScope.launch { atualizarAoVivoInterno() }
     }
 
-    private suspend fun atualizarAoVivoInterno() {
-        runCatching {
-            val pausas = repository.pausasAtivas()
-            val colaboradores = repository.collaborators()
-            pausas to colaboradores
-        }
-            .onSuccess { (pausas, colaboradores) ->
-                state = state.copy(
-                    destination = SupervisorDestination.AO_VIVO,
-                    carregando = false,
-                    pausasAtivas = pausas,
-                    colaboradores = colaboradores,
-                    sessaoAdministrativa = repository.usingAdminSession(),
-                    erro = null,
-                )
+    fun atualizarPausasAoVivoSilencioso() {
+        if (
+            state.destination != SupervisorDestination.AO_VIVO ||
+            atualizacaoAoVivoEmAndamento ||
+            atualizacaoPausasEmAndamento
+        ) return
+
+        viewModelScope.launch {
+            atualizacaoPausasEmAndamento = true
+            try {
+                runCatching { repository.pausasAtivas() }
+                    .onSuccess { pausas ->
+                        state = state.copy(
+                            pausasAtivas = pausas,
+                            ultimaAtualizacaoAoVivoEmMillis = System.currentTimeMillis(),
+                            conexaoAoVivoOk = true,
+                        )
+                    }
+                    .onFailure { error ->
+                        if (SupervisorRepository.isAuthFailure(error)) {
+                            repository.clearActiveSession()
+                            state = SupervisorUiState(
+                                destination = SupervisorDestination.LOGIN,
+                                erro = "Sua sessão expirou ou não possui acesso de supervisor.",
+                                conexaoAoVivoOk = false,
+                            )
+                        } else {
+                            state = state.copy(conexaoAoVivoOk = false)
+                        }
+                    }
+            } finally {
+                atualizacaoPausasEmAndamento = false
             }
-            .onFailure { error ->
-                if (SupervisorRepository.isAuthFailure(error)) {
-                    repository.clearActiveSession()
-                    state = SupervisorUiState(
-                        destination = SupervisorDestination.LOGIN,
-                        erro = "Sua sessão expirou ou não possui acesso de supervisor.",
-                    )
-                } else {
+        }
+    }
+
+    private suspend fun atualizarAoVivoInterno() {
+        if (atualizacaoAoVivoEmAndamento || atualizacaoPausasEmAndamento) return
+        atualizacaoAoVivoEmAndamento = true
+        try {
+            runCatching {
+                val pausas = repository.pausasAtivas()
+                val colaboradores = repository.collaborators()
+                pausas to colaboradores
+            }
+                .onSuccess { (pausas, colaboradores) ->
                     state = state.copy(
                         destination = SupervisorDestination.AO_VIVO,
                         carregando = false,
-                        erro = "Sem conexão com o servidor. Sua sessão foi preservada e os últimos dados continuam disponíveis.",
+                        pausasAtivas = pausas,
+                        colaboradores = colaboradores,
+                        sessaoAdministrativa = repository.usingAdminSession(),
+                        ultimaAtualizacaoAoVivoEmMillis = System.currentTimeMillis(),
+                        conexaoAoVivoOk = true,
+                        erro = null,
                     )
                 }
-            }
+                .onFailure { error ->
+                    if (SupervisorRepository.isAuthFailure(error)) {
+                        repository.clearActiveSession()
+                        state = SupervisorUiState(
+                            destination = SupervisorDestination.LOGIN,
+                            erro = "Sua sessão expirou ou não possui acesso de supervisor.",
+                            conexaoAoVivoOk = false,
+                        )
+                    } else {
+                        state = state.copy(
+                            destination = SupervisorDestination.AO_VIVO,
+                            carregando = false,
+                            conexaoAoVivoOk = false,
+                            erro = "Sem conexão com o servidor. Sua sessão foi preservada e os últimos dados continuam disponíveis.",
+                        )
+                    }
+                }
+        } finally {
+            atualizacaoAoVivoEmAndamento = false
+        }
     }
 
     fun abrirHistorico() {
