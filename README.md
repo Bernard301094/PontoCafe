@@ -33,20 +33,24 @@ Se a identificação não for suficientemente segura, nenhum nome é mostrado e 
 - A API disponibiliza apenas ao quiosque autenticado o catálogo compatível com o modelo facial instalado.
 - O catálogo é transferido por HTTPS e salvo cifrado com AES-GCM protegido pelo Android Keystore.
 - A versão do catálogo é calculada a partir dos colaboradores ativos e seus templates.
-- O Android sincroniza no início, periodicamente e imediatamente ao voltar da área do Administrador.
-- Alterar/desativar um colaborador ou atualizar seu rosto invalida a versão anterior do catálogo.
+- O Android sincroniza no início, periodicamente e imediatamente ao voltar das áreas de Administrador ou Supervisor.
+- Alterar/desativar um colaborador, remover sua biometria ou atualizar seu rosto invalida a versão anterior do catálogo.
 - A busca 1:N não consome uma consulta ao banco para cada pessoa que olha para a câmera.
 
 ## Perfis
 
 ### Supervisor
-Perfil estritamente de leitura. Pode:
+Pode:
 - ver quem está em pausa agora;
 - ver horário de saída e tempo decorrido;
 - identificar quem ultrapassou 15 minutos;
-- consultar o histórico de pausas.
+- consultar o histórico de pausas;
+- cadastrar colaboradores;
+- cadastrar ou atualizar o rosto de colaboradores;
+- excluir somente o rosto de um colaborador;
+- retirar um colaborador da lista ativa, preservando o histórico de pausas e auditoria.
 
-O Supervisor **não pode** cadastrar, excluir, editar, configurar ou gerar autorizações.
+O Supervisor **não pode** administrar contas, alterar regras de café, gerar tokens de dispositivo nem gerar autorizações fora do horário.
 
 ### Administrador
 Perfil de gestão do sistema. Pode:
@@ -65,12 +69,14 @@ Proteções adicionais impedem excluir/desativar a própria conta e impedem remo
 ## Cadastro facial
 O cadastro do rosto usa exatamente o mesmo `FaceEmbeddingEngine` usado no Ponto:
 
-1. O Administrador cadastra os dados do colaborador.
+1. Um Administrador ou Supervisor cadastra os dados do colaborador.
 2. A câmera abre para o cadastro facial.
 3. A prova de vida por piscada é executada.
 4. O motor local gera o embedding.
 5. A API cifra e salva somente o template/embedding, não a foto bruta.
 6. Ao voltar ao Ponto, o catálogo local é sincronizado.
+
+A remoção do rosto exclui apenas o template biométrico. A remoção de um colaborador é lógica (`ativo=false`) para preservar o histórico. Se houver uma pausa aberta, o sistema bloqueia ambas as remoções até o retorno ser registrado.
 
 ## Primeiro acesso administrativo
 1. Configure no backend `FIRST_ADMIN_SETUP_KEY` com uma chave longa e aleatória.
@@ -128,7 +134,7 @@ Veja `docs/ARQUITETURA_PORTAVEL.md`.
 - Dados biométricos persistidos no PostgreSQL são embeddings cifrados, não fotos brutas.
 - A confirmação 1:1 em servidor gera um token facial curto e de uso único antes de registrar início ou retorno.
 - A identificação local rejeita correspondências abaixo do limiar ou muito próximas da segunda melhor opção.
-- Acesso administrativo e alterações sensíveis são auditáveis.
+- Inclusão, alteração e exclusão de colaboradores/biometrias são auditadas com o perfil e usuário responsável.
 
 ## Motor facial gratuito
 O `LiteRtFaceEmbeddingEngine` usa entrada RGB 160x160 e saída de 128 dimensões.
@@ -152,10 +158,9 @@ Implementado na branch de desenvolvimento:
 - confirmação facial 1:1 no servidor;
 - início/retorno automático;
 - comprovante rápido;
-- Supervisor somente leitura;
-- gestão de contas;
-- gestão de colaboradores;
-- cadastro facial;
+- acompanhamento de pausas pelo Supervisor;
+- gestão de colaboradores e biometria por Administrador e Supervisor;
+- gestão de contas pelo Administrador;
 - autorização fora do horário;
 - configuração das regras de café;
 - backend preparado para Cloudflare Workers.
