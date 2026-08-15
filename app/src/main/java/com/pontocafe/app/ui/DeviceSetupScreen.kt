@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -18,7 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 
@@ -35,23 +36,28 @@ fun DeviceSetupScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = 
         PontoCafeHeader("Configuração inicial do dispositivo")
         Spacer(Modifier.height(20.dp))
         Text(
-            "Informe o token gerado pelo administrador. Ele será armazenado de forma protegida neste aparelho.",
+            "Informe o token de 10 caracteres gerado pelo administrador. Ele será armazenado de forma protegida neste aparelho.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(
             value = token,
-            onValueChange = { token = it },
+            onValueChange = { value ->
+                token = value.filter { it.isLetterOrDigit() }.take(10)
+            },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Token do dispositivo") },
+            supportingText = {
+                Text("${token.length}/10 · letras maiúsculas, minúsculas e números")
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
         )
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = { viewModel.configurarDispositivo(token) },
             modifier = Modifier.fillMaxWidth(),
-            enabled = token.isNotBlank(),
+            enabled = token.length == 10,
         ) {
             Text("Ativar dispositivo")
         }
