@@ -31,7 +31,11 @@ fun SupervisorAreaShell(
     }
 
     if (current == null) {
-        SupervisorArea(viewModel, onClose)
+        if (viewModel.state.destination == SupervisorDestination.LOGIN) {
+            SupervisorLoginScreenV2(viewModel, onClose)
+        } else {
+            SupervisorArea(viewModel, onClose)
+        }
         return
     }
 
