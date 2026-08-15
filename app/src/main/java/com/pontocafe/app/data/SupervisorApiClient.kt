@@ -30,6 +30,7 @@ data class PausaSupervisor(
     val colaboradorId: String,
     val nome: String,
     val setor: String?,
+    val clienteAtualizadoEmMillis: Long = 0L,
 )
 
 data class PausasSupervisorResponse(val pausas: List<PausaSupervisor>)
@@ -115,7 +116,13 @@ class SupervisorRepository(
         }
     }
 
-    suspend fun pausasAtivas() = api.pausasAtivas().pausas
+    suspend fun pausasAtivas(): List<PausaSupervisor> {
+        val atualizadoEm = System.currentTimeMillis()
+        return api.pausasAtivas().pausas.map { pausa ->
+            pausa.copy(clienteAtualizadoEmMillis = atualizadoEm)
+        }
+    }
+
     suspend fun historico(data: String? = null) = api.historico(data).pausas
     suspend fun report(inicio: String, fim: String) = api.report(inicio, fim)
     suspend fun reportCsv(inicio: String, fim: String): ByteArray = api.reportCsv(inicio, fim).bytes()
