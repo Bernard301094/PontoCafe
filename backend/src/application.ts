@@ -106,7 +106,7 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.5.0' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.5.1' }))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
