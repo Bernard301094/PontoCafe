@@ -239,7 +239,7 @@ fun AdminDevicesScreenV2(
                             Text(if (state.carregando) "Gerando código…" else "Cadastrar e gerar código")
                         }
                         Text(
-                            "Os dados só serán limpos depois que o servidor confirmar a criação do dispositivo.",
+                            "Os dados só serão limpos depois que o servidor confirmar a criação do dispositivo.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
