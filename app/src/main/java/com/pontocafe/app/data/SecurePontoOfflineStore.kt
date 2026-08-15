@@ -42,12 +42,38 @@ data class LocalOpenPause(
     val retornoAteLocal: String,
 )
 
+data class OfflineSyncFailure(
+    val eventId: String,
+    val nome: String,
+    val acao: String,
+    val mensagem: String,
+    val tentativas: Int,
+    val ultimaTentativaEmMillis: Long,
+)
+
+data class SyncCenterEvent(
+    val eventId: String,
+    val nome: String,
+    val acao: String,
+    val ocorridoEm: String,
+    val appVersion: String,
+    val falha: OfflineSyncFailure?,
+)
+
+data class SyncCenterSnapshot(
+    val pending: List<SyncCenterEvent>,
+    val failures: List<OfflineSyncFailure>,
+    val lastServerOkMillis: Long,
+    val rulesUpdatedAtMillis: Long,
+)
+
 data class PontoOfflineSnapshot(
     val eventos: List<OfflinePontoEvent> = emptyList(),
     val pausasAbertas: List<LocalOpenPause> = emptyList(),
     val regras: List<RegraCafe> = emptyList(),
     val regrasAtualizadasEmMillis: Long = 0L,
     val ultimoServidorOkEmMillis: Long = 0L,
+    val falhasSincronizacao: List<OfflineSyncFailure> = emptyList(),
 )
 
 class SecurePontoOfflineStore(context: Context) {
@@ -57,6 +83,9 @@ class SecurePontoOfflineStore(context: Context) {
     private val gson = Gson()
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+    @Volatile
+    private var cachedSnapshot: PontoOfflineSnapshot? = null
 
     @Synchronized
     fun snapshot(): PontoOfflineSnapshot = readInternal()
@@ -69,6 +98,27 @@ class SecurePontoOfflineStore(context: Context) {
 
     @Synchronized
     fun lastServerOkMillis(): Long = readInternal().ultimoServidorOkEmMillis
+
+    @Synchronized
+    fun syncCenterSnapshot(): SyncCenterSnapshot {
+        val current = readInternal()
+        val failureById = current.falhasSincronizacao.associateBy { it.eventId }
+        return SyncCenterSnapshot(
+            pending = current.eventos.map { event ->
+                SyncCenterEvent(
+                    eventId = event.eventId,
+                    nome = event.nome,
+                    acao = event.acao,
+                    ocorridoEm = event.ocorridoEm,
+                    appVersion = event.appVersion,
+                    falha = failureById[event.eventId],
+                )
+            },
+            failures = current.falhasSincronizacao.filter { failure -> current.eventos.any { it.eventId == failure.eventId } },
+            lastServerOkMillis = current.ultimoServidorOkEmMillis,
+            rulesUpdatedAtMillis = current.regrasAtualizadasEmMillis,
+        )
+    }
 
     @Synchronized
     fun canOperateOffline(maxOfflineMillis: Long): Boolean {
@@ -228,21 +278,65 @@ class SecurePontoOfflineStore(context: Context) {
     }
 
     @Synchronized
+    fun recordSyncResults(results: List<OfflineSyncResult>) {
+        if (results.isEmpty()) return
+        val current = readInternal()
+        val processed = results.filter { it.status.equals("PROCESSADO", true) || it.status.equals("OK", true) }
+            .map { it.eventId }
+            .toSet()
+        val pendingIds = current.eventos.map { it.eventId }.toSet() - processed
+        val currentFailures = current.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
+        val now = System.currentTimeMillis()
+
+        results.forEach { result ->
+            if (result.eventId in processed) {
+                currentFailures.remove(result.eventId)
+            } else if (result.eventId in pendingIds) {
+                val event = current.eventos.firstOrNull { it.eventId == result.eventId } ?: return@forEach
+                val previous = currentFailures[result.eventId]
+                currentFailures[result.eventId] = OfflineSyncFailure(
+                    eventId = result.eventId,
+                    nome = event.nome,
+                    acao = event.acao,
+                    mensagem = result.mensagem?.take(300) ?: "O servidor não processou este registro.",
+                    tentativas = (previous?.tentativas ?: 0) + 1,
+                    ultimaTentativaEmMillis = now,
+                )
+            }
+        }
+
+        saveInternal(
+            current.copy(
+                eventos = current.eventos.filterNot { it.eventId in processed },
+                falhasSincronizacao = currentFailures.values.filter { it.eventId in pendingIds }.sortedByDescending { it.ultimaTentativaEmMillis },
+                ultimoServidorOkEmMillis = now,
+            ),
+        )
+    }
+
+    @Synchronized
     fun removeProcessed(eventIds: Collection<String>) {
         if (eventIds.isEmpty()) return
         val ids = eventIds.toHashSet()
         val current = readInternal()
-        saveInternal(current.copy(eventos = current.eventos.filterNot { it.eventId in ids }))
+        saveInternal(
+            current.copy(
+                eventos = current.eventos.filterNot { it.eventId in ids },
+                falhasSincronizacao = current.falhasSincronizacao.filterNot { it.eventId in ids },
+            ),
+        )
     }
 
     @Synchronized
     fun clear() {
+        cachedSnapshot = PontoOfflineSnapshot()
         prefs.edit().remove(payloadKey).apply()
     }
 
     private fun readInternal(): PontoOfflineSnapshot {
-        val payload = prefs.getString(payloadKey, null) ?: return PontoOfflineSnapshot()
-        return runCatching {
+        cachedSnapshot?.let { return it }
+        val payload = prefs.getString(payloadKey, null) ?: return PontoOfflineSnapshot().also { cachedSnapshot = it }
+        val snapshot = runCatching {
             val bytes = Base64.decode(payload, Base64.NO_WRAP)
             require(bytes.size > 12)
             val iv = bytes.copyOfRange(0, 12)
@@ -255,9 +349,12 @@ class SecurePontoOfflineStore(context: Context) {
             prefs.edit().remove(payloadKey).apply()
             PontoOfflineSnapshot()
         }
+        cachedSnapshot = snapshot
+        return snapshot
     }
 
     private fun saveInternal(snapshot: PontoOfflineSnapshot) {
+        cachedSnapshot = snapshot
         val plaintext = gson.toJson(snapshot).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
