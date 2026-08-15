@@ -28,10 +28,13 @@ fun AdminPanelScreen(
     onDevicesClick: () -> Unit,
 ) {
     val state = viewModel.state
+    val summary = state.resumoOperacional
     val activeUsers = state.usuarios.count { it.ativo }
-    val activeSupervisors = state.usuarios.count { it.ativo && it.perfil == "SUPERVISOR" }
-    val activeAdmins = state.usuarios.count { it.ativo && it.perfil == "ADMIN" }
-    val pendingFaces = state.colaboradores.count { !it.rostoCadastrado }
+    val activeSupervisors = summary?.supervisoresAtivos ?: state.usuarios.count { it.ativo && it.perfil == "SUPERVISOR" }
+    val activeAdmins = summary?.administradoresAtivos ?: state.usuarios.count { it.ativo && it.perfil == "ADMIN" }
+    val pendingFaces = summary?.rostosPendentes ?: state.colaboradores.count { !it.rostoCadastrado }
+    val openPauses = summary?.pausasAbertas ?: 0
+    val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
 
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -70,21 +73,34 @@ fun AdminPanelScreen(
                 modifier = Modifier.weight(1f),
             )
             MetricCard(
-                value = if (state.colaboradores.isEmpty()) "—" else pendingFaces.toString(),
+                value = if (state.colaboradores.isEmpty() && summary == null) "—" else pendingFaces.toString(),
                 label = "Rostos pendentes",
                 modifier = Modifier.weight(1f),
                 emphasized = pendingFaces > 0,
             )
         }
 
-        if (state.colaboradores.isNotEmpty() && pendingFaces > 0) {
+        if (pendingFaces > 0) {
             OperationalAlertCard(
                 title = "$pendingFaces rostos pendentes",
-                text = "Existem colaboradores que ainda não podem utilizar o reconhecimento facial neste dispositivo.",
+                text = "Existem colaboradores que ainda não podem utilizar o reconhecimento facial.",
                 actionLabel = "Ver pendentes",
                 onClick = viewModel::abrirColaboradores,
             )
         }
+        if (devicesWithoutPin > 0) {
+            OperationalAlertCard(
+                title = "$devicesWithoutPin dispositivo(s) sem PIN próprio",
+                text = "Defina um PIN individual para eliminar dependência do código legado de compatibilidade.",
+                actionLabel = "Gerenciar dispositivos",
+                onClick = onDevicesClick,
+            )
+        }
+
+        SectionTitle(
+            title = "Operação agora",
+            subtitle = if (summary != null) "$openPauses pessoa(s) em pausa · ${summary.dispositivosAtivos} dispositivo(s) ativo(s)" else "Resumo operacional será atualizado quando houver conexão.",
+        )
 
         SectionTitle(
             title = "Ações rápidas",
@@ -106,8 +122,13 @@ fun AdminPanelScreen(
                 Text("Regras do café")
             }
         }
-        OutlinedButton(onClick = onDevicesClick, modifier = Modifier.fillMaxWidth()) {
-            Text("Dispositivos e PIN de desbloqueio")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onDevicesClick, modifier = Modifier.weight(1f)) {
+                Text("Dispositivos")
+            }
+            OutlinedButton(onClick = viewModel::abrirAuditoria, modifier = Modifier.weight(1f)) {
+                Text("Auditoria")
+            }
         }
 
         SectionTitle(
@@ -121,9 +142,9 @@ fun AdminPanelScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Nenhuma conta encontrada", fontWeight = FontWeight.SemiBold)
+                    Text("Nenhuma conta carregada", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Cadastre um Supervisor ou Administrador para começar.",
+                        "Se estiver sem conexão, a sessão continua preservada. Atualize o painel quando o servidor voltar.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
