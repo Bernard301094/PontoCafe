@@ -54,8 +54,12 @@ fun SystemDiagnosticsScreen(
 
         if (diagnostic == null) {
             item("loading") {
-                Card(Modifier.fillMaxWidth()) {
-                    Text(if (state.loading) "Verificando servidor e banco…" else "Diagnóstico indisponível.", Modifier.padding(PontoCafeSpacing.md))
+                if (state.loading) {
+                    PontoCafeLoadingSkeleton(rows = 4)
+                } else {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text("Diagnóstico indisponível.", Modifier.padding(PontoCafeSpacing.md))
+                    }
                 }
             }
         } else {
