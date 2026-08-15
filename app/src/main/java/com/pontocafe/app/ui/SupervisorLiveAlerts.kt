@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
 import kotlinx.coroutines.delay
 
-private enum class SupervisorLiveAlertType { SAIDA, RETORNO, MISTO }
+private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -39,33 +39,60 @@ data class SupervisorLiveAlert(
 fun rememberSupervisorLiveActivityAlert(
     pausasAtivas: List<PausaSupervisor>,
     enabled: Boolean,
+    agoraEmMillis: Long,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
+    var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var alert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
 
-    LaunchedEffect(pausasAtivas, enabled) {
+    LaunchedEffect(pausasAtivas, enabled, agoraEmMillis) {
         if (!enabled) {
             baseline = null
+            overdueBaseline = emptySet()
             alert = null
             return@LaunchedEffect
         }
 
         val atual = pausasAtivas.associateBy { it.id }
+        val excessosAtuais = atual.values
+            .filter { tempoAtualSupervisor(it, agoraEmMillis) > it.limiteSegundos }
+            .mapTo(mutableSetOf()) { it.id }
         val anterior = baseline
 
         if (anterior == null) {
+            // O primeiro carregamento apenas estabelece a referência para não tocar
+            // alertas antigos assim que o Supervisor abre o painel.
             baseline = atual
+            overdueBaseline = excessosAtuais
             return@LaunchedEffect
         }
 
         val novas = atual.filterKeys { it !in anterior }.values.toList()
         val retornos = anterior.filterKeys { it !in atual }.values.toList()
-        baseline = atual
+        val novosExcessos = excessosAtuais
+            .filter { it !in overdueBaseline }
+            .mapNotNull(atual::get)
 
-        if (novas.isEmpty() && retornos.isEmpty()) return@LaunchedEffect
+        baseline = atual
+        overdueBaseline = excessosAtuais
+
+        if (novas.isEmpty() && retornos.isEmpty() && novosExcessos.isEmpty()) return@LaunchedEffect
 
         val novoAlerta = when {
+            novosExcessos.isNotEmpty() -> {
+                val nomes = nomesParaAlerta(novosExcessos)
+                SupervisorLiveAlert(
+                    id = System.nanoTime(),
+                    type = SupervisorLiveAlertType.EXCESSO.name,
+                    title = if (novosExcessos.size == 1) "Limite de pausa atingido" else "${novosExcessos.size} pausas acima do limite",
+                    message = if (novosExcessos.size == 1) {
+                        "$nomes atingiu o limite e ainda não registrou o retorno."
+                    } else {
+                        "$nomes atingiram o limite e ainda não registraram o retorno."
+                    },
+                )
+            }
             novas.isNotEmpty() && retornos.isEmpty() -> {
                 val nomes = nomesParaAlerta(novas)
                 SupervisorLiveAlert(
@@ -109,15 +136,22 @@ fun rememberSupervisorLiveActivityAlert(
 
 @Composable
 fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
-    val isReturn = alert.type == SupervisorLiveAlertType.RETORNO.name
+    val containerColor = when (alert.type) {
+        SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.errorContainer
+        SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.primaryContainer
+    }
+    val contentColor = when (alert.type) {
+        SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.onErrorContainer
+        SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onPrimaryContainer
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (isReturn) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.primaryContainer
-            },
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -129,6 +163,17 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
             )
         }
     }
+}
+
+private fun tempoAtualSupervisor(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
+    val base = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0
+    if (pausa.fimLocal != null || pausa.clienteAtualizadoEmMillis <= 0L) return base
+    val adicional = ((agoraEmMillis - pausa.clienteAtualizadoEmMillis) / 1000L)
+        .coerceAtLeast(0L)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+    return (base.toLong() + adicional)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
 }
 
 private fun nomesParaAlerta(pausas: List<PausaSupervisor>): String = when (pausas.size) {
@@ -155,6 +200,7 @@ private fun emitSupervisorLiveAlert(context: Context, type: String) {
 
         val pattern = when (type) {
             SupervisorLiveAlertType.RETORNO.name -> longArrayOf(0, 90, 70, 90)
+            SupervisorLiveAlertType.EXCESSO.name -> longArrayOf(0, 260, 100, 260, 100, 420)
             SupervisorLiveAlertType.MISTO.name -> longArrayOf(0, 140, 70, 140, 70, 140)
             else -> longArrayOf(0, 180, 90, 260)
         }
