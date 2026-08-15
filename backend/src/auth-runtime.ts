@@ -15,7 +15,11 @@ export type RuntimeBindings = {
 
 export type AppEnv = {
   Bindings: RuntimeBindings
-  Variables: { user: AuthUser; device: Device }
+  Variables: {
+    user: AuthUser
+    device: Device
+    requestId: string
+  }
 }
 
 function createAuth() {
@@ -70,7 +74,7 @@ function readBearerToken(value: string | undefined): string | null {
 
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const token = readBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ erro: 'Não autenticado.' }, 401)
+  if (!token) return c.json({ erro: 'Não autenticado.', requestId: c.get('requestId') }, 401)
 
   const result = await query<{
     id: string
@@ -87,8 +91,8 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
     [token],
   )
   const user = result.rows[0]
-  if (!user) return c.json({ erro: 'Sessão inválida ou expirada.' }, 401)
-  if (user.banned) return c.json({ erro: 'Esta conta está desativada.' }, 403)
+  if (!user) return c.json({ erro: 'Sessão inválida ou expirada.', requestId: c.get('requestId') }, 401)
+  if (user.banned) return c.json({ erro: 'Esta conta está desativada.', requestId: c.get('requestId') }, 403)
 
   c.set('user', {
     id: user.id,
@@ -101,7 +105,9 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
 
 export function requireRole(...roles: Role[]): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (!roles.includes(c.get('user').papel)) return c.json({ erro: 'Acesso negado.' }, 403)
+    if (!roles.includes(c.get('user').papel)) {
+      return c.json({ erro: 'Acesso negado.', requestId: c.get('requestId') }, 403)
+    }
     await next()
   }
 }
