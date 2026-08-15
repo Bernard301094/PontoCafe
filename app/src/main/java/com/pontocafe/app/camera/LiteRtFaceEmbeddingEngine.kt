@@ -43,6 +43,9 @@ class LiteRtFaceEmbeddingEngine(
         if (face !== frame.bitmap && !face.isRecycled) face.recycle()
 
         try {
+            // Rejeita apenas condições extremas (muito escuro, superexposto,
+            // contraste quase inexistente ou desfoque forte) antes do FaceNet.
+            FaceImageQualityAnalyzer.requireAcceptable(resized)
             val input = toStandardizedBuffer(resized)
             val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
             getInterpreter().run(input, output)
