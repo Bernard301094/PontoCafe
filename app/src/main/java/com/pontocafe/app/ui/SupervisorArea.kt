@@ -93,6 +93,10 @@ private fun SupervisorLoginScreen(viewModel: SupervisorViewModel, onClose: () ->
 @Composable
 private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
     val state = viewModel.state
+    val pendentes = state.colaboradores
+        .filter { !it.rostoCadastrado }
+        .sortedBy { it.nome.lowercase() }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -121,19 +125,85 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
         }
         state.mensagem?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         state.erro?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (state.pausasAtivas.isEmpty() && !state.carregando) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Text("Nenhuma pessoa está em pausa neste momento.", modifier = Modifier.padding(18.dp))
-            }
-        }
+
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(state.pausasAtivas, key = { it.id }) { pausa ->
-                SupervisorPauseCard(viewModel, pausa, ativa = true)
+            item(key = "pending-header") {
+                Text(
+                    "Pendentes de registro de rosto (${pendentes.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            if (pendentes.isEmpty() && !state.carregando) {
+                item(key = "no-pending") {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Todos os colaboradores ativos possuem rosto cadastrado.",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            } else {
+                items(pendentes, key = { "pending-${it.id}" }) { colaborador ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
+                            val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · ")
+                            if (detalhe.isNotBlank()) {
+                                Text(
+                                    detalhe,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                "Pendente de registro de rosto",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Button(
+                                onClick = { viewModel.cadastrarOuAtualizarRosto(colaborador) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Cadastrar rosto")
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "active-pause-header") {
+                Text(
+                    "Pessoas no café agora (${state.pausasAtivas.size})",
+                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            if (state.pausasAtivas.isEmpty() && !state.carregando) {
+                item(key = "no-active-pause") {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text("Nenhuma pessoa está em pausa neste momento.", modifier = Modifier.padding(18.dp))
+                    }
+                }
+            } else {
+                items(state.pausasAtivas, key = { it.id }) { pausa ->
+                    SupervisorPauseCard(viewModel, pausa, ativa = true)
+                }
             }
         }
+
         if (state.sessaoAdministrativa) {
             OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
                 Text("Voltar ao Ponto")
