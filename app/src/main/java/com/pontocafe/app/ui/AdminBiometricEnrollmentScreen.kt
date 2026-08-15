@@ -33,14 +33,55 @@ import androidx.core.content.ContextCompat
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
+import kotlin.math.abs
+
+private enum class EnrollmentPose(
+    val title: String,
+    val instruction: String,
+) {
+    FRONT("Olhe para frente", "Mantenha o rosto centralizado e olhe diretamente para a câmera."),
+    LEFT("Vire levemente para a esquerda", "Gire o rosto devagar para a sua esquerda, sem inclinar a cabeça."),
+    RIGHT("Vire levemente para a direita", "Agora gire o rosto devagar para a sua direita."),
+    UP("Olhe um pouco para cima", "Levante levemente o rosto, mantendo-se no centro."),
+    BLINK("Pisque os olhos", "Volte a olhar para frente e faça um piscar completo."),
+    ;
+
+    fun accepts(observation: FaceObservation): Boolean {
+        if (!observation.isWellPositioned) return false
+        return when (this) {
+            FRONT -> abs(observation.yaw) <= 10f && abs(observation.pitch) <= 10f
+            // Em uma câmera frontal, a direita da imagem processada corresponde à esquerda de quem está diante dela.
+            LEFT -> observation.yaw in 18f..38f && abs(observation.pitch) <= 15f
+            RIGHT -> observation.yaw in -38f..-18f && abs(observation.pitch) <= 15f
+            UP -> observation.pitch in 12f..30f && abs(observation.yaw) <= 15f
+            BLINK -> false
+        }
+    }
+}
+
+private fun positioningHint(observation: FaceObservation, pose: EnrollmentPose): String {
+    return when {
+        observation.faceCount == 0 -> "Posicione o rosto dentro da câmera"
+        observation.faceCount > 1 -> "Deixe apenas uma pessoa visível"
+        !observation.isCentered -> "Centralize o rosto"
+        observation.faceWidthRatio < 0.22f -> "Aproxime um pouco o rosto"
+        observation.faceWidthRatio > 0.68f -> "Afaste um pouco o rosto"
+        abs(observation.roll) > 12f -> "Mantenha a cabeça reta"
+        else -> pose.instruction
+    }
+}
 
 @Composable
 fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
     val context = LocalContext.current
     val state = viewModel.state
     val colaborador = state.colaboradorSelecionado ?: return
+    val poses = remember { EnrollmentPose.entries }
+    val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)
+    val currentPose = poses[stepIndex]
 
     var permissionGranted by remember {
         mutableStateOf(
@@ -56,11 +97,15 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
     val liveness = remember { BlinkLiveness() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var captureRequested by remember { mutableStateOf(false) }
+    var stableFrames by remember { mutableStateOf(0) }
+    var cameraHint by remember { mutableStateOf(currentPose.instruction) }
 
-    LaunchedEffect(state.biometricScanCycle) {
+    LaunchedEffect(state.biometricScanCycle, stepIndex) {
         liveness.reset()
         captureRequested = false
+        stableFrames = 0
         livenessState = LivenessState.POSICIONE_ROSTO
+        cameraHint = currentPose.instruction
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -69,16 +114,37 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
                 onObservation = { observation ->
-                    if (!state.carregando) {
-                        val next = liveness.update(observation)
-                        livenessState = next
-                        if (next == LivenessState.CONCLUIDO && !captureRequested) {
-                            captureRequested = true
-                            captureController.request()
+                    if (!state.carregando && !captureRequested) {
+                        cameraHint = positioningHint(observation, currentPose)
+
+                        if (currentPose == EnrollmentPose.BLINK) {
+                            val next = liveness.update(observation)
+                            livenessState = next
+                            cameraHint = when (next) {
+                                LivenessState.POSICIONE_ROSTO -> positioningHint(observation, currentPose)
+                                LivenessState.PISQUE -> "Pisque os olhos para confirmar presença"
+                                LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
+                                LivenessState.CONCLUIDO -> "Presença confirmada. Capturando..."
+                            }
+                            if (next == LivenessState.CONCLUIDO) {
+                                captureRequested = true
+                                captureController.request()
+                            }
+                        } else {
+                            if (currentPose.accepts(observation)) {
+                                stableFrames += 1
+                                if (stableFrames >= 4) {
+                                    captureRequested = true
+                                    cameraHint = "Posição confirmada. Capturando..."
+                                    captureController.request()
+                                }
+                            } else {
+                                stableFrames = 0
+                            }
                         }
                     }
                 },
-                onFrame = viewModel::processarBiometria,
+                onFrame = viewModel::processarAmostraBiometrica,
             )
         } else {
             Column(
@@ -115,7 +181,7 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
 
         Surface(
             modifier = Modifier.fillMaxWidth().padding(18.dp).align(Alignment.BottomCenter),
-            color = Color.Black.copy(alpha = 0.76f),
+            color = Color.Black.copy(alpha = 0.78f),
             shape = RoundedCornerShape(24.dp),
         ) {
             Column(
@@ -124,21 +190,26 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
+                    "Etapa ${stepIndex + 1} de ${poses.size} · ${currentPose.title}",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
                     text = when {
                         !viewModel.faceModelReady -> "Modelo facial não instalado"
-                        state.carregando -> "Salvando biometria..."
-                        else -> when (livenessState) {
-                            LivenessState.POSICIONE_ROSTO -> "Posicione o rosto no centro"
-                            LivenessState.PISQUE -> "Pisque para confirmar presença"
-                            LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
-                            LivenessState.CONCLUIDO -> "Rosto capturado"
-                        }
+                        state.carregando && state.biometricSamplesCaptured < poses.size - 1 -> "Processando amostra..."
+                        state.carregando -> "Combinando e salvando biometria..."
+                        else -> cameraHint
                     },
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "O sistema salvará somente o template facial cifrado, não a foto.",
+                    "${state.biometricSamplesCaptured} de ${poses.size} amostras capturadas",
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+                Text(
+                    "Somente o template facial combinado e cifrado será salvo. Nenhuma foto é armazenada.",
                     color = Color.White.copy(alpha = 0.75f),
                 )
                 state.mensagem?.let { Text(it, color = Color(0xFFD7F3E4)) }
