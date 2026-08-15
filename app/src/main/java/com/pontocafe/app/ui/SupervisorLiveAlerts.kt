@@ -39,6 +39,16 @@ data class SupervisorLiveAlert(
 fun rememberSupervisorLiveActivityAlert(
     pausasAtivas: List<PausaSupervisor>,
     enabled: Boolean,
+): SupervisorLiveAlert? = rememberSupervisorLiveActivityAlert(
+    pausasAtivas = pausasAtivas,
+    enabled = enabled,
+    agoraEmMillis = System.currentTimeMillis(),
+)
+
+@Composable
+fun rememberSupervisorLiveActivityAlert(
+    pausasAtivas: List<PausaSupervisor>,
+    enabled: Boolean,
     agoraEmMillis: Long,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
