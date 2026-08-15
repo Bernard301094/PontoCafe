@@ -31,10 +31,10 @@ fun SupervisorAreaShell(
     }
 
     if (current == null) {
-        if (viewModel.state.destination == SupervisorDestination.LOGIN) {
-            SupervisorLoginScreenV2(viewModel, onClose)
-        } else {
-            SupervisorArea(viewModel, onClose)
+        when (viewModel.state.destination) {
+            SupervisorDestination.LOGIN -> SupervisorLoginScreenV2(viewModel, onClose)
+            SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorPersistentScreen(viewModel)
+            else -> SupervisorArea(viewModel, onClose)
         }
         return
     }
