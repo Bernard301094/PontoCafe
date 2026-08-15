@@ -12,13 +12,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.FormDraftRegistry
 
 @Composable
 fun AdminNewAccountScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
+    val draftState = remember(viewModel) { FormDraftRegistry.account(viewModel) }
+
+    LaunchedEffect(Unit) {
+        draftState.prepareForDisplay(serverError = state.erro, loading = state.carregando)
+    }
+    LaunchedEffect(state.erro) {
+        if (state.erro != null) draftState.markServerFailure()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -31,7 +43,10 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
     ) {
         PontoCafeScreenHeader(
             title = "Nova conta de acesso",
-            onBack = viewModel::voltarHome,
+            onBack = {
+                draftState.reset()
+                viewModel.voltarHome()
+            },
             backLabel = "Painel",
         )
         Text(
@@ -39,6 +54,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         AdminAccountForm(
+            draftState = draftState,
             carregando = state.carregando,
             initialProfile = AccountProfile.SUPERVISOR,
             showHeader = false,
