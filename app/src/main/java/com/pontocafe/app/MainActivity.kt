@@ -35,7 +35,7 @@ import com.pontocafe.app.ui.PointReceiptScreen
 import com.pontocafe.app.ui.PontoCafeTheme
 import com.pontocafe.app.ui.RestrictedAreaLockScreen
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
-import com.pontocafe.app.ui.SupervisorArea
+import com.pontocafe.app.ui.SupervisorAreaShell
 
 private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
 
@@ -62,17 +62,11 @@ class MainActivity : FragmentActivity() {
 
         val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
         val adminRepository = AdminApiClient.create(adminSessionStore)
-        val adminFactory = AdminViewModelFactory {
-            AdminViewModel(adminRepository, faceEmbeddingEngine)
-        }
-        val adminDeviceFactory = AdminDeviceViewModelFactory {
-            AdminDeviceViewModel(adminRepository)
-        }
+        val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository, faceEmbeddingEngine) }
+        val adminDeviceFactory = AdminDeviceViewModelFactory { AdminDeviceViewModel(adminRepository) }
 
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
-        val supervisorRepository = SupervisorApiClient.create(
-            supervisorSessionStore = supervisorSessionStore,
-        )
+        val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore = supervisorSessionStore)
         val supervisorFactory = SupervisorViewModelFactory {
             SupervisorViewModel(supervisorRepository, faceEmbeddingEngine)
         }
@@ -87,9 +81,7 @@ class MainActivity : FragmentActivity() {
                     val initialAdminSession = remember { adminSessionStore.hasToken() }
                     val initialSupervisorSession = remember { supervisorSessionStore.hasToken() }
                     val savedArea = remember {
-                        navigationStore.readArea()?.let { value ->
-                            runCatching { AreaRestrita.valueOf(value) }.getOrNull()
-                        }
+                        navigationStore.readArea()?.let { value -> runCatching { AreaRestrita.valueOf(value) }.getOrNull() }
                     }
                     val savedAdminDestination = remember {
                         if (initialAdminSession) navigationStore.readAdminDestination() else null
@@ -147,7 +139,6 @@ class MainActivity : FragmentActivity() {
                         val observer = LifecycleEventObserver { _, event ->
                             val protectedArea = areaRestrita == AreaRestrita.ADMIN || areaRestrita == AreaRestrita.SUPERVISOR
                             if (!protectedArea || !hasSessionFor(areaRestrita)) return@LifecycleEventObserver
-
                             when (event) {
                                 Lifecycle.Event.ON_STOP -> {
                                     navigationStore.setRestrictedLocked(true)
@@ -164,8 +155,7 @@ class MainActivity : FragmentActivity() {
                     }
 
                     val protectedAreaHasSession =
-                        (areaRestrita == AreaRestrita.ADMIN || areaRestrita == AreaRestrita.SUPERVISOR) &&
-                            hasSessionFor(areaRestrita)
+                        (areaRestrita == AreaRestrita.ADMIN || areaRestrita == AreaRestrita.SUPERVISOR) && hasSessionFor(areaRestrita)
 
                     if (protectedAreaHasSession && restrictedLocked) {
                         RestrictedAreaLockScreen(
@@ -181,10 +171,7 @@ class MainActivity : FragmentActivity() {
                         when (areaRestrita) {
                             AreaRestrita.ADMIN -> {
                                 val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                                val adminDeviceVm: AdminDeviceViewModel = viewModel(
-                                    key = "admin-devices",
-                                    factory = adminDeviceFactory,
-                                )
+                                val adminDeviceVm: AdminDeviceViewModel = viewModel(key = "admin-devices", factory = adminDeviceFactory)
 
                                 LaunchedEffect(adminVm.state.destination) {
                                     if (!adminNavigationRestored && adminVm.state.destination == AdminDestination.HOME) {
@@ -216,10 +203,7 @@ class MainActivity : FragmentActivity() {
 
                             AreaRestrita.SUPERVISOR -> {
                                 val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
-                                SupervisorArea(
-                                    supervisorVm,
-                                    onClose = ::backToPonto,
-                                )
+                                SupervisorAreaShell(supervisorVm, onClose = ::backToPonto)
                             }
 
                             AreaRestrita.LOGIN -> RestrictedLoginModeScreen(
@@ -251,11 +235,7 @@ class MainActivity : FragmentActivity() {
                                 }
 
                                 when {
-                                    !state.deviceConfigured -> DeviceSetupScreen(
-                                        vm,
-                                        onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
-                                    )
-
+                                    !state.deviceConfigured -> DeviceSetupScreen(vm, onAdminClick = { enterRestricted(AreaRestrita.ADMIN) })
                                     state.comprovante != null -> PointReceiptScreen(vm)
                                     state.needsAuthorization -> AuthorizationScreen(vm)
                                     state.identificacao != null -> IdentityConfirmationScreen(vm)
