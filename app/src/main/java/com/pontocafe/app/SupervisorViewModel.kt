@@ -59,6 +59,17 @@ class SupervisorViewModel(
         if (repository.hasSession()) atualizarAoVivo()
     }
 
+    fun prepararEntrada() {
+        if (state.destination == SupervisorDestination.LOGIN && repository.hasSession()) {
+            state = state.copy(
+                sessaoAdministrativa = repository.usingAdminSession(),
+                erro = null,
+                mensagem = null,
+            )
+            atualizarAoVivo()
+        }
+    }
+
     fun login(email: String, senha: String) {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
