@@ -9,6 +9,9 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -18,8 +21,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
@@ -172,6 +180,56 @@ private fun analyzer(
 }
 
 @Composable
+private fun FacePositionGuide(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val guideWidth = size.width * 0.62f
+        val guideHeight = minOf(size.height * 0.48f, guideWidth * 1.35f)
+        val centerX = size.width / 2f
+        val centerY = size.height * 0.43f
+        val left = centerX - guideWidth / 2f
+        val top = centerY - guideHeight / 2f
+        val strokeWidth = 4.dp.toPx()
+        val guideColor = Color.White.copy(alpha = 0.88f)
+        val detailColor = Color.White.copy(alpha = 0.48f)
+
+        drawOval(
+            color = guideColor,
+            topLeft = Offset(left, top),
+            size = Size(guideWidth, guideHeight),
+            style = Stroke(width = strokeWidth),
+        )
+
+        val eyeY = top + guideHeight * 0.42f
+        val eyeHalfWidth = guideWidth * 0.07f
+        val eyeOffset = guideWidth * 0.18f
+        drawLine(
+            color = detailColor,
+            start = Offset(centerX - eyeOffset - eyeHalfWidth, eyeY),
+            end = Offset(centerX - eyeOffset + eyeHalfWidth, eyeY),
+            strokeWidth = 2.dp.toPx(),
+        )
+        drawLine(
+            color = detailColor,
+            start = Offset(centerX + eyeOffset - eyeHalfWidth, eyeY),
+            end = Offset(centerX + eyeOffset + eyeHalfWidth, eyeY),
+            strokeWidth = 2.dp.toPx(),
+        )
+        drawLine(
+            color = detailColor,
+            start = Offset(centerX, top + guideHeight * 0.46f),
+            end = Offset(centerX, top + guideHeight * 0.61f),
+            strokeWidth = 2.dp.toPx(),
+        )
+        drawLine(
+            color = detailColor,
+            start = Offset(centerX - guideWidth * 0.08f, top + guideHeight * 0.72f),
+            end = Offset(centerX + guideWidth * 0.08f, top + guideHeight * 0.72f),
+            strokeWidth = 2.dp.toPx(),
+        )
+    }
+}
+
+@Composable
 fun FaceCameraPreview(
     modifier: Modifier = Modifier,
     captureController: FrameCaptureController,
@@ -195,15 +253,18 @@ fun FaceCameraPreview(
     }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
 
-    AndroidView(
-        modifier = modifier,
-        factory = {
-            PreviewView(it).also { view ->
-                view.scaleType = PreviewView.ScaleType.FILL_CENTER
-                previewView = view
-            }
-        },
-    )
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                PreviewView(it).also { view ->
+                    view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    previewView = view
+                }
+            },
+        )
+        FacePositionGuide(Modifier.fillMaxSize())
+    }
 
     LaunchedEffect(previewView, lifecycleOwner) {
         val view = previewView ?: return@LaunchedEffect
