@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,40 +30,54 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
-        PontoCafeHeader("Área administrativa")
-        Text("Entre com a conta cadastrada pelo administrador.")
-
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("E-mail") },
-            singleLine = true,
-            enabled = !state.carregando,
-        )
-        OutlinedTextField(
-            value = senha,
-            onValueChange = { senha = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Senha") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            enabled = !state.carregando,
-        )
-
-        AdminFeedback(viewModel)
-
-        Button(
-            onClick = { viewModel.login(email, senha) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = email.isNotBlank() && senha.length >= 10 && !state.carregando,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
-            Text(if (state.carregando) "Entrando..." else "Entrar")
-        }
-        OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-            Text("Voltar ao Ponto Café")
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PontoCafeHeader("Área administrativa")
+                Text(
+                    "Entre com uma conta de Administrador para acessar configurações, usuários, dispositivos e segurança.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ProfilePill("ADMIN")
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("E-mail") },
+                    singleLine = true,
+                    enabled = !state.carregando,
+                )
+                OutlinedTextField(
+                    value = senha,
+                    onValueChange = { senha = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Senha") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    enabled = !state.carregando,
+                )
+
+                AdminFeedback(viewModel)
+
+                Button(
+                    onClick = { viewModel.login(email, senha) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = email.isNotBlank() && senha.length >= 10 && !state.carregando,
+                ) {
+                    Text(if (state.carregando) "Entrando..." else "Entrar")
+                }
+                OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                    Text("Voltar ao Ponto Café")
+                }
+            }
         }
     }
 }
@@ -68,6 +85,28 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
 @Composable
 fun AdminFeedback(viewModel: AdminViewModel) {
     val state = viewModel.state
-    state.erro?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
-    state.mensagem?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.primary) }
+    state.erro?.let {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        ) {
+            Text(
+                it,
+                modifier = Modifier.padding(12.dp),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
+    }
+    state.mensagem?.let {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            Text(
+                it,
+                modifier = Modifier.padding(12.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
 }
