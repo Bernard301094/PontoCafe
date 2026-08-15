@@ -17,7 +17,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 
@@ -109,22 +107,20 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
             title = "Redefinir senha",
             subtitle = "Ao redefinir a senha, as sessões atuais desta conta serão encerradas.",
         )
-        OutlinedTextField(
+        SecurePasswordField(
             value = novaSenha,
             onValueChange = { novaSenha = it },
+            label = "Nova senha",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Nova senha") },
-            supportingText = { Text("Mínimo de 10 caracteres") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            enabled = !state.carregando,
+            supportingText = "Mínimo de 10 caracteres",
         )
-        OutlinedTextField(
+        SecurePasswordField(
             value = confirmar,
             onValueChange = { confirmar = it },
+            label = "Confirmar nova senha",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Confirmar nova senha") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            enabled = !state.carregando,
         )
         erroLocal?.let {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
