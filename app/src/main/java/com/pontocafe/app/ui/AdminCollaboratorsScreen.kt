@@ -33,6 +33,9 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
     val total = state.colaboradores.size
     val pendentes = state.colaboradores.count { !it.rostoCadastrado }
     val cadastrados = total - pendentes
+    val primeiroPendente = state.colaboradores
+        .filter { !it.rostoCadastrado }
+        .minByOrNull { it.nome.lowercase() }
     val filtrados = state.colaboradores
         .filter { busca.isBlank() || it.nome.contains(busca, ignoreCase = true) }
         .sortedWith(compareBy({ it.rostoCadastrado }, { it.nome.lowercase() }))
@@ -54,15 +57,20 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
         ) {
             MetricCard(total.toString(), "Colaboradores", Modifier.weight(1f))
             MetricCard(cadastrados.toString(), "Rostos cadastrados", Modifier.weight(1f))
-            MetricCard(pendentes.toString(), "Pendentes", Modifier.weight(1f), emphasized = pendentes > 0)
         }
+        MetricCard(
+            pendentes.toString(),
+            "Pendentes de registro facial",
+            Modifier.fillMaxWidth(),
+            emphasized = pendentes > 0,
+        )
 
-        if (pendentes > 0) {
+        if (pendentes > 0 && primeiroPendente != null) {
             OperationalAlertCard(
                 title = "$pendentes rostos pendentes",
-                text = "Os colaboradores pendentes aparecem primeiro na lista para agilizar o cadastro facial.",
-                actionLabel = "Mostrar todos os pendentes",
-                onClick = { busca = "" },
+                text = "Os colaboradores pendentes aparecem primeiro para agilizar o cadastro facial.",
+                actionLabel = "Cadastrar próximo",
+                onClick = { viewModel.cadastrarOuAtualizarRosto(primeiroPendente) },
             )
         }
 
