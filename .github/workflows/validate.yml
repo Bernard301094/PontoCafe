@@ -1,12 +1,7 @@
 name: Validate PontoCafe
 
 on:
-  push:
-    branches:
-      - agent/backend-api-v2-review
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
