@@ -3,6 +3,7 @@ package com.pontocafe.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,10 +22,13 @@ fun AdminArea(
 ) {
     var mostrandoDispositivos by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
 
+    LaunchedEffect(mostrandoDispositivos) {
+        if (mostrandoDispositivos) deviceViewModel.carregar()
+    }
+
     fun setDevicesOpen(open: Boolean) {
         mostrandoDispositivos = open
         onDevicesOpenChanged(open)
-        if (open) deviceViewModel.carregar()
     }
 
     if (mostrandoDispositivos) {
