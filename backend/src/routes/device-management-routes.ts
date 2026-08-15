@@ -58,23 +58,30 @@ deviceManagementRoutes.put('/devices/:id/unlock-pin', async (c) => {
   const body = await parseJson(c, z.object({ pin: pinSchema }))
   if (!body.ok) return body.response
 
-  const device = await transaction(async (client) => {
-    const updated = await client.query<{ id: string; nome: string }>(
-      `update dispositivos
+  const result = await query<{ id: string; nome: string }>(
+    `with dispositivo_atualizado as (
+       update dispositivos
           set unlock_pin_hash=$2,
               unlock_pin_updated_at=now(),
               unlock_fail_count=0,
               unlock_locked_until=null,
               atualizado_em=now()
         where id=$1 and ativo=true
-        returning id,nome`,
-      [deviceId, hashDeviceUnlockPin(deviceId, body.data.pin)],
-    )
-    const row = updated.rows[0]
-    if (!row) return null
-    await auditDevice(client, c.get('user').id, 'ALTERAR_PIN_DISPOSITIVO', deviceId, { nome: row.nome })
-    return row
-  })
+        returning id,nome
+     ),
+     auditoria_pin as (
+       insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       select $3,'ADMIN','ALTERAR_PIN_DISPOSITIVO','DISPOSITIVO',d.id::text,
+              jsonb_build_object('nome',d.nome)
+         from dispositivo_atualizado d
+       returning id
+     )
+     select d.id,d.nome
+       from dispositivo_atualizado d
+       join auditoria_pin a on true`,
+    [deviceId, hashDeviceUnlockPin(deviceId, body.data.pin), c.get('user').id],
+  )
+  const device = result.rows[0]
   if (!device) return c.json({ erro: 'Dispositivo não encontrado ou inativo.' }, 404)
 
   return c.json({ ok: true, dispositivoId: device.id, nome: device.nome, pinConfigurado: true })
