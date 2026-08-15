@@ -63,8 +63,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.5.2"
+        versionCode = 5
+        versionName = "0.6.0"
     }
 
     buildTypes {
@@ -94,11 +94,20 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
+    implementation("androidx.compose.material3.adaptive:adaptive:1.2.0")
+    implementation("androidx.compose.material3.adaptive:adaptive-layout:1.2.0")
+    implementation("androidx.compose.material3.adaptive:adaptive-navigation:1.2.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.biometric:biometric:1.1.0")
+
+    implementation("com.airbnb.android:lottie-compose:6.7.1")
+    implementation("com.patrykandpatrick.vico:compose:3.2.1")
+    implementation("com.patrykandpatrick.vico:compose-m3:3.2.1")
 
     val cameraX = "1.6.1"
     implementation("androidx.camera:camera-camera2:$cameraX")
