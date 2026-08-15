@@ -46,6 +46,8 @@ import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.SupervisorReportResponse
 import java.io.File
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
 
 @Composable
@@ -55,6 +57,13 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var localError by remember { mutableStateOf<String?>(null) }
+    val selectedDays = remember(state.relatorioInicio, state.relatorioFim) {
+        val start = state.relatorioInicio
+        val end = state.relatorioFim
+        if (start == null || end == null) 7 else runCatching {
+            (ChronoUnit.DAYS.between(LocalDate.parse(start), LocalDate.parse(end)) + 1L).toInt()
+        }.getOrDefault(7)
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -80,7 +89,7 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (days, label) ->
                     FilterChip(
-                        selected = state.relatorioDias == days,
+                        selected = selectedDays == days,
                         onClick = { viewModel.abrirRelatorios(days) },
                         label = { Text(label) },
                     )
@@ -94,15 +103,13 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
                     title = "Não foi possível atualizar o relatório",
                     text = error,
                     actionLabel = "Tentar novamente",
-                    onClick = { viewModel.abrirRelatorios(state.relatorioDias) },
+                    onClick = { viewModel.abrirRelatorios(selectedDays.coerceAtLeast(1)) },
                     tone = PontoCafeTone.DANGER,
                 )
             }
         }
         localError?.let { error ->
-            item(key = "local-error") {
-                Text(error, color = MaterialTheme.colorScheme.error)
-            }
+            item(key = "local-error") { Text(error, color = MaterialTheme.colorScheme.error) }
         }
 
         if (report != null) {
@@ -113,26 +120,15 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
             item(key = "metrics-1") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     MetricCard(report.resumo.totalPausas.toString(), "Pausas", Modifier.weight(1f))
                     MetricCard(report.resumo.colaboradores.toString(), "Pessoas", Modifier.weight(1f))
                 }
             }
             item(key = "metrics-2") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    MetricCard(
-                        viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
-                        "Tempo médio",
-                        Modifier.weight(1f),
-                    )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    MetricCard(viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0), "Tempo médio", Modifier.weight(1f))
                     MetricCard(
                         report.resumo.acimaLimite.toString(),
                         "Acima do limite",
@@ -141,11 +137,7 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
                     )
                 }
             }
-
-            item(key = "chart") {
-                ExcessChart(report = report, viewModel = viewModel)
-            }
-
+            item(key = "chart") { ExcessChart(report = report, viewModel = viewModel) }
             item(key = "export") {
                 Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     Button(
@@ -174,11 +166,9 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
                     ) { Text("PDF") }
                 }
             }
-
             item(key = "ranking-title") {
                 SectionTitle("Maiores excessos", "Ranking por tempo total acima do limite no período.")
             }
-
             if (report.maioresAtrasos.isEmpty()) {
                 item(key = "no-excess") {
                     Card(
@@ -200,10 +190,7 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
-                        Column(
-                            Modifier.padding(PontoCafeSpacing.md),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
+                        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(item.nome, style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "${item.ocorrencias} ocorrência(s) · excesso ${viewModel.formatarTempo(item.excessoTotalSegundos)}",
@@ -224,33 +211,23 @@ fun SupervisorReportsScreen(viewModel: SupervisorViewModel) {
 }
 
 @Composable
-private fun ExcessChart(
-    report: SupervisorReportResponse,
-    viewModel: SupervisorViewModel,
-) {
+private fun ExcessChart(report: SupervisorReportResponse, viewModel: SupervisorViewModel) {
     val top = report.maioresAtrasos.take(6)
     if (top.isEmpty()) return
-
     val modelProducer = remember { CartesianChartModelProducer() }
     LaunchedEffect(top) {
         modelProducer.runTransaction {
             @Suppress("DEPRECATION")
-            columnSeries {
-                series(top.map { it.excessoTotalSegundos / 60.0 })
-            }
+            columnSeries { series(top.map { it.excessoTotalSegundos / 60.0 }) }
         }
     }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
+        Column(modifier = Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
             SectionTitle("Excesso acumulado", "Top ${top.size} · minutos acima do limite")
             CartesianChartHost(
                 chart = rememberCartesianChart(
@@ -288,11 +265,7 @@ private fun shareReport(context: Context, file: File, mimeType: String) {
     context.startActivity(Intent.createChooser(intent, "Compartilhar relatório"))
 }
 
-private fun createPdfReport(
-    context: Context,
-    report: SupervisorReportResponse,
-    viewModel: SupervisorViewModel,
-): File {
+private fun createPdfReport(context: Context, report: SupervisorReportResponse, viewModel: SupervisorViewModel): File {
     val document = PdfDocument()
     val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
     val page = document.startPage(pageInfo)
@@ -300,7 +273,6 @@ private fun createPdfReport(
     val titlePaint = Paint().apply { textSize = 22f; isFakeBoldText = true }
     val headingPaint = Paint().apply { textSize = 14f; isFakeBoldText = true }
     val textPaint = Paint().apply { textSize = 11f }
-
     var y = 48f
     canvas.drawText("Ponto Café — Relatório de pausas", 36f, y, titlePaint)
     y += 28f
@@ -316,18 +288,14 @@ private fun createPdfReport(
     y += 30f
     canvas.drawText("Maiores excessos", 36f, y, headingPaint)
     y += 20f
-
     report.maioresAtrasos.take(20).forEachIndexed { index, item ->
         if (y > 800f) return@forEachIndexed
         canvas.drawText(
             "${index + 1}. ${item.nome} — ${item.ocorrencias} ocorrência(s) — excesso ${viewModel.formatarTempo(item.excessoTotalSegundos)}",
-            36f,
-            y,
-            textPaint,
+            36f, y, textPaint,
         )
         y += 18f
     }
-
     document.finishPage(page)
     val file = reportFile(context, "pontocafe-${report.periodo.inicio}-${report.periodo.fim}.pdf")
     file.outputStream().use { output -> document.writeTo(output) }
