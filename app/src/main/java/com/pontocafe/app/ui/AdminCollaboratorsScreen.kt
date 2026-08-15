@@ -61,8 +61,8 @@ fun AdminCollaboratorsScreen(viewModel: AdminViewModel) {
             OperationalAlertCard(
                 title = "$pendentes rostos pendentes",
                 text = "Os colaboradores pendentes aparecem primeiro na lista para agilizar o cadastro facial.",
-                actionLabel = "Ver lista abaixo",
-                onClick = {},
+                actionLabel = "Mostrar todos os pendentes",
+                onClick = { busca = "" },
             )
         }
 
