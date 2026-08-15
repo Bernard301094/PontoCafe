@@ -50,6 +50,7 @@ fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
         SupervisorDestination.COLABORADORES -> SupervisorCollaboratorsScreen(viewModel)
         SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorScreen(viewModel)
         SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreen(viewModel)
+        SupervisorDestination.AUTORIZACAO -> SupervisorAuthorizationScreen(viewModel)
         SupervisorDestination.RELATORIOS -> SupervisorReportsScreen(viewModel)
     }
 }
@@ -73,7 +74,7 @@ private fun SupervisorLoginScreen(viewModel: SupervisorViewModel, onClose: () ->
             ) {
                 PontoCafeHeader("Acesso do Supervisor")
                 Text(
-                    "Acompanhe pausas, resolva pendências e cadastre biometria facial.",
+                    "Acompanhe pausas, resolva pendências e autorize exceções operacionais.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 ProfilePill("SUPERVISOR")
@@ -247,17 +248,20 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             Button(onClick = viewModel::abrirColaboradores, modifier = Modifier.weight(1f)) {
                 Text("Colaboradores")
             }
-            OutlinedButton(onClick = viewModel::abrirHistorico, modifier = Modifier.weight(1f)) {
-                Text("Histórico")
+            Button(onClick = viewModel::abrirAutorizacao, modifier = Modifier.weight(1f)) {
+                Text("Autorizar exceção")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = viewModel::abrirHistorico, modifier = Modifier.weight(1f)) {
+                Text("Histórico")
+            }
             OutlinedButton(onClick = { viewModel.abrirRelatorios(7) }, modifier = Modifier.weight(1f)) {
                 Text("Relatórios")
             }
-            OutlinedButton(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) {
-                Text(if (state.carregando) "Atualizando..." else "Atualizar agora")
-            }
+        }
+        OutlinedButton(onClick = viewModel::atualizarAoVivo, modifier = Modifier.fillMaxWidth()) {
+            Text(if (state.carregando) "Atualizando..." else "Atualizar agora")
         }
 
         state.mensagem?.let {
