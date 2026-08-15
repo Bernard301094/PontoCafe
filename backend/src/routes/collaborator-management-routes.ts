@@ -9,6 +9,8 @@ import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 export const collaboratorManagementRoutes = new Hono<AppEnv>()
 collaboratorManagementRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
+const BIOMETRIC_ENROLLMENT_LOCK = 847231
+
 async function audit(
   c: Context<AppEnv>,
   action: string,
@@ -138,87 +140,137 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
   }))
   if (!body.ok) return body.response
 
-  const collaborator = await query<{ id: string; nome: string }>(
-    'select id,nome from colaboradores where id=$1 and ativo=true limit 1',
-    [colaboradorId],
-  )
-  if (!collaborator.rows[0]) return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
+  const duplicateThreshold = Math.max(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
+  const actor = c.get('user')
 
-  const existing = await query<{
-    colaborador_id: string
-    nome: string
-    template_cifrado: Buffer
-    iv: Buffer
-    auth_tag: Buffer
-    dimensao: number
-  }>(
-    `select t.colaborador_id,col.nome,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
-       from templates_faciais t
-       join colaboradores col on col.id=t.colaborador_id
-      where t.colaborador_id<>$1
-        and col.ativo=true
-        and t.modelo=$2
-        and t.versao_modelo=$3`,
-    [colaboradorId, body.data.modelo, body.data.versaoModelo],
-  )
+  const result = await transaction(async (client) => {
+    // Serializa cadastros biométricos para impedir que duas requisições
+    // simultâneas passem pela verificação antes de qualquer uma persistir.
+    await client.query('select pg_advisory_xact_lock($1)', [BIOMETRIC_ENROLLMENT_LOCK])
 
-  const duplicateThreshold = Math.min(
-    0.99,
-    Math.max(config.faceEnrollmentDuplicateThreshold, config.faceThreshold + 0.05),
-  )
-  let duplicate: { colaboradorId: string; nome: string; score: number } | null = null
+    const collaborator = await client.query<{ id: string; nome: string }>(
+      'select id,nome from colaboradores where id=$1 and ativo=true limit 1',
+      [colaboradorId],
+    )
+    const current = collaborator.rows[0]
+    if (!current) return { status: 'NOT_FOUND' as const }
 
-  for (const row of existing.rows) {
-    if (row.dimensao !== body.data.embedding.length) continue
-    try {
-      const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
-      if (stored.length !== row.dimensao) continue
-      const score = cosineSimilarity(stored, body.data.embedding)
-      if (score >= duplicateThreshold && (!duplicate || score > duplicate.score)) {
-        duplicate = { colaboradorId: row.colaborador_id, nome: row.nome, score }
+    const existing = await client.query<{
+      colaborador_id: string
+      nome: string
+      ativo: boolean
+      template_cifrado: Buffer
+      iv: Buffer
+      auth_tag: Buffer
+      dimensao: number
+    }>(
+      `select t.colaborador_id,col.nome,col.ativo,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
+         from templates_faciais t
+         join colaboradores col on col.id=t.colaborador_id
+        where t.colaborador_id<>$1
+          and t.modelo=$2
+          and t.versao_modelo=$3`,
+      [colaboradorId, body.data.modelo, body.data.versaoModelo],
+    )
+
+    let duplicate: { colaboradorId: string; nome: string; ativo: boolean; score: number } | null = null
+
+    for (const row of existing.rows) {
+      if (row.dimensao !== body.data.embedding.length) continue
+      try {
+        const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
+        if (stored.length !== row.dimensao) continue
+        const score = cosineSimilarity(stored, body.data.embedding)
+        if (score >= duplicateThreshold && (!duplicate || score > duplicate.score)) {
+          duplicate = {
+            colaboradorId: row.colaborador_id,
+            nome: row.nome,
+            ativo: row.ativo,
+            score,
+          }
+        }
+      } catch (error) {
+        console.error(JSON.stringify({
+          evento: 'template_ignorado_ao_verificar_duplicidade',
+          colaboradorId: row.colaborador_id,
+          erro: error instanceof Error ? error.message : 'erro desconhecido',
+        }))
       }
-    } catch (error) {
-      console.error(JSON.stringify({
-        evento: 'template_ignorado_ao_verificar_duplicidade',
-        colaboradorId: row.colaborador_id,
-        erro: error instanceof Error ? error.message : 'erro desconhecido',
-      }))
     }
+
+    if (duplicate) return { status: 'DUPLICATE' as const, duplicate }
+
+    const encrypted = encryptEmbedding(body.data.embedding)
+    await client.query(
+      `insert into templates_faciais
+        (id,colaborador_id,template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)
+       on conflict (colaborador_id) do update set
+         template_cifrado=excluded.template_cifrado,
+         iv=excluded.iv,
+         auth_tag=excluded.auth_tag,
+         dimensao=excluded.dimensao,
+         modelo=excluded.modelo,
+         versao_modelo=excluded.versao_modelo,
+         atualizado_em=now()`,
+      [
+        newId(),
+        colaboradorId,
+        encrypted.ciphertext,
+        encrypted.iv,
+        encrypted.authTag,
+        body.data.embedding.length,
+        body.data.modelo,
+        body.data.versaoModelo,
+      ],
+    )
+
+    await client.query(
+      `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ($1,$2,'CADASTRAR_ATUALIZAR_ROSTO','COLABORADOR',$3,$4::jsonb)`,
+      [
+        actor.id,
+        actor.papel,
+        colaboradorId,
+        JSON.stringify({
+          modelo: body.data.modelo,
+          versaoModelo: body.data.versaoModelo,
+          dimensao: body.data.embedding.length,
+          verificacaoDuplicidade: true,
+          limiteDuplicidade: duplicateThreshold,
+        }),
+      ],
+    )
+
+    return { status: 'OK' as const, nome: current.nome }
+  })
+
+  if (result.status === 'NOT_FOUND') {
+    return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
   }
 
-  if (duplicate) {
+  if (result.status === 'DUPLICATE') {
+    const duplicate = result.duplicate
     return c.json({
-      erro: `Este rosto parece já estar cadastrado para ${duplicate.nome}. Verifique o colaborador antes de continuar.`,
+      erro: duplicate.ativo
+        ? `Este rosto já parece estar cadastrado para ${duplicate.nome}. O cadastro foi bloqueado.`
+        : `Este rosto pertence a ${duplicate.nome}, que está desativado mas ainda possui biometria retida. Exclua ou aguarde a retenção antes de reutilizar o rosto.`,
       codigo: 'BIOMETRIA_DUPLICADA',
       colaboradorExistenteId: duplicate.colaboradorId,
+      colaboradorExistenteAtivo: duplicate.ativo,
       similaridade: Number(duplicate.score.toFixed(4)),
+      limiteDuplicidade: duplicateThreshold,
     }, 409)
   }
 
-  const encrypted = encryptEmbedding(body.data.embedding)
-  await query(
-    `insert into templates_faciais
-      (id,colaborador_id,template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo)
-     values ($1,$2,$3,$4,$5,$6,$7,$8)
-     on conflict (colaborador_id) do update set
-       template_cifrado=excluded.template_cifrado,
-       iv=excluded.iv,
-       auth_tag=excluded.auth_tag,
-       dimensao=excluded.dimensao,
-       modelo=excluded.modelo,
-       versao_modelo=excluded.versao_modelo,
-       atualizado_em=now()`,
-    [newId(), colaboradorId, encrypted.ciphertext, encrypted.iv, encrypted.authTag,
-      body.data.embedding.length, body.data.modelo, body.data.versaoModelo],
-  )
-
-  await audit(c, 'CADASTRAR_ATUALIZAR_ROSTO', colaboradorId, {
-    modelo: body.data.modelo,
-    versaoModelo: body.data.versaoModelo,
+  return c.json({
+    ok: true,
+    colaboradorId,
     dimensao: body.data.embedding.length,
+    amostrasConsolidadas: 5,
+    verificacaoDuplicidade: true,
+    limiteDuplicidade: duplicateThreshold,
   })
-
-  return c.json({ ok: true, colaboradorId, dimensao: body.data.embedding.length, amostrasConsolidadas: 5 })
 })
 
 collaboratorManagementRoutes.post('/colaboradores/:id/biometria/excluir', async (c) => {
