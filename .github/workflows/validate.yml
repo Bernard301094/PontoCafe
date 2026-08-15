@@ -2,27 +2,39 @@ name: Validate PontoCafe
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: pontocafe-validate-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
-    name: Backend typecheck
+    name: Backend tests + typecheck
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
         run: npm install
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Validate backend
+        run: npm run validate
 
   android:
-    name: Android debug APK
+    name: Android tests + debug APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +48,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Compile Compose instrumentation tests
+        run: gradle --no-daemon :app:assembleDebugAndroidTest
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
