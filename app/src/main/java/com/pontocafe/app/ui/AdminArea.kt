@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,11 +20,32 @@ fun AdminArea(
     var mostrandoDispositivos by remember { mutableStateOf(false) }
 
     if (mostrandoDispositivos) {
+        BackHandler { mostrandoDispositivos = false }
         AdminDevicesScreen(
             viewModel = deviceViewModel,
             onBack = { mostrandoDispositivos = false },
         )
         return
+    }
+
+    BackHandler(enabled = viewModel.state.destination != AdminDestination.LOADING) {
+        when (viewModel.state.destination) {
+            AdminDestination.NEW_COLLABORATOR,
+            AdminDestination.BIOMETRIC_ENROLLMENT -> viewModel.voltarColaboradores()
+
+            AdminDestination.COLLABORATORS,
+            AdminDestination.NEW_ACCOUNT,
+            AdminDestination.USER_DETAIL,
+            AdminDestination.AUTHORIZATION,
+            AdminDestination.SETTINGS,
+            AdminDestination.AUDIT -> viewModel.voltarHome()
+
+            AdminDestination.HOME,
+            AdminDestination.LOGIN,
+            AdminDestination.FIRST_SETUP -> onClose()
+
+            AdminDestination.LOADING -> Unit
+        }
     }
 
     when (viewModel.state.destination) {
