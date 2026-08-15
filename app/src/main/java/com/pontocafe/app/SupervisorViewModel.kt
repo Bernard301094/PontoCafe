@@ -24,6 +24,7 @@ enum class SupervisorDestination {
     COLABORADORES,
     NOVO_COLABORADOR,
     BIOMETRIA,
+    AUTORIZACAO,
     RELATORIOS,
 }
 
@@ -36,6 +37,9 @@ data class SupervisorUiState(
     val relatorio: SupervisorReportResponse? = null,
     val relatorioInicio: String? = null,
     val relatorioFim: String? = null,
+    val authorizationCode: String? = null,
+    val authorizationEmployeeName: String? = null,
+    val authorizationExpiresSeconds: Int? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
@@ -153,6 +157,9 @@ class SupervisorViewModel(
                         sessaoAdministrativa = repository.usingAdminSession(),
                         ultimaAtualizacaoAoVivoEmMillis = System.currentTimeMillis(),
                         conexaoAoVivoOk = true,
+                        authorizationCode = null,
+                        authorizationEmployeeName = null,
+                        authorizationExpiresSeconds = null,
                         erro = null,
                     )
                 }
@@ -193,6 +200,69 @@ class SupervisorViewModel(
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
         }
+    }
+
+    fun abrirAutorizacao() {
+        viewModelScope.launch {
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                authorizationCode = null,
+                authorizationEmployeeName = null,
+                authorizationExpiresSeconds = null,
+            )
+            runCatching { repository.collaborators() }
+                .onSuccess { colaboradores ->
+                    state = state.copy(
+                        destination = SupervisorDestination.AUTORIZACAO,
+                        carregando = false,
+                        colaboradores = colaboradores,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    fun gerarAutorizacao(colaborador: Colaborador, periodo: String, motivo: String) {
+        if (periodo != "MANHA" && periodo != "TARDE") {
+            state = state.copy(erro = "Selecione o período autorizado.")
+            return
+        }
+        if (motivo.trim().length < 2) {
+            state = state.copy(erro = "Informe o motivo da autorização.")
+            return
+        }
+
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
+            runCatching { repository.createAuthorization(colaborador.id, periodo, motivo) }
+                .onSuccess { authorization ->
+                    state = state.copy(
+                        carregando = false,
+                        authorizationCode = authorization.codigo,
+                        authorizationEmployeeName = colaborador.nome,
+                        authorizationExpiresSeconds = authorization.expiraEmSegundos,
+                        mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
+                        erro = null,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    fun limparAutorizacaoGerada() {
+        state = state.copy(
+            authorizationCode = null,
+            authorizationEmployeeName = null,
+            authorizationExpiresSeconds = null,
+            mensagem = null,
+            erro = null,
+        )
     }
 
     fun abrirRelatorios(dias: Int = 7) {
@@ -371,7 +441,12 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteBiometric(colaborador.id) }
                 .onSuccess {
-                    val atualizados = repository.collaborators()
+                    val atualizados = runCatching { repository.collaborators() }
+                        .getOrElse {
+                            state.colaboradores.map { item ->
+                                if (item.id == colaborador.id) item.copy(rostoCadastrado = false) else item
+                            }
+                        }
                     state = state.copy(
                         carregando = false,
                         colaboradores = atualizados,
@@ -389,7 +464,8 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteCollaborator(colaborador.id) }
                 .onSuccess {
-                    val atualizados = repository.collaborators()
+                    val atualizados = runCatching { repository.collaborators() }
+                        .getOrElse { state.colaboradores.filterNot { item -> item.id == colaborador.id } }
                     state = state.copy(
                         carregando = false,
                         colaboradores = atualizados,
@@ -415,7 +491,14 @@ class SupervisorViewModel(
 
     fun voltarAoVivo() {
         biometricSamples.clear()
-        state = state.copy(destination = SupervisorDestination.AO_VIVO, erro = null, mensagem = null)
+        state = state.copy(
+            destination = SupervisorDestination.AO_VIVO,
+            authorizationCode = null,
+            authorizationEmployeeName = null,
+            authorizationExpiresSeconds = null,
+            erro = null,
+            mensagem = null,
+        )
         atualizarAoVivo()
     }
 
