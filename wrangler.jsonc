@@ -1,4 +1,4 @@
-// Redeploy trigger: 2026-08-14T22:12:00-03:00
+// Redeploy trigger: 2026-08-15T10:18:00-03:00
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pontocafe",
@@ -15,7 +15,7 @@
     "AUTHORIZATION_TTL_SECONDS": "180",
     "FACE_VERIFICATION_TTL_SECONDS": "180",
     "OFFLINE_MAX_EVENT_AGE_HOURS": "24",
-    "APP_LATEST_ANDROID_VERSION": "0.5.2",
+    "APP_LATEST_ANDROID_VERSION": "0.6.0",
     "APP_MIN_ANDROID_VERSION": "0.4.0"
   },
   "hyperdrive": [
