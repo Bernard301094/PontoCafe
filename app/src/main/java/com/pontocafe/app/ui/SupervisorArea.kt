@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.PausaSupervisor
+import kotlinx.coroutines.delay
 
 @Composable
 fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
@@ -115,15 +117,45 @@ private fun SupervisorLoginScreen(viewModel: SupervisorViewModel, onClose: () ->
     }
 }
 
+private fun tempoAoVivo(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
+    val base = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0
+    if (pausa.fimLocal != null || pausa.clienteAtualizadoEmMillis <= 0L) return base
+
+    val adicional = ((agoraEmMillis - pausa.clienteAtualizadoEmMillis) / 1000L)
+        .coerceAtLeast(0L)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+    return (base.toLong() + adicional)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
+}
+
 @Composable
 private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
     val state = viewModel.state
+    var agoraEmMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            agoraEmMillis = System.currentTimeMillis()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5_000)
+            viewModel.atualizarPausasAoVivoSilencioso()
+        }
+    }
+
     val pendentes = state.colaboradores
         .filter { !it.rostoCadastrado }
         .sortedBy { it.nome.lowercase() }
     val acimaDoLimite = state.pausasAtivas.count { pausa ->
-        val duracao = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0
-        pausa.excedeuLimite ?: (duracao > pausa.limiteSegundos)
+        tempoAoVivo(pausa, agoraEmMillis) > pausa.limiteSegundos
+    }
+    val segundosDesdeAtualizacao = state.ultimaAtualizacaoAoVivoEmMillis?.let { ultima ->
+        ((agoraEmMillis - ultima) / 1000L).coerceAtLeast(0L)
     }
 
     Column(
@@ -134,6 +166,16 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
         Text(
             "Acompanhamento operacional em tempo real.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = when {
+                !state.conexaoAoVivoOk -> "● Conexão instável · exibindo os últimos dados disponíveis"
+                segundosDesdeAtualizacao != null -> "● Ao vivo · atualizado há ${segundosDesdeAtualizacao}s · sincronização automática a cada 5s"
+                else -> "● Conectando ao acompanhamento ao vivo..."
+            },
+            color = if (state.conexaoAoVivoOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
         )
 
         Row(
@@ -196,7 +238,7 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 Text("Relatórios")
             }
             OutlinedButton(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) {
-                Text(if (state.carregando) "Atualizando..." else "Atualizar")
+                Text(if (state.carregando) "Atualizando..." else "Atualizar agora")
             }
         }
 
@@ -278,7 +320,7 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             item(key = "active-pause-header") {
                 SectionTitle(
                     title = "Pessoas no café agora",
-                    subtitle = "${state.pausasAtivas.size} pausa(s) em andamento.",
+                    subtitle = "${state.pausasAtivas.size} pausa(s) em andamento · cronômetros atualizados a cada segundo.",
                 )
             }
 
@@ -294,7 +336,12 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 }
             } else {
                 items(state.pausasAtivas, key = { it.id }) { pausa ->
-                    SupervisorPauseCard(viewModel, pausa, ativa = true)
+                    SupervisorPauseCard(
+                        viewModel = viewModel,
+                        pausa = pausa,
+                        ativa = true,
+                        agoraEmMillis = agoraEmMillis,
+                    )
                 }
             }
         }
@@ -342,7 +389,12 @@ private fun SupervisorHistoryScreen(viewModel: SupervisorViewModel) {
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             items(state.historico, key = { it.id }) { pausa ->
-                SupervisorPauseCard(viewModel, pausa, ativa = pausa.fimLocal == null)
+                SupervisorPauseCard(
+                    viewModel = viewModel,
+                    pausa = pausa,
+                    ativa = pausa.fimLocal == null,
+                    agoraEmMillis = System.currentTimeMillis(),
+                )
             }
         }
         Button(onClick = viewModel::voltarAoVivo, modifier = Modifier.fillMaxWidth()) {
@@ -356,9 +408,11 @@ private fun SupervisorPauseCard(
     viewModel: SupervisorViewModel,
     pausa: PausaSupervisor,
     ativa: Boolean,
+    agoraEmMillis: Long,
 ) {
-    val duracao = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0
-    val excedeu = pausa.excedeuLimite ?: (duracao > pausa.limiteSegundos)
+    val duracao = if (ativa) tempoAoVivo(pausa, agoraEmMillis) else (pausa.duracaoSegundos ?: pausa.tempoSegundos ?: 0)
+    val excedeu = if (ativa) duracao > pausa.limiteSegundos else (pausa.excedeuLimite ?: (duracao > pausa.limiteSegundos))
+    val excesso = (duracao - pausa.limiteSegundos).coerceAtLeast(0)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -384,7 +438,16 @@ private fun SupervisorPauseCard(
                         "${pausa.inicioLocal} → ${pausa.fimLocal ?: "--:--"} · ${viewModel.formatarTempo(duracao)}"
                     },
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (ativa) FontWeight.Medium else FontWeight.Normal,
                 )
+                if (ativa && excedeu) {
+                    Text(
+                        "+${viewModel.formatarTempo(excesso)} acima do limite",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 StatusPill(
                     text = if (excedeu) "Acima do limite" else "Dentro do limite",
                     positive = !excedeu,
