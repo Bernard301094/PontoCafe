@@ -56,6 +56,17 @@ class AppHealthStore(context: Context) {
         lastStallDurationMillis = prefs.getLong(KEY_LAST_STALL_DURATION, 0L),
     )
 
+    fun shouldUpload(snapshot: AppHealthSnapshot = snapshot(), nowMillis: Long = System.currentTimeMillis()): Boolean {
+        val lastUpload = prefs.getLong(KEY_LAST_UPLOAD, 0L)
+        if (lastUpload <= 0L) return true
+        if (snapshot.lastCrashMillis > lastUpload || snapshot.lastStallMillis > lastUpload) return true
+        return nowMillis - lastUpload >= TELEMETRY_INTERVAL_MS
+    }
+
+    fun markUploaded(atMillis: Long = System.currentTimeMillis()) {
+        prefs.edit().putLong(KEY_LAST_UPLOAD, atMillis).apply()
+    }
+
     companion object {
         private const val KEY_LAST_START = "last_start"
         private const val KEY_CRASH_COUNT = "crash_count"
@@ -65,6 +76,8 @@ class AppHealthStore(context: Context) {
         private const val KEY_STALL_COUNT = "stall_count"
         private const val KEY_LAST_STALL = "last_stall"
         private const val KEY_LAST_STALL_DURATION = "last_stall_duration"
+        private const val KEY_LAST_UPLOAD = "last_health_upload"
+        private const val TELEMETRY_INTERVAL_MS = 24L * 60L * 60L * 1000L
     }
 }
 
