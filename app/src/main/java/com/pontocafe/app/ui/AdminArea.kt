@@ -15,15 +15,23 @@ import com.pontocafe.app.AdminViewModel
 fun AdminArea(
     viewModel: AdminViewModel,
     deviceViewModel: AdminDeviceViewModel,
+    initialDevicesOpen: Boolean = false,
+    onDevicesOpenChanged: (Boolean) -> Unit = {},
     onClose: () -> Unit,
 ) {
-    var mostrandoDispositivos by remember { mutableStateOf(false) }
+    var mostrandoDispositivos by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
+
+    fun setDevicesOpen(open: Boolean) {
+        mostrandoDispositivos = open
+        onDevicesOpenChanged(open)
+        if (open) deviceViewModel.carregar()
+    }
 
     if (mostrandoDispositivos) {
-        BackHandler { mostrandoDispositivos = false }
+        BackHandler { setDevicesOpen(false) }
         AdminDevicesScreen(
             viewModel = deviceViewModel,
-            onBack = { mostrandoDispositivos = false },
+            onBack = { setDevicesOpen(false) },
         )
         return
     }
@@ -55,10 +63,7 @@ fun AdminArea(
         AdminDestination.HOME -> AdminPanelScreen(
             viewModel = viewModel,
             onClose = onClose,
-            onDevicesClick = {
-                deviceViewModel.carregar()
-                mostrandoDispositivos = true
-            },
+            onDevicesClick = { setDevicesOpen(true) },
         )
         AdminDestination.NEW_ACCOUNT -> AdminNewAccountScreen(viewModel)
         AdminDestination.USER_DETAIL -> AdminUserDetailScreen(viewModel)
