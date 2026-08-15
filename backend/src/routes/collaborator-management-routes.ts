@@ -135,12 +135,23 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
 
   const body = await parseJson(c, z.object({
     embedding: embeddingSchema,
+    amostras: z.array(embeddingSchema).min(1).max(5).optional(),
     modelo: z.string().trim().min(2).max(100),
     versaoModelo: z.string().trim().min(1).max(50),
   }))
   if (!body.ok) return body.response
 
+  const expectedDimension = body.data.embedding.length
+  const samples = body.data.amostras ?? []
+  if (samples.some((sample) => sample.length !== expectedDimension)) {
+    return c.json({
+      erro: 'As amostras faciais possuem dimensões incompatíveis.',
+      codigo: 'BIOMETRIC_SAMPLE_DIMENSION_MISMATCH',
+    }, 400)
+  }
+
   const duplicateThreshold = Math.max(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
+  const strongSampleThreshold = Math.min(0.99, duplicateThreshold + 0.08)
   const actor = c.get('user')
 
   const result = await transaction(async (client) => {
@@ -173,20 +184,41 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       [colaboradorId, body.data.modelo, body.data.versaoModelo],
     )
 
-    let duplicate: { colaboradorId: string; nome: string; ativo: boolean; score: number } | null = null
+    let duplicate: {
+      colaboradorId: string
+      nome: string
+      ativo: boolean
+      score: number
+      scoreConsolidado: number
+      melhorAmostra: number
+      amostrasCoincidentes: number
+    } | null = null
 
     for (const row of existing.rows) {
-      if (row.dimensao !== body.data.embedding.length) continue
+      if (row.dimensao !== expectedDimension) continue
       try {
         const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
         if (stored.length !== row.dimensao) continue
-        const score = cosineSimilarity(stored, body.data.embedding)
-        if (score >= duplicateThreshold && (!duplicate || score > duplicate.score)) {
+
+        const consolidatedScore = cosineSimilarity(stored, body.data.embedding)
+        const sampleScores = samples.map((sample) => cosineSimilarity(stored, sample))
+        const bestSample = sampleScores.length > 0 ? Math.max(...sampleScores) : -1
+        const matchingSamples = sampleScores.filter((score) => score >= duplicateThreshold).length
+        const isDuplicate =
+          consolidatedScore >= duplicateThreshold ||
+          matchingSamples >= 2 ||
+          bestSample >= strongSampleThreshold
+        const strongestScore = Math.max(consolidatedScore, bestSample)
+
+        if (isDuplicate && (!duplicate || strongestScore > duplicate.score)) {
           duplicate = {
             colaboradorId: row.colaborador_id,
             nome: row.nome,
             ativo: row.ativo,
-            score,
+            score: strongestScore,
+            scoreConsolidado: consolidatedScore,
+            melhorAmostra: bestSample,
+            amostrasCoincidentes: matchingSamples,
           }
         }
       } catch (error) {
@@ -219,7 +251,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
         encrypted.ciphertext,
         encrypted.iv,
         encrypted.authTag,
-        body.data.embedding.length,
+        expectedDimension,
         body.data.modelo,
         body.data.versaoModelo,
       ],
@@ -235,9 +267,11 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
         JSON.stringify({
           modelo: body.data.modelo,
           versaoModelo: body.data.versaoModelo,
-          dimensao: body.data.embedding.length,
+          dimensao: expectedDimension,
           verificacaoDuplicidade: true,
           limiteDuplicidade: duplicateThreshold,
+          limiteAmostraForte: strongSampleThreshold,
+          amostrasVerificadas: samples.length,
         }),
       ],
     )
@@ -259,6 +293,9 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       colaboradorExistenteId: duplicate.colaboradorId,
       colaboradorExistenteAtivo: duplicate.ativo,
       similaridade: Number(duplicate.score.toFixed(4)),
+      similaridadeConsolidada: Number(duplicate.scoreConsolidado.toFixed(4)),
+      melhorSimilaridadeAmostra: Number(duplicate.melhorAmostra.toFixed(4)),
+      amostrasCoincidentes: duplicate.amostrasCoincidentes,
       limiteDuplicidade: duplicateThreshold,
     }, 409)
   }
@@ -266,8 +303,9 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
   return c.json({
     ok: true,
     colaboradorId,
-    dimensao: body.data.embedding.length,
+    dimensao: expectedDimension,
     amostrasConsolidadas: 5,
+    amostrasVerificadas: samples.length,
     verificacaoDuplicidade: true,
     limiteDuplicidade: duplicateThreshold,
   })
