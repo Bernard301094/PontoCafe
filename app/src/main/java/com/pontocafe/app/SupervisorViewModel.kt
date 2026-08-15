@@ -400,12 +400,14 @@ class SupervisorViewModel(
                     return@launch
                 }
 
-                val combined = combineBiometricSamples(biometricSamples)
+                val samplesForValidation = biometricSamples.map { it.copyOf() }
+                val combined = combineBiometricSamples(samplesForValidation)
                 repository.saveBiometric(
                     collaboratorId = colaborador.id,
                     embedding = combined,
                     model = embeddingEngine.modelName,
                     modelVersion = embeddingEngine.modelVersion,
+                    samples = samplesForValidation,
                 )
 
                 val colaboradores = repository.collaborators()
@@ -417,7 +419,7 @@ class SupervisorViewModel(
                     colaboradorSelecionado = null,
                     biometricStepIndex = 0,
                     biometricSamplesCaptured = 0,
-                    mensagem = "Rosto de ${colaborador.nome} cadastrado com sucesso.",
+                    mensagem = "Rosto de ${colaborador.nome} cadastrado com 5 amostras e verificação de duplicidade.",
                     erro = null,
                 )
             } catch (error: Throwable) {
