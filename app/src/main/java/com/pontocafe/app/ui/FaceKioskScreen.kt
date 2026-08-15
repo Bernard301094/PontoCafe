@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,17 +46,12 @@ import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
-import java.security.MessageDigest
-
-private const val EXIT_PIN_SHA256 = "51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f"
+import com.pontocafe.app.data.ApiClient
+import com.pontocafe.app.data.PontoCafeRepository
+import com.pontocafe.app.data.SecureDeviceTokenStore
+import kotlinx.coroutines.launch
 
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN }
-
-private fun exitPinValido(pin: String): Boolean {
-    val digest = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray(Charsets.UTF_8))
-    val encoded = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    return MessageDigest.isEqual(encoded.toByteArray(), EXIT_PIN_SHA256.toByteArray())
-}
 
 @Composable
 fun FaceKioskScreen(
@@ -64,6 +60,13 @@ fun FaceKioskScreen(
     onSupervisorClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val unlockRepository = remember(context) {
+        ApiClient.create(
+            context.applicationContext,
+            SecureDeviceTokenStore(context.applicationContext),
+        )
+    }
     val state = viewModel.state
     var permissionGranted by remember {
         mutableStateOf(
@@ -82,62 +85,75 @@ fun FaceKioskScreen(
     var detectedFaces by remember { mutableStateOf(0) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
-    var exitPinInvalido by remember { mutableStateOf(false) }
+    var unlockLoading by remember { mutableStateOf(false) }
+    var unlockError by remember { mutableStateOf<String?>(null) }
 
     fun fecharSolicitacaoAcesso() {
         restrictedAreaRequest = null
         exitPin = ""
-        exitPinInvalido = false
+        unlockLoading = false
+        unlockError = null
     }
 
     restrictedAreaRequest?.let { target ->
         val areaName = if (target == RestrictedAreaRequest.SUPERVISOR) "Supervisor" else "Administrador"
         AlertDialog(
-            onDismissRequest = { fecharSolicitacaoAcesso() },
+            onDismissRequest = { if (!unlockLoading) fecharSolicitacaoAcesso() },
             title = { Text("Sair do modo Ponto") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Informe a senha para abrir a área $areaName.")
+                    Text("Informe o PIN deste dispositivo para abrir a área $areaName.")
                     OutlinedTextField(
                         value = exitPin,
                         onValueChange = { value ->
-                            exitPin = value.filter(Char::isDigit).take(8)
-                            exitPinInvalido = false
+                            exitPin = value.filter(Char::isDigit).take(12)
+                            unlockError = null
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Senha") },
+                        label = { Text("PIN de desbloqueio") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        isError = exitPinInvalido,
+                        isError = unlockError != null,
                         supportingText = {
-                            if (exitPinInvalido) Text("Senha incorreta.")
+                            Text(unlockError ?: "4 a 12 números")
                         },
+                        enabled = !unlockLoading,
                     )
                 }
             },
             confirmButton = {
                 Button(
-                    enabled = exitPin.length == 8,
+                    enabled = !unlockLoading && exitPin.length in 4..12,
                     onClick = {
-                        if (exitPinValido(exitPin)) {
-                            val destination = target
-                            fecharSolicitacaoAcesso()
-                            when (destination) {
-                                RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
-                                RestrictedAreaRequest.ADMIN -> onAdminClick()
+                        val destination = target
+                        unlockLoading = true
+                        unlockError = null
+                        scope.launch {
+                            runCatching {
+                                unlockRepository.validarPinSaida(exitPin, destination.name)
+                            }.onSuccess {
+                                fecharSolicitacaoAcesso()
+                                when (destination) {
+                                    RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
+                                    RestrictedAreaRequest.ADMIN -> onAdminClick()
+                                }
+                            }.onFailure { error ->
+                                unlockLoading = false
+                                exitPin = ""
+                                unlockError = PontoCafeRepository.mensagemErro(error)
                             }
-                        } else {
-                            exitPinInvalido = true
-                            exitPin = ""
                         }
                     },
                 ) {
-                    Text("Entrar")
+                    Text(if (unlockLoading) "Verificando..." else "Entrar")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { fecharSolicitacaoAcesso() }) {
+                TextButton(
+                    onClick = { fecharSolicitacaoAcesso() },
+                    enabled = !unlockLoading,
+                ) {
                     Text("Cancelar")
                 }
             },
