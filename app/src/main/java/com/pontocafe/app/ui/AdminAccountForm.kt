@@ -16,13 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pontocafe.app.AccountRegistrationDraftState
 
 enum class AccountProfile(val label: String) {
     SUPERVISOR("Supervisor"),
@@ -38,17 +35,14 @@ data class NewAccountInput(
 
 @Composable
 fun AdminAccountForm(
+    draftState: AccountRegistrationDraftState,
     carregando: Boolean = false,
     initialProfile: AccountProfile = AccountProfile.SUPERVISOR,
     showHeader: Boolean = true,
     onSubmit: (NewAccountInput) -> Unit,
 ) {
-    var nome by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var senha by remember { mutableStateOf("") }
-    var confirmarSenha by remember { mutableStateOf("") }
-    var perfil by remember(initialProfile) { mutableStateOf(initialProfile) }
-    var erro by remember { mutableStateOf<String?>(null) }
+    val draft = draftState.draft
+    val perfil = AccountProfile.entries.firstOrNull { it.name == draft.perfil } ?: initialProfile
 
     Column(modifier = Modifier.fillMaxWidth()) {
         if (showHeader) {
@@ -75,7 +69,11 @@ fun AdminAccountForm(
                 title = "Supervisor",
                 description = "Pausas, colaboradores, biometria e autorizações.",
                 selected = perfil == AccountProfile.SUPERVISOR,
-                onClick = { perfil = AccountProfile.SUPERVISOR },
+                onClick = {
+                    draftState.update(
+                        draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null),
+                    )
+                },
                 modifier = Modifier.weight(1f),
                 enabled = !carregando,
             )
@@ -83,7 +81,11 @@ fun AdminAccountForm(
                 title = "Administrador",
                 description = "Controle total do sistema, acessos e dispositivos.",
                 selected = perfil == AccountProfile.ADMIN,
-                onClick = { perfil = AccountProfile.ADMIN },
+                onClick = {
+                    draftState.update(
+                        draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null),
+                    )
+                },
                 modifier = Modifier.weight(1f),
                 enabled = !carregando,
             )
@@ -94,8 +96,8 @@ fun AdminAccountForm(
         Spacer(Modifier.height(10.dp))
 
         OutlinedTextField(
-            value = nome,
-            onValueChange = { nome = it },
+            value = draft.nome,
+            onValueChange = { draftState.update(draft.copy(nome = it, erroLocal = null)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nome completo") },
             placeholder = { Text("Ex.: nome e sobrenome") },
@@ -104,8 +106,8 @@ fun AdminAccountForm(
         )
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
+            value = draft.email,
+            onValueChange = { draftState.update(draft.copy(email = it, erroLocal = null)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("E-mail de acesso") },
             singleLine = true,
@@ -117,8 +119,8 @@ fun AdminAccountForm(
         Spacer(Modifier.height(10.dp))
 
         SecurePasswordField(
-            value = senha,
-            onValueChange = { senha = it },
+            value = draft.senha,
+            onValueChange = { draftState.update(draft.copy(senha = it, erroLocal = null)) },
             label = "Senha",
             modifier = Modifier.fillMaxWidth(),
             enabled = !carregando,
@@ -126,19 +128,19 @@ fun AdminAccountForm(
         )
         Spacer(Modifier.height(10.dp))
         SecurePasswordField(
-            value = confirmarSenha,
-            onValueChange = { confirmarSenha = it },
+            value = draft.confirmarSenha,
+            onValueChange = { draftState.update(draft.copy(confirmarSenha = it, erroLocal = null)) },
             label = "Confirmar senha",
             modifier = Modifier.fillMaxWidth(),
             enabled = !carregando,
             supportingText = when {
-                confirmarSenha.isBlank() -> "Repita a senha"
-                senha == confirmarSenha -> "As senhas coincidem"
+                draft.confirmarSenha.isBlank() -> "Repita a senha"
+                draft.senha == draft.confirmarSenha -> "As senhas coincidem"
                 else -> "As senhas ainda não coincidem"
             },
         )
 
-        erro?.let {
+        draft.erroLocal?.let {
             Spacer(Modifier.height(12.dp))
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -154,19 +156,21 @@ fun AdminAccountForm(
         Spacer(Modifier.height(22.dp))
         Button(
             onClick = {
-                erro = when {
-                    nome.trim().length < 2 -> "Informe o nome da pessoa."
-                    !email.contains('@') -> "Informe um e-mail válido."
-                    senha.length < 10 -> "A senha deve ter pelo menos 10 caracteres."
-                    senha != confirmarSenha -> "As senhas não coincidem."
+                val erro = when {
+                    draft.nome.trim().length < 2 -> "Informe o nome da pessoa."
+                    !draft.email.contains('@') -> "Informe um e-mail válido."
+                    draft.senha.length < 10 -> "A senha deve ter pelo menos 10 caracteres."
+                    draft.senha != draft.confirmarSenha -> "As senhas não coincidem."
                     else -> null
                 }
+                draftState.setValidationError(erro)
                 if (erro == null) {
+                    draftState.markSubmitted()
                     onSubmit(
                         NewAccountInput(
-                            nome = nome.trim(),
-                            email = email.trim().lowercase(),
-                            senha = senha,
+                            nome = draft.nome.trim(),
+                            email = draft.email.trim().lowercase(),
+                            senha = draft.senha,
                             perfil = perfil,
                         ),
                     )
