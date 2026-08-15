@@ -63,6 +63,8 @@ fun SystemDiagnosticsScreen(
                 OperationalAlertCard(
                     title = if (diagnostic.status == "ok" && diagnostic.banco.status == "ok") "Sistema operacional" else "Verifique o sistema",
                     text = "Request ID ${diagnostic.requestId} · banco ${diagnostic.banco.latenciaMs} ms",
+                    actionLabel = "Verificar novamente",
+                    onClick = viewModel::openSystemDiagnostics,
                     tone = if (diagnostic.status == "ok" && diagnostic.banco.status == "ok") PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
                 )
             }
