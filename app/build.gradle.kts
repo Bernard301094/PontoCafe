@@ -4,8 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val apiBaseUrl = providers.gradleProperty("PONTOCAFE_API_URL")
-    .orElse("https://example.invalid/")
+val productionApiBaseUrl = "https://pontocafe.bernard-castillo.workers.dev/"
+val debugApiBaseUrl = providers.gradleProperty("PONTOCAFE_API_URL")
+    .orElse(productionApiBaseUrl)
     .get()
 
 val faceModelCommit = "289bc10420aad15fed99094eee364eb24f908ecc"
@@ -60,7 +61,15 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.4.0"
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+    }
+
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
+        }
+        getByName("release") {
+            buildConfigField("String", "API_BASE_URL", "\"$productionApiBaseUrl\"")
+        }
     }
 
     compileOptions {
