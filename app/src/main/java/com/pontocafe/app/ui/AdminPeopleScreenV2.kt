@@ -69,14 +69,18 @@ fun AdminPeopleScreenV2(
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val text = runCatching {
+            val readResult = runCatching {
                 context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                     ?: error("Não foi possível abrir o arquivo.")
-            }.getOrElse {
-                importPreview = CsvImportPreview(emptyList(), listOf(it.message ?: "Não foi possível ler o CSV."))
-                return@rememberLauncherForActivityResult
             }
-            importPreview = CsvCollaboratorParser.parse(text)
+            readResult
+                .onSuccess { text -> importPreview = CsvCollaboratorParser.parse(text) }
+                .onFailure { error ->
+                    importPreview = CsvImportPreview(
+                        emptyList(),
+                        listOf(error.message ?: "Não foi possível ler o CSV."),
+                    )
+                }
         }
     }
 
@@ -173,7 +177,7 @@ fun AdminPeopleScreenV2(
                         onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = null)
+                        Icon(Icons.Default.FileOpen, contentDescription = "Importar arquivo CSV")
                         Text(" Importar CSV")
                     }
                     OutlinedButton(
@@ -183,7 +187,7 @@ fun AdminPeopleScreenV2(
                         },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Default.GroupWork, contentDescription = null)
+                        Icon(Icons.Default.GroupWork, contentDescription = "Editar colaboradores em lote")
                         Text(if (selectionMode) " Cancelar lote" else " Editar em lote")
                     }
                 }
