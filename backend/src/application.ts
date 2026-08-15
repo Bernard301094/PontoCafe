@@ -20,6 +20,7 @@ import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
 import { reportRoutes } from './routes/report-routes.js'
 import { setupRoutes } from './routes/setup-routes.js'
+import { userManagementRoutes } from './routes/user-management-routes.js'
 
 const app = new Hono<AppEnv>()
 
@@ -127,6 +128,7 @@ app.route('/setup', deviceSetupRoutes)
 app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
 app.route('/admin', deviceManagementRoutes)
+app.route('/admin', userManagementRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
