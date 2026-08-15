@@ -35,7 +35,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             backLabel = "Painel",
         )
         Text(
-            "Para João Paulo Pereira, selecione Supervisor e informe o e-mail e a senha que ele usará para entrar.",
+            "Supervisor já vem selecionado. Informe o nome, o e-mail e a senha que a pessoa usará para entrar.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         AdminAccountForm(
