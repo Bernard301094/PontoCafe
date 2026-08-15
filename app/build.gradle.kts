@@ -63,8 +63,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.5.1"
+        versionCode = 4
+        versionName = "0.5.2"
     }
 
     buildTypes {
@@ -98,6 +98,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    implementation("androidx.biometric:biometric:1.1.0")
 
     val cameraX = "1.6.1"
     implementation("androidx.camera:camera-camera2:$cameraX")
