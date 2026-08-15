@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,10 @@ import com.pontocafe.app.data.PausaSupervisor
 
 @Composable
 fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
+    LaunchedEffect(Unit) {
+        viewModel.prepararEntrada()
+    }
+
     when (viewModel.state.destination) {
         SupervisorDestination.LOGIN -> SupervisorLoginScreen(viewModel, onClose)
         SupervisorDestination.AO_VIVO -> SupervisorLiveScreen(viewModel, onClose)
@@ -97,6 +102,16 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             "O Supervisor acompanha as pausas e pode administrar colaboradores e biometria facial.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (state.sessaoAdministrativa) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Acesso liberado pela sessão de Administrador deste dispositivo.",
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) { Text("Atualizar") }
             OutlinedButton(onClick = viewModel::abrirHistorico, modifier = Modifier.weight(1f)) { Text("Histórico") }
@@ -119,9 +134,15 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 SupervisorPauseCard(viewModel, pausa, ativa = true)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Voltar ao Ponto") }
-            OutlinedButton(onClick = viewModel::sair, modifier = Modifier.weight(1f)) { Text("Sair") }
+        if (state.sessaoAdministrativa) {
+            OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                Text("Voltar ao Ponto")
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Voltar ao Ponto") }
+                OutlinedButton(onClick = viewModel::sair, modifier = Modifier.weight(1f)) { Text("Sair") }
+            }
         }
     }
 }
