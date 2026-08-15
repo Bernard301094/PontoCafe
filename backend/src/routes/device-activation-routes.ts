@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
-import { query } from '../db.js'
+import { transaction } from '../db.js'
 import { hashDeviceUnlockPin, hashToken, newDeviceToken, newId } from '../security.js'
 import { parseJson } from './shared.js'
 
@@ -19,11 +19,18 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
   const token = newDeviceToken(10)
   const unlockPinHash = body.data.pin ? hashDeviceUnlockPin(id, body.data.pin) : null
 
-  await query(
-    `insert into dispositivos (id,nome,token_hash,unlock_pin_hash,unlock_pin_updated_at)
-     values ($1,$2,$3,$4,case when $4 is null then null else now() end)`,
-    [id, body.data.nome, hashToken(token), unlockPinHash],
-  )
+  await transaction(async (client) => {
+    await client.query(
+      `insert into dispositivos (id,nome,token_hash,unlock_pin_hash,unlock_pin_updated_at)
+       values ($1,$2,$3,$4,case when $4 is null then null else now() end)`,
+      [id, body.data.nome, hashToken(token), unlockPinHash],
+    )
+    await client.query(
+      `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ($1,'ADMIN','CRIAR_DISPOSITIVO','DISPOSITIVO',$2,$3::jsonb)`,
+      [c.get('user').id, id, JSON.stringify({ nome: body.data.nome, pinConfigurado: unlockPinHash !== null })],
+    )
+  })
 
   return c.json({
     id,
