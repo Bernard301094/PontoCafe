@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { getAuth, type AppEnv } from '../auth-runtime.js'
@@ -7,7 +7,7 @@ import { parseJson } from './shared.js'
 
 export const setupRoutes = new Hono<AppEnv>()
 
-type SetupStage = 'bloqueio' | 'verificacao' | 'criacao_usuario' | 'credencial' | 'auditoria'
+type SetupStage = 'hash_senha' | 'bloqueio' | 'verificacao' | 'criacao_usuario' | 'credencial' | 'auditoria'
 
 function sameSecret(received: string, expected: string): boolean {
   const left = createHash('sha256').update(received).digest()
@@ -32,7 +32,8 @@ function safeSetupErrorCode(error: unknown): string {
   const message = error.message.toLowerCase()
   if (message.includes('timeout') || message.includes('connection')) return 'SETUP_DATABASE_CONNECTION'
   if (message.includes('duplicate') || message.includes('unique') || message.includes('already')) return 'SETUP_DUPLICATE'
-  if (message.includes('password')) return 'SETUP_PASSWORD'
+  if (message.includes('password') || message.includes('scrypt')) return 'SETUP_PASSWORD'
+  if (message.includes('permission') || message.includes('privilege')) return 'SETUP_DATABASE_PERMISSION'
   return 'SETUP_OPERATION_FAILED'
 }
 
@@ -68,10 +69,14 @@ setupRoutes.post('/primeiro-admin', async (c) => {
     return c.json({ erro: 'Chave de instalação inválida.' }, 403)
   }
 
-  let stage: SetupStage = 'bloqueio'
-  let createdUserId: string | null = null
+  let stage: SetupStage = 'hash_senha'
 
   try {
+    // Usa exatamente o hasher configurado no Better Auth. A senha nunca é
+    // persistida nem registrada em texto puro.
+    const authContext = await getAuth().$context
+    const passwordHash = await authContext.password.hash(body.data.senha)
+
     const created = await transaction(async (client) => {
       stage = 'bloqueio'
       await client.query('select pg_advisory_xact_lock(7266680041)')
@@ -82,42 +87,42 @@ setupRoutes.post('/primeiro-admin', async (c) => {
         throw new Error('SETUP_ALREADY_COMPLETED')
       }
 
-      const authContext = await getAuth().$context
-      const internalAdapter = authContext.internalAdapter
+      const userId = randomUUID()
+      const accountId = randomUUID()
+      const now = new Date()
 
       stage = 'criacao_usuario'
-      const now = new Date()
-      const user = await internalAdapter.createUser({
-        name: body.data.nome,
-        email: body.data.email,
-        emailVerified: true,
-        role: 'admin',
-        createdAt: now,
-        updatedAt: now,
-      })
-      createdUserId = user.id
+      await client.query(
+        `insert into "user"
+          (id,name,email,"emailVerified","createdAt","updatedAt",role,banned)
+         values ($1,$2,$3,true,$4,$4,'admin',false)`,
+        [userId, body.data.nome, body.data.email, now],
+      )
 
       stage = 'credencial'
-      const passwordHash = await authContext.password.hash(body.data.senha)
-      await internalAdapter.linkAccount({
-        accountId: user.id,
-        providerId: 'credential',
-        userId: user.id,
-        password: passwordHash,
-      })
+      await client.query(
+        `insert into account
+          (id,"accountId","providerId","userId",password,"createdAt","updatedAt")
+         values ($1,$2,'credential',$2,$3,$4,$4)`,
+        [accountId, userId, passwordHash, now],
+      )
 
       stage = 'auditoria'
       try {
         await client.query(
           `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
            values ('SETUP','CRIAR_PRIMEIRO_ADMIN','USUARIO',$1,$2::jsonb)`,
-          [user.id, JSON.stringify({ email: user.email, nome: user.name, perfil: 'ADMIN' })],
+          [userId, JSON.stringify({ email: body.data.email, nome: body.data.nome, perfil: 'ADMIN' })],
         )
       } catch (auditError) {
         console.error('Falha ao auditar criação do primeiro administrador.', auditError)
       }
 
-      return user
+      return {
+        id: userId,
+        name: body.data.nome,
+        email: body.data.email,
+      }
     })
 
     return c.json({
@@ -132,14 +137,6 @@ setupRoutes.post('/primeiro-admin', async (c) => {
   } catch (error) {
     if (error instanceof Error && error.message === 'SETUP_ALREADY_COMPLETED') {
       return c.json({ erro: 'A instalação inicial já foi concluída.' }, 409)
-    }
-
-    if (createdUserId) {
-      try {
-        await query('delete from "user" where id=$1', [createdUserId])
-      } catch (cleanupError) {
-        console.error('Falha ao limpar usuário parcial do setup.', cleanupError)
-      }
     }
 
     console.error(JSON.stringify({
