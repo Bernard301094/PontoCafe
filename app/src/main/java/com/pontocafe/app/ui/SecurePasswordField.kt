@@ -39,7 +39,11 @@ fun SecurePasswordField(
         },
         modifier = modifier,
         label = { Text(label) },
-        supportingText = supportingText?.let { text -> ({ Text(text) }) },
+        supportingText = if (supportingText != null) {
+            { Text(supportingText) }
+        } else {
+            null
+        },
         singleLine = true,
         enabled = enabled,
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
