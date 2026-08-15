@@ -1,11 +1,13 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,45 +26,53 @@ import com.pontocafe.app.data.AuditEvent
 fun AdminAuditScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PontoCafeHeader("Auditoria e segurança")
-        Text(
-            "Histórico das principais ações administrativas, biométricas e de dispositivos.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        AdminFeedback(viewModel)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = viewModel::abrirAuditoria, modifier = Modifier.weight(1f)) {
-                Text("Atualizar")
-            }
-            OutlinedButton(onClick = viewModel::voltarHome, modifier = Modifier.weight(1f)) {
-                Text("Voltar ao painel")
+        item(key = "header") {
+            PontoCafeScreenHeader(
+                title = "Auditoria e segurança",
+                onBack = viewModel::voltarHome,
+                backLabel = "Painel",
+            )
+        }
+        item(key = "intro") {
+            Text(
+                "Histórico das principais ações administrativas, biométricas e de dispositivos.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item(key = "feedback") {
+            AdminFeedback(viewModel)
+        }
+        item(key = "refresh") {
+            OutlinedButton(onClick = viewModel::abrirAuditoria, modifier = Modifier.fillMaxWidth()) {
+                Text("Atualizar auditoria")
             }
         }
 
         if (state.auditoria.isEmpty() && !state.carregando) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("Nenhum evento encontrado", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "As ações auditáveis aparecerão aqui conforme o sistema for utilizado.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            item(key = "empty") {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.foundation.layout.Column(Modifier.padding(18.dp)) {
+                        Text("Nenhum evento encontrado", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "As ações auditáveis aparecerão aqui conforme o sistema for utilizado.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.auditoria, key = { it.id }) { event ->
-                AuditEventCard(event)
-            }
+        items(state.auditoria, key = { "audit-${it.id}" }) { event ->
+            AuditEventCard(event)
         }
     }
 }
@@ -70,7 +80,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
 @Composable
 private fun AuditEventCard(event: AuditEvent) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
+        androidx.compose.foundation.layout.Column(
             modifier = Modifier.padding(15.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
