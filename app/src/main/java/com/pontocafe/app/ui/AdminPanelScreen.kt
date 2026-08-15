@@ -9,27 +9,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 
 @Composable
-fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
+fun AdminPanelScreen(
+    viewModel: AdminViewModel,
+    onClose: () -> Unit,
+    onDevicesClick: () -> Unit,
+) {
     val state = viewModel.state
-    var deviceName by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -54,40 +51,14 @@ fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 Text("Configurar café")
             }
         }
-        OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth()) {
-            Text("Sair")
+        Button(onClick = onDevicesClick, modifier = Modifier.fillMaxWidth()) {
+            Text("Dispositivos e PIN de desbloqueio")
         }
 
-        Text("Ativar um dispositivo", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            value = deviceName,
-            onValueChange = { deviceName = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Nome do dispositivo") },
-            placeholder = { Text("Ex.: Tablet Refeitório") },
-            singleLine = true,
+        Text(
+            "Em Dispositivos e PIN você pode gerar o token de ativação de um novo aparelho e definir ou alterar o PIN usado para sair do modo Ponto em cada dispositivo.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(
-            onClick = { viewModel.gerarTokenDispositivo(deviceName) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.carregando && deviceName.trim().length >= 2,
-        ) {
-            Text("Gerar token de ativação")
-        }
-
-        state.deviceTokenGerado?.let { token ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Token de ${state.deviceNome ?: "dispositivo"}", fontWeight = FontWeight.SemiBold)
-                    Text("Copie agora. Por segurança, ele não poderá ser consultado novamente.")
-                    SelectionContainer { Text(token) }
-                    OutlinedButton(
-                        onClick = viewModel::limparTokenGerado,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Já copiei") }
-                }
-            }
-        }
 
         Text("Contas de acesso", style = MaterialTheme.typography.titleMedium)
         LazyColumn(
@@ -111,11 +82,11 @@ fun AdminPanelScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             }
         }
 
+        OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth()) {
+            Text("Encerrar sessão do Administrador")
+        }
         OutlinedButton(
-            onClick = {
-                viewModel.limparTokenGerado()
-                onClose()
-            },
+            onClick = onClose,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Voltar ao Ponto Café")
