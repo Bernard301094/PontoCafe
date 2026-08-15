@@ -11,6 +11,9 @@ type WorkerEnv = {
   FACE_ENROLLMENT_DUPLICATE_THRESHOLD?: string
   AUTHORIZATION_TTL_SECONDS?: string
   FACE_VERIFICATION_TTL_SECONDS?: string
+  OFFLINE_MAX_EVENT_AGE_HOURS?: string
+  APP_LATEST_ANDROID_VERSION?: string
+  APP_MIN_ANDROID_VERSION?: string
 }
 
 type BootStage = 'environment' | 'config' | 'db' | 'auth' | 'application'
@@ -32,21 +35,25 @@ function assertRequiredRuntimeConfig() {
   }
 }
 
+const textBindingNames = [
+  'BETTER_AUTH_SECRET',
+  'CODE_PEPPER',
+  'BIOMETRIC_MASTER_KEY',
+  'FIRST_ADMIN_SETUP_KEY',
+  'APP_TIMEZONE',
+  'SESSION_TTL_HOURS',
+  'FACE_MATCH_THRESHOLD',
+  'FACE_IDENTIFICATION_MARGIN',
+  'FACE_ENROLLMENT_DUPLICATE_THRESHOLD',
+  'AUTHORIZATION_TTL_SECONDS',
+  'FACE_VERIFICATION_TTL_SECONDS',
+  'OFFLINE_MAX_EVENT_AGE_HOURS',
+  'APP_LATEST_ANDROID_VERSION',
+  'APP_MIN_ANDROID_VERSION',
+] as const satisfies ReadonlyArray<keyof WorkerEnv>
+
 function safeBindingDiagnostics(env: WorkerEnv) {
-  const known = [
-    'HYPERDRIVE',
-    'BETTER_AUTH_SECRET',
-    'CODE_PEPPER',
-    'BIOMETRIC_MASTER_KEY',
-    'FIRST_ADMIN_SETUP_KEY',
-    'APP_TIMEZONE',
-    'SESSION_TTL_HOURS',
-    'FACE_MATCH_THRESHOLD',
-    'FACE_IDENTIFICATION_MARGIN',
-    'FACE_ENROLLMENT_DUPLICATE_THRESHOLD',
-    'AUTHORIZATION_TTL_SECONDS',
-    'FACE_VERIFICATION_TTL_SECONDS',
-  ] as const
+  const known = ['HYPERDRIVE', ...textBindingNames] as const
 
   return {
     nomes: Object.keys(env).sort(),
@@ -68,20 +75,7 @@ async function handleApplication(env: WorkerEnv, request: Request): Promise<Resp
   }
   process.env.DATABASE_URL = env.HYPERDRIVE.connectionString
 
-  const textBindings: Array<keyof WorkerEnv> = [
-    'BETTER_AUTH_SECRET',
-    'CODE_PEPPER',
-    'BIOMETRIC_MASTER_KEY',
-    'FIRST_ADMIN_SETUP_KEY',
-    'APP_TIMEZONE',
-    'SESSION_TTL_HOURS',
-    'FACE_MATCH_THRESHOLD',
-    'FACE_IDENTIFICATION_MARGIN',
-    'FACE_ENROLLMENT_DUPLICATE_THRESHOLD',
-    'AUTHORIZATION_TTL_SECONDS',
-    'FACE_VERIFICATION_TTL_SECONDS',
-  ]
-  for (const name of textBindings) copyTextBinding(env, name)
+  for (const name of textBindingNames) copyTextBinding(env, name)
 
   process.env.BETTER_AUTH_URL = new URL(request.url).origin
 
