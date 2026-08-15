@@ -18,18 +18,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun RestrictedAreaLockScreen(
@@ -38,8 +45,11 @@ fun RestrictedAreaLockScreen(
     onUnlocked: () -> Unit,
     onBackToPonto: () -> Unit,
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     var erro by remember { mutableStateOf<String?>(null) }
     var promptRequested by remember { mutableStateOf(false) }
+    var autoUnlockPending by remember { mutableStateOf(true) }
     val latestUnlocked by rememberUpdatedState(onUnlocked)
 
     val executor = remember(activity) { ContextCompat.getMainExecutor(activity) }
@@ -50,6 +60,8 @@ fun RestrictedAreaLockScreen(
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
+                    promptRequested = false
+                    autoUnlockPending = false
                     erro = null
                     latestUnlocked()
                 }
@@ -57,12 +69,15 @@ fun RestrictedAreaLockScreen(
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
                     promptRequested = false
-                    if (
-                        errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
-                        errorCode != BiometricPrompt.ERROR_CANCELED &&
-                        errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                    ) {
-                        erro = errString.toString()
+
+                    when (errorCode) {
+                        BiometricPrompt.ERROR_CANCELED -> Unit
+                        BiometricPrompt.ERROR_USER_CANCELED,
+                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> autoUnlockPending = false
+                        else -> {
+                            autoUnlockPending = false
+                            erro = errString.toString()
+                        }
                     }
                 }
 
@@ -75,8 +90,18 @@ fun RestrictedAreaLockScreen(
     }
 
     fun requestUnlock() {
+        if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            // A tela de bloqueio pode ser composta ainda durante ON_START.
+            // Nesse momento o BiometricPrompt pode aceitar authenticate() sem
+            // chegar a exibir nada, deixando o botão aparentemente travado.
+            autoUnlockPending = true
+            promptRequested = false
+            return
+        }
         if (promptRequested) return
+
         promptRequested = true
+        autoUnlockPending = false
         erro = null
 
         val promptBuilder = BiometricPrompt.PromptInfo.Builder()
@@ -91,19 +116,63 @@ fun RestrictedAreaLockScreen(
                     BiometricManager.Authenticators.DEVICE_CREDENTIAL,
             )
         } else {
-            // Compatibilidade com Android 8–10: a biblioteca encaminha para a
-            // credencial segura da tela quando disponível.
             promptBuilder.setDeviceCredentialAllowed(true)
         }
 
         runCatching { biometricPrompt.authenticate(promptBuilder.build()) }
             .onFailure {
                 promptRequested = false
+                autoUnlockPending = false
                 erro = "Configure uma impressão digital, PIN, padrão ou senha de bloqueio no celular para proteger esta área."
             }
     }
 
-    LaunchedEffect(Unit) { requestUnlock() }
+    fun forceRequestUnlock() {
+        scope.launch {
+            // Recupera inclusive um prompt que tenha ficado pendente no
+            // FragmentManager após minimizar/restaurar o aplicativo.
+            if (promptRequested) {
+                biometricPrompt.cancelAuthentication()
+                promptRequested = false
+                delay(120)
+            }
+            autoUnlockPending = true
+            requestUnlock()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, biometricPrompt) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (autoUnlockPending && !promptRequested) requestUnlock()
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    // Nunca preserve um "prompt em andamento" quando a Activity
+                    // já não está visível. Ao voltar, um prompt novo será criado.
+                    autoUnlockPending = true
+                    if (promptRequested) biometricPrompt.cancelAuthentication()
+                    promptRequested = false
+                }
+
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            biometricPrompt.cancelAuthentication()
+        }
+    }
+
+    LaunchedEffect(lifecycleOwner) {
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && autoUnlockPending) {
+            // Deixa a Activity concluir a restauração antes de abrir a UI do sistema.
+            delay(100)
+            requestUnlock()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -143,8 +212,8 @@ fun RestrictedAreaLockScreen(
                 }
 
                 Spacer(Modifier.height(4.dp))
-                Button(onClick = ::requestUnlock, modifier = Modifier.fillMaxWidth()) {
-                    Text("Desbloquear com biometria ou PIN")
+                Button(onClick = ::forceRequestUnlock, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (promptRequested) "Abrir autenticação novamente" else "Desbloquear com biometria ou PIN")
                 }
                 OutlinedButton(onClick = onBackToPonto, modifier = Modifier.fillMaxWidth()) {
                     Text("Voltar ao Ponto Café")
