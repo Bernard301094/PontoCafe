@@ -61,6 +61,8 @@ fun KioskModeScreen(
             OperationalAlertCard(
                 title = if (settings.enabled) "Modo terminal configurado" else "Modo terminal opcional",
                 text = "Use estas opções somente em aparelhos dedicados ao Ponto Café. O acesso Admin/Supervisor continua protegido.",
+                actionLabel = if (settings.enabled) "Desativar modo terminal" else "Ativar modo terminal",
+                onClick = { persist(settings.copy(enabled = !settings.enabled)) },
                 tone = if (settings.enabled) PontoCafeTone.SUCCESS else PontoCafeTone.INFO,
             )
         }
