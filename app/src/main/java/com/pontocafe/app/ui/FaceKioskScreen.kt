@@ -45,14 +45,32 @@ import androidx.core.content.ContextCompat
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
+
+private enum class KioskLivenessChallenge(val instruction: String) {
+    BLINK("Pisque para confirmar presença"),
+    TURN_LEFT("Vire levemente o rosto para a esquerda"),
+    TURN_RIGHT("Vire levemente o rosto para a direita"),
+    ;
+
+    fun accepts(observation: FaceObservation): Boolean {
+        if (!observation.isWellPositioned || abs(observation.pitch) > 15f) return false
+        return when (this) {
+            BLINK -> false
+            TURN_LEFT -> observation.yaw in 18f..38f
+            TURN_RIGHT -> observation.yaw in -38f..-18f
+        }
+    }
+}
 
 @Composable
 fun FaceKioskScreen(
@@ -85,6 +103,8 @@ fun FaceKioskScreen(
     val captureController = remember { FrameCaptureController() }
     val liveness = remember { BlinkLiveness() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
+    var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
+    var stableChallengeFrames by remember { mutableStateOf(0) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
@@ -167,6 +187,8 @@ fun FaceKioskScreen(
 
     LaunchedEffect(state.scanCycle) {
         liveness.reset()
+        challenge = KioskLivenessChallenge.entries.random()
+        stableChallengeFrames = 0
         captureRequested = false
         detectedFaces = 0
         livenessState = LivenessState.POSICIONE_ROSTO
@@ -181,13 +203,27 @@ fun FaceKioskScreen(
                     detectedFaces = observation.faceCount
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
-                        !state.sincronizandoBiometrias && !state.carregando
+                        !state.sincronizandoBiometrias && !state.carregando && !captureRequested
                     ) {
-                        val next = liveness.update(observation)
-                        livenessState = next
-                        if (next == LivenessState.CONCLUIDO && !captureRequested) {
-                            captureRequested = true
-                            captureController.request()
+                        if (challenge == KioskLivenessChallenge.BLINK) {
+                            val next = liveness.update(observation)
+                            livenessState = next
+                            if (next == LivenessState.CONCLUIDO) {
+                                captureRequested = true
+                                captureController.request()
+                            }
+                        } else {
+                            livenessState = if (observation.isWellPositioned) LivenessState.PISQUE else LivenessState.POSICIONE_ROSTO
+                            if (challenge.accepts(observation)) {
+                                stableChallengeFrames += 1
+                                if (stableChallengeFrames >= 4) {
+                                    livenessState = LivenessState.CONCLUIDO
+                                    captureRequested = true
+                                    captureController.request()
+                                }
+                            } else {
+                                stableChallengeFrames = 0
+                            }
                         }
                     }
                 },
@@ -253,6 +289,20 @@ fun FaceKioskScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (state.atualizacaoObrigatoria) {
+                    Text(
+                        "Atualização obrigatória disponível · ${state.versaoMaisRecente ?: "nova versão"}",
+                        color = Color(0xFFFFC7C7),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else if (state.atualizacaoDisponivel) {
+                    Text(
+                        "Nova versão disponível · ${state.versaoMaisRecente}",
+                        color = Color(0xFFFFD18A),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
 
@@ -269,6 +319,12 @@ fun FaceKioskScreen(
                 val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
                     !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
                 val multipleFacesVisible = state.scanning && detectedFaces > 1
+                val challengeInstruction = when {
+                    livenessState == LivenessState.CONCLUIDO -> "Presença confirmada"
+                    challenge == KioskLivenessChallenge.BLINK && livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
+                    livenessState == LivenessState.POSICIONE_ROSTO -> "Posicione o rosto dentro do contorno"
+                    else -> challenge.instruction
+                }
 
                 Text(
                     text = when {
@@ -278,12 +334,7 @@ fun FaceKioskScreen(
                         state.carregando -> "Confirmando sua identidade..."
                         noFaceVisible -> "ROSTO NÃO DETECTADO"
                         multipleFacesVisible -> "MAIS DE UM ROSTO DETECTADO"
-                        else -> when (livenessState) {
-                            LivenessState.POSICIONE_ROSTO -> "Posicione o rosto dentro do contorno"
-                            LivenessState.PISQUE -> "Pisque para confirmar presença"
-                            LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
-                            LivenessState.CONCLUIDO -> "Rosto capturado"
-                        }
+                        else -> challengeInstruction
                     },
                     color = if (noFaceVisible || multipleFacesVisible) MaterialTheme.colorScheme.error else Color.White,
                     fontWeight = FontWeight.Bold,
@@ -298,7 +349,7 @@ fun FaceKioskScreen(
                         noFaceVisible -> "Não conseguimos localizar um rosto. Encaixe todo o rosto dentro da figura na tela e olhe para a câmera."
                         multipleFacesVisible -> "Deixe apenas uma pessoa diante da câmera para continuar."
                         state.modoOffline -> "Modo offline seguro: pontos dentro do horário ficam cifrados neste aparelho e serão sincronizados automaticamente."
-                        else -> "A identificação inicial acontece neste dispositivo. Não é necessário procurar seu nome."
+                        else -> "O desafio muda entre tentativas para confirmar presença real antes do reconhecimento."
                     },
                     color = Color.White.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.bodySmall,
