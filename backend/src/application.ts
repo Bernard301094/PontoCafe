@@ -22,15 +22,24 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
 
+function redactAuthMessage(message: string): string {
+  return message
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/\b(?:password|senha|secret|token)\s*[:=]\s*[^\s,;}\]]+/gi, (value) => `${value.split(/[:=]/)[0]}=[redacted]`)
+    .replace(/\b[A-Za-z0-9+/_=-]{40,}\b/g, '[value]')
+    .slice(0, 240)
+}
+
 function safeAuthFailure(error: unknown) {
   const err = error instanceof Error ? error : new Error(String(error))
   const cause = err.cause && typeof err.cause === 'object' ? err.cause as Record<string, unknown> : null
+  const causeMessage = cause && typeof cause.message === 'string' ? cause.message : ''
   const rawCode = typeof (err as Error & { code?: unknown }).code === 'string'
     ? (err as Error & { code?: string }).code
     : typeof cause?.code === 'string'
       ? cause.code
       : null
-  const combined = `${err.message} ${cause && typeof cause.message === 'string' ? cause.message : ''}`.toLowerCase()
+  const combined = `${err.message} ${causeMessage}`.toLowerCase()
 
   let codigo = 'AUTH_RUNTIME_FAILURE'
   if (combined.includes('different request') || combined.includes('different io context')) codigo = 'AUTH_CROSS_REQUEST_IO'
@@ -44,6 +53,7 @@ function safeAuthFailure(error: unknown) {
     codigo,
     tipo: err.name,
     codigoInterno: rawCode && /^[A-Z0-9_]{2,16}$/i.test(rawCode) ? rawCode : null,
+    mensagem: redactAuthMessage(causeMessage || err.message),
   }
 }
 
