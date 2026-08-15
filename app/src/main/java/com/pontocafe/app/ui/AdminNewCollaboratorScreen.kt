@@ -15,19 +15,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.FormDraftRegistry
 
 @Composable
 fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
-    var nome by remember { mutableStateOf("") }
-    var setor by remember { mutableStateOf("Produção") }
-    var turno by remember { mutableStateOf("A") }
+    val state = viewModel.state
+    val draftState = remember(viewModel) { FormDraftRegistry.adminCollaborator(viewModel) }
+    val draft = draftState.draft
+
+    LaunchedEffect(Unit) {
+        draftState.prepareForDisplay(serverError = state.erro, loading = state.carregando)
+    }
+    LaunchedEffect(state.erro) {
+        if (state.erro != null) draftState.markServerFailure()
+    }
 
     Column(
         modifier = Modifier
@@ -41,7 +47,10 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
     ) {
         PontoCafeScreenHeader(
             title = "Novo colaborador",
-            onBack = viewModel::voltarColaboradores,
+            onBack = {
+                draftState.reset()
+                viewModel.voltarColaboradores()
+            },
             backLabel = "Colaboradores",
         )
         Text(
@@ -55,33 +64,36 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
         AdminFeedback(viewModel)
 
         OutlinedTextField(
-            value = nome,
-            onValueChange = { nome = it },
+            value = draft.nome,
+            onValueChange = { draftState.update(draft.copy(nome = it)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nome completo") },
             singleLine = true,
         )
         OutlinedTextField(
-            value = setor,
-            onValueChange = { setor = it },
+            value = draft.setor,
+            onValueChange = { draftState.update(draft.copy(setor = it)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Setor") },
             singleLine = true,
         )
         OutlinedTextField(
-            value = turno,
-            onValueChange = { turno = it },
+            value = draft.turno,
+            onValueChange = { draftState.update(draft.copy(turno = it)) },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Turno") },
             singleLine = true,
         )
 
         Button(
-            onClick = { viewModel.criarColaborador("", nome, setor, turno) },
+            onClick = {
+                draftState.markSubmitted()
+                viewModel.criarColaborador("", draft.nome, draft.setor, draft.turno)
+            },
             modifier = Modifier.fillMaxWidth(),
-            enabled = nome.trim().length >= 2 && !viewModel.state.carregando,
+            enabled = draft.nome.trim().length >= 2 && !state.carregando,
         ) {
-            Text("Salvar e cadastrar rosto")
+            Text(if (state.carregando) "Salvando..." else "Salvar e cadastrar rosto")
         }
     }
 }
