@@ -11,10 +11,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.pontocafe.app.PontoCafeViewModel
@@ -36,6 +45,15 @@ import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
+import java.security.MessageDigest
+
+private const val SUPERVISOR_EXIT_PIN_SHA256 = "51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f"
+
+private fun supervisorExitPinValido(pin: String): Boolean {
+    val digest = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray(Charsets.UTF_8))
+    val encoded = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    return MessageDigest.isEqual(encoded.toByteArray(), SUPERVISOR_EXIT_PIN_SHA256.toByteArray())
+}
 
 @Composable
 fun FaceKioskScreen(
@@ -60,6 +78,70 @@ fun FaceKioskScreen(
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
+    var solicitarPinSupervisor by remember { mutableStateOf(false) }
+    var pinSupervisor by remember { mutableStateOf("") }
+    var pinSupervisorInvalido by remember { mutableStateOf(false) }
+
+    if (solicitarPinSupervisor) {
+        AlertDialog(
+            onDismissRequest = {
+                solicitarPinSupervisor = false
+                pinSupervisor = ""
+                pinSupervisorInvalido = false
+            },
+            title = { Text("Acesso do Supervisor") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Informe a senha para sair do modo Ponto e abrir a área do Supervisor.")
+                    OutlinedTextField(
+                        value = pinSupervisor,
+                        onValueChange = { value ->
+                            pinSupervisor = value.filter(Char::isDigit).take(8)
+                            pinSupervisorInvalido = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Senha") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        isError = pinSupervisorInvalido,
+                        supportingText = {
+                            if (pinSupervisorInvalido) Text("Senha incorreta.")
+                        },
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = pinSupervisor.length == 8,
+                    onClick = {
+                        if (supervisorExitPinValido(pinSupervisor)) {
+                            solicitarPinSupervisor = false
+                            pinSupervisor = ""
+                            pinSupervisorInvalido = false
+                            onSupervisorClick()
+                        } else {
+                            pinSupervisorInvalido = true
+                            pinSupervisor = ""
+                        }
+                    },
+                ) {
+                    Text("Entrar")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        solicitarPinSupervisor = false
+                        pinSupervisor = ""
+                        pinSupervisorInvalido = false
+                    },
+                ) {
+                    Text("Cancelar")
+                }
+            },
+        )
+    }
 
     LaunchedEffect(Unit) {
         viewModel.sincronizarBiometrias(force = false)
@@ -108,33 +190,55 @@ fun FaceKioskScreen(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .align(Alignment.TopCenter),
+            color = Color.Black.copy(alpha = 0.68f),
+            shape = RoundedCornerShape(20.dp),
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.62f),
-                shape = RoundedCornerShape(18.dp),
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("Ponto Café", color = Color.White, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
-                        "15 min por período · ${state.totalBiometrias} rostos sincronizados",
-                        color = Color.White.copy(alpha = 0.75f),
-                        style = MaterialTheme.typography.bodySmall,
+                        "Ponto Café",
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    TextButton(onClick = { solicitarPinSupervisor = true }) {
+                        Text("Supervisor", color = Color.White, maxLines = 1)
+                    }
+                    TextButton(onClick = onAdminClick) {
+                        Text("Admin", color = Color.White, maxLines = 1)
+                    }
                 }
-            }
-            Surface(color = Color.Black.copy(alpha = 0.62f), shape = RoundedCornerShape(18.dp)) {
-                Row(Modifier.padding(horizontal = 6.dp)) {
-                    TextButton(onClick = onSupervisorClick) { Text("Supervisor", color = Color.White) }
-                    TextButton(onClick = onAdminClick) { Text("Administrador", color = Color.White) }
-                }
+                Text(
+                    "15 min por período · ${state.totalBiometrias} rostos sincronizados",
+                    color = Color.White.copy(alpha = 0.75f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth().padding(18.dp).align(Alignment.BottomCenter),
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(18.dp)
+                .align(Alignment.BottomCenter),
             color = Color.Black.copy(alpha = 0.72f),
             shape = RoundedCornerShape(24.dp),
         ) {
@@ -177,7 +281,7 @@ fun FaceKioskScreen(
                     text = when {
                         !viewModel.faceModelReady -> "O modelo facial precisa estar disponível no APK."
                         state.sincronizandoBiometrias -> "Aguarde alguns segundos."
-                        !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador e toque em sincronizar."
+                        !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador ou Supervisor e toque em sincronizar."
                         state.carregando -> "O candidato foi encontrado localmente e está sendo validado pelo servidor."
                         noFaceVisible -> "Não conseguimos localizar um rosto. Encaixe todo o rosto dentro da figura na tela e olhe para a câmera."
                         multipleFacesVisible -> "Deixe apenas uma pessoa diante da câmera para continuar."
