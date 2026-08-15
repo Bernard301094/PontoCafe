@@ -44,6 +44,7 @@ fun SupervisorArea(viewModel: SupervisorViewModel, onClose: () -> Unit) {
         SupervisorDestination.COLABORADORES -> SupervisorCollaboratorsScreen(viewModel)
         SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorScreen(viewModel)
         SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreen(viewModel)
+        SupervisorDestination.RELATORIOS -> SupervisorReportsScreen(viewModel)
     }
 }
 
@@ -150,13 +151,13 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 label = "Em pausa agora",
                 modifier = Modifier.weight(1f),
             )
-            MetricCard(
-                value = acimaDoLimite.toString(),
-                label = "Acima do limite",
-                modifier = Modifier.weight(1f),
-                emphasized = acimaDoLimite > 0,
-            )
         }
+        MetricCard(
+            value = acimaDoLimite.toString(),
+            label = "Acima do limite neste momento",
+            modifier = Modifier.fillMaxWidth(),
+            emphasized = acimaDoLimite > 0,
+        )
 
         if (state.sessaoAdministrativa) {
             Card(
@@ -190,8 +191,13 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
                 Text("Histórico")
             }
         }
-        OutlinedButton(onClick = viewModel::atualizarAoVivo, modifier = Modifier.fillMaxWidth()) {
-            Text(if (state.carregando) "Atualizando..." else "Atualizar painel")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { viewModel.abrirRelatorios(7) }, modifier = Modifier.weight(1f)) {
+                Text("Relatórios")
+            }
+            OutlinedButton(onClick = viewModel::atualizarAoVivo, modifier = Modifier.weight(1f)) {
+                Text(if (state.carregando) "Atualizando..." else "Atualizar")
+            }
         }
 
         state.mensagem?.let {
