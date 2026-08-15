@@ -3,7 +3,6 @@ package com.pontocafe.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +22,7 @@ import com.pontocafe.app.ui.DeviceSetupScreen
 import com.pontocafe.app.ui.FaceKioskScreen
 import com.pontocafe.app.ui.IdentityConfirmationScreen
 import com.pontocafe.app.ui.PointReceiptScreen
+import com.pontocafe.app.ui.PontoCafeTheme
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorArea
 
@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme {
+            PontoCafeTheme {
                 var areaRestrita by remember { mutableStateOf<AreaRestrita?>(null) }
                 var sincronizarCatalogoAoVoltar by remember { mutableStateOf(false) }
                 var adminSessionDisponivel by remember { mutableStateOf(adminSessionStore.hasToken()) }
