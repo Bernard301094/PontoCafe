@@ -7,6 +7,7 @@ import { adminRoutes } from './routes/admin-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
+import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
@@ -113,6 +114,7 @@ app.get('/health', async (c) => {
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
 })
 
+app.route('/setup', deviceSetupRoutes)
 app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
 app.route('/admin', adminRoutes)
