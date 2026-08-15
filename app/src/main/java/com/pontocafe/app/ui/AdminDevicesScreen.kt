@@ -170,6 +170,7 @@ private fun SystemHealthCard(viewModel: AdminDeviceViewModel) {
     val state = viewModel.state
     val health = state.health
     val version = state.appStatus
+    val healthy = health?.let { it.status == "ok" && it.banco == "ok" } == true
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -177,8 +178,8 @@ private fun SystemHealthCard(viewModel: AdminDeviceViewModel) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionTitle("Saúde do Ponto")
             StatusPill(
-                if (health?.status == "ok" && health.banco == "ok") "Servidor e banco online" else "Servidor sem confirmação",
-                positive = health?.status == "ok" && health.banco == "ok",
+                if (healthy) "Servidor e banco online" else "Servidor sem confirmação",
+                positive = healthy,
             )
             Text("App instalado · ${BuildConfig.VERSION_NAME}")
             version?.let {
