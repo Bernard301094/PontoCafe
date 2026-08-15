@@ -70,7 +70,7 @@ deviceUnlockRoutes.post('/device/unlock', async (c) => {
     await query(
       `update dispositivos
           set unlock_fail_count=$2,
-              unlock_locked_until=case when $3 then now()+($4 || ' seconds')::interval else null end,
+              unlock_locked_until=case when $3 then now()+make_interval(secs => $4::int) else null end,
               atualizado_em=now()
         where id=$1`,
       [device.id, shouldLock ? 0 : nextFailures, shouldLock, LOCK_SECONDS],
