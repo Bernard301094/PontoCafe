@@ -172,7 +172,7 @@ interface AdminApi {
         @Body body: UpdateCoffeeRuleRequest,
     ): UpdateCoffeeRuleResponse
 
-    @POST("admin/dispositivos")
+    @POST("admin/device-activation")
     suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
 
     @GET("admin/colaboradores")
