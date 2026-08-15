@@ -2,11 +2,16 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -27,26 +32,36 @@ import com.pontocafe.app.data.AdminCoffeeRule
 @Composable
 fun AdminRulesScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
-    Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PontoCafeHeader("Horários e tempo de café")
-        Text(
-            "As alterações entram em vigor no servidor e valem para todos os dispositivos.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        AdminFeedback(viewModel)
-
-        state.regrasCafe.forEach { regra ->
-            CoffeeRuleEditor(viewModel, regra)
+        item(key = "header") {
+            PontoCafeScreenHeader(
+                title = "Horários e tempo de café",
+                onBack = viewModel::voltarHome,
+                backLabel = "Painel",
+            )
         }
-
-        Button(
-            onClick = viewModel::voltarHome,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Voltar ao painel")
+        item(key = "intro") {
+            Text(
+                "As alterações entram em vigor no servidor e valem para todos os dispositivos.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item(key = "feedback") {
+            AdminFeedback(viewModel)
+        }
+        state.regrasCafe.forEach { regra ->
+            item(key = "rule-${regra.periodo}") {
+                CoffeeRuleEditor(viewModel, regra)
+            }
         }
     }
 }
