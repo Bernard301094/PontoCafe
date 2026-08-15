@@ -1,6 +1,5 @@
-// Redeploy trigger: 2026-08-15T10:18:00-03:00
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
+  "$schema": "backend/node_modules/wrangler/config-schema.json",
   "name": "pontocafe",
   "main": "backend/src/cloudflare.ts",
   "compatibility_date": "2026-08-14",
@@ -15,8 +14,12 @@
     "AUTHORIZATION_TTL_SECONDS": "180",
     "FACE_VERIFICATION_TTL_SECONDS": "180",
     "OFFLINE_MAX_EVENT_AGE_HOURS": "24",
-    "APP_LATEST_ANDROID_VERSION": "0.6.0",
+    "BIOMETRIC_RETENTION_DAYS": "90",
+    "APP_LATEST_ANDROID_VERSION": "0.7.0",
     "APP_MIN_ANDROID_VERSION": "0.4.0"
+  },
+  "triggers": {
+    "crons": ["15 3 * * *"]
   },
   "hyperdrive": [
     {
