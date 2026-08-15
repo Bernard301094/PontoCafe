@@ -4,8 +4,8 @@ import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
-import { hashToken, newId } from '../security.js'
-import { parseJson, uuidSchema } from './shared.js'
+import { cosineSimilarity, decryptEmbedding, hashToken, newId } from '../security.js'
+import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
   const token = c.req.header('X-Device-Token')?.trim()
@@ -27,9 +27,10 @@ const offlineEventSchema = z.object({
   colaboradorId: uuidSchema,
   ocorridoEm: z.string().datetime({ offset: true }),
   score: z.number().finite().min(0).max(1),
+  embedding: embeddingSchema,
   appVersion: z.string().trim().min(1).max(40),
-  modelo: z.string().trim().min(1).max(80).optional(),
-  versaoModelo: z.string().trim().min(1).max(80).optional(),
+  modelo: z.string().trim().min(2).max(100),
+  versaoModelo: z.string().trim().min(1).max(50),
 })
 
 type OfflineEvent = z.infer<typeof offlineEventSchema>
@@ -43,6 +44,7 @@ async function auditOffline(
   event: OfflineEvent,
   entityId: string | null,
   reconciled: boolean,
+  verifiedScore: number,
 ) {
   await client.query(
     `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
@@ -53,10 +55,11 @@ async function auditOffline(
       offlineEventId: event.eventId,
       acaoOffline: event.acao,
       ocorridoEm: event.ocorridoEm,
-      score: event.score,
+      scoreLocal: event.score,
+      scoreRevalidado: Number(verifiedScore.toFixed(4)),
       appVersion: event.appVersion,
-      modelo: event.modelo ?? null,
-      versaoModelo: event.versaoModelo ?? null,
+      modelo: event.modelo,
+      versaoModelo: event.versaoModelo,
       reconciliado: reconciled,
     })],
   )
@@ -70,9 +73,6 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
   if (Date.now() - occurredMillis > maxAgeMillis) {
     throw new OfflineSyncError(`O evento offline ultrapassou a janela máxima de ${config.offlineMaxEventAgeHours} horas.`)
   }
-  if (event.score < config.faceThreshold) {
-    throw new OfflineSyncError('A confiança facial do evento offline está abaixo do mínimo permitido.')
-  }
 
   return transaction(async (client) => {
     const markerHash = hashToken(`offline:${event.eventId}`)
@@ -82,18 +82,39 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
     )
     if (alreadyProcessed.rows[0]) return { status: 'RECONCILIADO' as const }
 
-    const collaborator = await client.query<{ id: string }>(
-      'select id from colaboradores where id=$1 and ativo=true limit 1',
-      [event.colaboradorId],
+    const biometric = await client.query<{
+      colaborador_id: string
+      template_cifrado: Buffer
+      iv: Buffer
+      auth_tag: Buffer
+      dimensao: number
+    }>(
+      `select t.colaborador_id,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
+         from templates_faciais t
+         join colaboradores c on c.id=t.colaborador_id
+        where t.colaborador_id=$1
+          and c.ativo=true
+          and t.modelo=$2
+          and t.versao_modelo=$3
+        limit 1`,
+      [event.colaboradorId, event.modelo, event.versaoModelo],
     )
-    if (!collaborator.rows[0]) throw new OfflineSyncError('Colaborador inexistente ou inativo.')
+    const stored = biometric.rows[0]
+    if (!stored) throw new OfflineSyncError('Biometria inexistente, inativa ou incompatível com o modelo usado offline.')
+    if (stored.dimensao !== event.embedding.length) throw new OfflineSyncError('Dimensão biométrica incompatível.')
+
+    const template = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
+    const verifiedScore = cosineSimilarity(template, event.embedding)
+    if (verifiedScore < config.faceThreshold) {
+      throw new OfflineSyncError('A biometria do registro offline não foi confirmada pelo servidor.')
+    }
 
     const verificationId = newId()
     await client.query(
       `insert into verificacoes_faciais
         (id,colaborador_id,dispositivo_id,token_hash,score,expira_em,usado_em,criado_em)
        values ($1,$2,$3,$4,$5,$6::timestamptz,$6::timestamptz,$6::timestamptz)`,
-      [verificationId, event.colaboradorId, device.id, markerHash, event.score, event.ocorridoEm],
+      [verificationId, event.colaboradorId, device.id, markerHash, verifiedScore, event.ocorridoEm],
     )
 
     if (event.acao === 'INICIAR') {
@@ -116,7 +137,7 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
         [event.colaboradorId],
       )
       if (open.rows[0]) {
-        await auditOffline(client, device, event, open.rows[0].id, true)
+        await auditOffline(client, device, event, open.rows[0].id, true, verifiedScore)
         return { status: 'RECONCILIADO' as const, pausaId: open.rows[0].id }
       }
 
@@ -128,7 +149,7 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
         [event.colaboradorId, rule.periodo, event.ocorridoEm, config.appTimezone],
       )
       if (samePeriod.rows[0]) {
-        await auditOffline(client, device, event, samePeriod.rows[0].id, true)
+        await auditOffline(client, device, event, samePeriod.rows[0].id, true, verifiedScore)
         return { status: 'RECONCILIADO' as const, pausaId: samePeriod.rows[0].id }
       }
 
@@ -139,7 +160,7 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
          values ($1,$2,$3,$4::timestamptz,$5,false,$6,$7)`,
         [pauseId, event.colaboradorId, rule.periodo, event.ocorridoEm, rule.limite_segundos, device.id, verificationId],
       )
-      await auditOffline(client, device, event, pauseId, false)
+      await auditOffline(client, device, event, pauseId, false, verifiedScore)
       return { status: 'SINCRONIZADO' as const, pausaId: pauseId }
     }
 
@@ -159,7 +180,7 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
         [event.colaboradorId, event.ocorridoEm, config.appTimezone],
       )
       if (!closed.rows[0]) throw new OfflineSyncError('Não existe pausa aberta para reconciliar este retorno.')
-      await auditOffline(client, device, event, closed.rows[0].id, true)
+      await auditOffline(client, device, event, closed.rows[0].id, true, verifiedScore)
       return { status: 'RECONCILIADO' as const, pausaId: closed.rows[0].id }
     }
 
@@ -175,7 +196,7 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
         where id=$1`,
       [pause.id, event.ocorridoEm, device.id, verificationId],
     )
-    await auditOffline(client, device, event, pause.id, false)
+    await auditOffline(client, device, event, pause.id, false, verifiedScore)
     return { status: 'SINCRONIZADO' as const, pausaId: pause.id }
   })
 }
