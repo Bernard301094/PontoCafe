@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
         val adminFactory = AdminViewModelFactory {
             AdminViewModel(adminRepository, faceEmbeddingEngine)
         }
+        val adminDeviceFactory = AdminDeviceViewModelFactory {
+            AdminDeviceViewModel(adminRepository)
+        }
 
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(
@@ -68,8 +71,13 @@ class MainActivity : ComponentActivity() {
                 when (areaRestrita) {
                     AreaRestrita.ADMIN -> {
                         val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
+                        val adminDeviceVm: AdminDeviceViewModel = viewModel(
+                            key = "admin-devices",
+                            factory = adminDeviceFactory,
+                        )
                         AdminArea(
-                            adminVm,
+                            viewModel = adminVm,
+                            deviceViewModel = adminDeviceVm,
                             onClose = {
                                 sincronizarCatalogoAoVoltar = true
                                 areaRestrita = null
