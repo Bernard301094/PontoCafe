@@ -10,6 +10,8 @@ import com.pontocafe.app.data.AdminDevice
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AppStatusResponse
 import com.pontocafe.app.data.SystemHealthResponse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 
@@ -34,10 +36,15 @@ class AdminDeviceViewModel(
     fun carregar() {
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null)
-            runCatching { repository.devices() }
-                .onSuccess { devices ->
-                    val health = runCatching { repository.health() }.getOrNull()
-                    val appStatus = runCatching { repository.appStatus() }.getOrNull()
+            runCatching {
+                coroutineScope {
+                    val devices = async { repository.devices() }
+                    val health = async { runCatching { repository.health() }.getOrNull() }
+                    val appStatus = async { runCatching { repository.appStatus() }.getOrNull() }
+                    Triple(devices.await(), health.await(), appStatus.await())
+                }
+            }
+                .onSuccess { (devices, health, appStatus) ->
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
