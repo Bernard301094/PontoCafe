@@ -117,8 +117,9 @@ class SupervisorRepository(
     }
 
     suspend fun pausasAtivas(): List<PausaSupervisor> {
+        val pausas = api.pausasAtivas().pausas
         val atualizadoEm = System.currentTimeMillis()
-        return api.pausasAtivas().pausas.map { pausa ->
+        return pausas.map { pausa ->
             pausa.copy(clienteAtualizadoEmMillis = atualizadoEm)
         }
     }
