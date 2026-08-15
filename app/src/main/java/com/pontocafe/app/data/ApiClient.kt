@@ -28,6 +28,11 @@ data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
 
 data class DeviceActivationRequest(val token: String)
 data class DeviceActivationResponse(val token: String)
+data class DeviceUnlockRequest(val pin: String, val area: String)
+data class DeviceUnlockResponse(
+    val ok: Boolean,
+    val area: String,
+)
 
 data class RegraCafe(
     val periodo: String,
@@ -125,6 +130,7 @@ data class FinalizarPausaResponse(
 
 interface PontoCafeApi {
     @POST("setup/device-activation") suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
+    @POST("ponto/device/unlock") suspend fun unlockDevice(@Body body: DeviceUnlockRequest): DeviceUnlockResponse
     @GET("ponto/colaboradores") suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
     @GET("ponto/horario") suspend fun horario(): HorarioCafeResponse
     @GET("ponto/biometria/catalogo") suspend fun catalogoBiometrico(
@@ -141,6 +147,8 @@ interface PontoCafeApi {
 
 class PontoCafeRepository(private val api: PontoCafeApi) {
     suspend fun activateDevice(token: String): String = api.activateDevice(DeviceActivationRequest(token)).token
+    suspend fun validarPinSaida(pin: String, area: String): DeviceUnlockResponse =
+        api.unlockDevice(DeviceUnlockRequest(pin.trim(), area))
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
     suspend fun sincronizarCatalogo(modelo: String, versaoModelo: String, versaoAtual: String? = null): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
