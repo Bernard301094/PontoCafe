@@ -15,7 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 
@@ -42,29 +41,27 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
 
         OutlinedTextField(nome, { nome = it }, Modifier.fillMaxWidth(), label = { Text("Nome") }, singleLine = true)
         OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("E-mail") }, singleLine = true)
-        OutlinedTextField(
-            senha,
-            { senha = it },
-            Modifier.fillMaxWidth(),
-            label = { Text("Senha") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+        SecurePasswordField(
+            value = senha,
+            onValueChange = { senha = it },
+            label = "Senha",
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.carregando,
+            supportingText = "Mínimo de 10 caracteres",
         )
-        OutlinedTextField(
-            confirmar,
-            { confirmar = it },
-            Modifier.fillMaxWidth(),
-            label = { Text("Confirmar senha") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+        SecurePasswordField(
+            value = confirmar,
+            onValueChange = { confirmar = it },
+            label = "Confirmar senha",
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.carregando,
         )
-        OutlinedTextField(
-            chave,
-            { chave = it },
-            Modifier.fillMaxWidth(),
-            label = { Text("Chave de instalação") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+        SecurePasswordField(
+            value = chave,
+            onValueChange = { chave = it },
+            label = "Chave de instalação",
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.carregando,
         )
 
         erroLocal?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
