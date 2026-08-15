@@ -20,17 +20,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminDeviceViewModel
 import com.pontocafe.app.BuildConfig
@@ -56,6 +61,15 @@ fun AdminDevicesScreenV2(
     var name by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var confirmPin by remember { mutableStateOf("") }
+
+    LaunchedEffect(state.tokenGerado, state.tokenRotacionado) {
+        if (state.tokenGerado != null && !state.tokenRotacionado) {
+            name = ""
+            pin = ""
+            confirmPin = ""
+            showCreate = false
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -147,13 +161,15 @@ fun AdminDevicesScreenV2(
                 Button(
                     onClick = { showCreate = !showCreate },
                     modifier = Modifier.weight(1f),
+                    enabled = !state.carregando,
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
-                    Text(" Novo dispositivo")
+                    Text(if (showCreate) " Fechar cadastro" else " Novo dispositivo")
                 }
                 OutlinedButton(
                     onClick = viewModel::carregar,
                     modifier = Modifier.weight(1f),
+                    enabled = !state.carregando,
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = null)
                     Text(" Atualizar")
@@ -178,20 +194,29 @@ fun AdminDevicesScreenV2(
                             label = { Text("Nome do dispositivo") },
                             placeholder = { Text("Ex.: Galaxy A55 · Produção") },
                             singleLine = true,
+                            enabled = !state.carregando,
                         )
-                        SecurePinFieldV2("PIN de desbloqueio", pin) { pin = it }
-                        SecurePinFieldV2("Confirmar PIN", confirmPin) { confirmPin = it }
+                        SecurePinFieldV2("PIN de desbloqueio", pin, enabled = !state.carregando) { pin = it }
+                        SecurePinFieldV2("Confirmar PIN", confirmPin, enabled = !state.carregando) { confirmPin = it }
+                        if (pin.isNotBlank() && confirmPin.isNotBlank() && pin != confirmPin) {
+                            Text(
+                                "Os PINs não coincidem.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         Button(
-                            onClick = {
-                                viewModel.criarDispositivo(name, pin)
-                                name = ""
-                                pin = ""
-                                confirmPin = ""
-                                showCreate = false
-                            },
+                            onClick = { viewModel.criarDispositivo(name, pin) },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.carregando && name.trim().length >= 2 && pin.length in 4..12 && pin == confirmPin,
-                        ) { Text("Cadastrar e gerar código") }
+                        ) {
+                            Text(if (state.carregando) "Gerando código…" else "Cadastrar e gerar código")
+                        }
+                        Text(
+                            "Os dados só serão limpos depois que o servidor confirmar a criação do dispositivo.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -335,6 +360,7 @@ private fun DeviceCardV2(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Nome do aparelho") },
                 singleLine = true,
+                enabled = !viewModel.state.carregando,
             )
             OutlinedButton(
                 onClick = { viewModel.renomear(device, newName) },
@@ -343,8 +369,8 @@ private fun DeviceCardV2(
             ) { Text("Salvar nome") }
 
             if (device.ativo) {
-                SecurePinFieldV2("Novo PIN", newPin) { newPin = it }
-                SecurePinFieldV2("Confirmar novo PIN", confirmPin) { confirmPin = it }
+                SecurePinFieldV2("Novo PIN", newPin, enabled = !viewModel.state.carregando) { newPin = it }
+                SecurePinFieldV2("Confirmar novo PIN", confirmPin, enabled = !viewModel.state.carregando) { confirmPin = it }
                 OutlinedButton(
                     onClick = {
                         viewModel.alterarPin(device, newPin)
@@ -383,16 +409,28 @@ private fun DeviceCardV2(
 private fun SecurePinFieldV2(
     label: String,
     value: String,
+    enabled: Boolean = true,
     onValueChange: (String) -> Unit,
 ) {
+    var visible by remember(label) { mutableStateOf(false) }
+
     OutlinedTextField(
         value = value,
         onValueChange = { onValueChange(it.filter(Char::isDigit).take(12)) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
         supportingText = { Text("4 a 12 números") },
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = if (visible) KeyboardType.Number else KeyboardType.NumberPassword),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }, enabled = enabled) {
+                Icon(
+                    imageVector = if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (visible) "Ocultar PIN" else "Mostrar PIN",
+                )
+            }
+        },
         singleLine = true,
+        enabled = enabled,
     )
 }
