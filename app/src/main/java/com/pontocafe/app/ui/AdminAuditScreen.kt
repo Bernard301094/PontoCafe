@@ -48,9 +48,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        item(key = "feedback") {
-            AdminFeedback(viewModel)
-        }
+        item(key = "feedback") { AdminFeedback(viewModel) }
         item(key = "refresh") {
             OutlinedButton(onClick = viewModel::abrirAuditoria, modifier = Modifier.fillMaxWidth()) {
                 Text("Atualizar auditoria")
@@ -71,9 +69,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
             }
         }
 
-        items(state.auditoria, key = { "audit-${it.id}" }) { event ->
-            AuditEventCard(event)
-        }
+        items(state.auditoria, key = { "audit-${it.id}" }) { event -> AuditEventCard(event) }
     }
 }
 
@@ -122,9 +118,11 @@ private fun auditActionLabel(action: String): String = when (action) {
     "REDEFINIR_SENHA" -> "Senha redefinida"
     "ALTERAR_PERFIL" -> "Perfil de acesso alterado"
     "ALTERAR_REGRA_CAFE" -> "Regra de café alterada"
+    "EDITAR_COLABORADOR" -> "Dados do colaborador corrigidos"
     "ALTERAR_PIN_DISPOSITIVO" -> "PIN de dispositivo alterado"
     "RENOMEAR_DISPOSITIVO" -> "Dispositivo renomeado"
     "DESATIVAR_DISPOSITIVO" -> "Dispositivo desativado"
+    "EXCLUIR_DISPOSITIVO" -> "Dispositivo excluído definitivamente"
     "ROTACIONAR_TOKEN_DISPOSITIVO" -> "Token de dispositivo revogado"
     "ATIVAR_DISPOSITIVO" -> "Dispositivo ativado"
     "SINCRONIZAR_PONTO_OFFLINE" -> "Registro offline sincronizado"
