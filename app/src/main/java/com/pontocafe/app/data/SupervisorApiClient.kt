@@ -46,21 +46,40 @@ interface SupervisorApi {
     @GET("supervisor/pausas") suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
-    @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
+    @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(
+        @Path("id") id: String,
+        @Body body: BiometricEnrollmentRequest,
+    ): BiometricEnrollmentResponse
     @POST("gestao/colaboradores/{id}/biometria/excluir") suspend fun deleteBiometric(@Path("id") id: String): CollaboratorMutationResponse
     @POST("gestao/colaboradores/{id}/excluir") suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
 class SupervisorRepository(
     private val api: SupervisorApi,
-    private val sessionStore: SecureAdminSessionStore,
+    private val supervisorSessionStore: SecureAdminSessionStore,
+    private val adminSessionStore: SecureAdminSessionStore,
 ) {
+    private fun supervisorToken(): String? = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
+    private fun adminToken(): String? = adminSessionStore.read()?.takeIf { it.isNotBlank() }
+
+    fun activeToken(): String? = supervisorToken() ?: adminToken()
+
+    fun hasSession(): Boolean = activeToken() != null
+
+    fun usingAdminSession(): Boolean = supervisorToken() == null && adminToken() != null
+
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
-        val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão do supervisor.")
-        sessionStore.save(bearer)
-        try { api.pausasAtivas() } catch (error: Throwable) { sessionStore.clear(); throw error }
+        val bearer = response.headers()["set-auth-token"]
+            ?: error("O servidor não retornou a sessão do supervisor.")
+        supervisorSessionStore.save(bearer)
+        try {
+            api.pausasAtivas()
+        } catch (error: Throwable) {
+            supervisorSessionStore.clear()
+            throw error
+        }
     }
 
     suspend fun pausasAtivas() = api.pausasAtivas().pausas
@@ -75,20 +94,33 @@ class SupervisorRepository(
         ),
     )
 
-    @Deprecated("Matrícula não é mais utilizada")
-    suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
-        createCollaborator(name, sector, shift)
-
-    suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
+    suspend fun saveBiometric(
+        collaboratorId: String,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+    ) = api.saveBiometric(
         collaboratorId,
         BiometricEnrollmentRequest(embedding.toList(), model, modelVersion),
     )
 
     suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
     suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
-    suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
-    fun hasSession() = sessionStore.hasToken()
-    fun clearSession() = sessionStore.clear()
+
+    suspend fun signOutSupervisor() {
+        if (supervisorToken() != null) {
+            runCatching { api.signOut() }
+            supervisorSessionStore.clear()
+        }
+    }
+
+    fun clearActiveSession() {
+        if (supervisorToken() != null) {
+            supervisorSessionStore.clear()
+        } else {
+            adminSessionStore.clear()
+        }
+    }
 
     companion object {
         fun message(error: Throwable): String = AdminRepository.message(error)
@@ -96,15 +128,32 @@ class SupervisorRepository(
 }
 
 object SupervisorApiClient {
-    fun create(sessionStore: SecureAdminSessionStore): SupervisorRepository {
+    fun create(
+        supervisorSessionStore: SecureAdminSessionStore,
+        adminSessionStore: SecureAdminSessionStore,
+    ): SupervisorRepository {
+        lateinit var repository: SupervisorRepository
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder().apply {
-                sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+                repository.activeToken()?.let { header("Authorization", "Bearer $it") }
             }.build()
             chain.proceed(request)
         }
-        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
-        val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build()
-        return SupervisorRepository(retrofit.create(SupervisorApi::class.java), sessionStore)
+
+        val client = OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
+            .build()
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BuildConfig.API_BASE_URL)
+            .client(client)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        repository = SupervisorRepository(
+            api = retrofit.create(SupervisorApi::class.java),
+            supervisorSessionStore = supervisorSessionStore,
+            adminSessionStore = adminSessionStore,
+        )
+        return repository
     }
 }
