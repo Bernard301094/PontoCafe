@@ -22,7 +22,41 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
 
-app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw))
+function safeAuthFailure(error: unknown) {
+  const err = error instanceof Error ? error : new Error(String(error))
+  const cause = err.cause && typeof err.cause === 'object' ? err.cause as Record<string, unknown> : null
+  const rawCode = typeof (err as Error & { code?: unknown }).code === 'string'
+    ? (err as Error & { code?: string }).code
+    : typeof cause?.code === 'string'
+      ? cause.code
+      : null
+  const combined = `${err.message} ${cause && typeof cause.message === 'string' ? cause.message : ''}`.toLowerCase()
+
+  let codigo = 'AUTH_RUNTIME_FAILURE'
+  if (combined.includes('different request') || combined.includes('different io context')) codigo = 'AUTH_CROSS_REQUEST_IO'
+  else if (combined.includes('contexto de banco') || combined.includes('database context')) codigo = 'AUTH_DATABASE_CONTEXT'
+  else if (combined.includes('connection') || combined.includes('pool') || combined.includes('socket')) codigo = 'AUTH_DATABASE_CONNECTION'
+  else if (combined.includes('column') || combined.includes('relation') || combined.includes('does not exist')) codigo = 'AUTH_DATABASE_SCHEMA'
+  else if (combined.includes('permission') || combined.includes('privilege')) codigo = 'AUTH_DATABASE_PERMISSION'
+  else if (combined.includes('scrypt') || combined.includes('crypto') || combined.includes('password')) codigo = 'AUTH_PASSWORD_CRYPTO'
+
+  return {
+    codigo,
+    tipo: err.name,
+    codigoInterno: rawCode && /^[A-Z0-9_]{2,16}$/i.test(rawCode) ? rawCode : null,
+  }
+}
+
+app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
+  try {
+    return await auth.handler(c.req.raw)
+  } catch (error) {
+    const diagnostico = safeAuthFailure(error)
+    console.error(JSON.stringify({ evento: 'better_auth_runtime_failure', ...diagnostico }))
+    return c.json({ erro: 'Falha interna de autenticação.', diagnostico }, 500)
+  }
+})
+
 app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.5.0' }))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
