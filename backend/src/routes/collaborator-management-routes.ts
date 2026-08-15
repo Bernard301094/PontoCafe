@@ -26,14 +26,13 @@ async function audit(
 collaboratorManagementRoutes.get('/colaboradores', async (c) => {
   const result = await query<{
     id: string
-    matricula: string | null
     nome: string
     setor: string | null
     turno: string | null
     ativo: boolean
     rostoCadastrado: boolean
   }>(
-    `select col.id,col.matricula,col.nome,col.setor,col.turno,col.ativo,
+    `select col.id,col.nome,col.setor,col.turno,col.ativo,
             exists(select 1 from templates_faciais t where t.colaborador_id=col.id) as "rostoCadastrado"
        from colaboradores col
       where col.ativo=true
@@ -44,7 +43,6 @@ collaboratorManagementRoutes.get('/colaboradores', async (c) => {
 
 collaboratorManagementRoutes.post('/colaboradores', async (c) => {
   const body = await parseJson(c, z.object({
-    matricula: z.string().trim().max(50).optional().nullable(),
     nome: z.string().trim().min(2).max(160),
     setor: z.string().trim().max(120).optional().nullable(),
     turno: z.string().trim().max(80).optional().nullable(),
@@ -52,19 +50,12 @@ collaboratorManagementRoutes.post('/colaboradores', async (c) => {
   if (!body.ok) return body.response
 
   const id = newId()
-  try {
-    await query(
-      'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,$2,$3,$4,$5)',
-      [id, body.data.matricula ?? null, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
-    )
-  } catch (error: any) {
-    if (error?.code === '23505') {
-      return c.json({ erro: 'Já existe um colaborador com esta matrícula.' }, 409)
-    }
-    throw error
-  }
+  await query(
+    'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,null,$2,$3,$4)',
+    [id, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
+  )
 
-  await audit(c, 'CRIAR_COLABORADOR', id, { nome: body.data.nome, matricula: body.data.matricula ?? null })
+  await audit(c, 'CRIAR_COLABORADOR', id, { nome: body.data.nome })
   return c.json({ id, ...body.data, ativo: true, rostoCadastrado: false }, 201)
 })
 
