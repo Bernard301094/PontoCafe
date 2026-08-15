@@ -424,6 +424,8 @@ class AdminViewModel(
         state = state.copy(erro = null, mensagem = null)
     }
 
+    fun formatarTempo(segundos: Int): String = "%02d:%02d".format(segundos / 60, segundos % 60)
+
     private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
         require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
         val dimension = samples.first().size
@@ -445,11 +447,14 @@ class AdminViewModel(
 
     private suspend fun carregarUsuariosInterno(message: String? = null) {
         runCatching { repository.users() }
-            .onSuccess {
+            .onSuccess { usuarios ->
+                val colaboradores = runCatching { repository.collaborators() }
+                    .getOrElse { state.colaboradores }
                 state = state.copy(
                     carregando = false,
                     destination = AdminDestination.HOME,
-                    usuarios = it,
+                    usuarios = usuarios,
+                    colaboradores = colaboradores,
                     selecionado = null,
                     mensagem = message,
                     erro = null,
