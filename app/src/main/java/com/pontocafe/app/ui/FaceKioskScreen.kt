@@ -4,17 +4,21 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -36,9 +40,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -84,16 +88,11 @@ fun FaceKioskScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val unlockRepository = remember(context) {
-        ApiClient.create(
-            context.applicationContext,
-            SecureDeviceTokenStore(context.applicationContext),
-        )
+        ApiClient.create(context.applicationContext, SecureDeviceTokenStore(context.applicationContext))
     }
     val state = viewModel.state
     var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
-        )
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -127,9 +126,9 @@ fun FaceKioskScreen(
         }
         AlertDialog(
             onDismissRequest = { if (!unlockLoading) fecharSolicitacaoAcesso() },
-            title = { Text("Sair do modo Ponto") },
+            title = { Text("Desbloquear área restrita") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     Text(instruction)
                     OutlinedTextField(
                         value = exitPin,
@@ -138,7 +137,7 @@ fun FaceKioskScreen(
                             unlockError = null
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("PIN de desbloqueio") },
+                        label = { Text("PIN do dispositivo") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -233,141 +232,140 @@ fun FaceKioskScreen(
             Column(
                 modifier = Modifier.align(Alignment.Center).padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 Text("A câmera é necessária para registrar o Ponto Café.", color = Color.White)
                 Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Permitir câmera") }
             }
         }
 
+        KioskFaceGuide(
+            active = permissionGranted && state.catalogoBiometricoPronto,
+            warning = detectedFaces > 1,
+            modifier = Modifier.align(Alignment.Center),
+        )
+
         Surface(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).align(Alignment.TopCenter),
-            color = Color.Black.copy(alpha = 0.68f),
-            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs)
+                .align(Alignment.TopCenter),
+            color = Color(0xCC101513),
+            shape = RoundedCornerShape(18.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Row(
+                modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "Ponto Café",
-                        modifier = Modifier.weight(1f),
                         color = Color.White,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                    )
+                    Text(
+                        if (state.modoOffline) {
+                            "Offline · ${state.eventosPendentes} pendente(s)"
+                        } else {
+                            "Online · ${state.totalBiometrias} rostos prontos"
+                        },
+                        color = if (state.modoOffline) Color(0xFFF7C66C) else Color(0xFF8DD4C2),
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (hasAdminSession) {
-                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
-                            Text("Admin", color = Color.White, maxLines = 1)
-                        }
-                    }
-                    if (hasSupervisorSession) {
-                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
-                            Text("Supervisor", color = Color.White, maxLines = 1)
-                        }
-                    }
-                    if (!hasAdminSession && !hasSupervisorSession) {
-                        TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN }) {
-                            Text("Sair do Ponto", color = Color.White, maxLines = 1)
-                        }
+                }
+                if (hasAdminSession) {
+                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
+                        Text("Admin", color = Color.White)
                     }
                 }
-                Text(
-                    if (state.modoOffline) {
-                        "● OFFLINE · ${state.totalBiometrias} rostos · ${state.eventosPendentes} registro(s) pendente(s)"
-                    } else {
-                        "● Online · ${state.totalBiometrias} rostos · ${state.eventosPendentes} pendente(s)"
-                    },
-                    color = if (state.modoOffline) Color(0xFFFFD18A) else Color(0xFFB7F5D9),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (state.atualizacaoObrigatoria) {
-                    Text(
-                        "Atualização obrigatória disponível · ${state.versaoMaisRecente ?: "nova versão"}",
-                        color = Color(0xFFFFC7C7),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                } else if (state.atualizacaoDisponivel) {
-                    Text(
-                        "Nova versão disponível · ${state.versaoMaisRecente}",
-                        color = Color(0xFFFFD18A),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                if (hasSupervisorSession) {
+                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
+                        Text("Supervisor", color = Color.White)
+                    }
+                }
+                if (!hasAdminSession && !hasSupervisorSession) {
+                    TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN }) {
+                        Text("Acesso", color = Color.White)
+                    }
                 }
             }
         }
 
+        val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
+            !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
+        val multipleFacesVisible = state.scanning && detectedFaces > 1
+        val challengeInstruction = when {
+            livenessState == LivenessState.CONCLUIDO -> "Presença confirmada"
+            challenge == KioskLivenessChallenge.BLINK && livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
+            livenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
+            else -> challenge.instruction
+        }
+        val instructionTitle = when {
+            !viewModel.faceModelReady -> "Reconhecimento indisponível"
+            state.sincronizandoBiometrias -> "Preparando reconhecimento"
+            !state.catalogoBiometricoPronto -> "Cadastre os rostos para começar"
+            state.carregando -> "Confirmando identidade"
+            noFaceVisible -> "Aproxime o rosto"
+            multipleFacesVisible -> "Apenas uma pessoa por vez"
+            else -> challengeInstruction
+        }
+        val instructionDetail = when {
+            !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
+            state.sincronizandoBiometrias -> "Sincronizando o catálogo facial deste dispositivo."
+            !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor e registre a biometria dos colaboradores."
+            state.carregando -> if (state.modoOffline) "Validando localmente com segurança." else "Validando o reconhecimento."
+            noFaceVisible -> "Centralize todo o rosto dentro do quadro."
+            multipleFacesVisible -> "Peça para as demais pessoas se afastarem da câmera."
+            state.modoOffline -> "O registro ficará cifrado no aparelho e será sincronizado quando a conexão voltar."
+            else -> "Mantenha aproximadamente 40 cm de distância."
+        }
+
         Surface(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(18.dp).align(Alignment.BottomCenter),
-            color = Color.Black.copy(alpha = 0.72f),
-            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(PontoCafeSpacing.md)
+                .align(Alignment.BottomCenter),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shape = RoundedCornerShape(22.dp),
+            shadowElevation = 8.dp,
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(PontoCafeSpacing.lg),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
-                    !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
-                val multipleFacesVisible = state.scanning && detectedFaces > 1
-                val challengeInstruction = when {
-                    livenessState == LivenessState.CONCLUIDO -> "Presença confirmada"
-                    challenge == KioskLivenessChallenge.BLINK && livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
-                    livenessState == LivenessState.POSICIONE_ROSTO -> "Posicione o rosto dentro do contorno"
-                    else -> challenge.instruction
+                Text(
+                    instructionTitle,
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center,
+                    color = when {
+                        multipleFacesVisible -> MaterialTheme.colorScheme.error
+                        noFaceVisible -> LocalPontoCafeSemanticColors.current.warning
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                Text(
+                    instructionDetail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (state.atualizacaoObrigatoria) {
+                    StatusPill("Atualização obrigatória · ${state.versaoMaisRecente ?: "nova versão"}", PontoCafeTone.DANGER)
+                } else if (state.atualizacaoDisponivel) {
+                    StatusPill("Nova versão · ${state.versaoMaisRecente}", PontoCafeTone.INFO)
                 }
 
-                Text(
-                    text = when {
-                        !viewModel.faceModelReady -> "Reconhecimento facial indisponível"
-                        state.sincronizandoBiometrias -> "Sincronizando rostos cadastrados..."
-                        !state.catalogoBiometricoPronto -> "Nenhum rosto disponível para reconhecimento"
-                        state.carregando -> "Confirmando sua identidade..."
-                        noFaceVisible -> "ROSTO NÃO DETECTADO"
-                        multipleFacesVisible -> "MAIS DE UM ROSTO DETECTADO"
-                        else -> challengeInstruction
-                    },
-                    color = if (noFaceVisible || multipleFacesVisible) MaterialTheme.colorScheme.error else Color.White,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = when {
-                        !viewModel.faceModelReady -> "O modelo facial precisa estar disponível no APK."
-                        state.sincronizandoBiometrias -> "Aguarde alguns segundos."
-                        !state.catalogoBiometricoPronto -> "Cadastre rostos como Administrador ou Supervisor e toque em sincronizar."
-                        state.carregando -> if (state.modoOffline) "Validando localmente neste aparelho." else "O candidato foi encontrado localmente e está sendo validado."
-                        noFaceVisible -> "Não conseguimos localizar um rosto. Encaixe todo o rosto dentro da figura na tela e olhe para a câmera."
-                        multipleFacesVisible -> "Deixe apenas uma pessoa diante da câmera para continuar."
-                        state.modoOffline -> "Modo offline seguro: pontos dentro do horário ficam cifrados neste aparelho e serão sincronizados automaticamente."
-                        else -> "O desafio muda entre tentativas para confirmar presença real antes do reconhecimento."
-                    },
-                    color = Color.White.copy(alpha = 0.78f),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
                 if (state.modoOffline) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color(0xFF5A4300).copy(alpha = 0.9f),
-                        shape = RoundedCornerShape(14.dp),
-                    ) {
-                        Text(
-                            "Sem conexão. Pausas fora do horário continuam exigindo o servidor e não são liberadas offline.",
-                            modifier = Modifier.padding(12.dp),
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
+                    StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
                 }
 
                 if (!state.catalogoBiometricoPronto && !state.sincronizandoBiometrias && viewModel.faceModelReady) {
@@ -375,7 +373,7 @@ fun FaceKioskScreen(
                 }
                 if (state.eventosPendentes > 0 && !state.modoOffline) {
                     OutlinedButton(onClick = viewModel::sincronizarPendenciasOffline) {
-                        Text(if (state.sincronizandoPendencias) "Sincronizando..." else "Sincronizar ${state.eventosPendentes} registro(s)")
+                        Text(if (state.sincronizandoPendencias) "Sincronizando..." else "Sincronizar ${state.eventosPendentes} pendente(s)")
                     }
                 }
                 state.erro?.let { error ->
@@ -383,23 +381,36 @@ fun FaceKioskScreen(
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.errorContainer,
                         contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                if (error.contains("reconhec", ignoreCase = true) || error.contains("identidade", ignoreCase = true)) "ROSTO NÃO RECONHECIDO" else "ATENÇÃO",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            Text(error, style = MaterialTheme.typography.bodyMedium)
-                        }
+                        Text(
+                            error,
+                            modifier = Modifier.padding(PontoCafeSpacing.sm),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun KioskFaceGuide(
+    active: Boolean,
+    warning: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val borderColor = when {
+        warning -> MaterialTheme.colorScheme.error
+        active -> Color.White.copy(alpha = 0.9f)
+        else -> Color.White.copy(alpha = 0.4f)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth(0.68f)
+            .aspectRatio(0.78f)
+            .border(BorderStroke(2.dp, borderColor), RoundedCornerShape(40.dp)),
+    )
 }
