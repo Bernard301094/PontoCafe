@@ -20,9 +20,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import com.pontocafe.app.AdminDestination
 import com.pontocafe.app.AdminDeviceViewModel
+import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.ReliabilityDestination
+import com.pontocafe.app.data.KioskModeStore
 
 private enum class AdminPrimaryDestination(val label: String) {
     HOME("Início"),
@@ -32,29 +36,71 @@ private enum class AdminPrimaryDestination(val label: String) {
 
 @Composable
 fun AdminArea(
+    activity: FragmentActivity,
     viewModel: AdminViewModel,
     deviceViewModel: AdminDeviceViewModel,
+    reliabilityViewModel: AdminReliabilityViewModel,
+    kioskModeStore: KioskModeStore,
     initialDevicesOpen: Boolean = false,
     onDevicesOpenChanged: (Boolean) -> Unit = {},
     onClose: () -> Unit,
 ) {
-    var mostrandoDispositivos by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
+    var showingDevices by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
+    var showingKiosk by remember { mutableStateOf(false) }
 
-    LaunchedEffect(mostrandoDispositivos) {
-        if (mostrandoDispositivos) deviceViewModel.carregar()
+    LaunchedEffect(showingDevices) {
+        if (showingDevices) deviceViewModel.carregar()
     }
 
     fun setDevicesOpen(open: Boolean) {
-        mostrandoDispositivos = open
+        showingDevices = open
         onDevicesOpenChanged(open)
     }
 
-    if (mostrandoDispositivos) {
+    val reliabilityDestination = reliabilityViewModel.state.destination
+
+    if (showingDevices) {
         BackHandler { setDevicesOpen(false) }
         AdminDevicesScreenV2(
             viewModel = deviceViewModel,
             onBack = { setDevicesOpen(false) },
         )
+        return
+    }
+
+    if (showingKiosk) {
+        BackHandler { showingKiosk = false }
+        KioskModeScreen(
+            activity = activity,
+            store = kioskModeStore,
+            onBack = { showingKiosk = false },
+        )
+        return
+    }
+
+    if (reliabilityDestination != ReliabilityDestination.NONE) {
+        BackHandler { reliabilityViewModel.closeDetail() }
+        when (reliabilityDestination) {
+            ReliabilityDestination.COLLABORATOR_HISTORY -> CollaboratorHistoryScreen(
+                viewModel = viewModel,
+                reliabilityViewModel = reliabilityViewModel,
+                onBack = reliabilityViewModel::closeDetail,
+            )
+            ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> BiometricDiagnosticsScreen(
+                adminViewModel = viewModel,
+                viewModel = reliabilityViewModel,
+                onBack = reliabilityViewModel::closeDetail,
+            )
+            ReliabilityDestination.SYNC_CENTER -> SyncCenterScreen(
+                viewModel = reliabilityViewModel,
+                onBack = reliabilityViewModel::closeDetail,
+            )
+            ReliabilityDestination.SYSTEM_DIAGNOSTICS -> SystemDiagnosticsScreen(
+                viewModel = reliabilityViewModel,
+                onBack = reliabilityViewModel::closeDetail,
+            )
+            ReliabilityDestination.NONE -> Unit
+        }
         return
     }
 
@@ -121,10 +167,16 @@ fun AdminArea(
                     onClose = onClose,
                     onDevicesClick = { setDevicesOpen(true) },
                 )
-                AdminPrimaryDestination.PEOPLE -> AdminCollaboratorsScreen(viewModel)
-                AdminPrimaryDestination.MANAGEMENT -> AdminRulesScreen(
+                AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV2(
                     viewModel = viewModel,
+                    reliabilityViewModel = reliabilityViewModel,
+                )
+                AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
+                    viewModel = viewModel,
+                    reliabilityViewModel = reliabilityViewModel,
                     onDevicesClick = { setDevicesOpen(true) },
+                    onSyncClick = reliabilityViewModel::openSyncCenter,
+                    onKioskClick = { showingKiosk = true },
                 )
             }
         }
