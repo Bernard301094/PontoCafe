@@ -114,7 +114,7 @@ app.get('/health', async (c) => {
 })
 
 app.route('/setup', setupRoutes)
-app.route('/admin/device-activation', deviceActivationRoutes)
+app.route('/admin', deviceActivationRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/ponto', localBiometricRoutes)
