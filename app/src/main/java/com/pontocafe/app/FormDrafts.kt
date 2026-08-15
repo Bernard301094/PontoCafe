@@ -3,7 +3,12 @@ package com.pontocafe.app
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.viewModelScope
 import java.util.WeakHashMap
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Rascunhos de formulários mantidos exclusivamente em memória.
@@ -58,11 +63,6 @@ class AccountRegistrationDraftState internal constructor() {
         submitted = false
     }
 
-    /**
-     * Se a última tentativa saiu desta tela com sucesso, limpa o conteúdo
-     * somente quando uma nova tela de cadastro for aberta. Em falha de rede,
-     * o servidor mantém erro e o rascunho continua intacto.
-     */
     fun prepareForDisplay(serverError: String?, loading: Boolean) {
         if (submitted && !loading && serverError == null) reset()
     }
@@ -94,6 +94,65 @@ class CollaboratorRegistrationDraftState internal constructor() {
 
     fun prepareForDisplay(serverError: String?, loading: Boolean) {
         if (submitted && !loading && serverError == null) reset()
+    }
+}
+
+private data class DraftSubmissionSnapshot(
+    val loading: Boolean,
+    val destination: String,
+    val error: String?,
+)
+
+/**
+ * Observa a operação no próprio escopo do ViewModel, que continua ativo quando
+ * a tela protegida é substituída pelo desbloqueio. Assim o resultado da rede
+ * pode limpar ou preservar o rascunho mesmo com o app minimizado.
+ */
+fun AdminViewModel.trackAccountDraftSubmission(draftState: AccountRegistrationDraftState) {
+    viewModelScope.launch {
+        val result = snapshotFlow {
+            DraftSubmissionSnapshot(state.carregando, state.destination.name, state.erro)
+        }
+            .dropWhile { !it.loading }
+            .first { !it.loading }
+
+        if (result.error == null && result.destination != AdminDestination.NEW_ACCOUNT.name) {
+            draftState.reset()
+        } else {
+            draftState.markServerFailure()
+        }
+    }
+}
+
+fun AdminViewModel.trackCollaboratorDraftSubmission(draftState: CollaboratorRegistrationDraftState) {
+    viewModelScope.launch {
+        val result = snapshotFlow {
+            DraftSubmissionSnapshot(state.carregando, state.destination.name, state.erro)
+        }
+            .dropWhile { !it.loading }
+            .first { !it.loading }
+
+        if (result.error == null && result.destination == AdminDestination.BIOMETRIC_ENROLLMENT.name) {
+            draftState.reset()
+        } else {
+            draftState.markServerFailure()
+        }
+    }
+}
+
+fun SupervisorViewModel.trackCollaboratorDraftSubmission(draftState: CollaboratorRegistrationDraftState) {
+    viewModelScope.launch {
+        val result = snapshotFlow {
+            DraftSubmissionSnapshot(state.carregando, state.destination.name, state.erro)
+        }
+            .dropWhile { !it.loading }
+            .first { !it.loading }
+
+        if (result.error == null && result.destination == SupervisorDestination.BIOMETRIA.name) {
+            draftState.reset()
+        } else {
+            draftState.markServerFailure()
+        }
     }
 }
 
