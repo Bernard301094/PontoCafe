@@ -57,14 +57,12 @@ interface SupervisorApi {
 class SupervisorRepository(
     private val api: SupervisorApi,
     private val supervisorSessionStore: SecureAdminSessionStore,
-    private val adminSessionStore: SecureAdminSessionStore,
 ) {
     private fun supervisorToken(): String? = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
-    private fun adminToken(): String? = adminSessionStore.read()?.takeIf { it.isNotBlank() }
 
-    fun activeToken(): String? = supervisorToken() ?: adminToken()
-    fun hasSession(): Boolean = activeToken() != null
-    fun usingAdminSession(): Boolean = supervisorToken() == null && adminToken() != null
+    fun activeToken(): String? = supervisorToken()
+    fun hasSession(): Boolean = supervisorToken() != null
+    fun usingAdminSession(): Boolean = false
 
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
@@ -113,7 +111,7 @@ class SupervisorRepository(
     }
 
     fun clearActiveSession() {
-        if (supervisorToken() != null) supervisorSessionStore.clear() else adminSessionStore.clear()
+        supervisorSessionStore.clear()
     }
 
     companion object {
@@ -124,11 +122,9 @@ class SupervisorRepository(
 object SupervisorApiClient {
     fun create(
         supervisorSessionStore: SecureAdminSessionStore,
-        adminSessionStore: SecureAdminSessionStore,
     ): SupervisorRepository {
         val authInterceptor = Interceptor { chain ->
             val token = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
-                ?: adminSessionStore.read()?.takeIf { it.isNotBlank() }
             val request = chain.request().newBuilder().apply {
                 token?.let { header("Authorization", "Bearer $it") }
             }.build()
@@ -147,7 +143,6 @@ object SupervisorApiClient {
         return SupervisorRepository(
             api = retrofit.create(SupervisorApi::class.java),
             supervisorSessionStore = supervisorSessionStore,
-            adminSessionStore = adminSessionStore,
         )
     }
 }
