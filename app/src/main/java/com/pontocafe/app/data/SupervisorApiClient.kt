@@ -28,7 +28,6 @@ data class PausaSupervisor(
     val excedeuLimite: Boolean? = null,
     val colaboradorId: String,
     val nome: String,
-    val matricula: String?,
     val setor: String?,
 )
 
@@ -95,13 +94,11 @@ class SupervisorRepository(
     suspend fun collaborators() = api.collaborators().colaboradores
 
     suspend fun createCollaborator(
-        registration: String?,
         name: String,
         sector: String?,
         shift: String?,
     ) = api.createCollaborator(
         CreateCollaboratorRequest(
-            matricula = registration?.trim()?.ifBlank { null },
             nome = name.trim(),
             setor = sector?.trim()?.ifBlank { null },
             turno = shift?.trim()?.ifBlank { null },
