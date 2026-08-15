@@ -16,7 +16,6 @@ import retrofit2.http.Query
 
 data class Colaborador(
     val id: String,
-    val matricula: String?,
     val nome: String,
     val setor: String?,
     val turno: String?,
