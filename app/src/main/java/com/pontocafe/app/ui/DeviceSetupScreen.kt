@@ -1,14 +1,18 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,43 +34,51 @@ fun DeviceSetupScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Spacer(Modifier.weight(1f))
         PontoCafeHeader("Configuração inicial do dispositivo")
-        Spacer(Modifier.height(20.dp))
         Text(
-            "Informe o token de 10 caracteres gerado pelo administrador. Ele será armazenado de forma protegida neste aparelho.",
+            "Informe o código de ativação de 10 caracteres gerado pelo Administrador. Depois da ativação, o aparelho recebe uma credencial longa e protegida.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(
-            value = token,
-            onValueChange = { value ->
-                token = value.filter { it.isLetterOrDigit() }.take(10)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Token do dispositivo") },
-            supportingText = {
-                Text("${token.length}/10 · letras maiúsculas, minúsculas e números")
-            },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            singleLine = true,
-        )
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = { viewModel.configurarDispositivo(token) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = token.length == 10,
-        ) {
-            Text("Ativar dispositivo")
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { value ->
+                        token = value.filter { it.isLetterOrDigit() }.take(10)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Código de ativação") },
+                    supportingText = {
+                        Text("${token.length}/10 · letras maiúsculas, minúsculas e números")
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    singleLine = true,
+                )
+                Button(
+                    onClick = { viewModel.configurarDispositivo(token) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = token.length == 10 && !viewModel.state.carregando,
+                ) {
+                    Text(if (viewModel.state.carregando) "Ativando..." else "Ativar dispositivo")
+                }
+            }
         }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
-            Text("Área administrativa")
-        }
-        Spacer(Modifier.height(16.dp))
+
         MessageCard(viewModel)
-        Spacer(Modifier.weight(1f))
+
+        OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
+            Text("Entrar na área administrativa")
+        }
     }
 }
