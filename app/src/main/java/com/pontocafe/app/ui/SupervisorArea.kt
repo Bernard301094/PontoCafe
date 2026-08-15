@@ -133,6 +133,10 @@ private fun tempoAoVivo(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
 private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
     val state = viewModel.state
     var agoraEmMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val liveAlert = rememberSupervisorLiveActivityAlert(
+        pausasAtivas = state.pausasAtivas,
+        enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
+    )
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -177,6 +181,8 @@ private fun SupervisorLiveScreen(viewModel: SupervisorViewModel, onClose: () -> 
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
         )
+
+        liveAlert?.let { SupervisorLiveActivityAlertBanner(it) }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
