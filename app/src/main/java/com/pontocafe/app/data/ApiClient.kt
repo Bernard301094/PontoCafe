@@ -2,6 +2,7 @@ package com.pontocafe.app.data
 
 import android.content.Context
 import com.pontocafe.app.BuildConfig
+import java.io.IOException
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.json.JSONObject
@@ -47,6 +48,20 @@ data class HorarioCafeResponse(
     val limiteSegundos: Int?,
     val agoraLocal: String?,
     val regras: List<RegraCafe>,
+)
+
+data class SystemHealthResponse(
+    val status: String,
+    val banco: String,
+    val servidor: String?,
+)
+
+data class AppStatusResponse(
+    val apiVersion: String,
+    val latestAndroidVersion: String,
+    val minimumAndroidVersion: String,
+    val timezone: String,
+    val offlineMaxEventAgeHours: Int,
 )
 
 data class FaceCatalogResponse(
@@ -128,11 +143,26 @@ data class FinalizarPausaResponse(
     val excedeuLimite: Boolean,
 )
 
+data class OfflineSyncRequest(val eventos: List<OfflinePontoEvent>)
+data class OfflineSyncResult(
+    val eventId: String,
+    val status: String,
+    val pausaId: String? = null,
+    val mensagem: String? = null,
+)
+data class OfflineSyncResponse(
+    val resultados: List<OfflineSyncResult>,
+    val processados: List<String>,
+    val pendentesComErro: List<String>,
+)
+
 interface PontoCafeApi {
     @POST("setup/device-activation") suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
     @POST("ponto/device/unlock") suspend fun unlockDevice(@Body body: DeviceUnlockRequest): DeviceUnlockResponse
     @GET("ponto/colaboradores") suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
     @GET("ponto/horario") suspend fun horario(): HorarioCafeResponse
+    @GET("health") suspend fun health(): SystemHealthResponse
+    @GET("app-status") suspend fun appStatus(): AppStatusResponse
     @GET("ponto/biometria/catalogo") suspend fun catalogoBiometrico(
         @Query("modelo") modelo: String,
         @Query("versaoModelo") versaoModelo: String,
@@ -143,6 +173,7 @@ interface PontoCafeApi {
     @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
     @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): IniciarPausaResponse
     @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): FinalizarPausaResponse
+    @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
 }
 
 class PontoCafeRepository(private val api: PontoCafeApi) {
@@ -151,14 +182,24 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
         api.unlockDevice(DeviceUnlockRequest(pin.trim(), area))
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
+    suspend fun health(): SystemHealthResponse = api.health()
+    suspend fun appStatus(): AppStatusResponse = api.appStatus()
     suspend fun sincronizarCatalogo(modelo: String, versaoModelo: String, versaoAtual: String? = null): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
     suspend fun confirmarIdentidadeLocal(colaboradorId: String, embedding: FloatArray, modelo: String, versaoModelo: String): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo))
     suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse = api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
     suspend fun iniciar(colaboradorId: String, verificacaoToken: String, periodo: String? = null, codigoAutorizacao: String? = null): IniciarPausaResponse = api.iniciarPausa(IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao))
     suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse = api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken))
+    suspend fun sincronizarOffline(eventos: List<OfflinePontoEvent>): OfflineSyncResponse =
+        api.sincronizarOffline(OfflineSyncRequest(eventos))
 
     companion object {
+        fun isAuthFailure(error: Throwable): Boolean =
+            error is HttpException && (error.code() == 401 || error.code() == 403)
+
+        fun isTemporaryFailure(error: Throwable): Boolean =
+            error is IOException || (error is HttpException && error.code() >= 500)
+
         fun mensagemErro(error: Throwable): String {
             if (error is HttpException) {
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
@@ -166,6 +207,7 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
                 if (!apiMessage.isNullOrBlank()) return apiMessage
                 return "Falha na comunicação com o servidor (${error.code()})."
             }
+            if (error is IOException) return "Sem conexão com o servidor. Verifique a internet."
             return error.message ?: "Não foi possível concluir a operação."
         }
     }
@@ -177,6 +219,7 @@ object ApiClient {
             val token = tokenStore.read()
             val request = chain.request().newBuilder().apply {
                 if (!token.isNullOrBlank()) header("X-Device-Token", token)
+                header("X-App-Version", BuildConfig.VERSION_NAME)
             }.build()
             chain.proceed(request)
         }
