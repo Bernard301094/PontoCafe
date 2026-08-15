@@ -53,6 +53,24 @@ data class AdminUser(
 data class AdminUsersResponse(val usuarios: List<AdminUser>)
 data class AdminCollaboratorsResponse(val colaboradores: List<Colaborador>)
 
+data class AdminDevice(
+    val id: String,
+    val nome: String,
+    val ativo: Boolean,
+    val criadoEm: String,
+    val atualizadoEm: String,
+    val pinConfigurado: Boolean,
+)
+
+data class AdminDevicesResponse(val dispositivos: List<AdminDevice>)
+data class UpdateDevicePinRequest(val pin: String)
+data class UpdateDevicePinResponse(
+    val ok: Boolean,
+    val dispositivoId: String,
+    val nome: String,
+    val pinConfigurado: Boolean,
+)
+
 data class CreateAdminUserRequest(
     val nome: String,
     val email: String,
@@ -62,12 +80,13 @@ data class CreateAdminUserRequest(
 
 data class ChangePasswordRequest(val novaSenha: String)
 data class ChangeProfileRequest(val perfil: String)
-data class CreateDeviceRequest(val nome: String)
+data class CreateDeviceRequest(val nome: String, val pin: String)
 
 data class DeviceCreatedResponse(
     val id: String,
     val nome: String,
     val token: String,
+    val pinConfigurado: Boolean = true,
     val aviso: String,
 )
 
@@ -129,65 +148,34 @@ data class SimpleAdminResponse(
 )
 
 interface AdminApi {
-    @GET("setup/status")
-    suspend fun setupStatus(): SetupStatusResponse
+    @GET("setup/status") suspend fun setupStatus(): SetupStatusResponse
+    @POST("setup/primeiro-admin") suspend fun createFirstAdmin(@Body body: FirstAdminRequest): Response<Unit>
+    @POST("api/auth/sign-in/email") suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
+    @POST("api/auth/sign-out") suspend fun signOut(): Response<Unit>
 
-    @POST("setup/primeiro-admin")
-    suspend fun createFirstAdmin(@Body body: FirstAdminRequest): Response<Unit>
+    @GET("admin/usuarios") suspend fun users(): AdminUsersResponse
+    @POST("admin/usuarios") suspend fun createUser(@Body body: CreateAdminUserRequest): Response<Unit>
+    @POST("admin/usuarios/{id}/bloquear") suspend fun disableUser(@Path("id") id: String): SimpleAdminResponse
+    @POST("admin/usuarios/{id}/reativar") suspend fun enableUser(@Path("id") id: String): SimpleAdminResponse
+    @POST("admin/usuarios/{id}/excluir") suspend fun deleteUser(@Path("id") id: String): SimpleAdminResponse
+    @PUT("admin/usuarios/{id}/senha") suspend fun resetPassword(@Path("id") id: String, @Body body: ChangePasswordRequest): SimpleAdminResponse
+    @PUT("admin/usuarios/{id}/perfil") suspend fun changeProfile(@Path("id") id: String, @Body body: ChangeProfileRequest): SimpleAdminResponse
 
-    @POST("api/auth/sign-in/email")
-    suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
-
-    @POST("api/auth/sign-out")
-    suspend fun signOut(): Response<Unit>
-
-    @GET("admin/usuarios")
-    suspend fun users(): AdminUsersResponse
-
-    @POST("admin/usuarios")
-    suspend fun createUser(@Body body: CreateAdminUserRequest): Response<Unit>
-
-    @POST("admin/usuarios/{id}/bloquear")
-    suspend fun disableUser(@Path("id") id: String): SimpleAdminResponse
-
-    @POST("admin/usuarios/{id}/reativar")
-    suspend fun enableUser(@Path("id") id: String): SimpleAdminResponse
-
-    @POST("admin/usuarios/{id}/excluir")
-    suspend fun deleteUser(@Path("id") id: String): SimpleAdminResponse
-
-    @PUT("admin/usuarios/{id}/senha")
-    suspend fun resetPassword(@Path("id") id: String, @Body body: ChangePasswordRequest): SimpleAdminResponse
-
-    @PUT("admin/usuarios/{id}/perfil")
-    suspend fun changeProfile(@Path("id") id: String, @Body body: ChangeProfileRequest): SimpleAdminResponse
-
-    @GET("admin/regras-cafe")
-    suspend fun coffeeRules(): AdminCoffeeRulesResponse
-
+    @GET("admin/regras-cafe") suspend fun coffeeRules(): AdminCoffeeRulesResponse
     @PUT("admin/regras-cafe/{periodo}")
-    suspend fun updateCoffeeRule(
-        @Path("periodo") periodo: String,
-        @Body body: UpdateCoffeeRuleRequest,
-    ): UpdateCoffeeRuleResponse
+    suspend fun updateCoffeeRule(@Path("periodo") periodo: String, @Body body: UpdateCoffeeRuleRequest): UpdateCoffeeRuleResponse
 
-    @POST("admin/device-activation")
-    suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
+    @POST("admin/device-activation") suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
+    @GET("admin/devices") suspend fun devices(): AdminDevicesResponse
+    @PUT("admin/devices/{id}/unlock-pin")
+    suspend fun updateDevicePin(@Path("id") id: String, @Body body: UpdateDevicePinRequest): UpdateDevicePinResponse
 
-    @GET("gestao/colaboradores")
-    suspend fun collaborators(): AdminCollaboratorsResponse
-
-    @POST("gestao/colaboradores")
-    suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
-
+    @GET("gestao/colaboradores") suspend fun collaborators(): AdminCollaboratorsResponse
+    @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}/biometria")
-    suspend fun saveBiometric(
-        @Path("id") id: String,
-        @Body body: BiometricEnrollmentRequest,
-    ): BiometricEnrollmentResponse
+    suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
 
-    @POST("admin/autorizacoes")
-    suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
+    @POST("admin/autorizacoes") suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
 }
 
 class AdminRepository(
@@ -195,7 +183,9 @@ class AdminRepository(
     private val sessionStore: SecureAdminSessionStore,
 ) {
     suspend fun setupStatus() = api.setupStatus()
-    suspend fun createFirstAdmin(nome: String, email: String, senha: String, chave: String) { ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave))) }
+    suspend fun createFirstAdmin(nome: String, email: String, senha: String, chave: String) {
+        ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave)))
+    }
 
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
@@ -207,21 +197,26 @@ class AdminRepository(
 
     suspend fun signOut() { runCatching { api.signOut() }; sessionStore.clear() }
     suspend fun users() = api.users().usuarios
-    suspend fun createUser(nome: String, email: String, senha: String, perfil: String) { ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil))) }
+    suspend fun createUser(nome: String, email: String, senha: String, perfil: String) {
+        ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil)))
+    }
     suspend fun setActive(userId: String, active: Boolean) { if (active) api.enableUser(userId) else api.disableUser(userId) }
     suspend fun deleteUser(userId: String) { api.deleteUser(userId) }
     suspend fun resetPassword(userId: String, newPassword: String) { api.resetPassword(userId, ChangePasswordRequest(newPassword)) }
     suspend fun changeProfile(userId: String, profile: String) { api.changeProfile(userId, ChangeProfileRequest(profile)) }
-    suspend fun coffeeRules() = api.coffeeRules().regras
-    suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean) = api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
-    suspend fun createDevice(name: String) = api.createDevice(CreateDeviceRequest(name.trim()))
-    suspend fun collaborators() = api.collaborators().colaboradores
 
-    suspend fun createCollaborator(
-        name: String,
-        sector: String?,
-        shift: String?,
-    ) = api.createCollaborator(
+    suspend fun coffeeRules() = api.coffeeRules().regras
+    suspend fun updateCoffeeRule(period: String, start: String, end: String, limitMinutes: Int, active: Boolean) =
+        api.updateCoffeeRule(period, UpdateCoffeeRuleRequest(start, end, limitMinutes, active)).regra
+
+    suspend fun createDevice(name: String, pin: String) =
+        api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
+    suspend fun devices() = api.devices().dispositivos
+    suspend fun updateDevicePin(deviceId: String, pin: String) =
+        api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
+
+    suspend fun collaborators() = api.collaborators().colaboradores
+    suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
         CreateCollaboratorRequest(
             nome = name.trim(),
             setor = sector?.trim()?.ifBlank { null },
@@ -230,12 +225,8 @@ class AdminRepository(
     )
 
     @Deprecated("Matrícula não é mais utilizada")
-    suspend fun createCollaborator(
-        registration: String?,
-        name: String,
-        sector: String?,
-        shift: String?,
-    ) = createCollaborator(name, sector, shift)
+    suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
+        createCollaborator(name, sector, shift)
 
     suspend fun saveBiometric(collaboratorId: String, embedding: FloatArray, model: String, modelVersion: String) = api.saveBiometric(
         collaboratorId,
@@ -259,6 +250,7 @@ class AdminRepository(
                 return when (error.code()) {
                     401 -> "E-mail ou senha inválidos."
                     403 -> "Acesso não autorizado."
+                    429 -> "Muitas tentativas. Aguarde e tente novamente."
                     else -> "Falha na comunicação com o servidor (${error.code()})."
                 }
             }
