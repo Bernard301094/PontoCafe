@@ -3,6 +3,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 import type { AppEnv } from './auth-runtime.js'
 
 const requestIdPattern = /^[A-Za-z0-9._-]{8,80}$/
+const safeDatabaseIdentifierPattern = /^[A-Za-z0-9_.-]{1,128}$/
 
 export function newRequestId(incoming?: string | null): string {
   const clean = incoming?.trim()
@@ -41,25 +42,42 @@ export function errorPayload(
   }
 }
 
+function safeDatabaseIdentifier(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const clean = value.trim()
+  return safeDatabaseIdentifierPattern.test(clean) ? clean : null
+}
+
 export function safeErrorDescriptor(error: unknown) {
   const err = error instanceof Error ? error : new Error(String(error))
-  const dbCode = typeof (err as Error & { code?: unknown }).code === 'string'
-    ? String((err as Error & { code?: unknown }).code)
-    : null
+  const databaseError = err as Error & {
+    code?: unknown
+    constraint?: unknown
+    table?: unknown
+    column?: unknown
+    routine?: unknown
+    severity?: unknown
+  }
+  const dbCode = typeof databaseError.code === 'string' ? databaseError.code : null
   const message = err.message.toLowerCase()
 
   const code = dbCode === '42501'
     ? 'DATABASE_PERMISSION'
     : dbCode === '42P01' || dbCode === '42703'
       ? 'DATABASE_SCHEMA'
-      : message.includes('timeout') || message.includes('connection') || message.includes('socket')
+      : message.includes('timeout') || message.includes('connection') || message.includes('socket') || message.includes('econn')
         ? 'DATABASE_CONNECTION'
         : 'UNEXPECTED_ERROR'
 
   return {
     code,
     type: err.name,
-    databaseCode: dbCode && /^[A-Z0-9]{4,6}$/i.test(dbCode) ? dbCode : null,
+    databaseCode: dbCode && /^[A-Z0-9]{4,16}$/i.test(dbCode) ? dbCode : null,
+    databaseConstraint: safeDatabaseIdentifier(databaseError.constraint),
+    databaseTable: safeDatabaseIdentifier(databaseError.table),
+    databaseColumn: safeDatabaseIdentifier(databaseError.column),
+    databaseRoutine: safeDatabaseIdentifier(databaseError.routine),
+    databaseSeverity: safeDatabaseIdentifier(databaseError.severity),
   }
 }
 
