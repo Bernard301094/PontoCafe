@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -48,7 +47,10 @@ import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
+import com.pontocafe.app.data.BiometricCalibrationMetrics
+import com.pontocafe.app.data.BiometricCalibrationMetricsApiClient
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.SecureAdminSessionStore
 import kotlin.math.roundToInt
 
 @Composable
@@ -60,12 +62,27 @@ fun BiometricDiagnosticsScreen(
     val context = LocalContext.current
     val state = viewModel.state
     val summary = state.biometricSummary
+    val metricsRepository = remember(context) {
+        BiometricCalibrationMetricsApiClient.create(
+            SecureAdminSessionStore(context.applicationContext, "admin"),
+        )
+    }
+    var metrics by remember { mutableStateOf<BiometricCalibrationMetrics?>(null) }
+    var metricsError by remember { mutableStateOf<String?>(null) }
     var search by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<Colaborador?>(null) }
     var cameraOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (summary == null) viewModel.openBiometricDiagnostics()
+    }
+    LaunchedEffect(state.calibration) {
+        runCatching { metricsRepository.summary() }
+            .onSuccess {
+                metrics = it
+                metricsError = null
+            }
+            .onFailure { metricsError = "As métricas acumuladas ainda não puderam ser carregadas." }
     }
 
     if (cameraOpen && selected != null) {
@@ -121,10 +138,53 @@ fun BiometricDiagnosticsScreen(
             }
         }
 
+        metrics?.let { calibration ->
+            item("calibration-stat-title") {
+                SectionTitle(
+                    "Precisão medida",
+                    "Resultados empíricos das amostras de calibração realizadas neste ambiente.",
+                )
+            }
+            item("calibration-stat-count") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    MetricCard(calibration.amostras.toString(), "Amostras", Modifier.weight(1f))
+                    MetricCard(formatPercent(calibration.top1Accuracy), "Top-1 accuracy", Modifier.weight(1f))
+                }
+            }
+            item("calibration-stat-rates") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    MetricCard(
+                        formatPercent(calibration.falseRejectRate),
+                        "FRR",
+                        Modifier.weight(1f),
+                        emphasized = (calibration.falseRejectRate ?: 0.0) > 0.05,
+                    )
+                    MetricCard(
+                        formatPercent(calibration.falseAcceptRate),
+                        "FAR",
+                        Modifier.weight(1f),
+                        emphasized = (calibration.falseAcceptRate ?: 0.0) > 0.0,
+                    )
+                }
+            }
+            item("calibration-stat-note") {
+                Text(
+                    "${calibration.comparacoesImpostor} comparação(ões) impostoras · ${calibration.falsosAceitesImpostor} acima do limiar. ${calibration.observacao}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        metricsError?.let { message ->
+            item("metrics-error") {
+                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
         item("calibration-title") {
             SectionTitle(
                 "Teste de calibração",
-                "Capture uma amostra real. A app mede o score correto, o concorrente mais próximo e a margem sem salvar a foto.",
+                "Capture uma amostra real. A app compara o rosto correto contra todos os outros templates ativos sem salvar a foto.",
             )
         }
         item("search") {
@@ -174,9 +234,7 @@ fun BiometricDiagnosticsScreen(
         }
 
         state.calibration?.let { result ->
-            item("last-result") {
-                CalibrationResultCard(result)
-            }
+            item("last-result") { CalibrationResultCard(result) }
         }
 
         item("retention-title") { SectionTitle("Governança", "A limpeza automática também é executada diariamente no backend.") }
@@ -310,3 +368,5 @@ private fun CalibrationResultCard(result: com.pontocafe.app.data.CalibrationResp
         }
     }
 }
+
+private fun formatPercent(value: Double?): String = value?.let { "%.2f%%".format(it * 100.0) } ?: "—"
