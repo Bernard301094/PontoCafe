@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { config, biometricKey } from './config.js'
 
 const DEVICE_TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
@@ -16,7 +16,16 @@ export const newDeviceToken = (length = 10) => {
 }
 export const hashToken = (value: string) => createHash('sha256').update(value).digest('hex')
 export const hashAuthorizationCode = (code: string) => createHmac('sha256', config.codePepper).update(code).digest('hex')
+export const hashDeviceUnlockPin = (deviceId: string, pin: string) =>
+  createHmac('sha256', config.codePepper).update(`device-unlock:${deviceId}:${pin}`).digest('hex')
 export const generateAuthorizationCode = () => randomInt(100000, 1000000).toString()
+
+export function secureHexEquals(a: string, b: string): boolean {
+  if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b) || a.length !== b.length) return false
+  const left = Buffer.from(a, 'hex')
+  const right = Buffer.from(b, 'hex')
+  return left.length === right.length && timingSafeEqual(left, right)
+}
 
 export function encryptEmbedding(embedding: number[]) {
   const iv = randomBytes(12)
