@@ -29,7 +29,7 @@ deviceUnlockRoutes.use('*', requireDevice)
 deviceUnlockRoutes.post('/device/unlock', async (c) => {
   const body = await parseJson(c, z.object({
     pin: z.string().trim().regex(/^\d{4,12}$/),
-    area: z.enum(['SUPERVISOR', 'ADMIN']),
+    area: z.enum(['SUPERVISOR', 'ADMIN', 'LOGIN']),
   }))
   if (!body.ok) return body.response
 
