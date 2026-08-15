@@ -36,9 +36,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     var motivo by remember { mutableStateOf("") }
 
     val filtrados = state.colaboradores.filter {
-        busca.isBlank() ||
-            it.nome.contains(busca, ignoreCase = true) ||
-            (it.matricula?.contains(busca, ignoreCase = true) == true)
+        busca.isBlank() || it.nome.contains(busca, ignoreCase = true)
     }
 
     Column(
@@ -47,7 +45,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     ) {
         PontoCafeHeader("Autorizar pausa fora do horário")
         Text(
-            "Somente o Administrador pode gerar este código temporário.",
+            "Administrador e Supervisor podem gerar este código temporário. Cada autorização fica registrada na auditoria.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         AdminFeedback(viewModel)
@@ -70,7 +68,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                     Text("Colaborador: ${state.authorizationEmployeeName ?: "-"}")
                     Text("Expira em aproximadamente ${state.authorizationExpiresSeconds ?: 0} segundos.")
                     Text(
-                        "O código só pode ser usado uma vez.",
+                        "O código só pode ser usado uma vez. Um novo código para o mesmo período cancela o anterior.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
@@ -85,7 +83,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                 onValueChange = { busca = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Buscar colaborador") },
-                placeholder = { Text("Nome ou matrícula") },
+                placeholder = { Text("Nome") },
                 singleLine = true,
             )
 
@@ -105,7 +103,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                     ) {
                         Column(Modifier.padding(14.dp)) {
                             Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
-                            val detalhe = listOfNotNull(colaborador.matricula, colaborador.setor)
+                            val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
                                 .filter { it.isNotBlank() }
                                 .joinToString(" · ")
                             if (detalhe.isNotBlank()) {
@@ -134,7 +132,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                 onValueChange = { motivo = it.take(300) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Motivo da autorização") },
-                placeholder = { Text("Ex.: reunião terminou após o horário") },
+                placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
             )
 
             Button(
