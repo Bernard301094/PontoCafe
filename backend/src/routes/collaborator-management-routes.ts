@@ -59,6 +59,74 @@ collaboratorManagementRoutes.post('/colaboradores', async (c) => {
   return c.json({ id, ...body.data, ativo: true, rostoCadastrado: false }, 201)
 })
 
+collaboratorManagementRoutes.put('/colaboradores/:id', async (c) => {
+  if (c.get('user').papel !== 'ADMIN') return c.json({ erro: 'Somente o Administrador pode editar os dados do colaborador.' }, 403)
+
+  const colaboradorId = c.req.param('id')
+  if (!uuidSchema.safeParse(colaboradorId).success) return c.json({ erro: 'Colaborador inválido.' }, 400)
+
+  const body = await parseJson(c, z.object({
+    nome: z.string().trim().min(2).max(160),
+    setor: z.string().trim().max(120).optional().nullable(),
+    turno: z.string().trim().max(80).optional().nullable(),
+  }))
+  if (!body.ok) return body.response
+
+  const result = await transaction(async (client) => {
+    const previous = await client.query<{
+      id: string
+      nome: string
+      setor: string | null
+      turno: string | null
+      ativo: boolean
+    }>(
+      'select id,nome,setor,turno,ativo from colaboradores where id=$1 for update',
+      [colaboradorId],
+    )
+    const before = previous.rows[0]
+    if (!before || !before.ativo) return null
+
+    const updated = await client.query<{
+      id: string
+      nome: string
+      setor: string | null
+      turno: string | null
+      ativo: boolean
+    }>(
+      `update colaboradores
+          set nome=$2,setor=$3,turno=$4,atualizado_em=now()
+        where id=$1
+        returning id,nome,setor,turno,ativo`,
+      [colaboradorId, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
+    )
+    const row = updated.rows[0]
+    if (!row) return null
+
+    const actor = c.get('user')
+    await client.query(
+      `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ($1,$2,'EDITAR_COLABORADOR','COLABORADOR',$3,$4::jsonb)`,
+      [actor.id, actor.papel, colaboradorId, JSON.stringify({
+        anterior: { nome: before.nome, setor: before.setor, turno: before.turno },
+        novo: { nome: row.nome, setor: row.setor, turno: row.turno },
+      })],
+    )
+
+    const face = await client.query<{ cadastrado: boolean }>(
+      'select exists(select 1 from templates_faciais where colaborador_id=$1) as cadastrado',
+      [colaboradorId],
+    )
+
+    return {
+      ...row,
+      rostoCadastrado: face.rows[0]?.cadastrado ?? false,
+    }
+  })
+
+  if (!result) return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
+  return c.json(result)
+})
+
 collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
   const colaboradorId = c.req.param('id')
   if (!uuidSchema.safeParse(colaboradorId).success) return c.json({ erro: 'Colaborador inválido.' }, 400)
