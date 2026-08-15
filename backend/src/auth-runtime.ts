@@ -3,7 +3,7 @@ import { admin, bearer } from 'better-auth/plugins'
 import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import { config } from './config.js'
-import { getPool } from './db.js'
+import { getPool, query } from './db.js'
 
 export type Role = 'ADMIN' | 'SUPERVISOR'
 export type AuthUser = { id: string; nome: string; email: string; papel: Role }
@@ -44,8 +44,6 @@ let localAuth: AuthInstance | null = null
 
 export function getAuth(): AuthInstance {
   if (process.env.PONTOCAFE_RUNTIME === 'cloudflare') {
-    // O pool em Cloudflare é escopado à invocação atual. Criar a instância de
-    // Better Auth aqui impede que ela retenha conexões de uma requisição anterior.
     return createAuth()
   }
 
@@ -53,8 +51,6 @@ export function getAuth(): AuthInstance {
   return localAuth
 }
 
-// Mantém compatibilidade com as rotas existentes sem manter uma instância
-// global de Better Auth no Worker. Cada acesso resolve a instância da request.
 export const auth = new Proxy({} as AuthInstance, {
   get(_target, property) {
     const instance = getAuth()
@@ -63,16 +59,39 @@ export const auth = new Proxy({} as AuthInstance, {
   },
 })
 
-export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
-  const session = await getAuth().api.getSession({ headers: c.req.raw.headers })
-  if (!session) return c.json({ erro: 'Não autenticado.' }, 401)
+function readBearerToken(value: string | undefined): string | null {
+  if (!value) return null
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim())
+  return match?.[1]?.trim() || null
+}
 
-  const role = (session.user as typeof session.user & { role?: string }).role
+export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
+  const token = readBearerToken(c.req.header('Authorization'))
+  if (!token) return c.json({ erro: 'Não autenticado.' }, 401)
+
+  const result = await query<{
+    id: string
+    name: string
+    email: string
+    role: string | null
+    banned: boolean | null
+  }>(
+    `select u.id,u.name,u.email,u.role,u.banned
+       from session s
+       join "user" u on u.id=s."userId"
+      where s.token=$1 and s."expiresAt">now()
+      limit 1`,
+    [token],
+  )
+  const user = result.rows[0]
+  if (!user) return c.json({ erro: 'Sessão inválida ou expirada.' }, 401)
+  if (user.banned) return c.json({ erro: 'Esta conta está desativada.' }, 403)
+
   c.set('user', {
-    id: session.user.id,
-    nome: session.user.name,
-    email: session.user.email,
-    papel: role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
+    id: user.id,
+    nome: user.name,
+    email: user.email,
+    papel: user.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
   })
   await next()
 })
