@@ -13,12 +13,14 @@
 - Monitor local de crashes e travamentos prolongados do thread principal no Android.
 - Testes backend, testes unitários Android e smoke test Compose.
 - CI configurado para PRs e `main`, além de execução manual.
+- Rascunhos de cadastro permanecem em memória ao minimizar/bloquear a área protegida e são restaurados após biometria/PIN, sem persistir senhas em disco ou Bundle.
 
 ### Pessoas
 - Importação CSV com pré-visualização e validação.
 - Edição em lote de setor, turno e desativação.
 - Desativação em lote é bloqueada quando há pausa aberta.
 - Histórico individual de pausas, média, excessos e registros fora do horário.
+- Cadastro de colaborador preserva nome, setor e turno durante bloqueio/desbloqueio tanto no Admin quanto no Supervisor.
 
 ### Biometria
 - Calibração por amostra com score correto, concorrente mais próximo e margem.
@@ -48,3 +50,4 @@
 ### Administração
 - Tela de diagnóstico com servidor, banco, sessões, versão, offline e retenção.
 - Gestão reorganizada em Dispositivos, Sincronização, Biometria, Diagnóstico, Modo terminal, Auditoria e Autorizações.
+- Cadastro de Supervisor/Administrador preserva nome, e-mail, perfil e senha enquanto o processo do app permanece vivo; o rascunho é apagado ao concluir ou cancelar o cadastro.
