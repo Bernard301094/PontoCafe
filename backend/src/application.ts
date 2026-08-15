@@ -6,6 +6,7 @@ import { query } from './db.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
+import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
@@ -84,12 +85,8 @@ async function safeAuthResponseFailure(response: Response) {
   }
 }
 
-// Fluxo de login/logout usado pelo APK. Mantém as mesmas URLs e o mesmo
-// set-auth-token esperado pelo cliente, mas evita o handler genérico que estava
-// retornando 500 no Cloudflare Worker.
 app.route('/api/auth', authRoutes)
 
-// Demais endpoints de Better Auth continuam disponíveis para compatibilidade.
 app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   try {
     const response = await auth.handler(c.req.raw)
@@ -108,7 +105,7 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.5.1' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.6.0' }))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
@@ -119,6 +116,7 @@ app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
+app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
