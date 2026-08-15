@@ -58,7 +58,6 @@ class MainActivity : ComponentActivity() {
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(
             supervisorSessionStore = supervisorSessionStore,
-            adminSessionStore = adminSessionStore,
         )
         val supervisorFactory = SupervisorViewModelFactory {
             SupervisorViewModel(supervisorRepository, faceEmbeddingEngine)
