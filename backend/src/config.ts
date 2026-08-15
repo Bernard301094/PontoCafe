@@ -16,8 +16,8 @@ function numberEnv(name: string, fallback: number, min: number, max: number): nu
 
 function versionEnv(name: string, fallback: string): string {
   const value = process.env[name]?.trim() || fallback
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value)) {
-    throw new Error(`Variável inválida: ${name}. Use uma versão no formato 1.2.3.`)
+  if (!/^\d+\.\d+\.\d+$/.test(value)) {
+    throw new Error(`Variável inválida: ${name}. Use uma versão numérica no formato 1.2.3.`)
   }
   return value
 }
