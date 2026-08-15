@@ -8,7 +8,9 @@ import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
+import { deviceManagementRoutes } from './routes/device-management-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
+import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
@@ -105,7 +107,7 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.6.0' }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.6.1' }))
 app.get('/health', async (c) => {
   const result = await query<{ agora: string }>('select now()::text as agora')
   return c.json({ status: 'ok', banco: 'ok', servidor: result.rows[0]?.agora })
@@ -114,9 +116,11 @@ app.get('/health', async (c) => {
 app.route('/setup', deviceSetupRoutes)
 app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
+app.route('/admin', deviceManagementRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
+app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
