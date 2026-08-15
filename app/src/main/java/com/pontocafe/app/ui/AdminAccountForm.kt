@@ -25,7 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
-
 enum class AccountProfile(val label: String) {
     SUPERVISOR("Supervisor"),
     ADMIN("Administrador"),
@@ -41,49 +40,31 @@ data class NewAccountInput(
 @Composable
 fun AdminAccountForm(
     carregando: Boolean = false,
+    initialProfile: AccountProfile = AccountProfile.SUPERVISOR,
+    showHeader: Boolean = true,
     onSubmit: (NewAccountInput) -> Unit,
 ) {
     var nome by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
     var confirmarSenha by remember { mutableStateOf("") }
-    var perfil by remember { mutableStateOf(AccountProfile.SUPERVISOR) }
+    var perfil by remember(initialProfile) { mutableStateOf(initialProfile) }
     var erro by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        PontoCafeHeader("Nova conta de acesso")
-        Text(
-            "Defina quem poderá acessar as áreas restritas do Ponto Café.",
-            modifier = Modifier.padding(top = 6.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (showHeader) {
+            PontoCafeHeader("Nova conta de acesso")
+            Text(
+                "Crie uma conta para Supervisor ou Administrador. Isto é diferente do cadastro de colaboradores que batem o ponto.",
+                modifier = Modifier.padding(top = 6.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(20.dp))
+        }
 
-        Spacer(Modifier.height(22.dp))
-        SectionTitle("Informações pessoais")
-        Spacer(Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = nome,
-            onValueChange = { nome = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Nome completo") },
-            singleLine = true,
-            enabled = !carregando,
-        )
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("E-mail") },
-            singleLine = true,
-            enabled = !carregando,
-        )
-
-        Spacer(Modifier.height(22.dp))
         SectionTitle(
             title = "Perfil de acesso",
-            subtitle = "Escolha o nível de permissão desta conta.",
+            subtitle = "Supervisor é o perfil indicado para acompanhar pausas, colaboradores e biometria.",
         )
         Spacer(Modifier.height(10.dp))
 
@@ -93,7 +74,7 @@ fun AdminAccountForm(
         ) {
             ProfileChoiceCard(
                 title = "Supervisor",
-                description = "Pausas, colaboradores e biometria.",
+                description = "Pausas, colaboradores, biometria e autorizações.",
                 selected = perfil == AccountProfile.SUPERVISOR,
                 onClick = { perfil = AccountProfile.SUPERVISOR },
                 modifier = Modifier.weight(1f),
@@ -101,13 +82,36 @@ fun AdminAccountForm(
             )
             ProfileChoiceCard(
                 title = "Administrador",
-                description = "Controle total do sistema e acessos.",
+                description = "Controle total do sistema, acessos e dispositivos.",
                 selected = perfil == AccountProfile.ADMIN,
                 onClick = { perfil = AccountProfile.ADMIN },
                 modifier = Modifier.weight(1f),
                 enabled = !carregando,
             )
         }
+
+        Spacer(Modifier.height(22.dp))
+        SectionTitle("Informações da conta")
+        Spacer(Modifier.height(10.dp))
+
+        OutlinedTextField(
+            value = nome,
+            onValueChange = { nome = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Nome completo") },
+            placeholder = { Text("Ex.: João Paulo Pereira") },
+            singleLine = true,
+            enabled = !carregando,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("E-mail de acesso") },
+            singleLine = true,
+            enabled = !carregando,
+        )
 
         Spacer(Modifier.height(22.dp))
         SectionTitle("Segurança", "A senha será usada para iniciar sessão neste perfil.")
@@ -178,7 +182,15 @@ fun AdminAccountForm(
             modifier = Modifier.fillMaxWidth(),
             enabled = !carregando,
         ) {
-            Text(if (carregando) "Cadastrando..." else "Criar conta")
+            Text(
+                if (carregando) {
+                    "Cadastrando..."
+                } else if (perfil == AccountProfile.SUPERVISOR) {
+                    "Criar conta de Supervisor"
+                } else {
+                    "Criar conta de Administrador"
+                },
+            )
         }
     }
 }
