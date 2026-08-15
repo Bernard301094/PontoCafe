@@ -63,9 +63,7 @@ class SupervisorRepository(
     private fun adminToken(): String? = adminSessionStore.read()?.takeIf { it.isNotBlank() }
 
     fun activeToken(): String? = supervisorToken() ?: adminToken()
-
     fun hasSession(): Boolean = activeToken() != null
-
     fun usingAdminSession(): Boolean = supervisorToken() == null && adminToken() != null
 
     suspend fun signIn(email: String, senha: String) {
@@ -115,11 +113,7 @@ class SupervisorRepository(
     }
 
     fun clearActiveSession() {
-        if (supervisorToken() != null) {
-            supervisorSessionStore.clear()
-        } else {
-            adminSessionStore.clear()
-        }
+        if (supervisorToken() != null) supervisorSessionStore.clear() else adminSessionStore.clear()
     }
 
     companion object {
@@ -132,10 +126,11 @@ object SupervisorApiClient {
         supervisorSessionStore: SecureAdminSessionStore,
         adminSessionStore: SecureAdminSessionStore,
     ): SupervisorRepository {
-        lateinit var repository: SupervisorRepository
         val authInterceptor = Interceptor { chain ->
+            val token = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
+                ?: adminSessionStore.read()?.takeIf { it.isNotBlank() }
             val request = chain.request().newBuilder().apply {
-                repository.activeToken()?.let { header("Authorization", "Bearer $it") }
+                token?.let { header("Authorization", "Bearer $it") }
             }.build()
             chain.proceed(request)
         }
@@ -149,11 +144,10 @@ object SupervisorApiClient {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
 
-        repository = SupervisorRepository(
+        return SupervisorRepository(
             api = retrofit.create(SupervisorApi::class.java),
             supervisorSessionStore = supervisorSessionStore,
             adminSessionStore = adminSessionStore,
         )
-        return repository
     }
 }
