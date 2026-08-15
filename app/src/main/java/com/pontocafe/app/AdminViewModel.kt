@@ -243,6 +243,38 @@ class AdminViewModel(
         }
     }
 
+    fun editarColaborador(colaborador: Colaborador, nome: String, setor: String, turno: String) {
+        val cleanName = nome.trim()
+        if (cleanName.length < 2) {
+            state = state.copy(erro = "Informe o nome do colaborador.")
+            return
+        }
+
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching {
+                repository.updateCollaborator(
+                    collaboratorId = colaborador.id,
+                    name = cleanName,
+                    sector = setor,
+                    shift = turno,
+                )
+            }.onSuccess { atualizado ->
+                state = state.copy(
+                    carregando = false,
+                    colaboradores = state.colaboradores
+                        .map { if (it.id == atualizado.id) atualizado else it }
+                        .sortedBy { it.nome.lowercase() },
+                    colaboradorSelecionado = if (state.colaboradorSelecionado?.id == atualizado.id) atualizado else state.colaboradorSelecionado,
+                    mensagem = "Dados de ${atualizado.nome} atualizados com sucesso.",
+                    erro = null,
+                )
+            }.onFailure {
+                state = state.copy(carregando = false, erro = AdminRepository.message(it))
+            }
+        }
+    }
+
     fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
         biometricSamples.clear()
         state = state.copy(
