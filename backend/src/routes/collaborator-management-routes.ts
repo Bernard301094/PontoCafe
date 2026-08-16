@@ -151,7 +151,10 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     }, 400)
   }
 
-  const duplicateThreshold = Math.max(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
+  // Se um rosto já seria reconhecido como outra pessoa no Ponto, ele não pode
+  // ser aceito como uma nova identidade. O limiar de unicidade nunca pode ser
+  // mais permissivo que o limiar real de reconhecimento.
+  const duplicateThreshold = Math.min(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
   const actor = c.get('user')
 
   const result = await transaction(async (client) => {
@@ -165,6 +168,58 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     )
     const current = collaborator.rows[0]
     if (!current) return { status: 'NOT_FOUND' as const }
+
+    const currentBiometric = await client.query<{
+      template_cifrado: Buffer
+      iv: Buffer
+      auth_tag: Buffer
+      dimensao: number
+      modelo: string
+      versao_modelo: string
+    }>(
+      `select template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo
+         from templates_faciais
+        where colaborador_id=$1
+        limit 1`,
+      [colaboradorId],
+    )
+    const previousFace = currentBiometric.rows[0]
+
+    let continuityEvidence: ReturnType<typeof evaluateDuplicateBiometric> | null = null
+    if (previousFace) {
+      if (
+        previousFace.dimensao !== expectedDimension ||
+        previousFace.modelo !== body.data.modelo ||
+        previousFace.versao_modelo !== body.data.versaoModelo
+      ) {
+        return { status: 'CURRENT_MODEL_MISMATCH' as const }
+      }
+
+      try {
+        const storedCurrent = decryptEmbedding(previousFace.template_cifrado, previousFace.iv, previousFace.auth_tag)
+        if (storedCurrent.length !== previousFace.dimensao) {
+          return { status: 'CURRENT_BIOMETRIC_INVALID' as const }
+        }
+
+        const consolidatedScore = cosineSimilarity(storedCurrent, body.data.embedding)
+        const sampleScores = samples.map((sample) => cosineSimilarity(storedCurrent, sample))
+        continuityEvidence = evaluateDuplicateBiometric(consolidatedScore, sampleScores, config.faceThreshold)
+
+        if (!continuityEvidence.duplicate) {
+          return {
+            status: 'IDENTITY_CHANGED' as const,
+            continuity: continuityEvidence,
+          }
+        }
+      } catch (error) {
+        console.error(JSON.stringify({
+          evento: 'biometria_atual_invalida_ao_atualizar',
+          colaboradorId,
+          erro: error instanceof Error ? error.message : 'erro desconhecido',
+        }))
+        return { status: 'CURRENT_BIOMETRIC_INVALID' as const }
+      }
+    }
 
     const existing = await client.query<{
       colaborador_id: string
@@ -269,15 +324,49 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
           limiteDuplicidade: duplicateThreshold,
           limiteAmostraForte: policy.strongSampleThreshold,
           amostrasVerificadas: samples.length,
+          atualizacao: Boolean(previousFace),
+          continuidadeBiometricaVerificada: Boolean(previousFace),
+          similaridadeAnterior: continuityEvidence
+            ? Number(continuityEvidence.strongestScore.toFixed(4))
+            : null,
         }),
       ],
     )
 
-    return { status: 'OK' as const, nome: current.nome, strongSampleThreshold: policy.strongSampleThreshold }
+    return {
+      status: 'OK' as const,
+      nome: current.nome,
+      strongSampleThreshold: policy.strongSampleThreshold,
+      updatedExisting: Boolean(previousFace),
+    }
   })
 
   if (result.status === 'NOT_FOUND') {
     return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
+  }
+
+  if (result.status === 'CURRENT_MODEL_MISMATCH') {
+    return c.json({
+      erro: 'A biometria atual usa outro modelo facial. Exclua a biometria antiga explicitamente antes de cadastrar novamente.',
+      codigo: 'BIOMETRIC_CURRENT_MODEL_MISMATCH',
+    }, 409)
+  }
+
+  if (result.status === 'CURRENT_BIOMETRIC_INVALID') {
+    return c.json({
+      erro: 'A biometria atual não pôde ser validada com segurança. Exclua-a explicitamente antes de cadastrar uma nova.',
+      codigo: 'BIOMETRIC_CURRENT_TEMPLATE_INVALID',
+    }, 409)
+  }
+
+  if (result.status === 'IDENTITY_CHANGED') {
+    return c.json({
+      erro: 'O novo rosto não corresponde à biometria já cadastrada para este colaborador. A atualização foi bloqueada para impedir troca de identidade.',
+      codigo: 'BIOMETRIC_IDENTITY_CHANGED',
+      similaridade: Number(result.continuity.strongestScore.toFixed(4)),
+      limite: config.faceThreshold,
+      orientacao: 'Exclua a biometria atual explicitamente e só então cadastre novamente a pessoa correta.',
+    }, 409)
   }
 
   if (result.status === 'DUPLICATE') {
@@ -305,6 +394,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     amostrasConsolidadas: 5,
     amostrasVerificadas: samples.length,
     verificacaoDuplicidade: true,
+    continuidadeBiometricaVerificada: result.updatedExisting,
     limiteDuplicidade: duplicateThreshold,
     limiteAmostraForte: result.strongSampleThreshold,
   })
