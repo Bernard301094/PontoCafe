@@ -10,7 +10,7 @@ import {
   isValidDeviceRegistrationIdempotencyKey,
   normalizeDeviceRegistrationName,
 } from '../device-registration-idempotency.js'
-import { errorPayload, logServerError } from '../observability.js'
+import { errorPayload, logServerError, safeErrorDescriptor } from '../observability.js'
 import { hashDeviceUnlockPin, hashToken, newDeviceToken, newId } from '../security.js'
 import { parseJson } from './shared.js'
 
@@ -35,28 +35,35 @@ type DeviceRegistrationRow = {
 deviceActivationRoutes.post('/device-activation', async (c) => {
   const body = await parseJson(c, z.object({
     nome: z.string().trim().min(2).max(120),
-    pin: z.string().trim().regex(/^\d{4,12}$/).optional(),
+    pin: z.string().trim().regex(/^\d{4,12}$/),
   }))
   if (!body.ok) return body.response
 
   const incomingIdempotencyKey = c.req.header('Idempotency-Key')?.trim()
-  if (incomingIdempotencyKey && !isValidDeviceRegistrationIdempotencyKey(incomingIdempotencyKey)) {
+  if (!incomingIdempotencyKey) {
+    return c.json(
+      errorPayload(
+        c,
+        'A chave de idempotência é obrigatória para cadastrar um dispositivo.',
+        'IDEMPOTENCY_KEY_REQUIRED',
+      ),
+      400,
+    )
+  }
+  if (!isValidDeviceRegistrationIdempotencyKey(incomingIdempotencyKey)) {
     return c.json(
       errorPayload(c, 'Chave de idempotência inválida.', 'INVALID_IDEMPOTENCY_KEY'),
       400,
     )
   }
 
-  // Mantém compatibilidade com APKs anteriores. O APK atual sempre envia a chave;
-  // clientes legados recebem uma chave efêmera no servidor e continuam funcionando,
-  // porém sem replay entre chamadas distintas.
-  const idempotencyKey = incomingIdempotencyKey || `legacy:${newId()}`
+  const idempotencyKey = incomingIdempotencyKey
   const actor = c.get('user')
   const deviceName = normalizeDeviceRegistrationName(body.data.nome)
   const fingerprint = deviceRegistrationFingerprint(
     actor.id,
     deviceName,
-    body.data.pin ?? null,
+    body.data.pin,
     config.codePepper,
   )
 
@@ -64,7 +71,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
     const deviceId = newId()
     const requestNonce = newId()
     const token = newDeviceToken(10)
-    const unlockPinHash = body.data.pin ? hashDeviceUnlockPin(deviceId, body.data.pin) : null
+    const unlockPinHash = hashDeviceUnlockPin(deviceId, body.data.pin)
     let stage = 'DEVICE_CRYPTO'
 
     try {
@@ -122,7 +129,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
              $10,
              $11,
              $12,
-             case when $12 is null then null else now() end
+             now()
            from idempotencia
            where request_nonce=$4::uuid
            returning id,nome
@@ -177,7 +184,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
           unlockPinHash,
           JSON.stringify({
             nome: deviceName,
-            pinConfigurado: unlockPinHash !== null,
+            pinConfigurado: true,
             idempotencia: true,
           }),
         ],
@@ -211,6 +218,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
 
       let responseToken = token
       if (!registration.criado_agora) {
+        stage = 'DEVICE_REPLAY_DECRYPT'
         responseToken = decryptDeviceRegistrationToken(
           registration.token_ciphertext,
           registration.token_iv,
@@ -229,32 +237,44 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
         id: registration.dispositivo_id,
         nome: registration.nome_criado || deviceName,
         token: responseToken,
-        pinConfigurado: unlockPinHash !== null,
+        pinConfigurado: true,
         replayIdempotente: !registration.criado_agora,
         aviso: 'Este código de ativação de 10 caracteres é exibido uma única vez.',
         requestId: c.get('requestId'),
-      }, registration.http_status === 201 ? 201 : 200)
+      }, registration.criado_agora ? 201 : 200)
     } catch (error) {
       const databaseError = error as { code?: string; constraint?: string }
       const tokenCollision = databaseError.code === '23505' && databaseError.constraint === 'dispositivos_token_hash_key'
       if (tokenCollision && attempt < 2) continue
 
+      const descriptor = safeErrorDescriptor(error)
       logServerError(c, 'device_create_failure', error, {
         stage,
         attempt: attempt + 1,
         tokenCollision,
-        idempotencyProvided: Boolean(incomingIdempotencyKey),
+        idempotencyProvided: true,
       })
+
+      const diagnosticCode = tokenCollision ? 'DEVICE_TOKEN_COLLISION' : 'DEVICE_CREATE_FAILED'
+      const diagnosticMessage = tokenCollision
+        ? 'Não foi possível gerar um código de ativação único.'
+        : `Não foi possível criar o dispositivo. Diagnóstico ${stage}/${descriptor.code}.`
+
       return c.json(
-        errorPayload(
-          c,
-          'Não foi possível criar o dispositivo. Tente novamente em alguns segundos.',
-          tokenCollision ? 'DEVICE_TOKEN_COLLISION' : 'DEVICE_CREATE_FAILED',
-        ),
+        errorPayload(c, diagnosticMessage, diagnosticCode, {
+          diagnostico: {
+            etapa: stage,
+            tipo: descriptor.code,
+            codigoBanco: descriptor.databaseCode,
+          },
+        }),
         500,
       )
     }
   }
 
-  return c.json(errorPayload(c, 'Não foi possível gerar um código de ativação único.', 'DEVICE_TOKEN_COLLISION'), 500)
+  return c.json(
+    errorPayload(c, 'Não foi possível gerar um código de ativação único.', 'DEVICE_TOKEN_COLLISION'),
+    500,
+  )
 })
