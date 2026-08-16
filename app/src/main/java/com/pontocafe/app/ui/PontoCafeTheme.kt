@@ -60,10 +60,19 @@ private val PremiumColors = darkColorScheme(
     onSurface = PontoCafePremium.textPrimary,
     surfaceVariant = PontoCafePremium.glassSoft,
     onSurfaceVariant = PontoCafePremium.textSecondary,
+    surfaceDim = Color(0xFF06100D),
+    surfaceBright = Color(0xFF253631),
+    surfaceContainerLowest = Color(0xB3070E0C),
+    surfaceContainerLow = Color(0xCC0D1714),
+    surfaceContainer = Color(0xE6121D19),
+    surfaceContainerHigh = Color(0xF0182420),
+    surfaceContainerHighest = Color(0xFF1E2B27),
+    surfaceTint = Color(0xFF8DE6C8),
     outline = Color(0xFF51645D),
     outlineVariant = PontoCafePremium.borderSoft,
     inverseSurface = Color(0xFFE5ECE9),
     inverseOnSurface = Color(0xFF1D2A26),
+    scrim = Color(0xCC000000),
 )
 
 @Immutable
