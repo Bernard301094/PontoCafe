@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SupervisorAccount
@@ -29,16 +30,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
+import com.pontocafe.app.data.SecureAdminSessionStore
 
 @Composable
 fun SupervisorLoginScreenV2(
     viewModel: SupervisorViewModel,
     onClose: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val sessionStore = remember(context) {
+        SecureAdminSessionStore(context.applicationContext, "supervisor")
+    }
     val state = viewModel.state
-    var email by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf(sessionStore.loginEmailSuggestion()) }
     var password by remember { mutableStateOf("") }
 
     Column(
@@ -92,6 +100,7 @@ fun SupervisorLoginScreenV2(
                 label = { Text("E-mail") },
                 singleLine = true,
                 enabled = !state.carregando,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
             SecurePasswordField(
                 value = password,
@@ -110,7 +119,10 @@ fun SupervisorLoginScreenV2(
                 }
             }
             Button(
-                onClick = { viewModel.login(email, password) },
+                onClick = {
+                    sessionStore.prepareLogin(email, "SUPERVISOR")
+                    viewModel.login(email, password)
+                },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.carregando && email.isNotBlank() && password.length >= 10,
             ) {
@@ -125,7 +137,7 @@ fun SupervisorLoginScreenV2(
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Text(
-                "Se esta conta já estiver salva, o retorno à área de Supervisor poderá usar a biometria ou o bloqueio do próprio celular.",
+                "Depois do login, esta conta ficará disponível no seletor do aparelho. O token é cifrado e a senha nunca é salva.",
                 modifier = Modifier.padding(PontoCafeSpacing.md),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
