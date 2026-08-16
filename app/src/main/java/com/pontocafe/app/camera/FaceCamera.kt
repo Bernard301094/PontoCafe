@@ -236,6 +236,7 @@ private fun FacePositionGuide(modifier: Modifier = Modifier) {
 fun FaceCameraPreview(
     modifier: Modifier = Modifier,
     captureController: FrameCaptureController,
+    showPositionGuide: Boolean = true,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
 ) {
@@ -267,7 +268,9 @@ fun FaceCameraPreview(
                 }
             },
         )
-        FacePositionGuide(Modifier.fillMaxSize())
+        if (showPositionGuide) {
+            FacePositionGuide(Modifier.fillMaxSize())
+        }
     }
 
     LaunchedEffect(previewView, lifecycleOwner) {
