@@ -33,7 +33,7 @@ app.use('*', requestIdMiddleware())
 app.use('*', secureHeaders())
 app.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version', 'X-Request-Id'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version', 'X-Request-Id', 'Idempotency-Key'],
   exposeHeaders: ['set-auth-token', 'X-Request-Id', 'Server-Timing'],
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
@@ -121,6 +121,7 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
 app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0', requestId: c.get('requestId') }))
 app.get('/app-status', (c) => c.json({
   apiVersion: '0.7.0',
+  backendRevision: config.backendRevision,
   latestAndroidVersion: config.latestAndroidVersion,
   minimumAndroidVersion: config.minimumAndroidVersion,
   timezone: config.appTimezone,
