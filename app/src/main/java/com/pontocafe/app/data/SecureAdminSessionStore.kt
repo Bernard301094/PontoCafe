@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -68,7 +69,11 @@ class SecureAdminSessionStore(
             val displayName = existing?.name?.takeIf { it.isNotBlank() }
                 ?: pendingEmail.substringBefore('@').replace('.', ' ').replace('_', ' ')
                     .split(' ').filter { it.isNotBlank() }
-                    .joinToString(" ") { part -> part.replaceFirstChar(Char::uppercase) }
+                    .joinToString(" ") { part ->
+                        part.replaceFirstChar { char ->
+                            if (char.isLowerCase()) char.titlecase() else char.toString()
+                        }
+                    }
                     .ifBlank { pendingEmail }
             saveAccount(
                 accountId = accountId,
@@ -206,7 +211,10 @@ class SecureAdminSessionStore(
     }
 
     private fun accountStorageSuffix(accountId: String): String =
-        accountId.lowercase().replace(Regex("[^a-z0-9_-]"), "_")
+        MessageDigest.getInstance("SHA-256")
+            .digest(accountId.trim().lowercase().toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun accountMetadataKey(accountId: String) =
         "${safeNamespace}_account_${accountStorageSuffix(accountId)}_meta"
