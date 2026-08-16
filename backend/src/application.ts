@@ -146,7 +146,6 @@ app.route('/setup', setupRoutes)
 app.route('/admin', deviceActivationRoutes)
 app.route('/admin', deviceManagementRoutes)
 app.route('/admin', userManagementRoutes)
-// Rotas 0.7 ficam antes das rotas legadas equivalentes para manter compatibilidade sem duplicar comportamento.
 app.route('/admin', coffeeRuleRoutes)
 app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminRoutes)
