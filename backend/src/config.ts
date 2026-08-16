@@ -22,6 +22,14 @@ function versionEnv(name: string, fallback: string): string {
   return value
 }
 
+function revisionEnv(name: string, fallback: string): string {
+  const value = process.env[name]?.trim() || fallback
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(value)) {
+    throw new Error(`Variável inválida: ${name}.`)
+  }
+  return value
+}
+
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   appTimezone: process.env.APP_TIMEZONE?.trim() || 'America/Fortaleza',
@@ -36,8 +44,10 @@ export const config = {
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180, 30, 900),
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
   biometricRetentionDays: numberEnv('BIOMETRIC_RETENTION_DAYS', 90, 1, 3650),
+  deviceRegistrationIdempotencyTtlSeconds: numberEnv('DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS', 600, 60, 900),
   latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '0.7.0'),
   minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.4.0'),
+  backendRevision: revisionEnv('BACKEND_REVISION', 'dev'),
 }
 
 export function biometricKey(): Buffer {
