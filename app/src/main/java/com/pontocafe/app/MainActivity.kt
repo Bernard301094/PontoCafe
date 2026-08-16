@@ -151,6 +151,13 @@ class MainActivity : FragmentActivity() {
                         restrictedLocked = mustLock
                     }
 
+                    fun openAccountSelector() {
+                        areaRestrita = AreaRestrita.LOGIN
+                        restrictedLocked = false
+                        navigationStore.saveArea(AreaRestrita.LOGIN.name)
+                        navigationStore.setRestrictedLocked(false)
+                    }
+
                     fun backToPonto() {
                         sincronizarCatalogoAoVoltar = true
                         areaRestrita = null
@@ -194,8 +201,16 @@ class MainActivity : FragmentActivity() {
                     } else {
                         when (areaRestrita) {
                             AreaRestrita.ADMIN -> {
-                                val adminVm: AdminViewModel = viewModel(key = "admin", factory = adminFactory)
-                                val adminDeviceVm: AdminDeviceViewModel = viewModel(key = "admin-devices", factory = adminDeviceFactory)
+                                val adminAccountScope = adminSessionStore.activeAccountId()
+                                    ?: if (adminSessionStore.hasToken()) "legacy" else "login"
+                                val adminVm: AdminViewModel = viewModel(
+                                    key = "admin:$adminAccountScope",
+                                    factory = adminFactory,
+                                )
+                                val adminDeviceVm: AdminDeviceViewModel = viewModel(
+                                    key = "admin-devices:$adminAccountScope",
+                                    factory = adminDeviceFactory,
+                                )
                                 val reliabilityFactory = remember(adminVm) {
                                     AdminReliabilityViewModelFactory {
                                         AdminReliabilityViewModel(
@@ -208,7 +223,7 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
                                 val reliabilityVm: AdminReliabilityViewModel = viewModel(
-                                    key = "admin-reliability",
+                                    key = "admin-reliability:$adminAccountScope",
                                     factory = reliabilityFactory,
                                 )
 
@@ -280,7 +295,12 @@ class MainActivity : FragmentActivity() {
                             }
 
                             AreaRestrita.SUPERVISOR -> {
-                                val supervisorVm: SupervisorViewModel = viewModel(key = "supervisor", factory = supervisorFactory)
+                                val supervisorAccountScope = supervisorSessionStore.activeAccountId()
+                                    ?: if (supervisorSessionStore.hasToken()) "legacy" else "login"
+                                val supervisorVm: SupervisorViewModel = viewModel(
+                                    key = "supervisor:$supervisorAccountScope",
+                                    factory = supervisorFactory,
+                                )
                                 SupervisorAreaShell(supervisorVm, onClose = ::backToPonto)
                             }
 
@@ -320,12 +340,9 @@ class MainActivity : FragmentActivity() {
                                         viewModel = vm,
                                         hasAdminSession = adminSessionDisponivel,
                                         hasSupervisorSession = supervisorSessionDisponivel,
-                                        onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
-                                        onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
-                                        onLoginModeClick = {
-                                            areaRestrita = AreaRestrita.LOGIN
-                                            navigationStore.saveArea(AreaRestrita.LOGIN.name)
-                                        },
+                                        onAdminClick = ::openAccountSelector,
+                                        onSupervisorClick = ::openAccountSelector,
+                                        onLoginModeClick = ::openAccountSelector,
                                     )
                                 }
                             }
