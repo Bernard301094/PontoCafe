@@ -8,6 +8,10 @@ const android = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/data/AdminApiClient.kt', import.meta.url),
   'utf8',
 )
+const androidViewModel = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/AdminDeviceViewModel.kt', import.meta.url),
+  'utf8',
+)
 
 test('cadastro de dispositivo continua restrito a ADMIN', () => {
   assert.match(route, /requireUser, requireRole\('ADMIN'\)/)
@@ -49,5 +53,13 @@ test('migração guarda somente token cifrado para replay temporário', () => {
 test('Android envia Idempotency-Key no endpoint administrativo existente', () => {
   assert.match(android, /@POST\("admin\/device-activation"\)/)
   assert.match(android, /@Header\("Idempotency-Key"\) idempotencyKey: String/)
-  assert.match(android, /UUID\.randomUUID\(\)\.toString\(\)/)
+})
+
+test('Android reutiliza a mesma chave enquanto repete o mesmo cadastro após falha transitória', () => {
+  assert.match(androidViewModel, /pendingRegistrationKey: String\? = null/)
+  assert.match(androidViewModel, /pendingRegistrationFingerprint: String\? = null/)
+  assert.match(androidViewModel, /UUID\.randomUUID\(\)\.toString\(\)/)
+  assert.match(androidViewModel, /repository\.createDevice\(cleanName, cleanPin, idempotencyKey\)/)
+  assert.match(androidViewModel, /shouldDiscardPendingRegistration\(error\)/)
+  assert.match(androidViewModel, /error\.code\(\) in setOf\(400, 409, 422\)/)
 })
