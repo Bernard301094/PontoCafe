@@ -30,7 +30,8 @@ fun SupervisorAreaShell(
     viewModel: SupervisorViewModel,
     onClose: () -> Unit,
 ) {
-    val current = when (viewModel.state.destination) {
+    val state = viewModel.state
+    val current = when (state.destination) {
         SupervisorDestination.AO_VIVO -> SupervisorPrimaryDestination.LIVE
         SupervisorDestination.COLABORADORES -> SupervisorPrimaryDestination.PEOPLE
         SupervisorDestination.RELATORIOS -> SupervisorPrimaryDestination.REPORTS
@@ -39,7 +40,7 @@ fun SupervisorAreaShell(
 
     if (current == null) {
         AnimatedContent(
-            targetState = viewModel.state.destination,
+            targetState = state.destination,
             transitionSpec = {
                 (fadeIn(tween(PontoCafeMotion.Standard)) +
                     slideInHorizontally(
@@ -111,8 +112,34 @@ fun SupervisorAreaShell(
             label = "supervisor-primary-navigation",
         ) { destination ->
             when (destination) {
-                SupervisorPrimaryDestination.LIVE -> SupervisorLiveScreenV2(viewModel, onClose)
-                SupervisorPrimaryDestination.PEOPLE -> SupervisorPeopleScreenV2(viewModel)
+                SupervisorPrimaryDestination.LIVE -> {
+                    val loadingInitialLive = state.carregando &&
+                        state.pausasAtivas.isEmpty() &&
+                        state.ultimaAtualizacaoAoVivoEmMillis == null
+                    if (loadingInitialLive) {
+                        PontoCafeListSkeletonScreen(
+                            title = "Ao vivo",
+                            eyebrow = "Supervisor",
+                            rows = 3,
+                            showMetrics = true,
+                        )
+                    } else {
+                        SupervisorLiveScreenV2(viewModel, onClose)
+                    }
+                }
+                SupervisorPrimaryDestination.PEOPLE -> {
+                    val loadingInitialPeople = state.carregando && state.colaboradores.isEmpty()
+                    if (loadingInitialPeople) {
+                        PontoCafeListSkeletonScreen(
+                            title = "Pessoas",
+                            eyebrow = "Supervisor",
+                            rows = 5,
+                            showMetrics = true,
+                        )
+                    } else {
+                        SupervisorPeopleScreenV2(viewModel)
+                    }
+                }
                 SupervisorPrimaryDestination.REPORTS -> SupervisorArea(viewModel, onClose)
             }
         }
