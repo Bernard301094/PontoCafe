@@ -26,6 +26,13 @@ test('criação idempotente usa uma única query CTE sem transaction manual', ()
   assert.doesNotMatch(route, /client\.query\(['"]BEGIN/i)
 })
 
+test('UUIDs permanecem UUID dentro do CTE antes das comparações', () => {
+  assert.doesNotMatch(route, /request_nonce::text/i)
+  assert.doesNotMatch(route, /dispositivo_id::text,\s*token_ciphertext/i)
+  assert.match(route, /where request_nonce=\$4::uuid/i)
+  assert.match(route, /\(i\.request_nonce=\$4::uuid\) as criado_agora/i)
+})
+
 test('replay não pode criar nova auditoria quando request_nonce não pertence à tentativa', () => {
   assert.match(route, /from idempotencia\s+where request_nonce=\$4::uuid/i)
   assert.match(route, /from novo_dispositivo\s+returning id/i)
