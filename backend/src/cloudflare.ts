@@ -13,8 +13,10 @@ type WorkerEnv = {
   FACE_VERIFICATION_TTL_SECONDS?: string
   OFFLINE_MAX_EVENT_AGE_HOURS?: string
   BIOMETRIC_RETENTION_DAYS?: string
+  DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS?: string
   APP_LATEST_ANDROID_VERSION?: string
   APP_MIN_ANDROID_VERSION?: string
+  BACKEND_REVISION?: string
 }
 
 type BootStage = 'environment' | 'config' | 'db' | 'auth' | 'application'
@@ -50,8 +52,10 @@ const textBindingNames = [
   'FACE_VERIFICATION_TTL_SECONDS',
   'OFFLINE_MAX_EVENT_AGE_HOURS',
   'BIOMETRIC_RETENTION_DAYS',
+  'DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS',
   'APP_LATEST_ANDROID_VERSION',
   'APP_MIN_ANDROID_VERSION',
+  'BACKEND_REVISION',
 ] as const satisfies ReadonlyArray<keyof WorkerEnv>
 
 function safeBindingDiagnostics(env: WorkerEnv) {
@@ -111,9 +115,10 @@ async function runScheduledMaintenance(env: WorkerEnv): Promise<void> {
   bootStage = 'db'
   const { withRequestDatabase } = await import('./db.js')
   await withRequestDatabase(connectionString, async () => {
-    const { cleanupExpiredBiometrics } = await import('./maintenance.js')
-    const result = await cleanupExpiredBiometrics()
-    console.log(JSON.stringify({ evento: 'biometric_retention_maintenance', ...result }))
+    const { cleanupExpiredBiometrics, cleanupExpiredDeviceRegistrations } = await import('./maintenance.js')
+    const deviceRegistrations = await cleanupExpiredDeviceRegistrations()
+    const biometrics = await cleanupExpiredBiometrics()
+    console.log(JSON.stringify({ evento: 'scheduled_maintenance', deviceRegistrations, biometrics }))
   })
 }
 
