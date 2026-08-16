@@ -1,6 +1,13 @@
 package com.pontocafe.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -68,45 +75,66 @@ fun AdminArea(
 
     if (showingDevices) {
         BackHandler { setDevicesOpen(false) }
-        AdminDevicesScreenV2(
-            viewModel = deviceViewModel,
-            onBack = { setDevicesOpen(false) },
-        )
+        MotionReveal {
+            AdminDevicesScreenV2(
+                viewModel = deviceViewModel,
+                onBack = { setDevicesOpen(false) },
+            )
+        }
         return
     }
 
     if (showingKiosk) {
         BackHandler { setKioskOpen(false) }
-        KioskModeScreen(
-            activity = activity,
-            store = kioskModeStore,
-            onBack = { setKioskOpen(false) },
-        )
+        MotionReveal {
+            KioskModeScreen(
+                activity = activity,
+                store = kioskModeStore,
+                onBack = { setKioskOpen(false) },
+            )
+        }
         return
     }
 
     if (reliabilityDestination != ReliabilityDestination.NONE) {
         BackHandler { reliabilityViewModel.closeDetail() }
-        when (reliabilityDestination) {
-            ReliabilityDestination.COLLABORATOR_HISTORY -> CollaboratorHistoryScreen(
-                viewModel = viewModel,
-                reliabilityViewModel = reliabilityViewModel,
-                onBack = reliabilityViewModel::closeDetail,
-            )
-            ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> BiometricDiagnosticsScreen(
-                adminViewModel = viewModel,
-                viewModel = reliabilityViewModel,
-                onBack = reliabilityViewModel::closeDetail,
-            )
-            ReliabilityDestination.SYNC_CENTER -> SyncCenterScreen(
-                viewModel = reliabilityViewModel,
-                onBack = reliabilityViewModel::closeDetail,
-            )
-            ReliabilityDestination.SYSTEM_DIAGNOSTICS -> SystemDiagnosticsScreen(
-                viewModel = reliabilityViewModel,
-                onBack = reliabilityViewModel::closeDetail,
-            )
-            ReliabilityDestination.NONE -> Unit
+        AnimatedContent(
+            targetState = reliabilityDestination,
+            transitionSpec = {
+                (fadeIn(tween(PontoCafeMotion.Standard)) +
+                    slideInHorizontally(
+                        animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+                        initialOffsetX = { it / 12 },
+                    )) togetherWith
+                    (fadeOut(tween(PontoCafeMotion.Quick)) +
+                        slideOutHorizontally(
+                            animationSpec = tween(PontoCafeMotion.Standard),
+                            targetOffsetX = { -it / 18 },
+                        ))
+            },
+            label = "admin-reliability-navigation",
+        ) { destination ->
+            when (destination) {
+                ReliabilityDestination.COLLABORATOR_HISTORY -> CollaboratorHistoryScreen(
+                    viewModel = viewModel,
+                    reliabilityViewModel = reliabilityViewModel,
+                    onBack = reliabilityViewModel::closeDetail,
+                )
+                ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> BiometricDiagnosticsScreen(
+                    adminViewModel = viewModel,
+                    viewModel = reliabilityViewModel,
+                    onBack = reliabilityViewModel::closeDetail,
+                )
+                ReliabilityDestination.SYNC_CENTER -> SyncCenterScreen(
+                    viewModel = reliabilityViewModel,
+                    onBack = reliabilityViewModel::closeDetail,
+                )
+                ReliabilityDestination.SYSTEM_DIAGNOSTICS -> SystemDiagnosticsScreen(
+                    viewModel = reliabilityViewModel,
+                    onBack = reliabilityViewModel::closeDetail,
+                )
+                ReliabilityDestination.NONE -> Unit
+            }
         }
         return
     }
@@ -168,42 +196,79 @@ fun AdminArea(
                 }
             },
         ) {
-            when (rootDestination) {
-                AdminPrimaryDestination.HOME -> AdminPanelScreen(
-                    viewModel = viewModel,
-                    onClose = onClose,
-                    onDevicesClick = { setDevicesOpen(true) },
-                )
-                AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV3(
-                    viewModel = viewModel,
-                    reliabilityViewModel = reliabilityViewModel,
-                )
-                AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
-                    viewModel = viewModel,
-                    reliabilityViewModel = reliabilityViewModel,
-                    onDevicesClick = { setDevicesOpen(true) },
-                    onSyncClick = reliabilityViewModel::openSyncCenter,
-                    onKioskClick = { setKioskOpen(true) },
-                )
+            AnimatedContent(
+                targetState = rootDestination,
+                transitionSpec = {
+                    val forward = targetState.ordinal >= initialState.ordinal
+                    val enterOffset: (Int) -> Int = { width -> if (forward) width / 12 else -width / 12 }
+                    val exitOffset: (Int) -> Int = { width -> if (forward) -width / 18 else width / 18 }
+                    (fadeIn(tween(PontoCafeMotion.Standard)) +
+                        slideInHorizontally(
+                            animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+                            initialOffsetX = enterOffset,
+                        )) togetherWith
+                        (fadeOut(tween(PontoCafeMotion.Quick)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(PontoCafeMotion.Standard),
+                                targetOffsetX = exitOffset,
+                            ))
+                },
+                label = "admin-primary-navigation",
+            ) { destination ->
+                when (destination) {
+                    AdminPrimaryDestination.HOME -> AdminPanelScreen(
+                        viewModel = viewModel,
+                        onClose = onClose,
+                        onDevicesClick = { setDevicesOpen(true) },
+                    )
+                    AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV3(
+                        viewModel = viewModel,
+                        reliabilityViewModel = reliabilityViewModel,
+                    )
+                    AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
+                        viewModel = viewModel,
+                        reliabilityViewModel = reliabilityViewModel,
+                        onDevicesClick = { setDevicesOpen(true) },
+                        onSyncClick = reliabilityViewModel::openSyncCenter,
+                        onKioskClick = { setKioskOpen(true) },
+                    )
+                }
             }
         }
         return
     }
 
-    when (viewModel.state.destination) {
-        AdminDestination.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+    AnimatedContent(
+        targetState = viewModel.state.destination,
+        transitionSpec = {
+            (fadeIn(tween(PontoCafeMotion.Standard)) +
+                slideInHorizontally(
+                    animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+                    initialOffsetX = { it / 12 },
+                )) togetherWith
+                (fadeOut(tween(PontoCafeMotion.Quick)) +
+                    slideOutHorizontally(
+                        animationSpec = tween(PontoCafeMotion.Standard),
+                        targetOffsetX = { -it / 18 },
+                    ))
+        },
+        label = "admin-detail-navigation",
+    ) { destination ->
+        when (destination) {
+            AdminDestination.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            AdminDestination.LOGIN -> AdminLoginScreen(viewModel, onClose)
+            AdminDestination.FIRST_SETUP -> FirstAdminSetupScreen(viewModel, onClose)
+            AdminDestination.NEW_ACCOUNT -> AdminNewAccountScreen(viewModel)
+            AdminDestination.USER_DETAIL -> AdminUserDetailScreen(viewModel)
+            AdminDestination.AUTHORIZATION -> AdminAuthorizationScreen(viewModel)
+            AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
+            AdminDestination.BIOMETRIC_ENROLLMENT -> AdminBiometricEnrollmentScreen(viewModel)
+            AdminDestination.AUDIT -> AdminAuditScreen(viewModel)
+            AdminDestination.HOME,
+            AdminDestination.COLLABORATORS,
+            AdminDestination.SETTINGS -> Unit
         }
-        AdminDestination.LOGIN -> AdminLoginScreen(viewModel, onClose)
-        AdminDestination.FIRST_SETUP -> FirstAdminSetupScreen(viewModel, onClose)
-        AdminDestination.NEW_ACCOUNT -> AdminNewAccountScreen(viewModel)
-        AdminDestination.USER_DETAIL -> AdminUserDetailScreen(viewModel)
-        AdminDestination.AUTHORIZATION -> AdminAuthorizationScreen(viewModel)
-        AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
-        AdminDestination.BIOMETRIC_ENROLLMENT -> AdminBiometricEnrollmentScreen(viewModel)
-        AdminDestination.AUDIT -> AdminAuditScreen(viewModel)
-        AdminDestination.HOME,
-        AdminDestination.COLLABORATORS,
-        AdminDestination.SETTINGS -> Unit
     }
 }
