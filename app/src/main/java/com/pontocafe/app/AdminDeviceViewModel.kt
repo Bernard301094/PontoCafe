@@ -10,9 +10,12 @@ import com.pontocafe.app.data.AdminDevice
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AppStatusResponse
 import com.pontocafe.app.data.SystemHealthResponse
+import java.security.MessageDigest
+import java.util.UUID
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 
 data class AdminDeviceUiState(
@@ -33,6 +36,9 @@ class AdminDeviceViewModel(
 ) : ViewModel() {
     var state by mutableStateOf(AdminDeviceUiState())
         private set
+
+    private var pendingRegistrationKey: String? = null
+    private var pendingRegistrationFingerprint: String? = null
 
     fun carregar() {
         viewModelScope.launch {
@@ -70,6 +76,29 @@ class AdminDeviceViewModel(
     private fun mensagemComRefresh(base: String, atualizado: Boolean): String =
         if (atualizado) base else "$base A lista não pôde ser atualizada agora; toque em Atualizar quando a conexão voltar."
 
+    private fun registrationFingerprint(nome: String, pin: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest("$nome\u0000$pin".toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+    }
+
+    private fun idempotencyKeyFor(nome: String, pin: String): String {
+        val fingerprint = registrationFingerprint(nome, pin)
+        if (pendingRegistrationKey == null || pendingRegistrationFingerprint != fingerprint) {
+            pendingRegistrationKey = UUID.randomUUID().toString()
+            pendingRegistrationFingerprint = fingerprint
+        }
+        return checkNotNull(pendingRegistrationKey)
+    }
+
+    private fun clearPendingRegistration() {
+        pendingRegistrationKey = null
+        pendingRegistrationFingerprint = null
+    }
+
+    private fun shouldDiscardPendingRegistration(error: Throwable): Boolean =
+        error is HttpException && error.code() in setOf(400, 409, 422)
+
     fun criarDispositivo(nome: String, pin: String) {
         val cleanName = nome.trim()
         val cleanPin = pin.trim()
@@ -82,10 +111,12 @@ class AdminDeviceViewModel(
             return
         }
 
+        val idempotencyKey = idempotencyKeyFor(cleanName, cleanPin)
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
-            runCatching { repository.createDevice(cleanName, cleanPin) }
+            runCatching { repository.createDevice(cleanName, cleanPin, idempotencyKey) }
                 .onSuccess { created ->
+                    clearPendingRegistration()
                     val (devices, refreshed) = atualizarListaOu(state.dispositivos)
                     state = state.copy(
                         carregando = false,
@@ -101,6 +132,7 @@ class AdminDeviceViewModel(
                     )
                 }
                 .onFailure { error ->
+                    if (shouldDiscardPendingRegistration(error)) clearPendingRegistration()
                     state = state.copy(carregando = false, erro = AdminRepository.message(error))
                 }
         }
