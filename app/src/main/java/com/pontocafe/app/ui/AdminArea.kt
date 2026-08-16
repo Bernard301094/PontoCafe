@@ -174,7 +174,7 @@ fun AdminArea(
                     onClose = onClose,
                     onDevicesClick = { setDevicesOpen(true) },
                 )
-                AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV2(
+                AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV3(
                     viewModel = viewModel,
                     reliabilityViewModel = reliabilityViewModel,
                 )
