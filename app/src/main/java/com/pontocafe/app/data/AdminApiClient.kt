@@ -1,7 +1,6 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
-import java.util.UUID
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.json.JSONObject
@@ -319,7 +318,7 @@ class AdminRepository(
     }
 
     suspend fun changeProfile(userId: String, profile: String) {
-        api.changeProfile(userId, profile)
+        api.changeProfile(userId, ChangeProfileRequest(profile))
         usersCache = null
         summaryCache = null
     }
@@ -338,9 +337,6 @@ class AdminRepository(
         summaryCache = null
         return created
     }
-
-    suspend fun createDevice(name: String, pin: String): DeviceCreatedResponse =
-        createDevice(name, pin, UUID.randomUUID().toString())
 
     suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos.also { devicesCache = it }
 
@@ -411,10 +407,6 @@ class AdminRepository(
         collaboratorsCache = null
         return updated
     }
-
-    @Deprecated("Matrícula não é mais utilizada")
-    suspend fun createCollaborator(registration: String?, name: String, sector: String?, shift: String?) =
-        createCollaborator(name, sector, shift)
 
     suspend fun saveBiometric(
         collaboratorId: String,
