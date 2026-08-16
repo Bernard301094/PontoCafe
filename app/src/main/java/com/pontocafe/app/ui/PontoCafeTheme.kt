@@ -54,7 +54,7 @@ private val PremiumColors = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xCC7B1F1A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF07100E),
+    background = Color.Transparent,
     onBackground = PontoCafePremium.textPrimary,
     surface = PontoCafePremium.glass,
     onSurface = PontoCafePremium.textPrimary,
@@ -220,7 +220,8 @@ fun PontoCafeTheme(content: @Composable () -> Unit) {
             colorScheme = PremiumColors,
             typography = PontoCafeTypography,
             shapes = PontoCafeShapes,
-            content = content,
-        )
+        ) {
+            PontoCafeAppBackground(content = content)
+        }
     }
 }
