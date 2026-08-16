@@ -30,12 +30,57 @@ class SecureAdminSessionStore(
     private val accountIdsKey = "${safeNamespace}_account_ids"
     private val activeAccountKey = "${safeNamespace}_active_account_id"
     private val newLoginModeKey = "${safeNamespace}_new_login_mode"
+    private val pendingEmailKey = "${safeNamespace}_pending_login_email"
+    private val pendingProfileKey = "${safeNamespace}_pending_login_profile"
 
     fun hasToken(): Boolean = read() != null
+
+    /**
+     * Prepara uma autenticação sem guardar senha. O e-mail serve apenas para
+     * identificar qual perfil local receberá a sessão cifrada se o login for aceito.
+     */
+    fun prepareLogin(email: String, profile: String) {
+        val normalizedEmail = email.trim().lowercase()
+        require(normalizedEmail.isNotBlank()) { "E-mail vazio." }
+        prefs.edit()
+            .putString(pendingEmailKey, normalizedEmail)
+            .putString(pendingProfileKey, profile.trim().uppercase())
+            .putBoolean(newLoginModeKey, true)
+            .apply()
+    }
+
+    fun loginEmailSuggestion(): String =
+        prefs.getString(pendingEmailKey, null)?.takeIf { it.isNotBlank() }
+            ?: activeAccount()?.email.orEmpty()
 
     fun save(token: String) {
         require(token.isNotBlank()) { "Sessão vazia." }
         val normalized = token.trim()
+        val pendingEmail = prefs.getString(pendingEmailKey, null)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val pendingProfile = prefs.getString(pendingProfileKey, null)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+
+        if (pendingEmail != null) {
+            val existing = savedAccounts().firstOrNull {
+                it.email.equals(pendingEmail, ignoreCase = true) &&
+                    (pendingProfile == null || it.profile.equals(pendingProfile, ignoreCase = true))
+            }
+            val accountId = existing?.id ?: pendingEmail
+            val displayName = existing?.name?.takeIf { it.isNotBlank() }
+                ?: pendingEmail.substringBefore('@').replace('.', ' ').replace('_', ' ')
+                    .split(' ').filter { it.isNotBlank() }
+                    .joinToString(" ") { part -> part.replaceFirstChar(Char::uppercase) }
+                    .ifBlank { pendingEmail }
+            saveAccount(
+                accountId = accountId,
+                name = displayName,
+                email = pendingEmail,
+                profile = pendingProfile ?: safeNamespace.uppercase(),
+                token = normalized,
+            )
+            prefs.edit().remove(pendingEmailKey).remove(pendingProfileKey).apply()
+            return
+        }
+
         val activeId = activeAccountId()
         val key = activeId?.let(::accountTokenKey) ?: legacyTokenKey
         prefs.edit().putString(key, encrypt(normalized)).apply()
@@ -84,6 +129,8 @@ class SecureAdminSessionStore(
         prefs.edit()
             .putString(activeAccountKey, account.id)
             .putBoolean(newLoginModeKey, false)
+            .remove(pendingEmailKey)
+            .remove(pendingProfileKey)
             .apply()
         return account.hasSession
     }
@@ -91,6 +138,8 @@ class SecureAdminSessionStore(
     fun beginNewLogin() {
         prefs.edit()
             .remove(activeAccountKey)
+            .remove(pendingEmailKey)
+            .remove(pendingProfileKey)
             .putBoolean(newLoginModeKey, true)
             .apply()
     }
@@ -100,7 +149,10 @@ class SecureAdminSessionStore(
         return prefs.getString(activeAccountKey, null)?.takeIf { it.isNotBlank() }
     }
 
-    fun activeAccount(): SavedRestrictedAccount? = activeAccountId()?.let(::readAccount)
+    fun activeAccount(): SavedRestrictedAccount? {
+        val id = prefs.getString(activeAccountKey, null)?.takeIf { it.isNotBlank() } ?: return null
+        return readAccount(id)
+    }
 
     fun forgetAccount(accountId: String) {
         val normalizedId = accountId.trim()
@@ -141,8 +193,8 @@ class SecureAdminSessionStore(
         val metadata = readEncrypted(accountMetadataKey(accountId)) ?: return null
         val json = runCatching { JSONObject(metadata) }.getOrNull() ?: return null
         val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
-        val name = json.optString("name").takeIf { it.isNotBlank() } ?: json.optString("email")
         val email = json.optString("email")
+        val name = json.optString("name").takeIf { it.isNotBlank() } ?: email
         val profile = json.optString("profile").ifBlank { safeNamespace.uppercase() }
         return SavedRestrictedAccount(
             id = id,
