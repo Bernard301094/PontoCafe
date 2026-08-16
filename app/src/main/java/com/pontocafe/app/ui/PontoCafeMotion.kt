@@ -15,7 +15,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 
@@ -57,8 +61,11 @@ fun MotionReveal(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    var mounted by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { mounted = true }
+
     AnimatedVisibility(
-        visible = visible,
+        visible = visible && mounted,
         modifier = modifier,
         enter = pontoEnterTransition(),
         exit = pontoExitTransition(),
