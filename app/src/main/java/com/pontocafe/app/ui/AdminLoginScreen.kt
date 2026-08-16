@@ -29,12 +29,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.data.SecureAdminSessionStore
 
 @Composable
 fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
-    var email by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val sessionStore = remember(context) {
+        SecureAdminSessionStore(context.applicationContext, "admin")
+    }
+    var email by remember { mutableStateOf(sessionStore.loginEmailSuggestion()) }
     var senha by remember { mutableStateOf("") }
     val state = viewModel.state
 
@@ -89,6 +97,7 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 label = { Text("E-mail") },
                 singleLine = true,
                 enabled = !state.carregando,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
             SecurePasswordField(
                 value = senha,
@@ -99,7 +108,10 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             )
             AdminFeedback(viewModel)
             Button(
-                onClick = { viewModel.login(email, senha) },
+                onClick = {
+                    sessionStore.prepareLogin(email, "ADMIN")
+                    viewModel.login(email, senha)
+                },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = email.isNotBlank() && senha.length >= 10 && !state.carregando,
             ) {
@@ -114,7 +126,7 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Text(
-                "Depois do primeiro login, a sessão pode permanecer aberta e o retorno à área protegida usa biometria ou o bloqueio do próprio celular.",
+                "Depois do login, esta conta aparecerá no seletor deste aparelho. O token fica cifrado pelo Android e a senha nunca é armazenada.",
                 modifier = Modifier.padding(PontoCafeSpacing.md),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
