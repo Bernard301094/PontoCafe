@@ -1,5 +1,14 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -95,17 +104,19 @@ fun SupervisorLiveScreenV2(
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
     ) {
         item(key = "header") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                PontoCafeScreenHeader(
-                    title = "Ao vivo",
-                    eyebrow = "Supervisor",
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = onClose) { Text("Ponto") }
+            MotionReveal {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    PontoCafeScreenHeader(
+                        title = "Ao vivo",
+                        eyebrow = "Supervisor",
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(onClick = onClose) { Text("Ponto") }
+                }
             }
         }
 
@@ -122,7 +133,9 @@ fun SupervisorLiveScreenV2(
         }
 
         alert?.let {
-            item(key = "live-alert-${it.id}") { SupervisorLiveActivityAlertBanner(it) }
+            item(key = "live-alert-${it.id}") {
+                MotionReveal { SupervisorLiveActivityAlertBanner(it) }
+            }
         }
 
         item(key = "metrics") {
@@ -168,13 +181,15 @@ fun SupervisorLiveScreenV2(
 
         if (state.erro != null && !state.conexaoAoVivoOk) {
             item(key = "connection-error") {
-                OperationalAlertCard(
-                    title = "Exibindo os últimos dados disponíveis",
-                    text = state.erro ?: "A conexão será atualizada automaticamente.",
-                    actionLabel = "Tentar agora",
-                    onClick = viewModel::atualizarAoVivo,
-                    tone = PontoCafeTone.WARNING,
-                )
+                MotionReveal {
+                    OperationalAlertCard(
+                        title = "Exibindo os últimos dados disponíveis",
+                        text = state.erro ?: "A conexão será atualizada automaticamente.",
+                        actionLabel = "Tentar agora",
+                        onClick = viewModel::atualizarAoVivo,
+                        tone = PontoCafeTone.WARNING,
+                    )
+                }
             }
         }
 
@@ -191,17 +206,19 @@ fun SupervisorLiveScreenV2(
 
         if (orderedPausas.isEmpty()) {
             item(key = "active-empty") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-                    border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                    shape = RoundedCornerShape(24.dp),
-                ) {
-                    Text(
-                        "Nenhuma pessoa está em pausa neste momento.",
-                        modifier = Modifier.padding(PontoCafeSpacing.md),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                MotionReveal {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
+                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        shape = RoundedCornerShape(24.dp),
+                    ) {
+                        Text(
+                            "Nenhuma pessoa está em pausa neste momento.",
+                            modifier = Modifier.padding(PontoCafeSpacing.md),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         } else {
@@ -218,13 +235,15 @@ fun SupervisorLiveScreenV2(
                 )
             }
             item(key = "pending-summary") {
-                OperationalAlertCard(
-                    title = "${pendingFaces.size} rostos pendentes",
-                    text = "Resolva os cadastros pela seção Pessoas quando houver disponibilidade.",
-                    actionLabel = "Abrir Pessoas",
-                    onClick = viewModel::abrirColaboradores,
-                    tone = PontoCafeTone.WARNING,
-                )
+                MotionReveal {
+                    OperationalAlertCard(
+                        title = "${pendingFaces.size} rostos pendentes",
+                        text = "Resolva os cadastros pela seção Pessoas quando houver disponibilidade.",
+                        actionLabel = "Abrir Pessoas",
+                        onClick = viewModel::abrirColaboradores,
+                        tone = PontoCafeTone.WARNING,
+                    )
+                }
             }
         }
 
@@ -247,35 +266,62 @@ private fun LivePauseCard(
     val overdue = seconds > pause.limiteSegundos
     val remaining = (pause.limiteSegundos - seconds).coerceAtLeast(0)
     val elapsedOverLimit = (seconds - pause.limiteSegundos).coerceAtLeast(0)
-    val progress = if (pause.limiteSegundos <= 0) {
+    val rawProgress = if (pause.limiteSegundos <= 0) {
         0f
     } else {
         (seconds.toFloat() / pause.limiteSegundos.toFloat()).coerceIn(0f, 1f)
     }
-    val nearLimit = !overdue && progress >= 0.80f
+    val progress = animatedProgress(rawProgress)
+    val nearLimit = !overdue && rawProgress >= 0.80f
     val semantic = LocalPontoCafeSemanticColors.current
 
-    val containerColor = when {
+    val targetContainerColor = when {
         overdue -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
         nearLimit -> semantic.warningContainer.copy(alpha = 0.55f)
         else -> PontoCafePremium.glassStrong
     }
-    val borderColor = when {
+    val targetBorderColor = when {
         overdue -> MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
         nearLimit -> semantic.warning.copy(alpha = 0.35f)
         else -> PontoCafePremium.borderSoft
     }
-    val progressColor = when {
+    val targetProgressColor = when {
         overdue -> MaterialTheme.colorScheme.error
         nearLimit -> semantic.warning
         else -> MaterialTheme.colorScheme.primary
     }
 
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = tween(PontoCafeMotion.Emphasized),
+        label = "pause-container",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = targetBorderColor,
+        animationSpec = tween(PontoCafeMotion.Emphasized),
+        label = "pause-border",
+    )
+    val progressColor by animateColorAsState(
+        targetValue = targetProgressColor,
+        animationSpec = tween(PontoCafeMotion.Standard),
+        label = "pause-progress-color",
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (overdue) 8.dp else if (nearLimit) 6.dp else 4.dp,
+        animationSpec = tween(PontoCafeMotion.Standard),
+        label = "pause-elevation",
+    )
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .motionScale(overdue, activeScale = 1.012f)
+            .animateContentSize(
+                animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+            ),
         colors = CardDefaults.cardColors(containerColor = containerColor),
         border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (overdue) 7.dp else 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = elevation),
         shape = RoundedCornerShape(26.dp),
     ) {
         Column(
@@ -333,11 +379,7 @@ private fun LivePauseCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = when {
-                            overdue -> "+${formatTime(elapsedOverLimit)}"
-                            nearLimit -> "restam ${formatTime(remaining)}"
-                            else -> "restam ${formatTime(remaining)}"
-                        },
+                        text = if (overdue) "+${formatTime(elapsedOverLimit)}" else "restam ${formatTime(remaining)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = when {
                             overdue -> MaterialTheme.colorScheme.error
@@ -410,11 +452,7 @@ private fun LivePauseCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = when {
-                                overdue -> "Ação necessária"
-                                nearLimit -> formatTime(remaining)
-                                else -> formatTime(remaining)
-                            },
+                            text = if (overdue) "Ação necessária" else formatTime(remaining),
                             style = MaterialTheme.typography.titleMedium,
                             color = when {
                                 overdue -> MaterialTheme.colorScheme.error
@@ -427,18 +465,19 @@ private fun LivePauseCard(
                 }
             }
 
-            if (overdue) {
+            AnimatedVisibility(
+                visible = overdue || nearLimit,
+                enter = fadeIn(tween(PontoCafeMotion.Standard)) + expandVertically(tween(PontoCafeMotion.Standard)),
+                exit = fadeOut(tween(PontoCafeMotion.Quick)) + shrinkVertically(tween(PontoCafeMotion.Standard)),
+            ) {
                 Text(
-                    text = "Esta pausa ultrapassou o limite em ${formatTime(elapsedOverLimit)}.",
+                    text = if (overdue) {
+                        "Esta pausa ultrapassou o limite em ${formatTime(elapsedOverLimit)}."
+                    } else {
+                        "Atenção: esta pausa já consumiu ${(rawProgress * 100).toInt()}% do tempo permitido."
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            } else if (nearLimit) {
-                Text(
-                    text = "Atenção: esta pausa já consumiu ${((progress * 100).toInt())}% do tempo permitido.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = semantic.warning,
+                    color = if (overdue) MaterialTheme.colorScheme.error else semantic.warning,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
