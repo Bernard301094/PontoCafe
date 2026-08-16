@@ -39,6 +39,7 @@ class SecureAdminSessionStore(
     /**
      * Prepara uma autenticação sem guardar senha. O e-mail serve apenas para
      * identificar qual perfil local receberá a sessão cifrada se o login for aceito.
+     * O modo de nova conta é controlado separadamente por beginNewLogin().
      */
     fun prepareLogin(email: String, profile: String) {
         val normalizedEmail = email.trim().lowercase()
@@ -46,7 +47,6 @@ class SecureAdminSessionStore(
         prefs.edit()
             .putString(pendingEmailKey, normalizedEmail)
             .putString(pendingProfileKey, profile.trim().uppercase())
-            .putBoolean(newLoginModeKey, true)
             .apply()
     }
 
