@@ -1,6 +1,7 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
+import java.util.UUID
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.json.JSONObject
@@ -10,6 +11,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -135,6 +137,7 @@ data class DeviceCreatedResponse(
     val nome: String,
     val token: String,
     val pinConfigurado: Boolean = true,
+    val replayIdempotente: Boolean = false,
     val aviso: String,
 )
 
@@ -222,7 +225,11 @@ interface AdminApi {
     @PUT("admin/regras-cafe/{periodo}")
     suspend fun updateCoffeeRule(@Path("periodo") periodo: String, @Body body: UpdateCoffeeRuleRequest): UpdateCoffeeRuleResponse
 
-    @POST("admin/device-activation") suspend fun createDevice(@Body body: CreateDeviceRequest): DeviceCreatedResponse
+    @POST("admin/device-activation")
+    suspend fun createDevice(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: CreateDeviceRequest,
+    ): DeviceCreatedResponse
     @GET("admin/devices") suspend fun devices(): AdminDevicesResponse
     @PUT("admin/devices/{id}/unlock-pin")
     suspend fun updateDevicePin(@Path("id") id: String, @Body body: UpdateDevicePinRequest): UpdateDevicePinResponse
@@ -312,7 +319,7 @@ class AdminRepository(
     }
 
     suspend fun changeProfile(userId: String, profile: String) {
-        api.changeProfile(userId, ChangeProfileRequest(profile))
+        api.changeProfile(userId, profile)
         usersCache = null
         summaryCache = null
     }
@@ -325,12 +332,15 @@ class AdminRepository(
         return updated
     }
 
-    suspend fun createDevice(name: String, pin: String): DeviceCreatedResponse {
-        val created = api.createDevice(CreateDeviceRequest(name.trim(), pin.trim()))
+    suspend fun createDevice(name: String, pin: String, idempotencyKey: String): DeviceCreatedResponse {
+        val created = api.createDevice(idempotencyKey, CreateDeviceRequest(name.trim(), pin.trim()))
         devicesCache = null
         summaryCache = null
         return created
     }
+
+    suspend fun createDevice(name: String, pin: String): DeviceCreatedResponse =
+        createDevice(name, pin, UUID.randomUUID().toString())
 
     suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos.also { devicesCache = it }
 
@@ -465,6 +475,7 @@ class AdminRepository(
                 return when (error.code()) {
                     401 -> "E-mail ou senha inválidos."
                     403 -> "Acesso não autorizado."
+                    409 -> "O cadastro já foi usado ou expirou. Feche e inicie um novo cadastro."
                     429 -> "Muitas tentativas. Aguarde e tente novamente."
                     else -> "Falha na comunicação com o servidor (${error.code()})."
                 }
