@@ -1,5 +1,13 @@
 import { config } from './config.js'
-import { transaction } from './db.js'
+import { query, transaction } from './db.js'
+
+export async function cleanupExpiredDeviceRegistrations() {
+  const deleted = await query(
+    `delete from device_registration_idempotency
+      where expira_em <= now()`,
+  )
+  return { removed: deleted.rowCount ?? 0 }
+}
 
 export async function cleanupExpiredBiometrics() {
   return transaction(async (client) => {
