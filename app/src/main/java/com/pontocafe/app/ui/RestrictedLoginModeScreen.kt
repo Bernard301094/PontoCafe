@@ -1,10 +1,8 @@
 package com.pontocafe.app.ui
 
-import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,21 +69,16 @@ fun RestrictedLoginModeScreen(
     var accounts by remember { mutableStateOf(loadAccounts()) }
     var accountToForget by remember { mutableStateOf<RestrictedAccountEntry?>(null) }
 
-    fun recreateAfter(action: () -> Unit) {
-        action()
-        (context as? Activity)?.recreate()
-    }
-
     fun openSaved(entry: RestrictedAccountEntry) {
         val store = if (entry.admin) adminStore else supervisorStore
         store.activate(entry.account.id)
-        recreateAfter(if (entry.admin) onAdminClick else onSupervisorClick)
+        if (entry.admin) onAdminClick() else onSupervisorClick()
     }
 
     fun startNewLogin(admin: Boolean) {
         val store = if (admin) adminStore else supervisorStore
         store.beginNewLogin()
-        recreateAfter(if (admin) onAdminClick else onSupervisorClick)
+        if (admin) onAdminClick() else onSupervisorClick()
     }
 
     accountToForget?.let { entry ->
@@ -203,12 +196,12 @@ fun RestrictedLoginModeScreen(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                             if (legacyAdmin) {
-                                TextButton(onClick = { recreateAfter(onAdminClick) }) {
+                                TextButton(onClick = onAdminClick) {
                                     Text("Continuar como Administrador")
                                 }
                             }
                             if (legacySupervisor) {
-                                TextButton(onClick = { recreateAfter(onSupervisorClick) }) {
+                                TextButton(onClick = onSupervisorClick) {
                                     Text("Continuar como Supervisor")
                                 }
                             }
@@ -301,7 +294,7 @@ private fun SavedAccountCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            InitialAvatar(account.name, modifier = Modifier.size(46.dp))
+            InitialAvatar(account.name)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -320,13 +313,15 @@ private fun SavedAccountCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ProfilePill(if (entry.admin) "ADMIN" else "SUPERVISOR")
-                    StatusPill(
-                        text = if (account.hasSession) "Sessão pronta" else "Senha necessária",
-                        tone = if (account.hasSession) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                    )
-                }
+                Text(
+                    "${if (entry.admin) "Administrador" else "Supervisor"} · ${if (account.hasSession) "Sessão pronta" else "Senha necessária"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (account.hasSession) {
+                        LocalPontoCafeSemanticColors.current.success
+                    } else {
+                        LocalPontoCafeSemanticColors.current.warning
+                    },
+                )
             }
             IconButton(onClick = onForget) {
                 Icon(
