@@ -119,16 +119,22 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
 })
 
 app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0', requestId: c.get('requestId') }))
-app.get('/app-status', (c) => c.json({
-  apiVersion: '0.7.0',
-  backendRevision: config.backendRevision,
-  latestAndroidVersion: config.latestAndroidVersion,
-  minimumAndroidVersion: config.minimumAndroidVersion,
-  timezone: config.appTimezone,
-  offlineMaxEventAgeHours: config.offlineMaxEventAgeHours,
-  biometricRetentionDays: config.biometricRetentionDays,
-  requestId: c.get('requestId'),
-}))
+app.get('/app-status', (c) => {
+  const workerVersion = c.env.CF_VERSION_METADATA
+  return c.json({
+    apiVersion: '0.7.0',
+    backendRevision: config.backendRevision,
+    workerVersionId: workerVersion?.id ?? null,
+    workerVersionTag: workerVersion?.tag ?? null,
+    workerVersionTimestamp: workerVersion?.timestamp ?? null,
+    latestAndroidVersion: config.latestAndroidVersion,
+    minimumAndroidVersion: config.minimumAndroidVersion,
+    timezone: config.appTimezone,
+    offlineMaxEventAgeHours: config.offlineMaxEventAgeHours,
+    biometricRetentionDays: config.biometricRetentionDays,
+    requestId: c.get('requestId'),
+  })
+})
 app.get('/health', async (c) => {
   const startedAt = Date.now()
   const result = await query<{ agora: string }>('select now()::text as agora')
