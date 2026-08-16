@@ -22,7 +22,21 @@ test('endpoint e token de 10 caracteres permanecem no contrato atual', () => {
   assert.match(route, /newDeviceToken\(10\)/)
 })
 
-test('criação idempotente usa uma única query CTE sem transaction manual', () => {
+test('cadastro atual exige PIN individual e não mantém fallback sem PIN', () => {
+  assert.match(route, /pin:\s*z\.string\(\)\.trim\(\)\.regex\(\/\^\\d\{4,12\}\$\//s)
+  assert.doesNotMatch(route, /regex\(\/\^\\d\{4,12\}\$\/\)\.optional\(\)/s)
+  assert.match(route, /hashDeviceUnlockPin\(deviceId, body\.data\.pin\)/)
+  assert.match(route, /pinConfigurado:\s*true/)
+})
+
+test('Idempotency-Key é obrigatória e clientes legados não recebem chave efêmera', () => {
+  assert.match(route, /IDEMPOTENCY_KEY_REQUIRED/)
+  assert.match(route, /if \(!incomingIdempotencyKey\)/)
+  assert.match(route, /const idempotencyKey = incomingIdempotencyKey/)
+  assert.doesNotMatch(route, /legacy:\$\{newId\(\)\}/)
+})
+
+test('criação idempotente preserva a query CTE validada em PostgreSQL', () => {
   assert.match(route, /with idempotencia as/i)
   assert.match(route, /novo_dispositivo as/i)
   assert.match(route, /auditoria_criacao as/i)
@@ -42,6 +56,20 @@ test('replay não pode criar nova auditoria quando request_nonce não pertence �
   assert.match(route, /from novo_dispositivo\s+returning id/i)
 })
 
+test('replay confirmado retorna HTTP 200 sem alterar o token original', () => {
+  assert.match(route, /registration\.criado_agora \? 201 : 200/)
+  assert.match(route, /replayIdempotente:\s*!registration\.criado_agora/)
+  assert.match(route, /decryptDeviceRegistrationToken\(/)
+})
+
+test('falha 500 informa etapa e classificação segura sem expor segredo', () => {
+  assert.match(route, /safeErrorDescriptor\(error\)/)
+  assert.match(route, /Diagnóstico \$\{stage\}\/\$\{descriptor\.code\}/)
+  assert.match(route, /codigoBanco:\s*descriptor\.databaseCode/)
+  assert.doesNotMatch(route, /console\.(?:log|error).*body\.data\.pin/s)
+  assert.doesNotMatch(route, /console\.(?:log|error).*responseToken/s)
+})
+
 test('migração guarda somente token cifrado para replay temporário', () => {
   assert.match(migration, /token_ciphertext bytea not null/i)
   assert.match(migration, /token_iv bytea not null/i)
@@ -53,6 +81,7 @@ test('migração guarda somente token cifrado para replay temporário', () => {
 test('Android envia Idempotency-Key no endpoint administrativo existente', () => {
   assert.match(android, /@POST\("admin\/device-activation"\)/)
   assert.match(android, /@Header\("Idempotency-Key"\) idempotencyKey: String/)
+  assert.match(android, /data class CreateDeviceRequest\(val nome: String, val pin: String\)/)
 })
 
 test('Android reutiliza a mesma chave enquanto repete o mesmo cadastro após falha transitória', () => {
