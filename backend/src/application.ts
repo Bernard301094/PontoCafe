@@ -15,6 +15,7 @@ import { collaboratorManagementRoutes } from './routes/collaborator-management-r
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
 import { deviceManagementRoutes } from './routes/device-management-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
+import { deviceTelemetryRoutes } from './routes/device-telemetry-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
@@ -163,6 +164,7 @@ app.route('/gestao', biometricCalibrationRoutes)
 app.route('/gestao', workforceRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)
+app.route('/ponto', deviceTelemetryRoutes)
 app.route('/ponto', localBiometricRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
