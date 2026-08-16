@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
@@ -43,7 +44,7 @@ enum class PontoCafeTone { NEUTRAL, SUCCESS, WARNING, INFO, DANGER }
 private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
     val semantic = LocalPontoCafeSemanticColors.current
     return when (tone) {
-        PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+        PontoCafeTone.NEUTRAL -> PontoCafePremium.glassSoft to MaterialTheme.colorScheme.onSurfaceVariant
         PontoCafeTone.SUCCESS -> semantic.successContainer to semantic.onSuccessContainer
         PontoCafeTone.WARNING -> semantic.warningContainer to semantic.onWarningContainer
         PontoCafeTone.INFO -> semantic.infoContainer to semantic.onInfoContainer
@@ -55,9 +56,15 @@ private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
 fun PontoCafeHeader(subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(
+            text = "PONTO CAFÉ",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
             text = "Ponto Café",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
         )
         if (!subtitle.isNullOrBlank()) {
             Text(
@@ -83,23 +90,24 @@ fun PontoCafeScreenHeader(
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
         if (onBack != null) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            Surface(
+                modifier = Modifier.size(46.dp),
+                shape = CircleShape,
+                color = PontoCafePremium.glassSoft,
+                border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = backLabel,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = backLabel,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             if (!eyebrow.isNullOrBlank()) {
                 Text(
@@ -112,6 +120,7 @@ fun PontoCafeScreenHeader(
                 title,
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -124,6 +133,7 @@ fun SectionTitle(title: String, subtitle: String? = null) {
             title,
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold,
         )
         if (!subtitle.isNullOrBlank()) {
             Text(
@@ -146,22 +156,23 @@ fun MetricCard(
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surface,
+            containerColor = if (emphasized) semantic.warningContainer else PontoCafePremium.glassStrong,
         ),
         border = BorderStroke(
             1.dp,
-            if (emphasized) semantic.warning.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
+            if (emphasized) semantic.warning.copy(alpha = 0.38f) else PontoCafePremium.border,
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
                 value,
                 style = MaterialTheme.typography.headlineMedium,
-                color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.onSurface,
+                color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 label,
@@ -185,7 +196,12 @@ fun StatusPill(text: String, positive: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier) {
     val (container, content) = toneColors(tone)
-    Surface(modifier = modifier, shape = CircleShape, color = container) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = container,
+        border = BorderStroke(1.dp, content.copy(alpha = 0.14f)),
+    ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -224,13 +240,19 @@ fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
         .ifBlank { "?" }
 
     Surface(
-        modifier = modifier.size(46.dp),
+        modifier = modifier.size(48.dp),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)),
+        shadowElevation = 4.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(initials, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                initials,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -247,8 +269,8 @@ fun OperationalAlertCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = container),
-        border = BorderStroke(1.dp, content.copy(alpha = 0.12f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
@@ -264,7 +286,13 @@ fun OperationalAlertCard(
                     tint = content,
                     modifier = Modifier.size(20.dp),
                 )
-                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = content)
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             Text(text, style = MaterialTheme.typography.bodyMedium, color = content.copy(alpha = 0.84f))
             TextButton(onClick = onClick) { Text(actionLabel, color = content) }
@@ -316,11 +344,12 @@ fun AccountSummaryRow(
 fun RulesCard() {
     Card(
         Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
+        border = BorderStroke(1.dp, PontoCafePremium.border),
+        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
     ) {
-        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Horários de café", style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("Horários de café", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text("Manhã · 08:00–10:00 · 15 minutos", style = MaterialTheme.typography.bodyMedium)
             Text("Tarde · 15:00–17:00 · 15 minutos", style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -347,10 +376,16 @@ fun MessageCard(viewModel: PontoCafeViewModel) {
         Card(
             Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = container),
-            border = BorderStroke(1.dp, content.copy(alpha = 0.1f)),
+            border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         ) {
             Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if (isError) "Atenção" else "Informação", style = MaterialTheme.typography.titleMedium, color = content)
+                Text(
+                    if (isError) "Atenção" else "Informação",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = content,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(message, style = MaterialTheme.typography.bodyMedium, color = content)
                 TextButton(onClick = viewModel::limparMensagem) { Text("Fechar", color = content) }
             }
