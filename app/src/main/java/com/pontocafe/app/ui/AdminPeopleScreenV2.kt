@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,9 +30,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +65,16 @@ fun AdminPeopleScreenV2(
 ) {
     val context = LocalContext.current
     val state = viewModel.state
+    val biometricSuccess = state.mensagem?.takeIf { message ->
+        message.startsWith("Rosto de ") && message.contains("cadastrado com 5 amostras")
+    }
+    val biometricSuccessName = biometricSuccess
+        ?.removePrefix("Rosto de ")
+        ?.substringBefore(" cadastrado")
+        ?.trim()
+        ?.ifBlank { null }
+    val successSnackbarHostState = remember { SnackbarHostState() }
+
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(PeopleFilterV2.ALL) }
     var editing by remember { mutableStateOf<Colaborador?>(null) }
@@ -66,6 +82,19 @@ fun AdminPeopleScreenV2(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(biometricSuccess) {
+        if (biometricSuccess != null) {
+            successSnackbarHostState.currentSnackbarData?.dismiss()
+            successSnackbarHostState.showSnackbar(
+                message = biometricSuccessName?.let { "✓ Rosto de $it registrado com sucesso." }
+                    ?: "✓ Rosto registrado com sucesso.",
+                actionLabel = "OK",
+                duration = SnackbarDuration.Short,
+            )
+            viewModel.limparFeedback()
+        }
+    }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -137,134 +166,154 @@ fun AdminPeopleScreenV2(
         .sortedBy { it.nome.lowercase() }
     val pendingFaces = state.colaboradores.count { !it.rostoCadastrado }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = PontoCafeSpacing.lg),
-        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-    ) {
-        item("header") { PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Equipe e acessos") }
-        item("feedback") {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                AdminFeedback(viewModel)
-                ReliabilityFeedback(reliabilityViewModel)
-            }
-        }
-
-        if (state.colaboradores.isNotEmpty()) {
-            item("face-progress") {
-                ThinProgressSummary(
-                    completed = state.colaboradores.size - pendingFaces,
-                    total = state.colaboradores.size,
-                    title = "Cadastro facial",
-                    detail = "${state.colaboradores.size - pendingFaces} de ${state.colaboradores.size} colaboradores prontos",
-                )
-            }
-        }
-
-        item("actions") {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    Button(onClick = viewModel::abrirNovoColaborador, modifier = Modifier.weight(1f)) { Text("Novo colaborador") }
-                    OutlinedButton(onClick = viewModel::abrirNovaConta, modifier = Modifier.weight(1f)) { Text("Novo acesso") }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    OutlinedButton(
-                        onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = "Importar arquivo CSV")
-                        Text(" Importar CSV")
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = PontoCafeSpacing.lg),
+            contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = 104.dp),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            item("header") { PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Equipe e acessos") }
+            item("feedback") {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    if (biometricSuccess == null) {
+                        AdminFeedback(viewModel)
                     }
-                    OutlinedButton(
-                        onClick = {
-                            selectionMode = !selectionMode
-                            if (!selectionMode) selectedIds = emptySet()
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Default.GroupWork, contentDescription = "Editar colaboradores em lote")
-                        Text(if (selectionMode) " Cancelar lote" else " Editar em lote")
-                    }
+                    ReliabilityFeedback(reliabilityViewModel)
                 }
             }
-        }
 
-        if (selectionMode) {
-            item("selection") {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("${selectedIds.size} selecionado(s)")
-                        Button(onClick = { showBulkDialog = true }, enabled = selectedIds.isNotEmpty()) { Text("Alterar") }
-                    }
-                }
-            }
-        }
-
-        item("search") {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buscar pessoa") },
-                placeholder = { Text("Nome, setor, turno ou e-mail") },
-                singleLine = true,
-            )
-        }
-        item("filters") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                PeopleFilterV2.entries.forEach { item ->
-                    FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.label) })
-                }
-            }
-        }
-
-        if (filter != PeopleFilterV2.ACCESS) {
-            item("collaborators-title") {
-                SectionTitle("Colaboradores", "${collaborators.size} resultado(s) · biometria pendente aparece primeiro.")
-            }
-            items(collaborators, key = { "person-${it.id}" }) { collaborator ->
-                CollaboratorCardV2(
-                    collaborator = collaborator,
-                    loading = state.carregando || reliabilityViewModel.state.loading,
-                    selectionMode = selectionMode,
-                    selected = collaborator.id in selectedIds,
-                    onSelected = { selected ->
-                        selectedIds = if (selected) selectedIds + collaborator.id else selectedIds - collaborator.id
-                    },
-                    onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
-                    onEdit = { editing = collaborator },
-                    onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
-                )
-            }
-        }
-
-        if (filter != PeopleFilterV2.COLLABORATORS) {
-            item("accounts-title") { SectionTitle("Contas de acesso", "${accounts.size} conta(s) de Supervisor ou Administrador.") }
-            items(accounts, key = { "access-${it.id}" }) { user ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { viewModel.selecionarUsuario(user) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                ) {
-                    AccountSummaryRow(
-                        name = user.nome,
-                        email = user.email,
-                        profile = user.perfil,
-                        active = user.ativo,
-                        modifier = Modifier.padding(PontoCafeSpacing.md),
+            if (state.colaboradores.isNotEmpty()) {
+                item("face-progress") {
+                    ThinProgressSummary(
+                        completed = state.colaboradores.size - pendingFaces,
+                        total = state.colaboradores.size,
+                        title = "Cadastro facial",
+                        detail = "${state.colaboradores.size - pendingFaces} de ${state.colaboradores.size} colaboradores prontos",
                     )
                 }
             }
+
+            item("actions") {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        Button(onClick = viewModel::abrirNovoColaborador, modifier = Modifier.weight(1f)) { Text("Novo colaborador") }
+                        OutlinedButton(onClick = viewModel::abrirNovaConta, modifier = Modifier.weight(1f)) { Text("Novo acesso") }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        OutlinedButton(
+                            onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.FileOpen, contentDescription = "Importar arquivo CSV")
+                            Text(" Importar CSV")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                selectionMode = !selectionMode
+                                if (!selectionMode) selectedIds = emptySet()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Default.GroupWork, contentDescription = "Editar colaboradores em lote")
+                            Text(if (selectionMode) " Cancelar lote" else " Editar em lote")
+                        }
+                    }
+                }
+            }
+
+            if (selectionMode) {
+                item("selection") {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("${selectedIds.size} selecionado(s)")
+                            Button(onClick = { showBulkDialog = true }, enabled = selectedIds.isNotEmpty()) { Text("Alterar") }
+                        }
+                    }
+                }
+            }
+
+            item("search") {
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Buscar pessoa") },
+                    placeholder = { Text("Nome, setor, turno ou e-mail") },
+                    singleLine = true,
+                )
+            }
+            item("filters") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    PeopleFilterV2.entries.forEach { item ->
+                        FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.label) })
+                    }
+                }
+            }
+
+            if (filter != PeopleFilterV2.ACCESS) {
+                item("collaborators-title") {
+                    SectionTitle("Colaboradores", "${collaborators.size} resultado(s) · biometria pendente aparece primeiro.")
+                }
+                items(collaborators, key = { "person-${it.id}" }) { collaborator ->
+                    CollaboratorCardV2(
+                        collaborator = collaborator,
+                        loading = state.carregando || reliabilityViewModel.state.loading,
+                        selectionMode = selectionMode,
+                        selected = collaborator.id in selectedIds,
+                        onSelected = { selected ->
+                            selectedIds = if (selected) selectedIds + collaborator.id else selectedIds - collaborator.id
+                        },
+                        onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
+                        onEdit = { editing = collaborator },
+                        onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                    )
+                }
+            }
+
+            if (filter != PeopleFilterV2.COLLABORATORS) {
+                item("accounts-title") { SectionTitle("Contas de acesso", "${accounts.size} conta(s) de Supervisor ou Administrador.") }
+                items(accounts, key = { "access-${it.id}" }) { user ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { viewModel.selecionarUsuario(user) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        AccountSummaryRow(
+                            name = user.nome,
+                            email = user.email,
+                            profile = user.perfil,
+                            active = user.ativo,
+                            modifier = Modifier.padding(PontoCafeSpacing.md),
+                        )
+                    }
+                }
+            }
+        }
+
+        SnackbarHost(
+            hostState = successSnackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+        ) { data ->
+            Snackbar(
+                snackbarData = data,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                actionColor = MaterialTheme.colorScheme.primary,
+                shape = MaterialTheme.shapes.large,
+            )
         }
     }
 }
