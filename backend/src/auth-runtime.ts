@@ -9,8 +9,15 @@ export type Role = 'ADMIN' | 'SUPERVISOR'
 export type AuthUser = { id: string; nome: string; email: string; papel: Role }
 export type Device = { id: string; nome: string }
 
+export type WorkerVersionMetadata = {
+  id: string
+  tag: string
+  timestamp: string
+}
+
 export type RuntimeBindings = {
   FIRST_ADMIN_SETUP_KEY?: string
+  CF_VERSION_METADATA?: WorkerVersionMetadata
 }
 
 export type AppEnv = {
