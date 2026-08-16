@@ -48,8 +48,6 @@ data class AdminUiState(
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
-    val deviceTokenGerado: String? = null,
-    val deviceNome: String? = null,
     val authorizationCode: String? = null,
     val authorizationExpirySeconds: Int? = null,
     val mensagem: String? = null,
@@ -243,14 +241,14 @@ class AdminViewModel(
         state = state.copy(destination = AdminDestination.NEW_COLLABORATOR, erro = null, mensagem = null)
     }
 
-    fun criarColaborador(matricula: String, nome: String, setor: String, turno: String) {
+    fun criarColaborador(nome: String, setor: String, turno: String) {
         if (nome.trim().length < 2) {
             state = state.copy(erro = "Informe o nome do colaborador.")
             return
         }
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.createCollaborator(matricula, nome, setor, turno) }
+            runCatching { repository.createCollaborator(nome, setor, turno) }
                 .onSuccess { colaborador ->
                     biometricSamples.clear()
                     state = state.copy(
@@ -413,38 +411,6 @@ class AdminViewModel(
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
-    }
-
-    /**
-     * Fluxo legado mantido apenas por compatibilidade com telas antigas. As telas
-     * 0.7 usam AdminDeviceViewModel e sempre exigem PIN antes de gerar o código.
-     */
-    fun gerarTokenDispositivo(nome: String, pin: String) {
-        if (nome.trim().length < 2) {
-            state = state.copy(erro = "Informe um nome para o dispositivo.")
-            return
-        }
-        if (!Regex("^\\d{4,12}$").matches(pin.trim())) {
-            state = state.copy(erro = "O PIN deve ter entre 4 e 12 números.")
-            return
-        }
-        viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, deviceTokenGerado = null)
-            runCatching { repository.createDevice(nome, pin) }
-                .onSuccess { device ->
-                    state = state.copy(
-                        carregando = false,
-                        deviceTokenGerado = device.token,
-                        deviceNome = device.nome,
-                        mensagem = "Código gerado. Copie agora: ele não será exibido novamente.",
-                    )
-                }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
-        }
-    }
-
-    fun limparTokenGerado() {
-        state = state.copy(deviceTokenGerado = null, deviceNome = null)
     }
 
     fun abrirAutorizacao() {
