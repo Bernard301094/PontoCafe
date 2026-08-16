@@ -7,6 +7,10 @@ const enrollmentScreen = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminBiometricEnrollmentScreen.kt', import.meta.url),
   'utf8',
 )
+const peopleScreen = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPeopleScreenV2.kt', import.meta.url),
+  'utf8',
+)
 const kioskScreen = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url),
   'utf8',
@@ -33,6 +37,14 @@ test('Android confirma visualmente a pessoa antes de iniciar o cadastro', () => 
   assert.match(enrollmentScreen, /Confirme a pessoa/)
   assert.match(enrollmentScreen, /Confirmar pessoa e iniciar/)
   assert.match(enrollmentScreen, /identityConfirmed/)
+})
+
+test('cadastro facial concluído mostra confirmação dinâmica e temporária', () => {
+  assert.match(peopleScreen, /SnackbarHostState/)
+  assert.match(peopleScreen, /Rosto de \$it registrado com sucesso/)
+  assert.match(peopleScreen, /SnackbarDuration\.Short/)
+  assert.match(peopleScreen, /actionLabel = "OK"/)
+  assert.match(peopleScreen, /viewModel\.limparFeedback\(\)/)
 })
 
 test('modo Ponto captura o embedding frontal somente depois da prova de vida', () => {
