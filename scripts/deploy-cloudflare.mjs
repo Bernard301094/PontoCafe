@@ -22,7 +22,22 @@ const setupKeyFingerprint = createHash('sha256')
   .digest('hex')
   .slice(0, 16)
 
+const gitRevisionResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+  encoding: 'utf8',
+  shell: false,
+})
+if (gitRevisionResult.error || gitRevisionResult.status !== 0) {
+  console.error('Could not determine Git revision for Cloudflare deployment.')
+  process.exit(1)
+}
+const backendRevision = gitRevisionResult.stdout.trim()
+if (!/^[0-9a-f]{40}$/i.test(backendRevision)) {
+  console.error('Invalid Git revision returned by git rev-parse HEAD.')
+  process.exit(1)
+}
+
 console.log(`FIRST_ADMIN_SETUP_KEY fingerprint: ${setupKeyFingerprint}`)
+console.log(`Deploying backend revision: ${backendRevision}`)
 
 const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
@@ -37,7 +52,14 @@ try {
   console.log('Deploying Ponto Cafe Worker with 4 encrypted runtime secrets...')
   const result = spawnSync(
     'npx',
-    ['wrangler', 'deploy', '--secrets-file', secretsFile],
+    [
+      'wrangler',
+      'deploy',
+      '--secrets-file',
+      secretsFile,
+      '--var',
+      `BACKEND_REVISION:${backendRevision}`,
+    ],
     { stdio: 'inherit', shell: false },
   )
 
