@@ -54,6 +54,7 @@ fun AdminArea(
     onKioskOpenChanged: (Boolean) -> Unit = {},
     onClose: () -> Unit,
 ) {
+    val state = viewModel.state
     var showingDevices by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
     var showingKiosk by remember(initialKioskOpen) { mutableStateOf(initialKioskOpen) }
 
@@ -76,10 +77,21 @@ fun AdminArea(
     if (showingDevices) {
         BackHandler { setDevicesOpen(false) }
         MotionReveal {
-            AdminDevicesScreenV2(
-                viewModel = deviceViewModel,
-                onBack = { setDevicesOpen(false) },
-            )
+            val deviceState = deviceViewModel.state
+            if (deviceState.carregando && deviceState.dispositivos.isEmpty()) {
+                PontoCafeListSkeletonScreen(
+                    title = "Dispositivos",
+                    eyebrow = "Segurança do Ponto",
+                    onBack = { setDevicesOpen(false) },
+                    rows = 4,
+                    showMetrics = true,
+                )
+            } else {
+                AdminDevicesScreenV2(
+                    viewModel = deviceViewModel,
+                    onBack = { setDevicesOpen(false) },
+                )
+            }
         }
         return
     }
@@ -139,8 +151,8 @@ fun AdminArea(
         return
     }
 
-    BackHandler(enabled = viewModel.state.destination != AdminDestination.LOADING) {
-        when (viewModel.state.destination) {
+    BackHandler(enabled = state.destination != AdminDestination.LOADING) {
+        when (state.destination) {
             AdminDestination.NEW_COLLABORATOR,
             AdminDestination.BIOMETRIC_ENROLLMENT -> viewModel.voltarColaboradores()
 
@@ -160,7 +172,7 @@ fun AdminArea(
         }
     }
 
-    val rootDestination = when (viewModel.state.destination) {
+    val rootDestination = when (state.destination) {
         AdminDestination.HOME -> AdminPrimaryDestination.HOME
         AdminDestination.COLLABORATORS -> AdminPrimaryDestination.PEOPLE
         AdminDestination.SETTINGS -> AdminPrimaryDestination.MANAGEMENT
@@ -221,10 +233,24 @@ fun AdminArea(
                         onClose = onClose,
                         onDevicesClick = { setDevicesOpen(true) },
                     )
-                    AdminPrimaryDestination.PEOPLE -> AdminPeopleScreenV3(
-                        viewModel = viewModel,
-                        reliabilityViewModel = reliabilityViewModel,
-                    )
+                    AdminPrimaryDestination.PEOPLE -> {
+                        val initialPeopleLoading = state.carregando &&
+                            state.colaboradores.isEmpty() &&
+                            state.usuarios.isEmpty()
+                        if (initialPeopleLoading) {
+                            PontoCafeListSkeletonScreen(
+                                title = "Pessoas",
+                                eyebrow = "Equipe, biometria e acessos",
+                                rows = 5,
+                                showMetrics = true,
+                            )
+                        } else {
+                            AdminPeopleScreenV3(
+                                viewModel = viewModel,
+                                reliabilityViewModel = reliabilityViewModel,
+                            )
+                        }
+                    }
                     AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
                         viewModel = viewModel,
                         reliabilityViewModel = reliabilityViewModel,
@@ -239,7 +265,7 @@ fun AdminArea(
     }
 
     AnimatedContent(
-        targetState = viewModel.state.destination,
+        targetState = state.destination,
         transitionSpec = {
             (fadeIn(tween(PontoCafeMotion.Standard)) +
                 slideInHorizontally(
