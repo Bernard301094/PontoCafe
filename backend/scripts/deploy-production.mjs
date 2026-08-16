@@ -7,7 +7,23 @@ const backendDir = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(backendDir, '..')
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
 
+function quoteWindowsArg(value) {
+  const text = String(value)
+  if (!/[\s"&|<>^()%!]/.test(text)) return text
+  return `"${text.replaceAll('"', '""')}"`
+}
+
 function run(command, args, cwd = backendDir) {
+  if (process.platform === 'win32') {
+    const commandLine = [command, ...args].map(quoteWindowsArg).join(' ')
+    execFileSync(process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe', ['/d', '/s', '/c', commandLine], {
+      cwd,
+      stdio: 'inherit',
+      env: process.env,
+    })
+    return
+  }
+
   execFileSync(command, args, {
     cwd,
     stdio: 'inherit',
@@ -52,16 +68,18 @@ async function fetchJson(url, attempts = 8) {
   throw lastError
 }
 
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 const revision = output('git', ['rev-parse', '--short=12', 'HEAD'], repoRoot)
 
 console.log(`\n[1/4] Validando backend ${revision}...`)
-run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'validate'])
+run(npmCommand, ['run', 'validate'])
 
 console.log(`\n[2/4] Validando bundle do Worker...`)
-run(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['wrangler', 'deploy', '--dry-run'])
+run(npxCommand, ['wrangler', 'deploy', '--dry-run'])
 
 console.log(`\n[3/4] Publicando Worker com tag ${revision}...`)
-run(process.platform === 'win32' ? 'npx.cmd' : 'npx', [
+run(npxCommand, [
   'wrangler',
   'deploy',
   '--tag',
