@@ -90,7 +90,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
             onClick = {
                 draftState.markSubmitted()
                 viewModel.trackCollaboratorDraftSubmission(draftState)
-                viewModel.criarColaborador("", draft.nome, draft.setor, draft.turno)
+                viewModel.criarColaborador(draft.nome, draft.setor, draft.turno)
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = draft.nome.trim().length >= 2 && !state.carregando,
