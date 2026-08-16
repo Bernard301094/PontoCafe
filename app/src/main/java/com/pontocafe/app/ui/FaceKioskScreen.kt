@@ -4,9 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,8 +36,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -60,9 +62,9 @@ import kotlin.math.abs
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
 private enum class KioskLivenessChallenge(val instruction: String) {
-    BLINK("Pisque para confirmar presença"),
-    TURN_LEFT("Vire levemente o rosto para a esquerda"),
-    TURN_RIGHT("Vire levemente o rosto para a direita"),
+    BLINK("Pisque uma vez"),
+    TURN_LEFT("Vire levemente para a esquerda"),
+    TURN_RIGHT("Vire levemente para a direita"),
     ;
 
     fun accepts(observation: FaceObservation): Boolean {
@@ -74,6 +76,9 @@ private enum class KioskLivenessChallenge(val instruction: String) {
         }
     }
 }
+
+private const val CHALLENGE_STABLE_FRAMES = 4
+private const val RECOGNITION_STABLE_FRAMES = 4
 
 @Composable
 fun FaceKioskScreen(
@@ -103,6 +108,8 @@ fun FaceKioskScreen(
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
     val stableChallengeFrames = remember { intArrayOf(0) }
+    val stableRecognitionFrames = remember { intArrayOf(0) }
+    var challengeCompleted by remember { mutableStateOf(false) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
@@ -182,6 +189,8 @@ fun FaceKioskScreen(
         liveness.reset()
         challenge = KioskLivenessChallenge.entries.random()
         stableChallengeFrames[0] = 0
+        stableRecognitionFrames[0] = 0
+        challengeCompleted = false
         captureRequested = false
         detectedFaces = 0
         livenessState = LivenessState.POSICIONE_ROSTO
@@ -192,30 +201,50 @@ fun FaceKioskScreen(
             FaceCameraPreview(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
+                showPositionGuide = false,
                 onObservation = { observation ->
                     detectedFaces = observation.faceCount
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
                         !state.sincronizandoBiometrias && !state.carregando && !captureRequested
                     ) {
-                        if (challenge == KioskLivenessChallenge.BLINK) {
-                            val next = liveness.update(observation)
-                            livenessState = next
-                            if (next == LivenessState.CONCLUIDO) {
-                                captureRequested = true
-                                captureController.request()
+                        if (!challengeCompleted) {
+                            if (challenge == KioskLivenessChallenge.BLINK) {
+                                val next = liveness.update(observation)
+                                livenessState = next
+                                if (next == LivenessState.CONCLUIDO) {
+                                    challengeCompleted = true
+                                    stableRecognitionFrames[0] = 0
+                                }
+                            } else {
+                                livenessState = if (observation.isWellPositioned) {
+                                    LivenessState.PISQUE
+                                } else {
+                                    LivenessState.POSICIONE_ROSTO
+                                }
+                                if (challenge.accepts(observation)) {
+                                    stableChallengeFrames[0] += 1
+                                    if (stableChallengeFrames[0] >= CHALLENGE_STABLE_FRAMES) {
+                                        challengeCompleted = true
+                                        stableRecognitionFrames[0] = 0
+                                        livenessState = LivenessState.CONCLUIDO
+                                    }
+                                } else {
+                                    stableChallengeFrames[0] = 0
+                                }
                             }
                         } else {
-                            livenessState = if (observation.isWellPositioned) LivenessState.PISQUE else LivenessState.POSICIONE_ROSTO
-                            if (challenge.accepts(observation)) {
-                                stableChallengeFrames[0] += 1
-                                if (stableChallengeFrames[0] >= 4) {
-                                    livenessState = LivenessState.CONCLUIDO
+                            // A prova de vida pode exigir o rosto de lado. O embedding usado
+                            // para reconhecer a pessoa, porém, só é capturado depois que ela
+                            // volta a olhar de frente e permanece estável por alguns frames.
+                            if (observation.isFrontal) {
+                                stableRecognitionFrames[0] += 1
+                                if (stableRecognitionFrames[0] >= RECOGNITION_STABLE_FRAMES) {
                                     captureRequested = true
                                     captureController.request()
                                 }
                             } else {
-                                stableChallengeFrames[0] = 0
+                                stableRecognitionFrames[0] = 0
                             }
                         }
                     }
@@ -233,9 +262,15 @@ fun FaceKioskScreen(
             }
         }
 
+        val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
+            !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
+        val multipleFacesVisible = state.scanning && detectedFaces > 1
+        val recognitionReady = challengeCompleted && !state.carregando && !multipleFacesVisible
+
         KioskFaceGuide(
             active = permissionGranted && state.catalogoBiometricoPronto,
-            warning = detectedFaces > 1,
+            warning = multipleFacesVisible,
+            ready = recognitionReady,
             modifier = Modifier.align(Alignment.Center),
         )
 
@@ -243,30 +278,38 @@ fun FaceKioskScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
                 .align(Alignment.TopCenter),
-            color = Color(0xCC101513),
-            shape = RoundedCornerShape(18.dp),
+            color = Color(0xC9141917),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(26.dp),
+            shadowElevation = 6.dp,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.xs),
+                modifier = Modifier.padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "Ponto Café",
                         color = Color.White,
                         style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                     )
+                    val faceCountLabel = if (state.totalBiometrias == 1) {
+                        "1 rosto pronto"
+                    } else {
+                        "${state.totalBiometrias} rostos prontos"
+                    }
                     Text(
                         if (state.modoOffline) {
                             "Offline · ${state.eventosPendentes} pendente(s)"
                         } else {
-                            "Online · ${state.totalBiometrias} rostos prontos"
+                            "Online · $faceCountLabel"
                         },
-                        color = if (state.modoOffline) Color(0xFFF7C66C) else Color(0xFF8DD4C2),
+                        color = if (state.modoOffline) Color(0xFFFFD27D) else Color(0xFF82E2C4),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -274,27 +317,24 @@ fun FaceKioskScreen(
                 }
                 if (hasAdminSession) {
                     TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN }) {
-                        Text("Admin", color = Color.White)
+                        Text("Admin", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 if (hasSupervisorSession) {
                     TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR }) {
-                        Text("Supervisor", color = Color.White)
+                        Text("Supervisor", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 if (!hasAdminSession && !hasSupervisorSession) {
                     TextButton(onClick = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN }) {
-                        Text("Acesso", color = Color.White)
+                        Text("Acesso", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
 
-        val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
-            !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
-        val multipleFacesVisible = state.scanning && detectedFaces > 1
         val challengeInstruction = when {
-            livenessState == LivenessState.CONCLUIDO -> "Presença confirmada"
+            challengeCompleted -> "Volte ao centro"
             challenge == KioskLivenessChallenge.BLINK && livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
             livenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
             else -> challenge.instruction
@@ -302,54 +342,58 @@ fun FaceKioskScreen(
         val instructionTitle = when {
             !viewModel.faceModelReady -> "Reconhecimento indisponível"
             state.sincronizandoBiometrias -> "Preparando reconhecimento"
-            !state.catalogoBiometricoPronto -> "Cadastre os rostos para começar"
+            !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
             state.carregando -> "Confirmando identidade"
-            noFaceVisible -> "Aproxime o rosto"
             multipleFacesVisible -> "Apenas uma pessoa por vez"
+            noFaceVisible -> "Posicione seu rosto"
+            challengeCompleted -> "Olhe de frente"
             else -> challengeInstruction
         }
         val instructionDetail = when {
             !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
             state.sincronizandoBiometrias -> "Sincronizando o catálogo facial deste dispositivo."
-            !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor e registre a biometria dos colaboradores."
-            state.carregando -> if (state.modoOffline) "Validando localmente com segurança." else "Validando o reconhecimento."
-            noFaceVisible -> "Centralize todo o rosto dentro do quadro."
-            multipleFacesVisible -> "Peça para as demais pessoas se afastarem da câmera."
-            state.modoOffline -> "O registro ficará cifrado no aparelho e será sincronizado quando a conexão voltar."
-            else -> "Mantenha aproximadamente 40 cm de distância."
+            !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
+            state.carregando -> "Aguarde um instante enquanto validamos seu rosto."
+            multipleFacesVisible -> "Deixe somente uma pessoa visível na câmera."
+            noFaceVisible -> "Centralize o rosto dentro do guia."
+            challengeCompleted -> "Mantenha o rosto reto por um instante. A captura é automática."
+            state.modoOffline -> "O registro será protegido no aparelho e sincronizado quando a conexão voltar."
+            else -> "Siga a instrução e mantenha cerca de 40 cm de distância."
         }
 
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(PontoCafeSpacing.md)
+                .padding(horizontal = 14.dp, vertical = 14.dp)
                 .align(Alignment.BottomCenter),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(22.dp),
+            color = Color(0xDD121714),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(28.dp),
             shadowElevation = 8.dp,
         ) {
             Column(
-                modifier = Modifier.padding(PontoCafeSpacing.lg),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     instructionTitle,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
                     color = when {
-                        multipleFacesVisible -> MaterialTheme.colorScheme.error
-                        noFaceVisible -> LocalPontoCafeSemanticColors.current.warning
-                        else -> MaterialTheme.colorScheme.onSurface
+                        multipleFacesVisible -> Color(0xFFFF9B9B)
+                        challengeCompleted -> Color(0xFF82E2C4)
+                        noFaceVisible -> Color(0xFFFFD27D)
+                        else -> Color.White
                     },
                 )
                 Text(
                     instructionDetail,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White.copy(alpha = 0.76f),
                 )
 
                 if (state.atualizacaoObrigatoria) {
@@ -370,19 +414,39 @@ fun FaceKioskScreen(
                         Text(if (state.sincronizandoPendencias) "Sincronizando..." else "Sincronizar ${state.eventosPendentes} pendente(s)")
                     }
                 }
+
                 state.erro?.let { error ->
+                    val faceNotRecognized = error.startsWith("ROSTO NÃO RECONHECIDO", ignoreCase = true)
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        color = if (faceNotRecognized) Color(0xCC6D211E) else Color(0xCC7C2323),
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(18.dp),
                     ) {
-                        Text(
-                            error,
-                            modifier = Modifier.padding(PontoCafeSpacing.sm),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                if (faceNotRecognized) "Rosto não reconhecido" else "Não foi possível continuar",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                if (faceNotRecognized) {
+                                    "Olhe de frente, mantenha o rosto no guia e tente novamente."
+                                } else {
+                                    error
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                color = Color.White.copy(alpha = 0.86f),
+                            )
+                        }
                     }
                 }
             }
@@ -394,17 +458,84 @@ fun FaceKioskScreen(
 private fun KioskFaceGuide(
     active: Boolean,
     warning: Boolean,
+    ready: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val borderColor = when {
-        warning -> MaterialTheme.colorScheme.error
-        active -> Color.White.copy(alpha = 0.9f)
-        else -> Color.White.copy(alpha = 0.4f)
+    val guideColor = when {
+        warning -> Color(0xFFFF8A80)
+        ready -> Color(0xFF79E5C2)
+        active -> Color.White.copy(alpha = 0.92f)
+        else -> Color.White.copy(alpha = 0.38f)
     }
-    Box(
+
+    Canvas(
         modifier = modifier
-            .fillMaxWidth(0.68f)
-            .aspectRatio(0.78f)
-            .border(BorderStroke(2.dp, borderColor), RoundedCornerShape(40.dp)),
-    )
+            .fillMaxWidth(0.72f)
+            .aspectRatio(0.80f),
+    ) {
+        val stroke = 4.dp.toPx()
+        val cornerLength = size.minDimension * 0.20f
+        val inset = stroke
+        val left = inset
+        val top = inset
+        val right = size.width - inset
+        val bottom = size.height - inset
+
+        drawLine(
+            guideColor,
+            Offset(left, top + cornerLength),
+            Offset(left, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, top),
+            Offset(left + cornerLength, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right - cornerLength, top),
+            Offset(right, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right, top),
+            Offset(right, top + cornerLength),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, bottom - cornerLength),
+            Offset(left, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, bottom),
+            Offset(left + cornerLength, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right - cornerLength, bottom),
+            Offset(right, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right, bottom),
+            Offset(right, bottom - cornerLength),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+    }
 }
