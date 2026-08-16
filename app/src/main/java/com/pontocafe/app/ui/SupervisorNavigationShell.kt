@@ -113,9 +113,12 @@ fun SupervisorAreaShell(
         ) { destination ->
             when (destination) {
                 SupervisorPrimaryDestination.LIVE -> {
-                    val loadingInitialLive = state.carregando &&
+                    val loadingInitialLive =
                         state.pausasAtivas.isEmpty() &&
-                        state.ultimaAtualizacaoAoVivoEmMillis == null
+                        state.colaboradores.isEmpty() &&
+                        state.ultimaAtualizacaoAoVivoEmMillis == null &&
+                        state.erro == null &&
+                        state.conexaoAoVivoOk
                     if (loadingInitialLive) {
                         PontoCafeListSkeletonScreen(
                             title = "Ao vivo",
