@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.pontocafe.app.AdminDestination
 import com.pontocafe.app.AdminDeviceViewModel
@@ -234,10 +235,12 @@ fun AdminArea(
                                 showMetrics = true,
                             )
                         } else {
-                            AdminPeopleScreenV3(
-                                viewModel = viewModel,
-                                reliabilityViewModel = reliabilityViewModel,
-                            )
+                            PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                                AdminPeopleScreenV3(
+                                    viewModel = viewModel,
+                                    reliabilityViewModel = reliabilityViewModel,
+                                )
+                            }
                         }
                     }
                     AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
