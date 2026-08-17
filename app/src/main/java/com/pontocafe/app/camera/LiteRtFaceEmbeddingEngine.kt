@@ -35,6 +35,11 @@ class LiteRtFaceEmbeddingEngine(
     override val modelName: String = "FaceNet 128D · LiteRT"
     override val modelVersion: String = MODEL_VERSION
 
+    override suspend fun warmUp() {
+        if (!isReady) return
+        getInterpreter()
+    }
+
     override suspend fun embed(frame: FaceFrame): FloatArray = withContext(Dispatchers.Default) {
         if (!isReady) {
             throw FaceModelUnavailableException()
