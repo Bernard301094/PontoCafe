@@ -7,13 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,20 +26,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 
 @Composable
 fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
     val state = viewModel.state
+    val focusManager = LocalFocusManager.current
     var search by remember { mutableStateOf("") }
+    var pendingOnly by remember { mutableStateOf(false) }
+
     val collaborators = state.colaboradores
+        .asSequence()
+        .filter { !pendingOnly || !it.rostoCadastrado }
         .filter {
             search.isBlank() ||
                 it.nome.contains(search, ignoreCase = true) ||
                 it.setor.orEmpty().contains(search, ignoreCase = true)
         }
         .sortedWith(compareBy({ it.rostoCadastrado }, { it.nome.lowercase() }))
+        .toList()
     val registered = state.colaboradores.count { it.rostoCadastrado }
     val pending = state.colaboradores.size - registered
 
@@ -48,8 +55,6 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
             .padding(horizontal = PontoCafeSpacing.lg),
         contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
@@ -80,9 +85,17 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
             item(key = "pending") {
                 OperationalAlertCard(
                     title = "$pending rostos pendentes",
-                    text = "Esses colaboradores ainda não conseguem utilizar reconhecimento facial.",
-                    actionLabel = "Mostrar pendentes",
-                    onClick = { search = "" },
+                    text = if (pendingOnly) {
+                        "Exibindo somente colaboradores que ainda precisam cadastrar o rosto."
+                    } else {
+                        "Esses colaboradores ainda não conseguem utilizar reconhecimento facial."
+                    },
+                    actionLabel = if (pendingOnly) "Mostrar todos" else "Mostrar pendentes",
+                    onClick = {
+                        pendingOnly = !pendingOnly
+                        search = ""
+                        focusManager.clearFocus()
+                    },
                     tone = PontoCafeTone.WARNING,
                 )
             }
@@ -100,13 +113,22 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
                 onValueChange = { search = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Buscar colaborador") },
-                placeholder = { Text("Nome ou setor") },
+                placeholder = {
+                    Text(if (pendingOnly) "Buscar entre os pendentes" else "Nome ou setor")
+                },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
             )
         }
 
         item(key = "title") {
-            SectionTitle("Colaboradores", "${collaborators.size} resultado(s) · pendentes aparecem primeiro.")
+            val detail = if (pendingOnly) {
+                "${collaborators.size} pendente(s) · filtro de rostos pendentes ativo."
+            } else {
+                "${collaborators.size} resultado(s) · pendentes aparecem primeiro."
+            }
+            SectionTitle("Colaboradores", detail)
         }
 
         if (collaborators.isEmpty()) {
@@ -116,7 +138,11 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Text(
-                        "Nenhum colaborador encontrado.",
+                        if (pendingOnly) {
+                            "Nenhum colaborador com rosto pendente encontrado."
+                        } else {
+                            "Nenhum colaborador encontrado."
+                        },
                         modifier = Modifier.padding(PontoCafeSpacing.md),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
