@@ -23,7 +23,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 enum class TipoComprovantePonto { INICIO, RETORNO }
@@ -71,10 +73,12 @@ class PontoCafeViewModel(
 ) : ViewModel() {
 
     private val catalogRefreshMillis = 15 * 60 * 1000L
+    private val catalogMissRefreshCooldownMillis = 30 * 1000L
     private val offlineGraceMillis = 12 * 60 * 60 * 1000L
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     private var pendingOfflineEmbedding: FloatArray? = null
+    private var lastCatalogMissRefreshMillis: Long = 0L
 
     var state by mutableStateOf(
         PontoCafeUiState(
@@ -93,6 +97,9 @@ class PontoCafeViewModel(
 
     init {
         if (tokenStore.hasToken() && embeddingEngine.isReady) {
+            viewModelScope.launch {
+                runCatching { embeddingEngine.warmUp() }
+            }
             sincronizarBiometrias(force = false)
             atualizarConectividadeESincronizar()
         }
@@ -122,6 +129,7 @@ class PontoCafeViewModel(
                         scanCycle = state.scanCycle + 1,
                         mensagem = "Dispositivo configurado com sucesso.",
                     )
+                    viewModelScope.launch { runCatching { embeddingEngine.warmUp() } }
                     sincronizarBiometrias(force = true)
                     atualizarConectividadeESincronizar()
                 }
@@ -224,11 +232,25 @@ class PontoCafeViewModel(
             try {
                 val embedding = embeddingEngine.embed(frame)
                 var catalogo = obterCatalogoAtual(force = false)
-                var match = catalogo?.let { LocalFaceMatcher.match(embedding, it) }
+                var match = catalogo?.let { currentCatalog ->
+                    withContext(Dispatchers.Default) {
+                        LocalFaceMatcher.match(embedding, currentCatalog)
+                    }
+                }
 
                 if (match == null) {
-                    catalogo = obterCatalogoAtual(force = true)
-                    match = catalogo?.let { LocalFaceMatcher.match(embedding, it) }
+                    val now = System.currentTimeMillis()
+                    val canRefreshAfterMiss =
+                        now - lastCatalogMissRefreshMillis >= catalogMissRefreshCooldownMillis
+                    if (canRefreshAfterMiss) {
+                        lastCatalogMissRefreshMillis = now
+                        catalogo = obterCatalogoAtual(force = true)
+                        match = catalogo?.let { currentCatalog ->
+                            withContext(Dispatchers.Default) {
+                                LocalFaceMatcher.match(embedding, currentCatalog)
+                            }
+                        }
+                    }
                 }
 
                 if (match == null) {
@@ -380,7 +402,7 @@ class PontoCafeViewModel(
     }
 
     private suspend fun obterCatalogoAtual(force: Boolean): CachedFaceCatalog? {
-        val cache = faceCatalogStore.read()
+        val cache = withContext(Dispatchers.IO) { faceCatalogStore.read() }
         val agora = System.currentTimeMillis()
         val stale = cache == null || agora - cache.sincronizadoEmMillis >= catalogRefreshMillis
         if (!force && !stale) return cache
@@ -399,7 +421,7 @@ class PontoCafeViewModel(
 
         if (!response.atualizado && cache != null) {
             val refreshed = cache.copy(sincronizadoEmMillis = agora)
-            faceCatalogStore.save(refreshed)
+            withContext(Dispatchers.IO) { faceCatalogStore.save(refreshed) }
             return refreshed
         }
 
@@ -412,7 +434,7 @@ class PontoCafeViewModel(
             templates = response.templates,
             sincronizadoEmMillis = agora,
         )
-        faceCatalogStore.save(novo)
+        withContext(Dispatchers.IO) { faceCatalogStore.save(novo) }
         return novo
     }
 
