@@ -34,6 +34,11 @@ class SecureAdminSessionStore(
     private val pendingEmailKey = "${safeNamespace}_pending_login_email"
     private val pendingProfileKey = "${safeNamespace}_pending_login_profile"
 
+    // O conteúdo continua cifrado em disco com AndroidKeyStore/AES-GCM. Este cache
+    // existe apenas durante a vida da instância para evitar decifrar a mesma sessão
+    // em cada recomposição ou consulta de navegação.
+    private val decryptedCache = HashMap<String, String?>()
+
     fun hasToken(): Boolean = read() != null
 
     /**
@@ -89,6 +94,7 @@ class SecureAdminSessionStore(
         val activeId = activeAccountId()
         val key = activeId?.let(::accountTokenKey) ?: legacyTokenKey
         prefs.edit().putString(key, encrypt(normalized)).apply()
+        cacheValue(key, normalized)
     }
 
     fun saveAccount(
@@ -112,15 +118,21 @@ class SecureAdminSessionStore(
         val ids = prefs.getStringSet(accountIdsKey, emptySet()).orEmpty().toMutableSet().apply {
             add(normalizedId)
         }
+        val metadataKey = accountMetadataKey(normalizedId)
+        val tokenKey = accountTokenKey(normalizedId)
 
         prefs.edit()
             .putStringSet(accountIdsKey, ids)
-            .putString(accountMetadataKey(normalizedId), encrypt(metadata))
-            .putString(accountTokenKey(normalizedId), encrypt(token.trim()))
+            .putString(metadataKey, encrypt(metadata))
+            .putString(tokenKey, encrypt(token.trim()))
             .putString(activeAccountKey, normalizedId)
             .putBoolean(newLoginModeKey, false)
             .remove(legacyTokenKey)
             .apply()
+
+        cacheValue(metadataKey, metadata)
+        cacheValue(tokenKey, token.trim())
+        cacheRemove(legacyTokenKey)
     }
 
     fun savedAccounts(): List<SavedRestrictedAccount> {
@@ -163,18 +175,22 @@ class SecureAdminSessionStore(
         val normalizedId = accountId.trim()
         if (normalizedId.isBlank()) return
 
+        val metadataKey = accountMetadataKey(normalizedId)
+        val tokenKey = accountTokenKey(normalizedId)
         val ids = prefs.getStringSet(accountIdsKey, emptySet()).orEmpty().toMutableSet().apply {
             remove(normalizedId)
         }
         val edit = prefs.edit()
             .putStringSet(accountIdsKey, ids)
-            .remove(accountMetadataKey(normalizedId))
-            .remove(accountTokenKey(normalizedId))
+            .remove(metadataKey)
+            .remove(tokenKey)
 
         if (prefs.getString(activeAccountKey, null) == normalizedId) {
             edit.remove(activeAccountKey)
         }
         edit.apply()
+        cacheRemove(metadataKey)
+        cacheRemove(tokenKey)
     }
 
     fun read(): String? {
@@ -192,6 +208,7 @@ class SecureAdminSessionStore(
         val activeId = prefs.getString(activeAccountKey, null)?.takeIf { it.isNotBlank() }
         val storageKey = activeId?.let(::accountTokenKey) ?: legacyTokenKey
         prefs.edit().remove(storageKey).apply()
+        cacheRemove(storageKey)
     }
 
     private fun readAccount(accountId: String): SavedRestrictedAccount? {
@@ -230,7 +247,18 @@ class SecureAdminSessionStore(
     }
 
     private fun readEncrypted(storageKey: String): String? {
-        val payload = prefs.getString(storageKey, null) ?: return null
+        synchronized(decryptedCache) {
+            if (decryptedCache.containsKey(storageKey)) {
+                return decryptedCache[storageKey]
+            }
+        }
+
+        val payload = prefs.getString(storageKey, null)
+        if (payload == null) {
+            cacheValue(storageKey, null)
+            return null
+        }
+
         val decrypted = runCatching {
             val bytes = Base64.decode(payload, Base64.NO_WRAP)
             require(bytes.size > 12)
@@ -241,8 +269,23 @@ class SecureAdminSessionStore(
             String(cipher.doFinal(encrypted), Charsets.UTF_8)
         }.getOrNull()
 
-        if (decrypted == null) prefs.edit().remove(storageKey).apply()
+        if (decrypted == null) {
+            prefs.edit().remove(storageKey).apply()
+        }
+        cacheValue(storageKey, decrypted)
         return decrypted
+    }
+
+    private fun cacheValue(storageKey: String, value: String?) {
+        synchronized(decryptedCache) {
+            decryptedCache[storageKey] = value
+        }
+    }
+
+    private fun cacheRemove(storageKey: String) {
+        synchronized(decryptedCache) {
+            decryptedCache.remove(storageKey)
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
