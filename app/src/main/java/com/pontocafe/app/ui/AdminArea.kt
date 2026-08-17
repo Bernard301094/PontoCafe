@@ -77,21 +77,23 @@ fun AdminArea(
 
     if (showingDevices) {
         BackHandler { setDevicesOpen(false) }
-        MotionReveal {
-            val deviceState = deviceViewModel.state
-            if (deviceState.carregando && deviceState.dispositivos.isEmpty()) {
-                PontoCafeListSkeletonScreen(
-                    title = "Dispositivos",
-                    eyebrow = "Segurança do Ponto",
-                    onBack = { setDevicesOpen(false) },
-                    rows = 4,
-                    showMetrics = true,
-                )
-            } else {
-                AdminDevicesScreenV2(
-                    viewModel = deviceViewModel,
-                    onBack = { setDevicesOpen(false) },
-                )
+        PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+            MotionReveal {
+                val deviceState = deviceViewModel.state
+                if (deviceState.carregando && deviceState.dispositivos.isEmpty()) {
+                    PontoCafeListSkeletonScreen(
+                        title = "Dispositivos",
+                        eyebrow = "Segurança do Ponto",
+                        onBack = { setDevicesOpen(false) },
+                        rows = 4,
+                        showMetrics = true,
+                    )
+                } else {
+                    AdminDevicesScreenV2(
+                        viewModel = deviceViewModel,
+                        onBack = { setDevicesOpen(false) },
+                    )
+                }
             }
         }
         return
@@ -99,12 +101,14 @@ fun AdminArea(
 
     if (showingKiosk) {
         BackHandler { setKioskOpen(false) }
-        MotionReveal {
-            KioskModeScreen(
-                activity = activity,
-                store = kioskModeStore,
-                onBack = { setKioskOpen(false) },
-            )
+        PontoCafeResponsivePage(maxContentWidth = 840.dp) {
+            MotionReveal {
+                KioskModeScreen(
+                    activity = activity,
+                    store = kioskModeStore,
+                    onBack = { setKioskOpen(false) },
+                )
+            }
         }
         return
     }
@@ -128,24 +132,32 @@ fun AdminArea(
             label = "admin-reliability-navigation",
         ) { destination ->
             when (destination) {
-                ReliabilityDestination.COLLABORATOR_HISTORY -> CollaboratorHistoryScreen(
-                    viewModel = viewModel,
-                    reliabilityViewModel = reliabilityViewModel,
-                    onBack = reliabilityViewModel::closeDetail,
-                )
-                ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> BiometricDiagnosticsScreen(
-                    adminViewModel = viewModel,
-                    viewModel = reliabilityViewModel,
-                    onBack = reliabilityViewModel::closeDetail,
-                )
-                ReliabilityDestination.SYNC_CENTER -> SyncCenterScreen(
-                    viewModel = reliabilityViewModel,
-                    onBack = reliabilityViewModel::closeDetail,
-                )
-                ReliabilityDestination.SYSTEM_DIAGNOSTICS -> SystemDiagnosticsScreen(
-                    viewModel = reliabilityViewModel,
-                    onBack = reliabilityViewModel::closeDetail,
-                )
+                ReliabilityDestination.COLLABORATOR_HISTORY -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                    CollaboratorHistoryScreen(
+                        viewModel = viewModel,
+                        reliabilityViewModel = reliabilityViewModel,
+                        onBack = reliabilityViewModel::closeDetail,
+                    )
+                }
+                ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                    BiometricDiagnosticsScreen(
+                        adminViewModel = viewModel,
+                        viewModel = reliabilityViewModel,
+                        onBack = reliabilityViewModel::closeDetail,
+                    )
+                }
+                ReliabilityDestination.SYNC_CENTER -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                    SyncCenterScreen(
+                        viewModel = reliabilityViewModel,
+                        onBack = reliabilityViewModel::closeDetail,
+                    )
+                }
+                ReliabilityDestination.SYSTEM_DIAGNOSTICS -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                    SystemDiagnosticsScreen(
+                        viewModel = reliabilityViewModel,
+                        onBack = reliabilityViewModel::closeDetail,
+                    )
+                }
                 ReliabilityDestination.NONE -> Unit
             }
         }
@@ -228,12 +240,14 @@ fun AdminArea(
                             state.colaboradores.isEmpty() &&
                             state.usuarios.isEmpty()
                         if (initialPeopleLoading) {
-                            PontoCafeListSkeletonScreen(
-                                title = "Pessoas",
-                                eyebrow = "Equipe, biometria e acessos",
-                                rows = 5,
-                                showMetrics = true,
-                            )
+                            PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                                PontoCafeListSkeletonScreen(
+                                    title = "Pessoas",
+                                    eyebrow = "Equipe, biometria e acessos",
+                                    rows = 5,
+                                    showMetrics = true,
+                                )
+                            }
                         } else {
                             PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
                                 AdminPeopleScreenV3(
@@ -276,14 +290,26 @@ fun AdminArea(
             AdminDestination.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            AdminDestination.LOGIN -> AdminLoginScreen(viewModel, onClose)
-            AdminDestination.FIRST_SETUP -> FirstAdminSetupScreen(viewModel, onClose)
+            AdminDestination.LOGIN -> PontoCafeResponsivePage(maxContentWidth = 720.dp) {
+                AdminLoginScreen(viewModel, onClose)
+            }
+            AdminDestination.FIRST_SETUP -> PontoCafeResponsivePage(maxContentWidth = 760.dp) {
+                FirstAdminSetupScreen(viewModel, onClose)
+            }
             AdminDestination.NEW_ACCOUNT -> AdminNewAccountScreen(viewModel)
-            AdminDestination.USER_DETAIL -> AdminUserDetailScreen(viewModel)
-            AdminDestination.AUTHORIZATION -> AdminAuthorizationScreen(viewModel)
+            AdminDestination.USER_DETAIL -> PontoCafeResponsivePage(maxContentWidth = 840.dp) {
+                AdminUserDetailScreen(viewModel)
+            }
+            AdminDestination.AUTHORIZATION -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                AdminAuthorizationScreen(viewModel)
+            }
             AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
-            AdminDestination.BIOMETRIC_ENROLLMENT -> AdminBiometricEnrollmentScreen(viewModel)
-            AdminDestination.AUDIT -> AdminAuditScreen(viewModel)
+            AdminDestination.BIOMETRIC_ENROLLMENT -> PontoCafeResponsivePage(maxContentWidth = 840.dp) {
+                AdminBiometricEnrollmentScreen(viewModel)
+            }
+            AdminDestination.AUDIT -> PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                AdminAuditScreen(viewModel)
+            }
             AdminDestination.HOME,
             AdminDestination.COLLABORATORS,
             AdminDestination.SETTINGS -> Unit
