@@ -30,6 +30,11 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -50,12 +55,29 @@ fun SupervisorAreaShell(
     onClose: () -> Unit,
 ) {
     val state = viewModel.state
-    val current = when (state.destination) {
+    var pendingPrimaryDestination by remember { mutableStateOf<SupervisorPrimaryDestination?>(null) }
+
+    val stateCurrent = when (state.destination) {
         SupervisorDestination.AO_VIVO -> SupervisorPrimaryDestination.LIVE
         SupervisorDestination.COLABORADORES -> SupervisorPrimaryDestination.PEOPLE
         SupervisorDestination.RELATORIOS -> SupervisorPrimaryDestination.REPORTS
         else -> null
     }
+
+    LaunchedEffect(state.destination, state.carregando) {
+        val pending = pendingPrimaryDestination ?: return@LaunchedEffect
+        val resolved = when (state.destination) {
+            SupervisorDestination.AO_VIVO -> SupervisorPrimaryDestination.LIVE
+            SupervisorDestination.COLABORADORES -> SupervisorPrimaryDestination.PEOPLE
+            SupervisorDestination.RELATORIOS -> SupervisorPrimaryDestination.REPORTS
+            else -> null
+        }
+        if (resolved == pending || !state.carregando) {
+            pendingPrimaryDestination = null
+        }
+    }
+
+    val current = pendingPrimaryDestination ?: stateCurrent
 
     if (current == null) {
         AnimatedContent(
@@ -88,6 +110,9 @@ fun SupervisorAreaShell(
     val useNavigationRail = LocalConfiguration.current.screenWidthDp >= 600
 
     fun openDestination(destination: SupervisorPrimaryDestination) {
+        if (current != destination) {
+            pendingPrimaryDestination = destination
+        }
         when (destination) {
             SupervisorPrimaryDestination.LIVE -> viewModel.voltarAoVivo()
             SupervisorPrimaryDestination.PEOPLE -> viewModel.abrirColaboradores()
