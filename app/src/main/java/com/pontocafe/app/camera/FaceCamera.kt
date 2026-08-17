@@ -49,6 +49,17 @@ import kotlin.math.abs
 private const val FACE_CAMERA_TAG = "PontoCafeFaceCamera"
 private const val OBSERVATION_DELIVERY_INTERVAL_MS = 50L
 
+/**
+ * Sinal mínimo, em memória, da câmera ativa. O fluxo rápido usa apenas a
+ * contagem para saber quando a pessoa que acabou de registrar saiu do quadro.
+ * Nenhuma imagem, landmark ou dado biométrico é armazenado aqui.
+ */
+object FacePresenceMonitor {
+    @Volatile
+    var faceCount: Int = 0
+        internal set
+}
+
 data class FaceObservation(
     val faceCount: Int = 0,
     val bounds: Rect? = null,
@@ -185,6 +196,7 @@ private fun analyzer(
             } else {
                 FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
             }
+            FacePresenceMonitor.faceCount = observation.faceCount
 
             val now = SystemClock.uptimeMillis()
             val shouldDeliverObservation =
@@ -235,6 +247,7 @@ private fun analyzer(
             Thread.currentThread().interrupt()
             Log.d(FACE_CAMERA_TAG, "Análise facial interrompida durante o encerramento da câmera.")
         } catch (error: Throwable) {
+            FacePresenceMonitor.faceCount = 0
             Log.e(FACE_CAMERA_TAG, "Falha ao analisar frame facial.", error)
             runCatching { onObservation(FaceObservation()) }
         } finally {
@@ -410,6 +423,7 @@ fun FaceCameraPreview(
                 )
             }.onFailure { error ->
                 if (cameraAlive.get()) {
+                    FacePresenceMonitor.faceCount = 0
                     Log.e(FACE_CAMERA_TAG, "Não foi possível iniciar a câmera frontal.", error)
                     runCatching { currentOnObservation.value(FaceObservation()) }
                 }
@@ -419,6 +433,7 @@ fun FaceCameraPreview(
 
     DisposableEffect(Unit) {
         onDispose {
+            FacePresenceMonitor.faceCount = 0
             cameraAlive.set(false)
             runCatching { cameraProvider?.unbindAll() }
             executor.shutdownNow()
