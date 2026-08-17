@@ -114,18 +114,25 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
      where col.ativo=true`,
   )
 
-  const candidatos: Candidato[] = []
+  // Primeiro escolhe o melhor template de cada pessoa. Templates da mesma
+  // identidade podem representar touca, óculos, sem acessórios etc. e não podem
+  // ocupar simultaneamente o primeiro e o segundo lugar da margem de segurança.
+  const bestByCollaborator = new Map<string, Candidato>()
   for (const template of templates.rows) {
     if (template.dimensao !== body.data.embedding.length) continue
     try {
       const cadastrado = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
-      candidatos.push({ ...template, score: cosineSimilarity(cadastrado, body.data.embedding) })
+      const candidate = { ...template, score: cosineSimilarity(cadastrado, body.data.embedding) }
+      const current = bestByCollaborator.get(template.colaborador_id)
+      if (!current || candidate.score > current.score) {
+        bestByCollaborator.set(template.colaborador_id, candidate)
+      }
     } catch (error) {
       console.error(`Falha ao ler template facial do colaborador ${template.colaborador_id}.`, error)
     }
   }
 
-  candidatos.sort((a, b) => b.score - a.score)
+  const candidatos = [...bestByCollaborator.values()].sort((a, b) => b.score - a.score)
   const melhor = candidatos[0]
   const segundo = candidatos[1]
 
@@ -291,14 +298,25 @@ pontoRoutes.post('/biometria/verificar', async (c) => {
   const result = await query<{ template_cifrado: Buffer; iv: Buffer; auth_tag: Buffer; dimensao: number }>(
     `select t.template_cifrado,t.iv,t.auth_tag,t.dimensao
      from templates_faciais t join colaboradores col on col.id=t.colaborador_id
-     where t.colaborador_id=$1 and col.ativo=true limit 1`,
+     where t.colaborador_id=$1 and col.ativo=true`,
     [body.data.colaboradorId],
   )
-  const stored = result.rows[0]
-  if (!stored) return c.json({ erro: 'Biometria não cadastrada.' }, 404)
-  if (stored.dimensao !== body.data.embedding.length) return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
+  if (result.rows.length === 0) return c.json({ erro: 'Biometria não cadastrada.' }, 404)
 
-  const score = cosineSimilarity(decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag), body.data.embedding)
+  let score = -1
+  let compatible = 0
+  for (const stored of result.rows) {
+    if (stored.dimensao !== body.data.embedding.length) continue
+    try {
+      const embedding = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
+      if (embedding.length !== stored.dimensao) continue
+      compatible += 1
+      score = Math.max(score, cosineSimilarity(embedding, body.data.embedding))
+    } catch (error) {
+      console.error('Falha ao ler uma variante facial durante verificação.', error)
+    }
+  }
+  if (compatible === 0) return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
   if (score < config.faceThreshold) return c.json({ reconhecido: false, score: Number(score.toFixed(4)) }, 401)
 
   const verificacaoToken = newToken()

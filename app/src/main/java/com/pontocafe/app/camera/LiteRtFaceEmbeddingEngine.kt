@@ -46,21 +46,20 @@ class LiteRtFaceEmbeddingEngine(
         var face: Bitmap? = null
         var resized: Bitmap? = null
         try {
+            // Mantemos exatamente o mesmo recorte/preprocessamento da versão
+            // anterior para que todas as biometrias já cadastradas continuem
+            // comparáveis. A robustez a touca/óculos é obtida por múltiplos
+            // templates da mesma identidade, não mudando o espaço FaceNet.
             val cropped = cropFace(source, frame.faceBounds)
             face = cropped
             val scaled = Bitmap.createScaledBitmap(cropped, INPUT_SIZE, INPUT_SIZE, true)
             resized = scaled
 
-            // Rejeita apenas condições extremas (muito escuro, superexposto,
-            // contraste quase inexistente ou desfoque forte) antes do FaceNet.
             FaceImageQualityAnalyzer.requireAcceptable(scaled)
             val input = toStandardizedBuffer(scaled)
             val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
             val runtime = getInterpreter()
 
-            // O mesmo InterpreterApi é reutilizado pela aplicação. Serializar a
-            // inferência evita corridas nativas caso duas telas solicitem embedding
-            // quase ao mesmo tempo (Ponto, Admin ou Supervisor).
             inferenceMutex.withLock {
                 runtime.run(input, output)
             }
@@ -93,8 +92,6 @@ class LiteRtFaceEmbeddingEngine(
                 Tasks.await(TfLite.initialize(context.applicationContext))
                 val options = InterpreterApi.Options()
                     .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
-                    // Dois threads reduzem pressão de CPU/memória no modo Ponto sem
-                    // prejudicar perceptivelmente um embedding 160x160 por captura.
                     .setNumThreads(2)
                 InterpreterApi.create(loadModelBuffer(), options).also { interpreter = it }
             }

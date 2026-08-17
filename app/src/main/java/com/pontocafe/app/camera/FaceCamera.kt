@@ -3,6 +3,7 @@ package com.pontocafe.app.camera
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.Rect
 import android.util.Log
 import android.util.Size
@@ -39,6 +40,7 @@ import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -76,16 +78,23 @@ data class FaceObservation(
     val isFrontal: Boolean
         get() = isWellPositioned && abs(yaw) <= 15f && abs(pitch) <= 15f
 
+    val eyeClassificationAvailable: Boolean
+        get() = leftEyeOpen != null && rightEyeOpen != null
+
     val eyesClosed: Boolean
-        get() = leftEyeOpen != null && rightEyeOpen != null && leftEyeOpen < 0.35f && rightEyeOpen < 0.35f
+        get() = eyeClassificationAvailable && leftEyeOpen!! < 0.35f && rightEyeOpen!! < 0.35f
 
     val eyesOpen: Boolean
-        get() = leftEyeOpen != null && rightEyeOpen != null && leftEyeOpen > 0.70f && rightEyeOpen > 0.70f
+        get() = eyeClassificationAvailable && leftEyeOpen!! > 0.70f && rightEyeOpen!! > 0.70f
 }
 
 data class FaceFrame(
     val bitmap: Bitmap,
     val faceBounds: Rect,
+    val leftEye: PointF? = null,
+    val rightEye: PointF? = null,
+    val noseBase: PointF? = null,
+    val mouthBottom: PointF? = null,
 )
 
 class FrameCaptureController {
@@ -117,7 +126,7 @@ class BlinkLiveness {
     }
 
     fun update(observation: FaceObservation): LivenessState {
-        if (!observation.isFrontal) {
+        if (!observation.isFrontal || !observation.eyeClassificationAvailable) {
             sawClosedEyes = false
             return LivenessState.POSICIONE_ROSTO
         }
@@ -141,6 +150,9 @@ private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = 
     imageHeight = imageHeight,
 )
 
+private fun Face.landmarkPoint(type: Int): PointF? =
+    getLandmark(type)?.position?.let { PointF(it.x, it.y) }
+
 private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
     if (degrees == 0) return bitmap
     val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
@@ -161,9 +173,6 @@ private fun analyzer(
         val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
         val image = InputImage.fromMediaImage(mediaImage, rotation)
 
-        // O analyzer já roda em um executor de uma única thread. Esperar o ML Kit
-        // aqui mantém no máximo um ImageProxy em uso e elimina callbacks que podem
-        // tentar acessar um frame depois que CameraX ou a tela já foram encerrados.
         val faces = Tasks.await(detector.process(image))
         val observation = if (faces.size == 1) {
             faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
@@ -175,6 +184,7 @@ private fun analyzer(
 
         if (faces.size == 1 && captureController.consume()) {
             try {
+                val face = faces.first()
                 val sourceBitmap = imageProxy.toBitmap()
                 val uprightBitmap = try {
                     rotate(sourceBitmap, rotation)
@@ -190,7 +200,11 @@ private fun analyzer(
                     onFrame(
                         FaceFrame(
                             bitmap = uprightBitmap,
-                            faceBounds = Rect(faces.first().boundingBox),
+                            faceBounds = Rect(face.boundingBox),
+                            leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
+                            rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
+                            noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
+                            mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
                         ),
                     )
                 } catch (error: Throwable) {
@@ -198,7 +212,6 @@ private fun analyzer(
                     throw error
                 }
             } catch (error: Throwable) {
-                // Não perde a solicitação de captura por uma falha transitória do frame.
                 captureController.retry()
                 Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
             }
@@ -210,8 +223,6 @@ private fun analyzer(
         Log.e(FACE_CAMERA_TAG, "Falha ao analisar frame facial.", error)
         runCatching { onObservation(FaceObservation()) }
     } finally {
-        // Cada ImageProxy deve ser fechado exatamente pelo analyzer, mesmo quando
-        // ML Kit, conversão de bitmap ou callbacks falham.
         runCatching { imageProxy.close() }
             .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao liberar frame da câmera.", it) }
     }
@@ -287,6 +298,7 @@ fun FaceCameraPreview(
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                 .setMinFaceSize(0.20f)
                 .enableTracking()
@@ -296,9 +308,6 @@ fun FaceCameraPreview(
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
-    // Enquanto a câmera facial estiver em uso (Ponto ou cadastro de biometria),
-    // impede que o Android apague/bloqueie a tela por inatividade. Ao sair da
-    // captura, restaura exatamente o comportamento anterior do aparelho/app.
     DisposableEffect(rootView) {
         val previousKeepScreenOn = rootView.keepScreenOn
         rootView.keepScreenOn = true

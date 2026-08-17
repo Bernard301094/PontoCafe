@@ -23,6 +23,8 @@ const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
 })
 
 type CatalogTemplateRow = {
+  id: string
+  tipo: string
   colaborador_id: string
   matricula: string | null
   nome: string
@@ -35,6 +37,18 @@ type CatalogTemplateRow = {
   modelo: string
   versao_modelo: string
   atualizado_em: string
+}
+
+type ConfirmationTemplateRow = {
+  colaborador_id: string
+  matricula: string | null
+  nome: string
+  setor: string | null
+  turno: string | null
+  template_cifrado: Buffer
+  iv: Buffer
+  auth_tag: Buffer
+  dimensao: number
 }
 
 type PausaUtilizadaRow = {
@@ -73,8 +87,8 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
     `select md5(coalesce(string_agg(
        col.id::text || ':' || coalesce(col.matricula,'') || ':' || col.nome || ':' ||
        coalesce(col.setor,'') || ':' || coalesce(col.turno,'') || ':' ||
-       t.atualizado_em::text,
-       '|' order by col.id
+       t.id::text || ':' || coalesce(t.tipo,'LEGADO') || ':' || t.atualizado_em::text,
+       '|' order by col.id,t.id
      ),'')) as versao
      from templates_faciais t
      join colaboradores col on col.id=t.colaborador_id
@@ -97,13 +111,14 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
   }
 
   const result = await query<CatalogTemplateRow>(
-    `select t.colaborador_id,col.matricula,col.nome,col.setor,col.turno,
+    `select t.id,coalesce(t.tipo,'LEGADO') as tipo,t.colaborador_id,
+            col.matricula,col.nome,col.setor,col.turno,
             t.template_cifrado,t.iv,t.auth_tag,t.dimensao,t.modelo,t.versao_modelo,
             t.atualizado_em::text
      from templates_faciais t
      join colaboradores col on col.id=t.colaborador_id
      where col.ativo=true and t.modelo=$1 and t.versao_modelo=$2
-     order by col.nome`,
+     order by col.nome,t.atualizado_em desc,t.id`,
     [modelo, versaoModelo],
   )
 
@@ -112,6 +127,8 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
       const embedding = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
       if (embedding.length !== row.dimensao) return []
       return [{
+        templateId: row.id,
+        tipo: row.tipo,
         colaborador: {
           id: row.colaborador_id,
           matricula: row.matricula,
@@ -128,6 +145,7 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
       console.error(JSON.stringify({
         evento: 'template_biometrico_invalido',
         colaboradorId: row.colaborador_id,
+        templateId: row.id,
         erro: error instanceof Error ? error.message : 'erro desconhecido',
       }))
       return []
@@ -155,34 +173,40 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
   if (!body.ok) return body.response
 
   const device = c.get('device')
-  const result = await query<{
-    colaborador_id: string
-    matricula: string | null
-    nome: string
-    setor: string | null
-    turno: string | null
-    template_cifrado: Buffer
-    iv: Buffer
-    auth_tag: Buffer
-    dimensao: number
-  }>(
+  const result = await query<ConfirmationTemplateRow>(
     `select t.colaborador_id,col.matricula,col.nome,col.setor,col.turno,
             t.template_cifrado,t.iv,t.auth_tag,t.dimensao
      from templates_faciais t
      join colaboradores col on col.id=t.colaborador_id
      where t.colaborador_id=$1 and col.ativo=true and t.modelo=$2 and t.versao_modelo=$3
-     limit 1`,
+     order by t.atualizado_em desc,t.criado_em desc`,
     [body.data.colaboradorId, body.data.modelo, body.data.versaoModelo],
   )
 
   const stored = result.rows[0]
   if (!stored) return c.json({ erro: 'Biometria não cadastrada ou modelo incompatível.' }, 404)
-  if (stored.dimensao !== body.data.embedding.length) {
-    return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
+
+  let score = -1
+  let compatibleTemplates = 0
+  for (const template of result.rows) {
+    if (template.dimensao !== body.data.embedding.length) continue
+    try {
+      const cadastrado = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
+      if (cadastrado.length !== template.dimensao) continue
+      compatibleTemplates += 1
+      score = Math.max(score, cosineSimilarity(cadastrado, body.data.embedding))
+    } catch (error) {
+      console.error(JSON.stringify({
+        evento: 'template_ignorado_na_confirmacao_local',
+        colaboradorId: template.colaborador_id,
+        erro: error instanceof Error ? error.message : 'erro desconhecido',
+      }))
+    }
   }
 
-  const cadastrado = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
-  const score = cosineSimilarity(cadastrado, body.data.embedding)
+  if (compatibleTemplates === 0) {
+    return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
+  }
   if (score < config.faceThreshold) {
     return c.json({
       reconhecido: false,

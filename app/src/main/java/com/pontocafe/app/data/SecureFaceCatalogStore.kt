@@ -19,6 +19,8 @@ data class CachedFaceTemplate(
     val modelo: String,
     val versaoModelo: String,
     val atualizadoEm: String,
+    val templateId: String? = null,
+    val tipo: String? = null,
 )
 
 data class CachedFaceCatalog(
@@ -29,7 +31,10 @@ data class CachedFaceCatalog(
     val margem: Double,
     val templates: List<CachedFaceTemplate>,
     val sincronizadoEmMillis: Long,
-)
+) {
+    val totalColaboradores: Int
+        get() = templates.asSequence().map { it.colaborador.id }.distinct().count()
+}
 
 data class LocalFaceMatch(
     val colaborador: Colaborador,
@@ -119,14 +124,25 @@ object LocalFaceMatcher {
     fun match(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
         if (embedding.isEmpty() || catalog.templates.isEmpty()) return null
 
-        val ranked = catalog.templates.mapNotNull { template ->
+        // Vários templates da mesma pessoa representam aparências diferentes
+        // (touca, óculos, sem acessórios, ângulos etc.). Eles não podem competir
+        // entre si como se fossem pessoas diferentes. Primeiro calculamos o melhor
+        // score de cada colaborador; só depois aplicamos limiar e margem entre
+        // identidades distintas.
+        val bestByCollaborator = linkedMapOf<String, Pair<CachedFaceTemplate, Double>>()
+        for (template in catalog.templates) {
             val stored = template.embedding
-            if (stored.size != embedding.size) return@mapNotNull null
+            if (stored.size != embedding.size) continue
             val score = cosine(stored, embedding)
-            if (!score.isFinite()) return@mapNotNull null
-            template to score
-        }.sortedByDescending { it.second }
+            if (!score.isFinite()) continue
 
+            val current = bestByCollaborator[template.colaborador.id]
+            if (current == null || score > current.second) {
+                bestByCollaborator[template.colaborador.id] = template to score
+            }
+        }
+
+        val ranked = bestByCollaborator.values.sortedByDescending { it.second }
         val best = ranked.firstOrNull() ?: return null
         val second = ranked.getOrNull(1)?.second
         if (best.second < catalog.limiar) return null

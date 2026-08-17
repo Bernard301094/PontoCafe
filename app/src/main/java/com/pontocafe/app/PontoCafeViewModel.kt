@@ -81,7 +81,7 @@ class PontoCafeViewModel(
             deviceConfigured = tokenStore.hasToken(),
             scanning = tokenStore.hasToken(),
             catalogoBiometricoPronto = faceCatalogStore.read()?.templates?.isNotEmpty() == true,
-            totalBiometrias = faceCatalogStore.read()?.templates?.size ?: 0,
+            totalBiometrias = faceCatalogStore.read()?.totalColaboradores ?: 0,
             eventosPendentes = offlineStore.pendingCount(),
             ultimaConexaoEmMillis = offlineStore.lastServerOkMillis().takeIf { it > 0L },
         ),
@@ -180,7 +180,7 @@ class PontoCafeViewModel(
                     state = state.copy(
                         sincronizandoBiometrias = false,
                         catalogoBiometricoPronto = catalogo?.templates?.isNotEmpty() == true,
-                        totalBiometrias = catalogo?.templates?.size ?: 0,
+                        totalBiometrias = catalogo?.totalColaboradores ?: 0,
                     )
                 }
                 .onFailure {

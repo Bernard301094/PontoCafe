@@ -11,6 +11,8 @@ export const collaboratorManagementRoutes = new Hono<AppEnv>()
 collaboratorManagementRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
 const BIOMETRIC_ENROLLMENT_LOCK = 847231
+const MAX_TEMPLATES_PER_COLLABORATOR = 24
+const CONTINUITY_THRESHOLD_DELTA = 0.08
 
 async function audit(
   c: Context<AppEnv>,
@@ -151,15 +153,15 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     }, 400)
   }
 
-  // Se um rosto já seria reconhecido como outra pessoa no Ponto, ele não pode
-  // ser aceito como uma nova identidade. O limiar de unicidade nunca pode ser
-  // mais permissivo que o limiar real de reconhecimento.
   const duplicateThreshold = Math.min(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
+  // O cadastro de uma nova aparência da MESMA pessoa pode variar mais do que o
+  // Ponto aceita para autenticar. Esse limiar reduzido vale somente aqui e exige
+  // evidência em múltiplas amostras; o reconhecimento diário continua usando o
+  // FACE_MATCH_THRESHOLD normal.
+  const continuityThreshold = Math.max(0.60, config.faceThreshold - CONTINUITY_THRESHOLD_DELTA)
   const actor = c.get('user')
 
   const result = await transaction(async (client) => {
-    // Serializa cadastros biométricos para impedir que duas requisições
-    // simultâneas passem pela verificação antes de qualquer uma persistir.
     await client.query('select pg_advisory_xact_lock($1)', [BIOMETRIC_ENROLLMENT_LOCK])
 
     const collaborator = await client.query<{ id: string; nome: string }>(
@@ -169,7 +171,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     const current = collaborator.rows[0]
     if (!current) return { status: 'NOT_FOUND' as const }
 
-    const currentBiometric = await client.query<{
+    const currentBiometrics = await client.query<{
       template_cifrado: Buffer
       iv: Buffer
       auth_tag: Buffer
@@ -180,44 +182,53 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       `select template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo
          from templates_faciais
         where colaborador_id=$1
-        limit 1`,
+        order by atualizado_em desc,criado_em desc`,
       [colaboradorId],
     )
-    const previousFace = currentBiometric.rows[0]
+    const previousFaces = currentBiometrics.rows
+    const compatiblePrevious = previousFaces.filter((row) =>
+      row.dimensao === expectedDimension &&
+      row.modelo === body.data.modelo &&
+      row.versao_modelo === body.data.versaoModelo
+    )
+
+    if (previousFaces.length > 0 && compatiblePrevious.length === 0) {
+      return { status: 'CURRENT_MODEL_MISMATCH' as const }
+    }
 
     let continuityEvidence: ReturnType<typeof evaluateDuplicateBiometric> | null = null
-    if (previousFace) {
-      if (
-        previousFace.dimensao !== expectedDimension ||
-        previousFace.modelo !== body.data.modelo ||
-        previousFace.versao_modelo !== body.data.versaoModelo
-      ) {
-        return { status: 'CURRENT_MODEL_MISMATCH' as const }
+    if (compatiblePrevious.length > 0) {
+      let validPreviousTemplates = 0
+      for (const previousFace of compatiblePrevious) {
+        try {
+          const storedCurrent = decryptEmbedding(previousFace.template_cifrado, previousFace.iv, previousFace.auth_tag)
+          if (storedCurrent.length !== previousFace.dimensao) continue
+          validPreviousTemplates += 1
+
+          const consolidatedScore = cosineSimilarity(storedCurrent, body.data.embedding)
+          const sampleScores = samples.map((sample) => cosineSimilarity(storedCurrent, sample))
+          const evidence = evaluateDuplicateBiometric(consolidatedScore, sampleScores, continuityThreshold)
+          if (!continuityEvidence || evidence.strongestScore > continuityEvidence.strongestScore) {
+            continuityEvidence = evidence
+          }
+        } catch (error) {
+          console.error(JSON.stringify({
+            evento: 'template_atual_ignorado_ao_expandir_biometria',
+            colaboradorId,
+            erro: error instanceof Error ? error.message : 'erro desconhecido',
+          }))
+        }
       }
 
-      try {
-        const storedCurrent = decryptEmbedding(previousFace.template_cifrado, previousFace.iv, previousFace.auth_tag)
-        if (storedCurrent.length !== previousFace.dimensao) {
-          return { status: 'CURRENT_BIOMETRIC_INVALID' as const }
-        }
-
-        const consolidatedScore = cosineSimilarity(storedCurrent, body.data.embedding)
-        const sampleScores = samples.map((sample) => cosineSimilarity(storedCurrent, sample))
-        continuityEvidence = evaluateDuplicateBiometric(consolidatedScore, sampleScores, config.faceThreshold)
-
-        if (!continuityEvidence.duplicate) {
-          return {
-            status: 'IDENTITY_CHANGED' as const,
-            continuity: continuityEvidence,
-          }
-        }
-      } catch (error) {
-        console.error(JSON.stringify({
-          evento: 'biometria_atual_invalida_ao_atualizar',
-          colaboradorId,
-          erro: error instanceof Error ? error.message : 'erro desconhecido',
-        }))
+      if (validPreviousTemplates === 0 || !continuityEvidence) {
         return { status: 'CURRENT_BIOMETRIC_INVALID' as const }
+      }
+      if (!continuityEvidence.duplicate) {
+        return {
+          status: 'IDENTITY_CHANGED' as const,
+          continuity: continuityEvidence,
+          continuityThreshold,
+        }
       }
     }
 
@@ -283,29 +294,53 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
 
     if (duplicate) return { status: 'DUPLICATE' as const, duplicate }
 
-    const encrypted = encryptEmbedding(body.data.embedding)
+    const batchId = newId()
+    const vectorsToStore = [
+      { embedding: body.data.embedding, tipo: 'CONSOLIDADO' },
+      ...samples.map((sample) => ({ embedding: sample, tipo: 'AMOSTRA' })),
+    ]
+
+    for (const vector of vectorsToStore) {
+      const encrypted = encryptEmbedding(vector.embedding)
+      await client.query(
+        `insert into templates_faciais
+          (id,colaborador_id,template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo,tipo,lote_id)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          newId(),
+          colaboradorId,
+          encrypted.ciphertext,
+          encrypted.iv,
+          encrypted.authTag,
+          expectedDimension,
+          body.data.modelo,
+          body.data.versaoModelo,
+          vector.tipo,
+          batchId,
+        ],
+      )
+    }
+
+    // Mantém cobertura de várias aparências sem permitir crescimento indefinido.
+    // Os lotes mais novos ficam; templates antigos só são removidos quando o teto
+    // é ultrapassado.
     await client.query(
-      `insert into templates_faciais
-        (id,colaborador_id,template_cifrado,iv,auth_tag,dimensao,modelo,versao_modelo)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)
-       on conflict (colaborador_id) do update set
-         template_cifrado=excluded.template_cifrado,
-         iv=excluded.iv,
-         auth_tag=excluded.auth_tag,
-         dimensao=excluded.dimensao,
-         modelo=excluded.modelo,
-         versao_modelo=excluded.versao_modelo,
-         atualizado_em=now()`,
-      [
-        newId(),
-        colaboradorId,
-        encrypted.ciphertext,
-        encrypted.iv,
-        encrypted.authTag,
-        expectedDimension,
-        body.data.modelo,
-        body.data.versaoModelo,
-      ],
+      `delete from templates_faciais
+        where id in (
+          select id
+            from templates_faciais
+           where colaborador_id=$1 and modelo=$2 and versao_modelo=$3
+           order by atualizado_em desc,criado_em desc,id desc
+           offset $4
+        )`,
+      [colaboradorId, body.data.modelo, body.data.versaoModelo, MAX_TEMPLATES_PER_COLLABORATOR],
+    )
+
+    const activeTemplates = await client.query<{ total: number }>(
+      `select count(*)::int as total
+         from templates_faciais
+        where colaborador_id=$1 and modelo=$2 and versao_modelo=$3`,
+      [colaboradorId, body.data.modelo, body.data.versaoModelo],
     )
 
     const policy = evaluateDuplicateBiometric(-1, [], duplicateThreshold)
@@ -322,10 +357,14 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
           dimensao: expectedDimension,
           verificacaoDuplicidade: true,
           limiteDuplicidade: duplicateThreshold,
+          limiteContinuidade: continuityThreshold,
           limiteAmostraForte: policy.strongSampleThreshold,
           amostrasVerificadas: samples.length,
-          atualizacao: Boolean(previousFace),
-          continuidadeBiometricaVerificada: Boolean(previousFace),
+          templatesAdicionados: vectorsToStore.length,
+          templatesAtivos: activeTemplates.rows[0]?.total ?? vectorsToStore.length,
+          loteId: batchId,
+          atualizacao: previousFaces.length > 0,
+          continuidadeBiometricaVerificada: compatiblePrevious.length > 0,
           similaridadeAnterior: continuityEvidence
             ? Number(continuityEvidence.strongestScore.toFixed(4))
             : null,
@@ -337,7 +376,9 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       status: 'OK' as const,
       nome: current.nome,
       strongSampleThreshold: policy.strongSampleThreshold,
-      updatedExisting: Boolean(previousFace),
+      updatedExisting: previousFaces.length > 0,
+      templatesAdded: vectorsToStore.length,
+      templatesActive: activeTemplates.rows[0]?.total ?? vectorsToStore.length,
     }
   })
 
@@ -361,11 +402,11 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
 
   if (result.status === 'IDENTITY_CHANGED') {
     return c.json({
-      erro: 'O novo rosto não corresponde à biometria já cadastrada para este colaborador. A atualização foi bloqueada para impedir troca de identidade.',
+      erro: 'O novo rosto não corresponde com segurança às biometrias já cadastradas para este colaborador. A expansão foi bloqueada para impedir troca de identidade.',
       codigo: 'BIOMETRIC_IDENTITY_CHANGED',
       similaridade: Number(result.continuity.strongestScore.toFixed(4)),
-      limite: config.faceThreshold,
-      orientacao: 'Exclua a biometria atual explicitamente e só então cadastre novamente a pessoa correta.',
+      limite: result.continuityThreshold,
+      orientacao: 'Confirme visualmente a pessoa e tente novamente com o rosto frontal. Se a identidade realmente mudou, exclua a biometria anterior antes de cadastrar outra pessoa.',
     }, 409)
   }
 
@@ -391,8 +432,9 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
     ok: true,
     colaboradorId,
     dimensao: expectedDimension,
-    amostrasConsolidadas: 5,
+    amostrasConsolidadas: result.templatesAdded,
     amostrasVerificadas: samples.length,
+    templatesAtivos: result.templatesActive,
     verificacaoDuplicidade: true,
     continuidadeBiometricaVerificada: result.updatedExisting,
     limiteDuplicidade: duplicateThreshold,
