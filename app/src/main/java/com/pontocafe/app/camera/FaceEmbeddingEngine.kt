@@ -13,6 +13,13 @@ interface FaceEmbeddingEngine {
     val modelName: String
     val modelVersion: String
 
+    /**
+     * Permite preparar runtimes/modelos pesados antes da primeira captura.
+     * Implementações que não precisam de aquecimento mantêm o comportamento
+     * padrão sem custo e sem alterar o contrato existente.
+     */
+    suspend fun warmUp() = Unit
+
     suspend fun embed(frame: FaceFrame): FloatArray
 }
 
