@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -212,7 +210,9 @@ fun FaceKioskScreen(
                 captureController = captureController,
                 showPositionGuide = false,
                 onObservation = { observation ->
-                    detectedFaces = observation.faceCount
+                    if (detectedFaces != observation.faceCount) {
+                        detectedFaces = observation.faceCount
+                    }
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
                         !state.sincronizandoBiometrias && !state.carregando && !captureRequested
@@ -220,7 +220,9 @@ fun FaceKioskScreen(
                         if (!challengeCompleted) {
                             if (challenge == KioskLivenessChallenge.BLINK) {
                                 val next = liveness.update(observation)
-                                livenessState = next
+                                if (livenessState != next) {
+                                    livenessState = next
+                                }
 
                                 if (observation.isFrontal) {
                                     blinkPendingFrames[0] += 1
@@ -248,10 +250,13 @@ fun FaceKioskScreen(
                                     livenessState = LivenessState.POSICIONE_ROSTO
                                 }
                             } else {
-                                livenessState = if (observation.isWellPositioned) {
+                                val nextState = if (observation.isWellPositioned) {
                                     LivenessState.PISQUE
                                 } else {
                                     LivenessState.POSICIONE_ROSTO
+                                }
+                                if (livenessState != nextState) {
+                                    livenessState = nextState
                                 }
                                 if (challenge.accepts(observation)) {
                                     stableChallengeFrames[0] += 1
@@ -504,41 +509,11 @@ private fun KioskFaceGuide(
         animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.EmphasizedEasing),
         label = "kiosk-guide-color",
     )
-    val guideScale = remember { Animatable(1f) }
-
-    LaunchedEffect(active, warning, ready) {
-        val searching = active && !warning && !ready
-        if (!searching) {
-            guideScale.animateTo(
-                targetValue = when {
-                    ready -> 1.022f
-                    warning -> 0.986f
-                    else -> 1f
-                },
-                animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.EmphasizedEasing),
-            )
-        } else {
-            while (true) {
-                guideScale.animateTo(
-                    targetValue = 1.018f,
-                    animationSpec = tween(900, easing = PontoCafeMotion.StandardEasing),
-                )
-                guideScale.animateTo(
-                    targetValue = 0.988f,
-                    animationSpec = tween(900, easing = PontoCafeMotion.StandardEasing),
-                )
-            }
-        }
-    }
 
     Canvas(
         modifier = modifier
             .fillMaxWidth(0.72f)
-            .aspectRatio(0.80f)
-            .graphicsLayer {
-                scaleX = guideScale.value
-                scaleY = guideScale.value
-            },
+            .aspectRatio(0.80f),
     ) {
         val stroke = (if (ready || warning) 4.6.dp else 4.dp).toPx()
         val cornerLength = size.minDimension * if (ready) 0.23f else 0.20f
