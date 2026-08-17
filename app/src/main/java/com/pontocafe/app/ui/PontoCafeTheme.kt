@@ -112,12 +112,6 @@ object PontoCafeSpacing {
     val xxl = 32.dp
 }
 
-object PontoCafeMotion {
-    const val fast = 160
-    const val normal = 260
-    const val emphasized = 420
-}
-
 private val PontoCafeShapes = Shapes(
     extraSmall = RoundedCornerShape(10.dp),
     small = RoundedCornerShape(14.dp),
