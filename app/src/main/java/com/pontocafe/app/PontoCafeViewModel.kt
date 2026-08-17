@@ -12,6 +12,7 @@ import com.pontocafe.app.data.CachedFaceCatalog
 import com.pontocafe.app.data.FinalizarPausaResponse
 import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
+import com.pontocafe.app.data.LocalFaceMatch
 import com.pontocafe.app.data.LocalFaceMatcher
 import com.pontocafe.app.data.PausaAbertaResumo
 import com.pontocafe.app.data.PontoCafeRepository
@@ -79,6 +80,8 @@ class PontoCafeViewModel(
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     private var pendingOfflineEmbedding: FloatArray? = null
     private var lastCatalogMissRefreshMillis: Long = 0L
+    private var lastRegisteredCollaboratorId: String? = null
+    private var lastRegisteredAtMillis: Long = 0L
 
     var state by mutableStateOf(
         PontoCafeUiState(
@@ -123,6 +126,8 @@ class PontoCafeViewModel(
                     faceCatalogStore.clear()
                     offlineStore.clear()
                     pendingOfflineEmbedding = null
+                    lastRegisteredCollaboratorId = null
+                    lastRegisteredAtMillis = 0L
                     state = PontoCafeUiState(
                         deviceConfigured = true,
                         scanning = true,
@@ -147,6 +152,8 @@ class PontoCafeViewModel(
         faceCatalogStore.clear()
         offlineStore.clear()
         pendingOfflineEmbedding = null
+        lastRegisteredCollaboratorId = null
+        lastRegisteredAtMillis = 0L
         state = PontoCafeUiState(deviceConfigured = false)
     }
 
@@ -216,6 +223,27 @@ class PontoCafeViewModel(
         atualizarConectividadeESincronizar()
     }
 
+    /**
+     * Rearme rápido usado entre pessoas de uma fila. Não refaz consultas de
+     * conectividade nem sincronização de catálogo: a câmera já está montada e o
+     * catálogo possui política própria de validade. Pendências continuam sendo
+     * sincronizadas em background depois dos registros.
+     */
+    fun concluirComprovante() {
+        pendingOfflineEmbedding = null
+        state = state.copy(
+            scanning = true,
+            scanCycle = state.scanCycle + 1,
+            identificacao = null,
+            needsAuthorization = false,
+            comprovante = null,
+            mensagem = null,
+            erro = null,
+            eventosPendentes = offlineStore.pendingCount(),
+        )
+        sincronizarPendenciasOffline()
+    }
+
     fun processarFrame(frame: FaceFrame) {
         if (!state.scanning || state.carregando) return
         if (!embeddingEngine.isReady) {
@@ -268,9 +296,59 @@ class PontoCafeViewModel(
                     return@launch
                 }
 
-                if (offlineStore.pendingCount() > 0) {
-                    runCatching { sincronizarPendenciasOfflineInterno() }
+                if (samePersonCooldownActive(match.colaborador.id)) {
+                    state = state.copy(
+                        carregando = false,
+                        scanning = true,
+                        scanCycle = state.scanCycle + 1,
+                        identificacao = null,
+                        mensagem = "Registro já concluído. Afaste-se da câmera para liberar a próxima pessoa.",
+                        erro = null,
+                    )
+                    return@launch
                 }
+
+                val fastEligible = catalogo?.let { fastPathEligible(match, it) } == true
+                var fastRouteUnavailable = false
+
+                if (fastEligible) {
+                    val fastResult = repository.registrarRapido(
+                        colaboradorId = match.colaborador.id,
+                        embedding = embedding,
+                        modelo = embeddingEngine.modelName,
+                        versaoModelo = embeddingEngine.modelVersion,
+                    )
+
+                    if (fastResult == null) {
+                        fastRouteUnavailable = true
+                    } else {
+                        when (fastResult.status) {
+                            "INICIO" -> {
+                                val pausa = fastResult.inicio
+                                if (pausa != null) {
+                                    val colaborador = fastResult.colaborador ?: match.colaborador
+                                    aplicarInicioOnline(colaborador.id, colaborador.nome, pausa)
+                                    return@launch
+                                }
+                            }
+                            "RETORNO" -> {
+                                val pausa = fastResult.retorno
+                                if (pausa != null) {
+                                    val colaborador = fastResult.colaborador ?: match.colaborador
+                                    aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa)
+                                    return@launch
+                                }
+                            }
+                            // O servidor decidiu que este caso exige o fluxo completo.
+                            // Não auto-confirmamos depois disso: a decisão reforçada do
+                            // servidor sempre prevalece.
+                            "INTERACAO_NECESSARIA" -> fastRouteUnavailable = false
+                        }
+                    }
+                }
+
+                // Sincronização de eventos antigos nunca bloqueia a pessoa atual.
+                if (offlineStore.pendingCount() > 0) sincronizarPendenciasOffline()
 
                 val identificacao = try {
                     repository.confirmarIdentidadeLocal(
@@ -307,6 +385,19 @@ class PontoCafeViewModel(
                     return@launch
                 }
 
+                // Compatibilidade com Worker antigo: quando a rota rápida ainda não
+                // existe, um match que já passou pelos critérios reforçados pode
+                // eliminar apenas o toque manual, mantendo as duas validações legadas.
+                if (
+                    fastEligible &&
+                    fastRouteUnavailable &&
+                    identificacao.verificacaoToken != OFFLINE_VERIFICATION_TOKEN &&
+                    identificacao.acaoSugerida != "BLOQUEADO" &&
+                    (identificacao.acaoSugerida == "FINALIZAR" || identificacao.dentroHorario == true)
+                ) {
+                    if (registrarIdentificacaoLegadoRapido(identificacao)) return@launch
+                }
+
                 state = state.copy(
                     carregando = false,
                     identificacao = identificacao,
@@ -325,6 +416,54 @@ class PontoCafeViewModel(
                     erro = PontoCafeRepository.mensagemErro(error),
                 )
             }
+        }
+    }
+
+    private fun fastPathEligible(match: LocalFaceMatch, catalog: CachedFaceCatalog): Boolean {
+        val reinforcedThreshold = (catalog.limiar + FAST_SCORE_BONUS).coerceAtMost(0.98)
+        val requiredGap = maxOf(
+            catalog.margem + FAST_MARGIN_BONUS,
+            catalog.margem * FAST_MARGIN_MULTIPLIER,
+        )
+        val actualGap = match.segundoScore?.let { match.score - it } ?: 1.0
+        return match.score >= reinforcedThreshold && actualGap >= requiredGap
+    }
+
+    private fun samePersonCooldownActive(collaboratorId: String): Boolean {
+        if (lastRegisteredCollaboratorId != collaboratorId) return false
+        return System.currentTimeMillis() - lastRegisteredAtMillis < SAME_PERSON_COOLDOWN_MILLIS
+    }
+
+    private fun markRegistered(collaboratorId: String) {
+        lastRegisteredCollaboratorId = collaboratorId
+        lastRegisteredAtMillis = System.currentTimeMillis()
+    }
+
+    private suspend fun registrarIdentificacaoLegadoRapido(
+        identificacao: IdentificarBiometriaResponse,
+    ): Boolean {
+        val colaborador = identificacao.colaborador ?: return false
+        val token = identificacao.verificacaoToken ?: return false
+        return try {
+            if (identificacao.acaoSugerida == "FINALIZAR") {
+                val pausa = repository.finalizar(colaborador.id, token)
+                aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa)
+            } else {
+                val pausa = repository.iniciar(
+                    colaboradorId = colaborador.id,
+                    verificacaoToken = token,
+                )
+                aplicarInicioOnline(colaborador.id, colaborador.nome, pausa)
+            }
+            true
+        } catch (error: Throwable) {
+            state = state.copy(
+                carregando = false,
+                scanning = false,
+                identificacao = identificacao,
+                erro = PontoCafeRepository.mensagemErro(error),
+            )
+            false
         }
     }
 
@@ -402,6 +541,8 @@ class PontoCafeViewModel(
     }
 
     private suspend fun obterCatalogoAtual(force: Boolean): CachedFaceCatalog? {
+        // SecureFaceCatalogStore mantém a leitura descriptografada em RAM depois
+        // da primeira carga, portanto esta chamada é um fast-path em memória.
         val cache = withContext(Dispatchers.IO) { faceCatalogStore.read() }
         val agora = System.currentTimeMillis()
         val stale = cache == null || agora - cache.sincronizadoEmMillis >= catalogRefreshMillis
@@ -538,10 +679,6 @@ class PontoCafeViewModel(
         rejeitarIdentidade()
     }
 
-    fun concluirComprovante() {
-        ativarCamera()
-    }
-
     fun limparMensagem() {
         state = state.copy(mensagem = null, erro = null)
     }
@@ -563,20 +700,7 @@ class PontoCafeViewModel(
                     codigoAutorizacao = codigoAutorizacao,
                 )
             }.onSuccess { pausa ->
-                pendingOfflineEmbedding = null
-                offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
-                state = state.copy(
-                    carregando = false,
-                    needsAuthorization = false,
-                    identificacao = null,
-                    comprovante = comprovanteInicio(nome, pausa),
-                    modoOffline = false,
-                    eventosPendentes = offlineStore.pendingCount(),
-                    ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
-                    mensagem = null,
-                    erro = null,
-                )
-                sincronizarPendenciasOffline()
+                aplicarInicioOnline(colaboradorId, nome, pausa)
             }.onFailure { error ->
                 state = state.copy(
                     carregando = false,
@@ -591,19 +715,7 @@ class PontoCafeViewModel(
             state = state.copy(carregando = true, erro = null)
             runCatching { repository.finalizar(colaboradorId, verificacaoToken) }
                 .onSuccess { pausa ->
-                    pendingOfflineEmbedding = null
-                    offlineStore.recordOnlineFinish(colaboradorId)
-                    state = state.copy(
-                        carregando = false,
-                        identificacao = null,
-                        comprovante = comprovanteRetorno(nome, pausa),
-                        modoOffline = false,
-                        eventosPendentes = offlineStore.pendingCount(),
-                        ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
-                        mensagem = null,
-                        erro = null,
-                    )
-                    sincronizarPendenciasOffline()
+                    aplicarRetornoOnline(colaboradorId, nome, pausa)
                 }
                 .onFailure { error ->
                     state = state.copy(
@@ -612,6 +724,53 @@ class PontoCafeViewModel(
                     )
                 }
         }
+    }
+
+    private fun aplicarInicioOnline(
+        colaboradorId: String,
+        nome: String,
+        pausa: IniciarPausaResponse,
+    ) {
+        pendingOfflineEmbedding = null
+        offlineStore.markServerOk()
+        offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
+        markRegistered(colaboradorId)
+        state = state.copy(
+            carregando = false,
+            scanning = false,
+            needsAuthorization = false,
+            identificacao = null,
+            comprovante = comprovanteInicio(nome, pausa),
+            modoOffline = false,
+            eventosPendentes = offlineStore.pendingCount(),
+            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+            mensagem = null,
+            erro = null,
+        )
+        sincronizarPendenciasOffline()
+    }
+
+    private fun aplicarRetornoOnline(
+        colaboradorId: String,
+        nome: String,
+        pausa: FinalizarPausaResponse,
+    ) {
+        pendingOfflineEmbedding = null
+        offlineStore.markServerOk()
+        offlineStore.recordOnlineFinish(colaboradorId)
+        markRegistered(colaboradorId)
+        state = state.copy(
+            carregando = false,
+            scanning = false,
+            identificacao = null,
+            comprovante = comprovanteRetorno(nome, pausa),
+            modoOffline = false,
+            eventosPendentes = offlineStore.pendingCount(),
+            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+            mensagem = null,
+            erro = null,
+        )
+        sincronizarPendenciasOffline()
     }
 
     private fun iniciarPausaOffline(
@@ -631,8 +790,10 @@ class PontoCafeViewModel(
             )
         }.onSuccess { local ->
             pendingOfflineEmbedding = null
+            markRegistered(colaborador.id)
             state = state.copy(
                 carregando = false,
+                scanning = false,
                 needsAuthorization = false,
                 identificacao = null,
                 modoOffline = true,
@@ -668,8 +829,10 @@ class PontoCafeViewModel(
             )
         }.onSuccess { (open, duration) ->
             pendingOfflineEmbedding = null
+            markRegistered(colaborador.id)
             state = state.copy(
                 carregando = false,
+                scanning = false,
                 identificacao = null,
                 modoOffline = true,
                 eventosPendentes = offlineStore.pendingCount(),
@@ -773,5 +936,9 @@ class PontoCafeViewModel(
 
     companion object {
         private const val OFFLINE_VERIFICATION_TOKEN = "OFFLINE_LOCAL"
+        private const val FAST_SCORE_BONUS = 0.03
+        private const val FAST_MARGIN_BONUS = 0.02
+        private const val FAST_MARGIN_MULTIPLIER = 1.5
+        private const val SAME_PERSON_COOLDOWN_MILLIS = 8_000L
     }
 }
