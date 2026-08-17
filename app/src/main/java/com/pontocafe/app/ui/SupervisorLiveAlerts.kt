@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
 
 private const val TRANSIENT_ALERT_DURATION_MILLIS = 8_000L
+private const val CURRENT_DAY_REFRESH_MILLIS = 10_000L
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -61,10 +62,18 @@ fun rememberSupervisorLiveActivityAlert(
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
-    val today = LocalDate.now().toString()
-    val latestReturnAlert = remember(latestReturn?.id, latestReturn?.fimLocal, latestReturn?.data, today) {
+    var currentDay by remember { mutableStateOf(LocalDate.now().toString()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(CURRENT_DAY_REFRESH_MILLIS)
+            currentDay = LocalDate.now().toString()
+        }
+    }
+
+    val latestReturnAlert = remember(latestReturn?.id, latestReturn?.fimLocal, latestReturn?.data, currentDay) {
         latestReturn
-            ?.takeIf { retorno -> retorno.data == today }
+            ?.takeIf { retorno -> retorno.data == currentDay }
             ?.toPersistentReturnAlert()
     }
 
@@ -153,7 +162,6 @@ fun rememberSupervisorLiveActivityAlert(
 
     // Eventos novos têm prioridade por alguns segundos. Depois disso, somente
     // o último retorno DO DIA ATUAL pode permanecer no painel de Operação.
-    // Isso impede que o Supervisor carregue um retorno de ontem após a virada do dia.
     return transientAlert ?: latestReturnAlert
 }
 
