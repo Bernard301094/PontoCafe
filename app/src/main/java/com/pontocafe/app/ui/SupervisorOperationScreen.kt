@@ -18,16 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,17 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
-import com.pontocafe.app.data.AdminTestPause
 import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.PausaSupervisor
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -62,9 +50,8 @@ fun SupervisorOperationScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val testPause by AdminTestPauseStore.active.collectAsState()
-    val testAsPause = remember(testPause) { testPause?.toSupervisorPause() }
-    var selectedPause by remember { mutableStateOf<PausaSupervisor?>(null) }
-    var selectedPauseIsTest by remember { mutableStateOf(false) }
+    var pauseFilter by remember { mutableStateOf(OperationalPauseFilter.TODOS) }
+    var selectedPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -85,14 +72,10 @@ fun SupervisorOperationScreen(
         }
     }
 
-    selectedPause?.let { pause ->
-        SupervisorPauseDetailDialog(
-            pause = pause,
-            isTest = selectedPauseIsTest,
-            onDismiss = {
-                selectedPause = null
-                selectedPauseIsTest = false
-            },
+    selectedPause?.let { item ->
+        OperationalPauseDetailDialog(
+            item = item,
+            onDismiss = { selectedPause = null },
         )
     }
 
@@ -105,14 +88,23 @@ fun SupervisorOperationScreen(
         state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() }
     }
     val nowSnapshot = System.currentTimeMillis()
-    val orderedPausas = remember(state.pausasAtivas, state.ultimaAtualizacaoAoVivoEmMillis) {
-        state.pausasAtivas.sortedWith(
-            compareByDescending<PausaSupervisor> { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
-                .thenByDescending { supervisorOperationSeconds(it, nowSnapshot) },
+    val overdue = state.pausasAtivas.count {
+        supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos
+    }
+    val operationItems = remember(state.pausasAtivas, testPause, state.ultimaAtualizacaoAoVivoEmMillis) {
+        buildOperationalPauseItems(
+            realPauses = state.pausasAtivas,
+            testPause = testPause,
+            nowMillis = System.currentTimeMillis(),
         )
     }
-    val overdue = orderedPausas.count { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
-    val hasAnyVisualPause = orderedPausas.isNotEmpty() || testAsPause != null
+    val filteredItems = remember(operationItems, pauseFilter, state.ultimaAtualizacaoAoVivoEmMillis) {
+        filterOperationalPauseItems(
+            items = operationItems,
+            filter = pauseFilter,
+            nowMillis = System.currentTimeMillis(),
+        )
+    }
 
     PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -148,13 +140,13 @@ fun SupervisorOperationScreen(
                     PcHeroCard(
                         title = when {
                             overdue > 0 -> "$overdue pausa(s) exigem atenção"
-                            state.pausasAtivas.isEmpty() -> "Operação sem pausas abertas"
+                            state.pausasAtivas.isEmpty() -> "Operação sem pausas reais abertas"
                             else -> "${state.pausasAtivas.size} pessoa(s) em pausa agora"
                         },
                         supportingText = when {
-                            overdue > 0 -> "Os casos acima do limite aparecem primeiro e podem ser abertos para ver todos os dados."
-                            state.pausasAtivas.isEmpty() -> "Quando uma pessoa sair para o café, o registro aparecerá automaticamente aqui."
-                            else -> "Acompanhe saída, tempo decorrido e limite sem precisar atualizar manualmente."
+                            overdue > 0 -> "Os casos acima do limite aparecem primeiro no painel operacional."
+                            state.pausasAtivas.isEmpty() -> "Quando alguém sair para o café, o registro aparecerá automaticamente aqui."
+                            else -> "A lista prioriza excedidos, depois quem está a menos de 2 minutos do limite."
                         },
                         icon = if (overdue > 0) Icons.Default.Timer else Icons.Default.Coffee,
                         tone = if (overdue > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
@@ -223,6 +215,47 @@ fun SupervisorOperationScreen(
                     }
                 }
 
+                item("active-title") {
+                    SectionTitle(
+                        "Pessoas no café agora",
+                        "Painel compacto para acompanhar muitas pausas sem perder os casos prioritários.",
+                    )
+                }
+
+                item("active-overview") {
+                    OperationalPauseOverview(
+                        realPauses = state.pausasAtivas,
+                        items = operationItems,
+                        filter = pauseFilter,
+                        onFilterChange = { pauseFilter = it },
+                    )
+                }
+
+                if (filteredItems.isEmpty()) {
+                    item("active-empty-${pauseFilter.name}") {
+                        PcEmptyState(
+                            title = when (pauseFilter) {
+                                OperationalPauseFilter.TODOS -> "Nenhuma pausa aberta"
+                                OperationalPauseFilter.ATENCAO -> "Ninguém em atenção agora"
+                                OperationalPauseFilter.EXCEDIDOS -> "Nenhuma pausa excedida"
+                            },
+                            supportingText = when (pauseFilter) {
+                                OperationalPauseFilter.TODOS -> "A lista será atualizada automaticamente quando houver uma nova saída."
+                                OperationalPauseFilter.ATENCAO -> "Aqui aparecem pessoas com até 2 minutos restantes antes do limite."
+                                OperationalPauseFilter.EXCEDIDOS -> "Os casos acima do limite aparecerão aqui automaticamente."
+                            },
+                            icon = Icons.Default.Coffee,
+                        )
+                    }
+                } else {
+                    items(filteredItems, key = { "compact-${it.pause.id}-${it.isTest}" }) { item ->
+                        OperationalPauseCompactCard(
+                            item = item,
+                            onClick = { selectedPause = item },
+                        )
+                    }
+                }
+
                 item("actions-title") {
                     SectionTitle(
                         "Ações rápidas",
@@ -261,54 +294,6 @@ fun SupervisorOperationScreen(
                             actionLabel = "Tentar agora",
                             onClick = viewModel::atualizarAoVivo,
                             tone = PontoCafeTone.WARNING,
-                        )
-                    }
-                }
-
-                item("active-title") {
-                    SectionTitle(
-                        "Pessoas no café agora",
-                        when {
-                            orderedPausas.isNotEmpty() && testAsPause != null ->
-                                "Pausas reais e uma simulação TESTE. O teste usa o mesmo cartão, mas não altera métricas nem histórico."
-                            orderedPausas.isNotEmpty() ->
-                                "Toque em qualquer pessoa para ver horários, limite, setor e situação completa."
-                            testAsPause != null ->
-                                "A simulação TESTE usa exatamente o mesmo visual de uma pausa real e não é salva no sistema."
-                            else -> "Nenhuma pausa real em andamento."
-                        },
-                    )
-                }
-
-                testAsPause?.let { pause ->
-                    item("test-${pause.id}") {
-                        SupervisorOperationPauseCard(
-                            pause = pause,
-                            isTest = true,
-                            onClick = {
-                                selectedPause = pause
-                                selectedPauseIsTest = true
-                            },
-                        )
-                    }
-                }
-
-                if (orderedPausas.isEmpty() && testAsPause == null) {
-                    item("empty") {
-                        PcEmptyState(
-                            title = "Nenhuma pausa aberta",
-                            supportingText = "A lista será atualizada automaticamente quando houver uma nova saída.",
-                            icon = Icons.Default.Groups,
-                        )
-                    }
-                } else {
-                    items(orderedPausas, key = { "operation-${it.id}" }) { pause ->
-                        SupervisorOperationPauseCard(
-                            pause = pause,
-                            onClick = {
-                                selectedPause = pause
-                                selectedPauseIsTest = false
-                            },
                         )
                     }
                 }
@@ -388,160 +373,6 @@ private fun SupervisorConnectionBanner(
     )
 }
 
-@Composable
-private fun SupervisorOperationPauseCard(
-    pause: PausaSupervisor,
-    isTest: Boolean = false,
-    onClick: () -> Unit,
-) {
-    var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
-        mutableLongStateOf(System.currentTimeMillis())
-    }
-    LaunchedEffect(pause.id, pause.clienteAtualizadoEmMillis) {
-        while (true) {
-            delay(1_000)
-            now = System.currentTimeMillis()
-        }
-    }
-
-    val elapsed = supervisorOperationSeconds(pause, now)
-    val overdue = elapsed > pause.limiteSegundos
-    val remaining = (pause.limiteSegundos - elapsed).coerceAtLeast(0)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        colors = CardDefaults.cardColors(
-            containerColor = if (overdue) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            InitialAvatar(pause.nome)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    Text(
-                        pause.nome,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (isTest) {
-                        StatusPill(text = "TESTE", tone = PontoCafeTone.INFO)
-                    }
-                }
-                Text(
-                    listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() })
-                        .joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Saída ${pause.inicioLocal} · limite ${formatSupervisorDuration(pause.limiteSegundos)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (isTest) {
-                    Text(
-                        "Simulação local · não salva histórico, auditoria ou métricas",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    formatSupervisorDuration(elapsed),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                )
-                StatusPill(
-                    text = if (overdue) "Excedido" else "Restam ${formatSupervisorDuration(remaining)}",
-                    tone = if (overdue) PontoCafeTone.DANGER else PontoCafeTone.SUCCESS,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SupervisorPauseDetailDialog(
-    pause: PausaSupervisor,
-    isTest: Boolean = false,
-    onDismiss: () -> Unit,
-) {
-    val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: supervisorOperationSeconds(pause, System.currentTimeMillis())
-    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(pause.nome) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                if (isTest) {
-                    PcStateBanner(
-                        title = "TESTE · Não salvo no sistema",
-                        supportingText = "Esta pausa existe somente para visualizar a experiência do Supervisor.",
-                        tone = PontoCafeTone.INFO,
-                    )
-                }
-                PcKeyValueCard(
-                    title = "Detalhes da pausa",
-                    rows = listOf(
-                        "Data" to (pause.data ?: "Hoje"),
-                        "Período" to pause.periodo,
-                        "Setor" to (pause.setor ?: "—"),
-                        "Saída" to pause.inicioLocal,
-                        "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
-                        "Duração" to formatSupervisorDuration(duration),
-                        "Limite" to formatSupervisorDuration(pause.limiteSegundos),
-                        "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
-                        "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
-                    ),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar") }
-        },
-    )
-}
-
-private fun AdminTestPause.toSupervisorPause(): PausaSupervisor {
-    val local = Instant.ofEpochMilli(startedAtMillis).atZone(ZoneId.systemDefault())
-    return PausaSupervisor(
-        id = id,
-        periodo = if (local.hour < 12) "MANHA" else "TARDE",
-        data = local.toLocalDate().toString(),
-        inicioLocal = local.format(DateTimeFormatter.ofPattern("HH:mm:ss")),
-        fimLocal = null,
-        limiteSegundos = limitSeconds,
-        foraHorario = false,
-        tempoSegundos = 0,
-        duracaoSegundos = null,
-        excedeuLimite = null,
-        colaboradorId = id,
-        nome = adminName,
-        setor = "Simulação",
-        clienteAtualizadoEmMillis = startedAtMillis,
-    )
-}
-
 private fun supervisorOperationSeconds(pause: PausaSupervisor, nowMillis: Long): Int {
     val base = pause.tempoSegundos ?: pause.duracaoSegundos ?: 0
     if (pause.fimLocal != null || pause.clienteAtualizadoEmMillis <= 0L) return base
@@ -550,16 +381,3 @@ private fun supervisorOperationSeconds(pause: PausaSupervisor, nowMillis: Long):
         .coerceAtMost(Int.MAX_VALUE.toLong())
     return (base.toLong() + extra).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
-
-private fun formatSupervisorDuration(totalSeconds: Int): String {
-    val safe = totalSeconds.coerceAtLeast(0)
-    val minutes = safe / 60
-    val seconds = safe % 60
-    return "%02d:%02d".format(minutes, seconds)
-}
-
-private fun formatSupervisorInstant(millis: Long): String = runCatching {
-    Instant.ofEpochMilli(millis)
-        .atZone(ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-}.getOrDefault("—")
