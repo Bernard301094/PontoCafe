@@ -31,12 +31,9 @@ import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
 import com.pontocafe.app.data.SupervisorApiClient
 import com.pontocafe.app.ui.AdminArea
-import com.pontocafe.app.ui.AuthorizationScreen
 import com.pontocafe.app.ui.DeviceSetupScreen
-import com.pontocafe.app.ui.FaceKioskScreen
-import com.pontocafe.app.ui.IdentityConfirmationScreen
-import com.pontocafe.app.ui.PointReceiptScreen
 import com.pontocafe.app.ui.PontoCafeTheme
+import com.pontocafe.app.ui.PontoFlowHost
 import com.pontocafe.app.ui.RestrictedAreaLockScreen
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorAreaShell
@@ -334,16 +331,14 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
 
-                                when {
-                                    !state.deviceConfigured -> DeviceSetupScreen(
+                                if (!state.deviceConfigured) {
+                                    DeviceSetupScreen(
                                         viewModel = vm,
                                         onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
                                         onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
                                     )
-                                    state.comprovante != null -> PointReceiptScreen(vm)
-                                    state.needsAuthorization -> AuthorizationScreen(vm)
-                                    state.identificacao != null -> IdentityConfirmationScreen(vm)
-                                    else -> FaceKioskScreen(
+                                } else {
+                                    PontoFlowHost(
                                         viewModel = vm,
                                         hasAdminSession = adminSessionDisponivel,
                                         hasSupervisorSession = supervisorSessionDisponivel,
