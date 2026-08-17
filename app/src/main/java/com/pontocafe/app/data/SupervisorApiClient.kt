@@ -69,6 +69,17 @@ data class CollaboratorMutationResponse(
     val rostoExcluido: Boolean? = null,
 )
 
+data class CancelAuthorizationRequest(
+    val colaboradorId: String,
+    val periodo: String,
+)
+
+data class CancelAuthorizationResponse(
+    val ok: Boolean,
+    val cancelada: Boolean,
+    val id: String,
+)
+
 interface SupervisorApi {
     @POST("api/auth/sign-in/email") suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
     @POST("api/auth/sign-out") suspend fun signOut(): Response<Unit>
@@ -85,6 +96,9 @@ interface SupervisorApi {
     @POST("supervisor/autorizacoes") suspend fun createAuthorization(
         @Body body: CreateAuthorizationRequest,
     ): AuthorizationCreatedResponse
+    @POST("supervisor/autorizacoes/cancelar") suspend fun cancelAuthorization(
+        @Body body: CancelAuthorizationRequest,
+    ): CancelAuthorizationResponse
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(
@@ -132,6 +146,8 @@ class SupervisorRepository(
     suspend fun reportCsv(inicio: String, fim: String): ByteArray = api.reportCsv(inicio, fim).bytes()
     suspend fun createAuthorization(colaboradorId: String, periodo: String, motivo: String) =
         api.createAuthorization(CreateAuthorizationRequest(colaboradorId, periodo, motivo.trim()))
+    suspend fun cancelAuthorization(colaboradorId: String, periodo: String) =
+        api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId, periodo))
     suspend fun collaborators() = api.collaborators().colaboradores
         .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 
