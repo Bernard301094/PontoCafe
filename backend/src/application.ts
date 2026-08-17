@@ -18,6 +18,7 @@ import { deviceManagementRoutes } from './routes/device-management-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { deviceTelemetryRoutes } from './routes/device-telemetry-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
+import { fastPontoRoutes } from './routes/fast-ponto-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { offlineRoutes } from './routes/offline-routes.js'
@@ -170,6 +171,9 @@ app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', deviceTelemetryRoutes)
 app.route('/ponto', localBiometricRoutes)
+// O fast-path vem antes das rotas legadas e é opcional para o APK: clientes
+// novos voltam automaticamente ao fluxo anterior caso esta rota ainda não esteja implantada.
+app.route('/ponto', fastPontoRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
 app.route('/ponto', offlineRoutes)
