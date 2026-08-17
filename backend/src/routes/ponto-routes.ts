@@ -18,7 +18,13 @@ const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
 })
 
 class AppError extends Error {
-  constructor(message: string, readonly status: 401 | 403 | 404 | 409) { super(message) }
+  constructor(
+    message: string,
+    readonly status: 401 | 403 | 404 | 409,
+    readonly details?: { pauseId?: string; periodo?: 'MANHA' | 'TARDE' },
+  ) {
+    super(message)
+  }
 }
 
 type TemplateFacial = {
@@ -34,6 +40,52 @@ type TemplateFacial = {
 }
 
 type Candidato = TemplateFacial & { score: number }
+
+type PausaUtilizadaRow = {
+  id: string
+  periodo: 'MANHA' | 'TARDE'
+  inicio_local: string
+  fim_local: string
+  duracao_segundos: number
+  limite_segundos: number
+}
+
+function periodoLabel(periodo: 'MANHA' | 'TARDE'): string {
+  return periodo === 'MANHA' ? 'manhã' : 'tarde'
+}
+
+function duracaoLabel(segundos: number): string {
+  const minutos = Math.floor(segundos / 60)
+  const restante = segundos % 60
+  if (minutos <= 0) return `${restante} s`
+  return restante > 0 ? `${minutos} min ${restante} s` : `${minutos} min`
+}
+
+async function auditRepeatedAttempt(params: {
+  colaboradorId: string
+  colaboradorNome?: string | null
+  device: Device
+  pauseId?: string | null
+  periodo?: 'MANHA' | 'TARDE' | null
+  origem: 'ONLINE_LEGACY_IDENTIFICAR' | 'ONLINE_INICIAR'
+  score?: number | null
+}) {
+  await query(
+    `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+     values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
+    [params.pauseId ?? null, JSON.stringify({
+      colaboradorId: params.colaboradorId,
+      colaboradorNome: params.colaboradorNome ?? null,
+      dispositivoId: params.device.id,
+      dispositivoNome: params.device.nome,
+      periodo: params.periodo ?? null,
+      tentativaEm: new Date().toISOString(),
+      origem: params.origem,
+      motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+      score: params.score == null ? null : Number(params.score.toFixed(4)),
+    })],
+  )
+}
 
 export const pontoRoutes = new Hono<AppEnv>()
 pontoRoutes.use('*', requireDevice)
@@ -137,12 +189,62 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
       )).rows[0]
     : undefined
 
+  const periodoPretendido = regra?.periodo ?? liberacao?.periodo
+  const pausaUtilizada = !aberta && periodoPretendido
+    ? (await query<PausaUtilizadaRow>(
+        `select p.id,p.periodo,
+                to_char(p.inicio_em at time zone $3,'HH24:MI') as inicio_local,
+                to_char(p.fim_em at time zone $3,'HH24:MI') as fim_local,
+                floor(extract(epoch from (p.fim_em-p.inicio_em)))::int as duracao_segundos,
+                p.limite_segundos
+           from pausas_cafe p
+          where p.colaborador_id=$1
+            and p.periodo=$2
+            and p.fim_em is not null
+            and (p.inicio_em at time zone $3)::date=(now() at time zone $3)::date
+          order by p.inicio_em desc limit 1`,
+        [melhor.colaborador_id, periodoPretendido, config.appTimezone],
+      )).rows[0]
+    : undefined
+
   const verificacaoToken = newToken()
   await query(
     `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
      values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,
     [newId(), melhor.colaborador_id, device.id, hashToken(verificacaoToken), melhor.score, config.verificationTtlSeconds],
   )
+
+  if (pausaUtilizada) {
+    await auditRepeatedAttempt({
+      colaboradorId: melhor.colaborador_id,
+      colaboradorNome: melhor.nome,
+      device,
+      pauseId: pausaUtilizada.id,
+      periodo: pausaUtilizada.periodo,
+      origem: 'ONLINE_LEGACY_IDENTIFICAR',
+      score: melhor.score,
+    })
+    return c.json({
+      reconhecido: true,
+      motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+      mensagem: `Pausa da ${periodoLabel(pausaUtilizada.periodo)} já utilizada hoje. Saída: ${pausaUtilizada.inicio_local} · Retorno: ${pausaUtilizada.fim_local} · Duração: ${duracaoLabel(pausaUtilizada.duracao_segundos)}. Esta nova tentativa de bater o ponto foi registrada.`,
+      score: Number(melhor.score.toFixed(4)),
+      verificacaoToken,
+      expiraEmSegundos: config.verificationTtlSeconds,
+      colaborador: {
+        id: melhor.colaborador_id,
+        matricula: melhor.matricula,
+        nome: melhor.nome,
+        setor: melhor.setor,
+        turno: melhor.turno,
+      },
+      acaoSugerida: 'BLOQUEADO',
+      pausaAberta: null,
+      dentroHorario: false,
+      periodoAtual: pausaUtilizada.periodo,
+      limiteSegundos: pausaUtilizada.limite_segundos,
+    })
+  }
 
   const foraHorarioSemPausaAberta = !aberta && !regra
   const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
@@ -176,15 +278,12 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    // Compatibilidade: para o app atual, uma liberação prévia significa que a pausa
-    // está permitida agora. O registro continua marcado como fora do horário.
     dentroHorario: Boolean(regra) || autorizadoForaHorario,
     periodoAtual: regra?.periodo ?? liberacao?.periodo ?? null,
     limiteSegundos: regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,
   })
 })
 
-// Mantido por compatibilidade com versões anteriores do aplicativo.
 pontoRoutes.post('/biometria/verificar', async (c) => {
   const body = await parseJson(c, z.object({ colaboradorId: uuidSchema, embedding: embeddingSchema }))
   if (!body.ok) return body.response
@@ -215,8 +314,6 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
   const body = await parseJson(c, z.object({
     colaboradorId: uuidSchema,
     verificacaoToken: z.string().min(20),
-    // Mantidos para aceitar APKs anteriores; a autorização agora é localizada
-    // automaticamente pelo servidor e nenhum código é exigido do colaborador.
     periodo: periodoSchema.optional(),
     codigoAutorizacao: z.string().regex(/^\d{6}$/).optional(),
   }))
@@ -274,6 +371,24 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
         periodo = liberacao.periodo
         limiteSegundos = liberacao.limite_segundos
         autorizacaoId = liberacao.id
+      }
+
+      const alreadyUsed = await client.query<{ id: string }>(
+        `select id from pausas_cafe
+          where colaborador_id=$1 and periodo=$2
+            and (inicio_em at time zone $3)::date=(now() at time zone $3)::date
+          order by inicio_em desc limit 1 for update`,
+        [body.data.colaboradorId, periodo, config.appTimezone],
+      )
+      if (alreadyUsed.rows[0]) {
+        throw new AppError(
+          'Este colaborador já registrou esta pausa hoje. A nova tentativa foi registrada para auditoria.',
+          409,
+          { pauseId: alreadyUsed.rows[0].id, periodo },
+        )
+      }
+
+      if (autorizacaoId) {
         await client.query('update autorizacoes set usado_em=now() where id=$1', [autorizacaoId])
       }
 
@@ -300,13 +415,26 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
           retornoAteLocal: horario.rows[0]?.retorno_local,
         }
       } catch (error: any) {
-        if (error?.code === '23505') throw new AppError('Este colaborador já registrou esta pausa hoje ou possui uma pausa aberta.', 409)
+        if (error?.code === '23505') {
+          throw new AppError('Este colaborador já registrou esta pausa hoje ou possui uma pausa aberta.', 409, { periodo })
+        }
         throw error
       }
     })
     return c.json(pausa, 201)
   } catch (error) {
-    if (error instanceof AppError) return c.json({ erro: error.message }, error.status)
+    if (error instanceof AppError) {
+      if (error.status === 409) {
+        await auditRepeatedAttempt({
+          colaboradorId: body.data.colaboradorId,
+          device,
+          pauseId: error.details?.pauseId,
+          periodo: error.details?.periodo,
+          origem: 'ONLINE_INICIAR',
+        })
+      }
+      return c.json({ erro: error.message }, error.status)
+    }
     throw error
   }
 })
