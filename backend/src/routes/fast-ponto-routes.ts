@@ -174,24 +174,24 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [best.colaborador_id],
     )
 
-    const verificationId = newId()
-    const verificationToken = newToken()
-    await client.query(
-      `insert into verificacoes_faciais
-         (id,colaborador_id,dispositivo_id,token_hash,score,expira_em,usado_em)
-       values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'),now())`,
-      [
-        verificationId,
-        best.colaborador_id,
-        device.id,
-        hashToken(verificationToken),
-        best.score,
-        config.verificationTtlSeconds,
-      ],
-    )
-
     if (open.rows[0]) {
       const current = open.rows[0]
+      const verificationId = newId()
+      const verificationToken = newToken()
+      await client.query(
+        `insert into verificacoes_faciais
+           (id,colaborador_id,dispositivo_id,token_hash,score,expira_em,usado_em)
+         values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'),now())`,
+        [
+          verificationId,
+          best.colaborador_id,
+          device.id,
+          hashToken(verificationToken),
+          best.score,
+          config.verificationTtlSeconds,
+        ],
+      )
+
       const finished = await client.query<{ fim_em: string; duracao_segundos: number }>(
         `update pausas_cafe
             set fim_em=now(),dispositivo_fim_id=$2,verificacao_fim_id=$3
@@ -206,11 +206,12 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
                 to_char($2::timestamptz at time zone $3,'HH24:MI') as fim_local`,
         [current.inicio_em, row.fim_em, config.appTimezone],
       )
+      const timeRow = times.rows[0]!
       const retorno: FinishPayload = {
         id: current.id,
-        inicioLocal: times.rows[0]?.inicio_local,
+        inicioLocal: timeRow.inicio_local,
         fimEm: row.fim_em,
-        fimLocal: times.rows[0]?.fim_local,
+        fimLocal: timeRow.fim_local,
         duracaoSegundos: row.duracao_segundos,
         limiteSegundos: current.limite_segundos,
         excedeuLimite: row.duracao_segundos > current.limite_segundos,
@@ -291,60 +292,64 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       }
     }
 
+    const verificationId = newId()
+    const verificationToken = newToken()
+    await client.query(
+      `insert into verificacoes_faciais
+         (id,colaborador_id,dispositivo_id,token_hash,score,expira_em,usado_em)
+       values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'),now())`,
+      [
+        verificationId,
+        best.colaborador_id,
+        device.id,
+        hashToken(verificationToken),
+        best.score,
+        config.verificationTtlSeconds,
+      ],
+    )
+
     if (authorizationId) {
       await client.query('update autorizacoes set usado_em=now() where id=$1', [authorizationId])
     }
 
     const pauseId = newId()
-    try {
-      const inserted = await client.query<{ inicio_em: string }>(
-        `insert into pausas_cafe
-           (id,colaborador_id,periodo,limite_segundos,fora_horario,autorizacao_id,dispositivo_inicio_id,verificacao_inicio_id)
-         values ($1,$2,$3,$4,$5,$6,$7,$8)
-         returning inicio_em::text`,
-        [
-          pauseId,
-          best.colaborador_id,
-          periodo,
-          limiteSegundos,
-          foraHorario,
-          authorizationId,
-          device.id,
-          verificationId,
-        ],
-      )
-      const inicioEm = inserted.rows[0]?.inicio_em
-      const times = await client.query<{ inicio_local: string; retorno_local: string }>(
-        `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,
-                to_char(($1::timestamptz + ($2 * interval '1 second')) at time zone $3,'HH24:MI') as retorno_local`,
-        [inicioEm, limiteSegundos, config.appTimezone],
-      )
-      const inicio: StartPayload = {
-        id: pauseId,
+    const inserted = await client.query<{ inicio_em: string }>(
+      `insert into pausas_cafe
+         (id,colaborador_id,periodo,limite_segundos,fora_horario,autorizacao_id,dispositivo_inicio_id,verificacao_inicio_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)
+       returning inicio_em::text`,
+      [
+        pauseId,
+        best.colaborador_id,
         periodo,
         limiteSegundos,
         foraHorario,
-        inicioEm,
-        inicioLocal: times.rows[0]?.inicio_local,
-        retornoAteLocal: times.rows[0]?.retorno_local,
-      }
-      return {
-        status: 'INICIO' as const,
-        score: Number(best.score.toFixed(4)),
-        colaborador: collaborator,
-        inicio,
-      }
-    } catch (error: any) {
-      if (error?.code === '23505') {
-        return {
-          status: 'INTERACAO_NECESSARIA' as const,
-          motivo: 'CONFLITO_DE_REGISTRO',
-          mensagem: 'O estado da pausa mudou. Confirme novamente para continuar.',
-          score: Number(best.score.toFixed(4)),
-          colaborador: collaborator,
-        }
-      }
-      throw error
+        authorizationId,
+        device.id,
+        verificationId,
+      ],
+    )
+    const inicioEm = inserted.rows[0]!.inicio_em
+    const times = await client.query<{ inicio_local: string; retorno_local: string }>(
+      `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,
+              to_char(($1::timestamptz + ($2 * interval '1 second')) at time zone $3,'HH24:MI') as retorno_local`,
+      [inicioEm, limiteSegundos, config.appTimezone],
+    )
+    const timeRow = times.rows[0]!
+    const inicio: StartPayload = {
+      id: pauseId,
+      periodo,
+      limiteSegundos,
+      foraHorario,
+      inicioEm,
+      inicioLocal: timeRow.inicio_local,
+      retornoAteLocal: timeRow.retorno_local,
+    }
+    return {
+      status: 'INICIO' as const,
+      score: Number(best.score.toFixed(4)),
+      colaborador: collaborator,
+      inicio,
     }
   })
 
