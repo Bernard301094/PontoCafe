@@ -268,7 +268,7 @@ fun AdminArea(
                                 }
                             } else {
                                 PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
-                                    AdminPeopleScreenV3(
+                                    AdminPeopleScreenV4(
                                         viewModel = viewModel,
                                         reliabilityViewModel = reliabilityViewModel,
                                     )
