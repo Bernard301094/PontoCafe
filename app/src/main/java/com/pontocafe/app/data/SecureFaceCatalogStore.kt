@@ -121,52 +121,77 @@ class SecureFaceCatalogStore(context: Context) {
 }
 
 object LocalFaceMatcher {
+    private data class BestTemplate(
+        val template: CachedFaceTemplate,
+        val score: Double,
+    )
+
     fun match(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
         if (embedding.isEmpty() || catalog.templates.isEmpty()) return null
 
+        var currentNormSquared = 0.0
+        for (value in embedding) {
+            val doubleValue = value.toDouble()
+            currentNormSquared += doubleValue * doubleValue
+        }
+        if (currentNormSquared <= 0.0) return null
+        val currentNorm = sqrt(currentNormSquared)
+
         // Vários templates da mesma pessoa representam aparências diferentes
         // (touca, óculos, sem acessórios, ângulos etc.). Eles não podem competir
-        // entre si como se fossem pessoas diferentes. Primeiro calculamos o melhor
-        // score de cada colaborador; só depois aplicamos limiar e margem entre
-        // identidades distintas.
-        val bestByCollaborator = linkedMapOf<String, Pair<CachedFaceTemplate, Double>>()
+        // entre si como se fossem pessoas diferentes. Primeiro calculamos apenas
+        // o melhor score de cada colaborador. O norm do embedding atual também é
+        // calculado uma única vez, evitando repetir o mesmo trabalho para cada rosto.
+        val bestByCollaborator = HashMap<String, BestTemplate>(catalog.templates.size.coerceAtMost(256))
         for (template in catalog.templates) {
             val stored = template.embedding
             if (stored.size != embedding.size) continue
-            val score = cosine(stored, embedding)
+            val score = cosine(stored, embedding, currentNorm)
             if (!score.isFinite()) continue
 
-            val current = bestByCollaborator[template.colaborador.id]
-            if (current == null || score > current.second) {
-                bestByCollaborator[template.colaborador.id] = template to score
+            val collaboratorId = template.colaborador.id
+            val currentBest = bestByCollaborator[collaboratorId]
+            if (currentBest == null || score > currentBest.score) {
+                bestByCollaborator[collaboratorId] = BestTemplate(template, score)
             }
         }
 
-        val ranked = bestByCollaborator.values.sortedByDescending { it.second }
-        val best = ranked.firstOrNull() ?: return null
-        val second = ranked.getOrNull(1)?.second
-        if (best.second < catalog.limiar) return null
-        if (second != null && best.second - second < catalog.margem) return null
+        var best: BestTemplate? = null
+        var second: BestTemplate? = null
+        for (candidate in bestByCollaborator.values) {
+            when {
+                best == null || candidate.score > best!!.score -> {
+                    second = best
+                    best = candidate
+                }
+                second == null || candidate.score > second!!.score -> {
+                    second = candidate
+                }
+            }
+        }
+
+        val winner = best ?: return null
+        val secondScore = second?.score
+        if (winner.score < catalog.limiar) return null
+        if (secondScore != null && winner.score - secondScore < catalog.margem) return null
 
         return LocalFaceMatch(
-            colaborador = best.first.colaborador,
-            score = best.second,
-            segundoScore = second,
+            colaborador = winner.template.colaborador,
+            score = winner.score,
+            segundoScore = secondScore,
         )
     }
 
-    private fun cosine(stored: List<Float>, current: FloatArray): Double {
+    private fun cosine(stored: List<Float>, current: FloatArray, currentNorm: Double): Double {
         var dot = 0.0
-        var normA = 0.0
-        var normB = 0.0
+        var storedNormSquared = 0.0
         for (index in current.indices) {
             val a = stored[index].toDouble()
             val b = current[index].toDouble()
             dot += a * b
-            normA += a * a
-            normB += b * b
+            storedNormSquared += a * a
         }
-        if (normA <= 0.0 || normB <= 0.0) return Double.NaN
-        return dot / (sqrt(normA) * sqrt(normB))
+        if (storedNormSquared <= 0.0 || currentNorm <= 0.0) return Double.NaN
+        return dot / (sqrt(storedNormSquared) * currentNorm)
     }
 }
