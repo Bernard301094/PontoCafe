@@ -218,7 +218,13 @@ class MainActivity : FragmentActivity() {
                                             pontoRepository = pontoRepository,
                                             offlineStore = offlineStore,
                                             embeddingEngine = faceEmbeddingEngine,
-                                            onWorkforceChanged = { adminVm.abrirColaboradores() },
+                                            onWorkforceChanged = {
+                                                // Qualquer mudança de equipe/biometria invalida o catálogo
+                                                // deste dispositivo. Assim uma biometria excluída nunca
+                                                // permanece utilizável pelo modo offline local.
+                                                faceCatalogStore.clear()
+                                                adminVm.abrirColaboradores()
+                                            },
                                         )
                                     }
                                 }
