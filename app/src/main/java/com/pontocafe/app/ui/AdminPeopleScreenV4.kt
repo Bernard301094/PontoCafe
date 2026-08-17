@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
@@ -66,7 +65,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
@@ -183,9 +181,7 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             item("header") { PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Equipe, biometria e acessos") }
-            item("summary") {
-                PeopleSummaryV4(allCollaborators.size, readyFaces, pendingFaces, state.usuarios.size)
-            }
+            item("summary") { PeopleSummaryV4(allCollaborators.size, readyFaces, pendingFaces, state.usuarios.size) }
             item("feedback") {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
@@ -332,7 +328,7 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
                 } else {
                     items(accounts, key = { "access-v4-${it.id}" }) { user ->
                         Card(
-                            Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = { viewModel.selecionarUsuario(user) },
                             shape = MaterialTheme.shapes.large,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -417,7 +413,7 @@ private fun CollaboratorCardV4(
         else -> MaterialTheme.colorScheme.outlineVariant
     }
     Card(
-        Modifier.fillMaxWidth().animateContentSize(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceContainerLow),
