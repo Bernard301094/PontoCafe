@@ -58,6 +58,7 @@ fun AdminArea(
     val state = viewModel.state
     var showingDevices by remember(initialDevicesOpen) { mutableStateOf(initialDevicesOpen) }
     var showingKiosk by remember(initialKioskOpen) { mutableStateOf(initialKioskOpen) }
+    var pendingPrimaryDestination by remember { mutableStateOf<AdminPrimaryDestination?>(null) }
 
     LaunchedEffect(showingDevices) {
         if (showingDevices) deviceViewModel.carregar()
@@ -185,12 +186,27 @@ fun AdminArea(
         }
     }
 
-    val rootDestination = when (state.destination) {
+    val stateRootDestination = when (state.destination) {
         AdminDestination.HOME -> AdminPrimaryDestination.HOME
         AdminDestination.COLLABORATORS -> AdminPrimaryDestination.PEOPLE
         AdminDestination.SETTINGS -> AdminPrimaryDestination.MANAGEMENT
         else -> null
     }
+
+    LaunchedEffect(state.destination, state.carregando) {
+        val pending = pendingPrimaryDestination ?: return@LaunchedEffect
+        val resolved = when (state.destination) {
+            AdminDestination.HOME -> AdminPrimaryDestination.HOME
+            AdminDestination.COLLABORATORS -> AdminPrimaryDestination.PEOPLE
+            AdminDestination.SETTINGS -> AdminPrimaryDestination.MANAGEMENT
+            else -> null
+        }
+        if (resolved == pending || !state.carregando) {
+            pendingPrimaryDestination = null
+        }
+    }
+
+    val rootDestination = pendingPrimaryDestination ?: stateRootDestination
 
     if (rootDestination != null) {
         NavigationSuiteScaffold(
@@ -200,6 +216,9 @@ fun AdminArea(
                     item(
                         selected = rootDestination == destination,
                         onClick = {
+                            if (rootDestination != destination) {
+                                pendingPrimaryDestination = destination
+                            }
                             when (destination) {
                                 AdminPrimaryDestination.HOME -> viewModel.voltarHome()
                                 AdminPrimaryDestination.PEOPLE -> viewModel.abrirColaboradores()
@@ -237,9 +256,7 @@ fun AdminArea(
                             onDevicesClick = { setDevicesOpen(true) },
                         )
                         AdminPrimaryDestination.PEOPLE -> {
-                            val initialPeopleLoading = state.carregando &&
-                                state.colaboradores.isEmpty() &&
-                                state.usuarios.isEmpty()
+                            val initialPeopleLoading = state.carregando && state.colaboradores.isEmpty()
                             if (initialPeopleLoading) {
                                 PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
                                     PontoCafeListSkeletonScreen(
@@ -258,13 +275,29 @@ fun AdminArea(
                                 }
                             }
                         }
-                        AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
-                            viewModel = viewModel,
-                            reliabilityViewModel = reliabilityViewModel,
-                            onDevicesClick = { setDevicesOpen(true) },
-                            onSyncClick = reliabilityViewModel::openSyncCenter,
-                            onKioskClick = { setKioskOpen(true) },
-                        )
+                        AdminPrimaryDestination.MANAGEMENT -> {
+                            val initialManagementLoading = state.carregando &&
+                                state.regrasCafe.isEmpty() &&
+                                stateRootDestination != AdminPrimaryDestination.MANAGEMENT
+                            if (initialManagementLoading) {
+                                PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                                    PontoCafeListSkeletonScreen(
+                                        title = "Gestão",
+                                        eyebrow = "Configurações e operação",
+                                        rows = 4,
+                                        showMetrics = false,
+                                    )
+                                }
+                            } else {
+                                AdminManagementScreenV2(
+                                    viewModel = viewModel,
+                                    reliabilityViewModel = reliabilityViewModel,
+                                    onDevicesClick = { setDevicesOpen(true) },
+                                    onSyncClick = reliabilityViewModel::openSyncCenter,
+                                    onKioskClick = { setKioskOpen(true) },
+                                )
+                            }
+                        }
                     }
                 }
 
