@@ -44,6 +44,10 @@ fun AdminPanelScreen(
     val online = state.erro == null
 
     PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
+        // Abaixo de 720 dp evitamos grids de 3/4 colunas. Em telefones isso
+        // garante largura útil suficiente para títulos, métricas e ícones.
+        val compactDashboard = responsive.availableWidth < 720.dp
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -69,7 +73,7 @@ fun AdminPanelScreen(
                     PcSecondaryButton(
                         text = "Voltar ao Ponto",
                         onClick = onClose,
-                        modifier = if (responsive.isNarrow) Modifier.fillMaxWidth() else Modifier,
+                        modifier = if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier,
                     )
                 }
             }
@@ -94,7 +98,7 @@ fun AdminPanelScreen(
             }
 
             item(key = "metrics") {
-                if (responsive.isNarrow) {
+                if (compactDashboard) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -224,7 +228,7 @@ fun AdminPanelScreen(
             }
 
             item(key = "quick-actions") {
-                if (responsive.isNarrow) {
+                if (compactDashboard) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         PcActionTile(
                             title = "Pessoas e acessos",
