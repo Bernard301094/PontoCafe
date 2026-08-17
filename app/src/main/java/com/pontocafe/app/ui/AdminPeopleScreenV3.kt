@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -97,6 +97,7 @@ fun AdminPeopleScreenV3(
     var filter by remember { mutableStateOf(PeopleViewFilter.TEAM) }
     var expandedId by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Colaborador?>(null) }
+    var deletingBiometric by remember { mutableStateOf<Colaborador?>(null) }
     var importPreview by remember { mutableStateOf<CsvImportPreview?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -149,6 +150,19 @@ fun AdminPeopleScreenV3(
             onSave = { name, sector, shift ->
                 viewModel.editarColaborador(collaborator, name, sector, shift)
                 editing = null
+            },
+        )
+    }
+
+    deletingBiometric?.let { collaborator ->
+        DeleteBiometricDialogV3(
+            collaborator = collaborator,
+            loading = reliabilityState.loading,
+            onDismiss = { if (!reliabilityState.loading) deletingBiometric = null },
+            onConfirm = {
+                reliabilityViewModel.deleteBiometric(collaborator.id)
+                deletingBiometric = null
+                expandedId = null
             },
         )
     }
@@ -471,6 +485,7 @@ fun AdminPeopleScreenV3(
                             onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
                             onEdit = { editing = collaborator },
                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                            onDeleteBiometric = { deletingBiometric = collaborator },
                         )
                     }
                 }
@@ -742,6 +757,7 @@ private fun CollaboratorRowV3(
     onHistory: () -> Unit,
     onEdit: () -> Unit,
     onBiometric: () -> Unit,
+    onDeleteBiometric: () -> Unit,
 ) {
     val borderColor = when {
         selected || expanded -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
@@ -861,11 +877,74 @@ private fun CollaboratorRowV3(
                             Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
                             Text("Atualizar rosto", modifier = Modifier.padding(start = 7.dp))
                         }
+                        OutlinedButton(
+                            onClick = onDeleteBiometric,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !loading,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Excluir rosto", modifier = Modifier.padding(start = 7.dp))
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun DeleteBiometricDialogV3(
+    collaborator: Colaborador,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!loading) onDismiss() },
+        title = { Text("Excluir biometria facial?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Text(
+                    "Todos os registros de rosto de ${collaborator.nome} serão removidos definitivamente do banco de dados.",
+                )
+                Text(
+                    "O colaborador, o histórico de pausas e a auditoria serão preservados. Para voltar a usar o Ponto, será necessário cadastrar o rosto novamente.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        "Esta ação não pode ser desfeita.",
+                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(if (loading) "Excluindo..." else "Excluir rosto", modifier = Modifier.padding(start = 7.dp))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
+        },
+    )
 }
 
 @Composable
