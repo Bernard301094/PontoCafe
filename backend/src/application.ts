@@ -5,6 +5,7 @@ import { auth, type AppEnv } from './auth-runtime.js'
 import { config } from './config.js'
 import { query } from './db.js'
 import { errorPayload, logServerError, requestIdMiddleware } from './observability.js'
+import { adminBiometricDeletionRoutes } from './routes/admin-biometric-deletion-routes.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
@@ -158,6 +159,9 @@ app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
+// A exclusão biométrica destrutiva é Admin-only e precisa interceptar esta rota
+// antes da implementação compatível mantida em collaboratorManagementRoutes.
+app.route('/gestao', adminBiometricDeletionRoutes)
 // Calibração específica precisa preceder a versão compatível mantida em workforceRoutes.
 app.route('/gestao', biometricCalibrationRoutes)
 // Rotas específicas (importar/lote/histórico) precisam preceder /colaboradores/:id.
