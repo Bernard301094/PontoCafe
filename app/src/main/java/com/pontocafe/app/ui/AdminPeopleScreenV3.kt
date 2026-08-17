@@ -6,7 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -211,7 +212,14 @@ fun AdminPeopleScreenV3(
         .sortedBy { it.nome.lowercase() }
         .toList()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val narrow = maxWidth < 360.dp
+        val pagePadding = when {
+            maxWidth < 360.dp -> 12.dp
+            maxWidth < 600.dp -> 16.dp
+            else -> 20.dp
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -219,8 +227,8 @@ fun AdminPeopleScreenV3(
                 .navigationBarsPadding()
                 .imePadding(),
             contentPadding = PaddingValues(
-                start = PontoCafeSpacing.lg,
-                end = PontoCafeSpacing.lg,
+                start = pagePadding,
+                end = pagePadding,
                 top = PontoCafeSpacing.md,
                 bottom = if (selectionMode) 128.dp else 100.dp,
             ),
@@ -250,57 +258,107 @@ fun AdminPeopleScreenV3(
             }
 
             item("primary-actions") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    Button(
-                        onClick = viewModel::abrirNovoColaborador,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(20.dp),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Colaborador", modifier = Modifier.padding(start = 6.dp))
+                if (narrow) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        Button(
+                            onClick = viewModel::abrirNovoColaborador,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Novo colaborador", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::abrirNovaConta,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Novo acesso", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
-                    OutlinedButton(
-                        onClick = viewModel::abrirNovaConta,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                     ) {
-                        Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Acesso", modifier = Modifier.padding(start = 6.dp))
+                        Button(
+                            onClick = viewModel::abrirNovoColaborador,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(20.dp),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Colaborador", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::abrirNovaConta,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Acesso", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
                 }
             }
 
             item("tools") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    OutlinedButton(
-                        onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                    ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Importar", modifier = Modifier.padding(start = 6.dp))
+                if (narrow) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        OutlinedButton(
+                            onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Importar CSV", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                selectionMode = !selectionMode
+                                filter = PeopleViewFilter.TEAM
+                                expandedId = null
+                                if (!selectionMode) selectedIds = emptySet()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.GroupWork, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
-                    OutlinedButton(
-                        onClick = {
-                            selectionMode = !selectionMode
-                            filter = PeopleViewFilter.TEAM
-                            expandedId = null
-                            if (!selectionMode) selectedIds = emptySet()
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                     ) {
-                        Icon(Icons.Default.GroupWork, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text(if (selectionMode) "Cancelar" else "Selecionar", modifier = Modifier.padding(start = 6.dp))
+                        OutlinedButton(
+                            onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Importar", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                selectionMode = !selectionMode
+                                filter = PeopleViewFilter.TEAM
+                                expandedId = null
+                                if (!selectionMode) selectedIds = emptySet()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
+                            Icon(Icons.Default.GroupWork, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(if (selectionMode) "Cancelar" else "Selecionar", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
                 }
             }
@@ -328,11 +386,12 @@ fun AdminPeopleScreenV3(
             }
 
             item("filters") {
-                Row(
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
                 ) {
-                    PeopleViewFilter.entries.forEach { item ->
+                    items(PeopleViewFilter.entries, key = { it.name }) { item ->
                         FilterChip(
                             selected = filter == item,
                             onClick = {
@@ -460,7 +519,7 @@ fun AdminPeopleScreenV3(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = PontoCafeSpacing.lg, vertical = PontoCafeSpacing.sm),
+                    .padding(horizontal = pagePadding, vertical = PontoCafeSpacing.sm),
                 shape = RoundedCornerShape(24.dp),
                 color = PontoCafePremium.glassStrong,
                 border = BorderStroke(1.dp, PontoCafePremium.border),
@@ -500,7 +559,7 @@ fun AdminPeopleScreenV3(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(
-                    horizontal = PontoCafeSpacing.md,
+                    horizontal = pagePadding,
                     vertical = if (selectionMode) 92.dp else PontoCafeSpacing.sm,
                 ),
         ) { data ->
@@ -522,35 +581,77 @@ private fun PeopleSummaryStrip(
     pendingFaces: Int,
     accessAccounts: Int,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-    ) {
-        PeopleSummaryItem(
-            value = collaborators.toString(),
-            label = "Equipe",
-            icon = Icons.Default.People,
-            modifier = Modifier.weight(1f),
-        )
-        PeopleSummaryItem(
-            value = readyFaces.toString(),
-            label = "Com rosto",
-            icon = Icons.Default.CheckCircle,
-            modifier = Modifier.weight(1f),
-        )
-        PeopleSummaryItem(
-            value = pendingFaces.toString(),
-            label = "Pendentes",
-            icon = if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle,
-            modifier = Modifier.weight(1f),
-            attention = pendingFaces > 0,
-        )
-        PeopleSummaryItem(
-            value = accessAccounts.toString(),
-            label = "Acessos",
-            icon = Icons.Default.Badge,
-            modifier = Modifier.weight(1f),
-        )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (maxWidth < 520.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    PeopleSummaryItem(
+                        value = collaborators.toString(),
+                        label = "Equipe",
+                        icon = Icons.Default.People,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PeopleSummaryItem(
+                        value = readyFaces.toString(),
+                        label = "Com rosto",
+                        icon = Icons.Default.CheckCircle,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    PeopleSummaryItem(
+                        value = pendingFaces.toString(),
+                        label = "Pendentes",
+                        icon = if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle,
+                        modifier = Modifier.weight(1f),
+                        attention = pendingFaces > 0,
+                    )
+                    PeopleSummaryItem(
+                        value = accessAccounts.toString(),
+                        label = "Acessos",
+                        icon = Icons.Default.Badge,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                PeopleSummaryItem(
+                    value = collaborators.toString(),
+                    label = "Equipe",
+                    icon = Icons.Default.People,
+                    modifier = Modifier.weight(1f),
+                )
+                PeopleSummaryItem(
+                    value = readyFaces.toString(),
+                    label = "Com rosto",
+                    icon = Icons.Default.CheckCircle,
+                    modifier = Modifier.weight(1f),
+                )
+                PeopleSummaryItem(
+                    value = pendingFaces.toString(),
+                    label = "Pendentes",
+                    icon = if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    modifier = Modifier.weight(1f),
+                    attention = pendingFaces > 0,
+                )
+                PeopleSummaryItem(
+                    value = accessAccounts.toString(),
+                    label = "Acessos",
+                    icon = Icons.Default.Badge,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 
