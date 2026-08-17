@@ -24,14 +24,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
-import com.pontocafe.app.data.SecureAdminSessionStore
-import com.pontocafe.app.data.SupervisorApiClient
 import kotlinx.coroutines.delay
 
 private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
 
 private const val TRANSIENT_ALERT_DURATION_MILLIS = 8_000L
-private const val LATEST_RETURN_REFRESH_MILLIS = 10_000L
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -44,10 +41,12 @@ data class SupervisorLiveAlert(
 fun rememberSupervisorLiveActivityAlert(
     pausasAtivas: List<PausaSupervisor>,
     enabled: Boolean,
+    latestReturn: PausaSupervisor? = null,
 ): SupervisorLiveAlert? = rememberSupervisorLiveActivityAlert(
     pausasAtivas = pausasAtivas,
     enabled = enabled,
     agoraEmMillis = System.currentTimeMillis(),
+    latestReturn = latestReturn,
 )
 
 @Composable
@@ -55,42 +54,14 @@ fun rememberSupervisorLiveActivityAlert(
     pausasAtivas: List<PausaSupervisor>,
     enabled: Boolean,
     agoraEmMillis: Long,
+    latestReturn: PausaSupervisor? = null,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
-    val appContext = context.applicationContext
-    val historyRepository = remember(appContext) {
-        SupervisorApiClient.create(
-            supervisorSessionStore = SecureAdminSessionStore(appContext, "supervisor"),
-        )
-    }
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
-    var latestReturnAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
-
-    // O painel de pausas ativas não contém quem já voltou. Recuperamos também o
-    // histórico do dia para manter o último retorno visível no início do Supervisor,
-    // inclusive quando ele abre a tela depois que o retorno já foi registrado.
-    LaunchedEffect(enabled, historyRepository) {
-        if (!enabled) {
-            latestReturnAlert = null
-            return@LaunchedEffect
-        }
-
-        while (true) {
-            runCatching { historyRepository.historico() }
-                .onSuccess { historico ->
-                    val ultimoRetorno = historico
-                        .asSequence()
-                        .filter { !it.fimLocal.isNullOrBlank() }
-                        .maxWithOrNull(
-                            compareBy<PausaSupervisor> { it.fimLocal.orEmpty() }
-                                .thenBy { it.inicioLocal },
-                        )
-                    latestReturnAlert = ultimoRetorno?.toPersistentReturnAlert()
-                }
-            delay(LATEST_RETURN_REFRESH_MILLIS)
-        }
+    val latestReturnAlert = remember(latestReturn?.id, latestReturn?.fimLocal) {
+        latestReturn?.toPersistentReturnAlert()
     }
 
     LaunchedEffect(pausasAtivas, enabled, agoraEmMillis) {
@@ -108,8 +79,6 @@ fun rememberSupervisorLiveActivityAlert(
         val anterior = baseline
 
         if (anterior == null) {
-            // O primeiro carregamento apenas estabelece a referência para não tocar
-            // alertas antigos assim que o Supervisor abre o painel.
             baseline = atual
             overdueBaseline = excessosAtuais
             return@LaunchedEffect
@@ -178,8 +147,9 @@ fun rememberSupervisorLiveActivityAlert(
         if (transientAlert?.id == currentId) transientAlert = null
     }
 
-    // Eventos novos têm prioridade visual por alguns segundos. Depois disso, o
-    // último retorno confirmado continua visível e não se perde do painel inicial.
+    // Eventos novos têm prioridade por alguns segundos. Depois disso, o último
+    // retorno vem do SupervisorViewModel e permanece imediatamente disponível
+    // mesmo quando o usuário troca de aba e volta para Operação.
     return transientAlert ?: latestReturnAlert
 }
 
@@ -202,6 +172,7 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
             containerColor = containerColor,
             contentColor = contentColor,
         ),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(alert.title, fontWeight = FontWeight.Bold)
