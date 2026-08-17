@@ -19,7 +19,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -72,6 +78,7 @@ fun BiometricDiagnosticsScreen(
     var search by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<Colaborador?>(null) }
     var cameraOpen by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         if (summary == null) viewModel.openBiometricDiagnostics()
@@ -96,154 +103,282 @@ fun BiometricDiagnosticsScreen(
 
     val candidates = adminViewModel.state.colaboradores
         .filter { it.rostoCadastrado }
-        .filter { search.isBlank() || it.nome.contains(search, true) || it.setor.orEmpty().contains(search, true) }
+        .filter {
+            search.isBlank() ||
+                it.nome.contains(search, true) ||
+                it.setor.orEmpty().contains(search, true)
+        }
         .sortedBy { it.nome.lowercase() }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = PontoCafeSpacing.lg),
-        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-    ) {
-        item("header") { PontoCafeScreenHeader(title = "Biometria", eyebrow = "Precisão e governança", onBack = onBack) }
-        item("feedback") { ReliabilityFeedback(viewModel) }
-
-        if (summary != null) {
-            item("metrics") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    MetricCard(summary.biometriaCadastrada.toString(), "Rostos cadastrados", Modifier.weight(1f))
-                    MetricCard(summary.biometriaPendente.toString(), "Pendentes", Modifier.weight(1f), emphasized = summary.biometriaPendente > 0)
+    PontoCafeResponsivePage(maxContentWidth = 880.dp) { responsive ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(
+                    start = responsive.pagePadding,
+                    end = responsive.pagePadding,
+                    top = PontoCafeSpacing.lg,
+                    bottom = 104.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+            ) {
+                item("header") {
+                    PontoCafeScreenHeader(
+                        title = "Biometria",
+                        eyebrow = "Precisão e governança",
+                        onBack = onBack,
+                    )
                 }
-            }
-            item("thresholds") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                ) {
-                    Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("Critérios atuais", style = MaterialTheme.typography.titleMedium)
-                        Text("Limiar de reconhecimento · ${summary.limiar}")
-                        Text("Margem mínima entre candidatos · ${summary.margemMinima}")
-                        Text("Limiar contra rosto duplicado · ${summary.limiarDuplicidade}")
-                        Text("Retenção após desativação · ${summary.retencaoDias} dias")
-                        if (summary.modelos.isNotEmpty()) {
-                            Text(
-                                summary.modelos.joinToString("\n") { "${it.modelo} · ${it.versaoModelo} · ${it.total} rosto(s)" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+                item("feedback") { ReliabilityFeedback(viewModel) }
+
+                if (summary != null) {
+                    item("summary-title") {
+                        SectionTitle(
+                            "Cobertura biométrica",
+                            "Visão do cadastro facial ativo sem expor fotos ou embeddings.",
+                        )
+                    }
+
+                    item("metrics") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = summary.biometriaCadastrada.toString(),
+                                label = "Rostos cadastrados",
+                                icon = Icons.Default.Face,
+                                modifier = Modifier.weight(1f),
+                            )
+                            PcMetricTile(
+                                value = summary.biometriaPendente.toString(),
+                                label = "Pendentes",
+                                icon = Icons.Default.Warning,
+                                modifier = Modifier.weight(1f),
+                                attention = summary.biometriaPendente > 0,
                             )
                         }
                     }
-                }
-            }
-        }
 
-        metrics?.let { calibration ->
-            item("calibration-stat-title") {
-                SectionTitle(
-                    "Precisão medida",
-                    "Resultados empíricos das amostras de calibração realizadas neste ambiente.",
-                )
-            }
-            item("calibration-stat-count") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    MetricCard(calibration.amostras.toString(), "Amostras", Modifier.weight(1f))
-                    MetricCard(formatPercent(calibration.top1Accuracy), "Top-1 accuracy", Modifier.weight(1f))
-                }
-            }
-            item("calibration-stat-rates") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    MetricCard(
-                        formatPercent(calibration.falseRejectRate),
-                        "FRR",
-                        Modifier.weight(1f),
-                        emphasized = (calibration.falseRejectRate ?: 0.0) > 0.05,
-                    )
-                    MetricCard(
-                        formatPercent(calibration.falseAcceptRate),
-                        "FAR",
-                        Modifier.weight(1f),
-                        emphasized = (calibration.falseAcceptRate ?: 0.0) > 0.0,
-                    )
-                }
-            }
-            item("calibration-stat-note") {
-                Text(
-                    "${calibration.comparacoesImpostor} comparação(ões) impostoras · ${calibration.falsosAceitesImpostor} acima do limiar. ${calibration.observacao}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        metricsError?.let { message ->
-            item("metrics-error") {
-                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+                    item("thresholds") {
+                        PcKeyValueCard(
+                            title = "Critérios atuais",
+                            rows = listOf(
+                                "Limiar de reconhecimento" to summary.limiar.toString(),
+                                "Margem entre candidatos" to summary.margemMinima.toString(),
+                                "Limiar contra duplicado" to summary.limiarDuplicidade.toString(),
+                                "Retenção após desativação" to "${summary.retencaoDias} dias",
+                            ),
+                        )
+                    }
 
-        item("calibration-title") {
-            SectionTitle(
-                "Teste de calibração",
-                "Capture uma amostra real. A app compara o rosto correto contra todos os outros templates ativos sem salvar a foto.",
-            )
-        }
-        item("search") {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buscar colaborador com rosto") },
-                singleLine = true,
-            )
-        }
-        if (candidates.isEmpty()) {
-            item("empty") {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("Nenhum colaborador com biometria encontrada para este filtro.", Modifier.padding(PontoCafeSpacing.md))
-                }
-            }
-        } else {
-            items(candidates, key = { "cal-${it.id}" }) { collaborator ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        selected = collaborator
-                        cameraOpen = true
-                    },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                    ) {
-                        InitialAvatar(collaborator.nome)
-                        Column(Modifier.weight(1f)) {
-                            Text(collaborator.nome, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                listOfNotNull(collaborator.setor, collaborator.turno).filter { it.isNotBlank() }.joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    if (summary.modelos.isNotEmpty()) {
+                        item("models") {
+                            PcSectionSurface {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                                ) {
+                                    Text(
+                                        "Modelo em uso",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    summary.modelos.forEach { model ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(model.modelo, style = MaterialTheme.typography.bodyMedium)
+                                                Text(
+                                                    model.versaoModelo,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            StatusPill("${model.total} rosto(s)", PontoCafeTone.NEUTRAL)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        Text("Testar")
                     }
                 }
+
+                metrics?.let { calibration ->
+                    item("calibration-stat-title") {
+                        SectionTitle(
+                            "Precisão medida",
+                            "Resultados empíricos das amostras de calibração realizadas neste ambiente.",
+                        )
+                    }
+
+                    item("calibration-stat-count") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = calibration.amostras.toString(),
+                                label = "Amostras",
+                                icon = Icons.Default.Face,
+                                modifier = Modifier.weight(1f),
+                            )
+                            PcMetricTile(
+                                value = formatPercent(calibration.top1Accuracy),
+                                label = "Top-1 accuracy",
+                                icon = Icons.Default.CheckCircle,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    item("calibration-stat-rates") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = formatPercent(calibration.falseRejectRate),
+                                label = "FRR · falsas rejeições",
+                                icon = Icons.Default.Warning,
+                                modifier = Modifier.weight(1f),
+                                attention = (calibration.falseRejectRate ?: 0.0) > 0.05,
+                            )
+                            PcMetricTile(
+                                value = formatPercent(calibration.falseAcceptRate),
+                                label = "FAR · falsos aceites",
+                                icon = Icons.Default.Warning,
+                                modifier = Modifier.weight(1f),
+                                attention = (calibration.falseAcceptRate ?: 0.0) > 0.0,
+                            )
+                        }
+                    }
+
+                    item("calibration-stat-note") {
+                        PcStateBanner(
+                            title = "Como interpretar estes números",
+                            supportingText = "FRR mede rejeições indevidas; FAR mede aceitações indevidas. ${calibration.comparacoesImpostor} comparação(ões) impostoras, ${calibration.falsosAceitesImpostor} acima do limiar. ${calibration.observacao}",
+                            tone = PontoCafeTone.NEUTRAL,
+                        )
+                    }
+                }
+
+                metricsError?.let { message ->
+                    item("metrics-error") {
+                        PcStateBanner(
+                            title = "Métricas acumuladas indisponíveis",
+                            supportingText = message,
+                            tone = PontoCafeTone.WARNING,
+                        )
+                    }
+                }
+
+                item("calibration-title") {
+                    SectionTitle(
+                        "Teste de calibração",
+                        "Capture uma amostra real e compare o rosto correto contra os demais templates ativos sem salvar a foto.",
+                    )
+                }
+
+                item("search") {
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = { search = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Buscar colaborador com rosto") },
+                        leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.large,
+                    )
+                }
+
+                if (candidates.isEmpty()) {
+                    item("empty") {
+                        PcEmptyState(
+                            title = "Nenhum colaborador encontrado",
+                            supportingText = "Ajuste a busca ou cadastre uma biometria antes de executar a calibração.",
+                            icon = Icons.Default.Face,
+                        )
+                    }
+                } else {
+                    items(candidates, key = { "cal-${it.id}" }) { collaborator ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                selected = collaborator
+                                cameraOpen = true
+                            },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                            shape = MaterialTheme.shapes.large,
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                            ) {
+                                InitialAvatar(collaborator.nome)
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        collaborator.nome,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        listOfNotNull(collaborator.setor, collaborator.turno)
+                                            .filter { it.isNotBlank() }
+                                            .joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                StatusPill("Testar", PontoCafeTone.INFO)
+                            }
+                        }
+                    }
+                }
+
+                state.calibration?.let { result ->
+                    item("last-result") {
+                        SectionTitle("Último resultado", "Resultado da amostra mais recente desta sessão.")
+                    }
+                    item("last-result-card") { CalibrationResultCard(result) }
+                }
+
+                item("retention-title") {
+                    SectionTitle(
+                        "Governança",
+                        "A limpeza automática também é executada diariamente no backend.",
+                    )
+                }
+
+                item("retention") {
+                    PcSecondaryButton(
+                        text = "Executar política de retenção agora",
+                        onClick = viewModel::runRetentionCleanup,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.loading,
+                    )
+                }
             }
-        }
 
-        state.calibration?.let { result ->
-            item("last-result") { CalibrationResultCard(result) }
-        }
-
-        item("retention-title") { SectionTitle("Governança", "A limpeza automática também é executada diariamente no backend.") }
-        item("retention") {
-            OutlinedButton(
-                onClick = viewModel::runRetentionCleanup,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.loading,
-            ) { Text("Executar política de retenção agora") }
+            PcScrollToTopFab(
+                listState = listState,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
+            )
         }
     }
 }
@@ -257,7 +392,10 @@ private fun CalibrationCamera(
     val context = LocalContext.current
     val state = viewModel.state
     var permissionGranted by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         permissionGranted = it
@@ -285,12 +423,18 @@ private fun CalibrationCamera(
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
                 Text("A câmera é necessária para testar a biometria.", color = Color.White)
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("Permitir câmera") }
+                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                    Text("Permitir câmera")
+                }
             }
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(PontoCafeSpacing.md).align(Alignment.TopCenter),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(PontoCafeSpacing.md)
+                .align(Alignment.TopCenter),
             color = Color.Black.copy(alpha = .72f),
             shape = RoundedCornerShape(20.dp),
         ) {
@@ -308,7 +452,11 @@ private fun CalibrationCamera(
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(PontoCafeSpacing.md).align(Alignment.BottomCenter),
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(PontoCafeSpacing.md)
+                .align(Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
             shape = RoundedCornerShape(24.dp),
         ) {
@@ -342,7 +490,9 @@ private fun CalibrationCamera(
                     Text(if (state.loading || capturePending) "Processando…" else "Capturar amostra e medir")
                 }
                 state.calibration?.let { CalibrationResultCard(it) }
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
+                state.error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                }
             }
         }
     }
@@ -355,11 +505,23 @@ private fun CalibrationResultCard(result: com.pontocafe.app.data.CalibrationResp
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (result.aprovado) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+            containerColor = if (result.aprovado) {
+                LocalPontoCafeSemanticColors.current.successContainer
+            } else {
+                MaterialTheme.colorScheme.errorContainer
+            },
         ),
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (result.aprovado) "Amostra aprovada" else "Amostra abaixo do critério", style = MaterialTheme.typography.titleMedium)
+        Column(
+            Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                if (result.aprovado) "Amostra aprovada" else "Amostra abaixo do critério",
+                style = MaterialTheme.typography.titleMedium,
+            )
             Text("Score correto · ${scorePct?.let { "$it%" } ?: "—"} (limiar ${result.limiar})")
             Text("Margem · ${marginPct?.let { "$it p.p." } ?: "—"} (mínima ${result.margemMinima})")
             result.outroMaisProximo?.let {
@@ -369,4 +531,5 @@ private fun CalibrationResultCard(result: com.pontocafe.app.data.CalibrationResp
     }
 }
 
-private fun formatPercent(value: Double?): String = value?.let { "%.2f%%".format(it * 100.0) } ?: "—"
+private fun formatPercent(value: Double?): String =
+    value?.let { "%.2f%%".format(it * 100.0) } ?: "—"
