@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
+import com.pontocafe.app.data.AdminTestPause
+import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.PausaSupervisor
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 
 @Composable
@@ -51,6 +58,7 @@ fun SupervisorLiveScreenV2(
 ) {
     val state = viewModel.state
     val lifecycleOwner = LocalLifecycleOwner.current
+    val testPause by AdminTestPauseStore.active.collectAsState()
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -80,6 +88,7 @@ fun SupervisorLiveScreenV2(
         val snapshotNow = System.currentTimeMillis()
         orderedPausas.count { supervisorLiveSeconds(it, snapshotNow) > it.limiteSegundos }
     }
+    val hasVisiblePause = orderedPausas.isNotEmpty() || testPause != null
 
     LazyColumn(
         modifier = Modifier
@@ -120,12 +129,14 @@ fun SupervisorLiveScreenV2(
             PcHeroCard(
                 title = when {
                     overdue > 0 -> "$overdue pausa(s) acima do limite"
-                    state.pausasAtivas.isEmpty() -> "Nenhuma pausa em andamento"
+                    state.pausasAtivas.isEmpty() -> "Nenhuma pausa real em andamento"
                     else -> "${state.pausasAtivas.size} pessoa(s) em pausa"
                 },
                 supportingText = when {
                     overdue > 0 -> "Os casos que exigem atenção aparecem primeiro na lista."
+                    testPause != null && state.pausasAtivas.isEmpty() -> "Há uma simulação TESTE abaixo; ela não altera os indicadores reais."
                     state.pausasAtivas.isEmpty() -> "A operação está livre neste momento."
+                    testPause != null -> "Os dados reais permanecem separados da simulação marcada TESTE."
                     else -> "Os cronômetros são atualizados localmente a cada segundo."
                 },
                 icon = if (overdue > 0) Icons.Default.Timer else Icons.Default.Coffee,
@@ -189,15 +200,22 @@ fun SupervisorLiveScreenV2(
         item(key = "active-title") {
             SectionTitle(
                 "Pessoas no café",
-                if (orderedPausas.isEmpty()) {
-                    "Nenhuma pausa em andamento."
-                } else {
-                    "Acompanhe tempo restante, progresso e situações acima do limite."
+                when {
+                    !hasVisiblePause -> "Nenhuma pausa em andamento."
+                    testPause != null && orderedPausas.isEmpty() -> "Exibindo somente uma simulação local marcada TESTE."
+                    testPause != null -> "Pausas reais e uma simulação local marcada TESTE."
+                    else -> "Acompanhe tempo restante, progresso e situações acima do limite."
                 },
             )
         }
 
-        if (orderedPausas.isEmpty()) {
+        testPause?.let { test ->
+            item(key = "test-pause-${test.id}") {
+                LiveTestPauseCardMaterial(test)
+            }
+        }
+
+        if (!hasVisiblePause) {
             item(key = "active-empty") {
                 PcEmptyState(
                     title = "Tudo livre por aqui",
@@ -205,7 +223,7 @@ fun SupervisorLiveScreenV2(
                     icon = Icons.Default.Groups,
                 )
             }
-        } else {
+        } else if (orderedPausas.isNotEmpty()) {
             items(orderedPausas, key = { "pause-${it.id}" }) { pause ->
                 LivePauseCardMaterial(pause = pause)
             }
@@ -273,6 +291,142 @@ private fun LiveConnectionStatusMaterial(
         },
         tone = if (connectionOk) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
     )
+}
+
+@Composable
+private fun LiveTestPauseCardMaterial(test: AdminTestPause) {
+    var now by remember(test.id) { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(test.id) {
+        while (true) {
+            delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+
+    val seconds = ((now - test.startedAtMillis) / 1_000L)
+        .coerceAtLeast(0L)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
+    val overdue = seconds > test.limitSeconds
+    val remaining = (test.limitSeconds - seconds).coerceAtLeast(0)
+    val elapsedOverLimit = (seconds - test.limitSeconds).coerceAtLeast(0)
+    val progress = (seconds.toFloat() / test.limitSeconds.toFloat()).coerceIn(0f, 1f)
+    val nearLimit = !overdue && progress >= 0.80f
+    val semantic = LocalPontoCafeSemanticColors.current
+    val accent = when {
+        overdue -> MaterialTheme.colorScheme.error
+        nearLimit -> semantic.warning
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    val startLabel = remember(test.startedAtMillis) {
+        Instant.ofEpochMilli(test.startedAtMillis)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            PcStateBanner(
+                title = "TESTE · Não salvo no sistema",
+                supportingText = "Simulação local do Administrador. Não cria pausa, histórico, auditoria ou métricas.",
+                tone = PontoCafeTone.INFO,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                InitialAvatar(test.adminName)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        test.adminName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Administrador · TESTE",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        formatTime(seconds),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (overdue) "+${formatTime(elapsedOverLimit)}" else "restam ${formatTime(remaining)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = accent,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusPill(
+                    text = "TESTE",
+                    tone = PontoCafeTone.INFO,
+                )
+                Text(
+                    "Limite ${formatTime(test.limitSeconds)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(999.dp)),
+                color = accent,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.38f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text("Início", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(startLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            if (overdue) "Situação simulada" else "Tempo restante",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            if (overdue) "Limite simulado excedido" else formatTime(remaining),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = accent,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
