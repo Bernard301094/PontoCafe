@@ -1,7 +1,6 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.AlignmentLine
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
