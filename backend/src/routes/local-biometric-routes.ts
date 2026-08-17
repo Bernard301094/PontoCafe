@@ -199,6 +199,23 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     [config.appTimezone],
   )
 
+  const aberta = pausaAberta.rows[0]
+  const regra = regraAtual.rows[0]
+  const liberacao = !aberta && !regra
+    ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number; expira_em: string }>(
+        `select a.periodo,r.limite_segundos,a.expira_em::text
+         from autorizacoes a
+         join regras_cafe r on r.periodo=a.periodo and r.ativo=true
+         where a.colaborador_id=$1
+           and a.usado_em is null
+           and a.cancelada_em is null
+           and a.expira_em>now()
+         order by a.criado_em desc
+         limit 1`,
+        [stored.colaborador_id],
+      )).rows[0]
+    : undefined
+
   const verificacaoToken = newToken()
   await query(
     `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
@@ -206,11 +223,19 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     [newId(), stored.colaborador_id, device.id, hashToken(verificacaoToken), score, config.verificationTtlSeconds],
   )
 
-  const aberta = pausaAberta.rows[0]
-  const regra = regraAtual.rows[0]
+  const foraHorarioSemPausaAberta = !aberta && !regra
+  const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
 
   return c.json({
     reconhecido: true,
+    motivo: foraHorarioSemPausaAberta
+      ? (autorizadoForaHorario ? 'AUTORIZACAO_PREVIA' : 'FORA_HORARIO_NAO_LIBERADO')
+      : null,
+    mensagem: foraHorarioSemPausaAberta
+      ? (autorizadoForaHorario
+          ? 'Pausa liberada previamente pelo Supervisor.'
+          : 'Você está fora do horário permitido e não possui liberação prévia do Supervisor.')
+      : null,
     score: Number(score.toFixed(4)),
     verificacaoToken,
     expiraEmSegundos: config.verificationTtlSeconds,
@@ -230,8 +255,10 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    dentroHorario: Boolean(regra),
-    periodoAtual: regra?.periodo ?? null,
-    limiteSegundos: regra?.limite_segundos ?? null,
+    // Para manter compatibilidade com o app atual, uma liberação prévia torna a pausa
+    // efetivamente permitida agora, embora continue sendo registrada como fora do horário.
+    dentroHorario: Boolean(regra) || autorizadoForaHorario,
+    periodoAtual: regra?.periodo ?? liberacao?.periodo ?? null,
+    limiteSegundos: regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,
   })
 })
