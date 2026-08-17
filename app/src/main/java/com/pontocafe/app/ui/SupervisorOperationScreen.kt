@@ -78,7 +78,14 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
             fallbackName = accountFallbackName,
             profileLabel = accountProfileLabel,
             onDismiss = { showAccountSheet = false },
-            onLogout = if (state.sessaoAdministrativa) null else {{ showAccountSheet = false; viewModel.sair() }},
+            onLogout = if (state.sessaoAdministrativa) {
+                null
+            } else {
+                {
+                    showAccountSheet = false
+                    viewModel.sair()
+                }
+            },
         )
     }
 
