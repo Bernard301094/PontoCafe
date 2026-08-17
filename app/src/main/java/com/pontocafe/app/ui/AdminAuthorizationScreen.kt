@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -28,7 +30,6 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -49,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.Colaborador
@@ -61,6 +61,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     var busca by remember { mutableStateOf("") }
     var periodo by remember { mutableStateOf("MANHA") }
     var motivo by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
 
     val query = busca.trim()
     val filtrados = state.colaboradores
@@ -76,283 +77,250 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
 
     val motivoValido = motivo.trim().length >= 2
     val podeGerar = selecionado != null && motivoValido && !state.carregando
+    val showBottomAction = state.authorizationCode == null && selecionado != null
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding(),
-    ) {
-        LazyColumn(
+    PontoCafeResponsivePage(maxContentWidth = 840.dp) { responsive ->
+        Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(
-                start = PontoCafeSpacing.lg,
-                end = PontoCafeSpacing.lg,
-                top = PontoCafeSpacing.md,
-                bottom = PontoCafeSpacing.xl,
-            ),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
         ) {
-            item(key = "header") {
-                PontoCafeScreenHeader(
-                    title = "Autorizar pausa",
-                    onBack = viewModel::voltarHome,
-                    backLabel = "Painel",
-                    eyebrow = "Fora do horário",
-                )
-            }
-
-            item(key = "context") {
-                AuthorizationInfoCard()
-            }
-
-            item(key = "feedback") {
-                AdminFeedback(viewModel)
-            }
-
-            state.authorizationCode?.let { codigo ->
-                item(key = "generated-code") {
-                    GeneratedAuthorizationCard(
-                        code = codigo,
-                        employeeName = state.authorizationEmployeeName ?: "-",
-                        expiresSeconds = state.authorizationExpiresSeconds ?: 0,
-                        onGenerateAnother = viewModel::limparAutorizacaoGerada,
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = responsive.pagePadding,
+                    end = responsive.pagePadding,
+                    top = PontoCafeSpacing.lg,
+                    bottom = if (showBottomAction) 164.dp else 104.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+            ) {
+                item(key = "header") {
+                    PontoCafeScreenHeader(
+                        title = "Autorizar pausa",
+                        onBack = viewModel::voltarHome,
+                        backLabel = "Painel",
+                        eyebrow = "Fora do horário",
                     )
                 }
-            } ?: run {
-                if (selecionado == null) {
-                    item(key = "employee-step") {
-                        StepHeader(
-                            number = "1",
-                            title = "Escolha o colaborador",
-                            subtitle = "Busque pelo nome, setor ou turno.",
+
+                item(key = "context") {
+                    PcHeroCard(
+                        title = "Exceção temporária",
+                        supportingText = "Gera um código de uso único. A autorização real permanece registrada na auditoria.",
+                        icon = Icons.Default.AccessTime,
+                        tone = PontoCafeTone.INFO,
+                    )
+                }
+
+                item(key = "feedback") {
+                    AdminFeedback(viewModel)
+                }
+
+                state.authorizationCode?.let { codigo ->
+                    item(key = "generated-code") {
+                        GeneratedAuthorizationCard(
+                            code = codigo,
+                            employeeName = state.authorizationEmployeeName ?: "-",
+                            expiresSeconds = state.authorizationExpiresSeconds ?: 0,
+                            onGenerateAnother = viewModel::limparAutorizacaoGerada,
                         )
                     }
-
-                    item(key = "search") {
-                        OutlinedTextField(
-                            value = busca,
-                            onValueChange = { busca = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Buscar colaborador") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null)
-                            },
-                            trailingIcon = if (busca.isNotEmpty()) {
-                                {
-                                    IconButton(onClick = { busca = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Limpar busca")
-                                    }
-                                }
-                            } else {
-                                null
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(20.dp),
-                        )
-                    }
-
-                    item(key = "result-count") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                if (query.isBlank()) "Colaboradores" else "Resultados",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                "${filtrados.size}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                } ?: run {
+                    if (selecionado == null) {
+                        item(key = "employee-step") {
+                            StepHeader(
+                                number = "1",
+                                title = "Escolha o colaborador",
+                                subtitle = "Busque pelo nome, setor ou turno.",
                             )
                         }
-                    }
 
-                    if (filtrados.isEmpty()) {
-                        item(key = "empty-search") {
-                            EmptyAuthorizationSearch(query)
+                        item(key = "search") {
+                            OutlinedTextField(
+                                value = busca,
+                                onValueChange = { busca = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Buscar colaborador") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Search, contentDescription = null)
+                                },
+                                trailingIcon = if (busca.isNotEmpty()) {
+                                    {
+                                        IconButton(onClick = { busca = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Limpar busca")
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.large,
+                            )
+                        }
+
+                        item(key = "result-count") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(
+                                        if (query.isBlank()) "Colaboradores" else "Resultados",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        if (query.isBlank()) "Selecione quem receberá a exceção." else "Resultados para “$query”.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                StatusPill(filtrados.size.toString(), PontoCafeTone.NEUTRAL)
+                            }
+                        }
+
+                        if (filtrados.isEmpty()) {
+                            item(key = "empty-search") {
+                                EmptyAuthorizationSearch(query)
+                            }
+                        } else {
+                            items(filtrados, key = { "authorization-${it.id}" }) { colaborador ->
+                                CollaboratorAuthorizationRow(
+                                    collaborator = colaborador,
+                                    onClick = {
+                                        selecionado = colaborador
+                                        busca = ""
+                                    },
+                                )
+                            }
                         }
                     } else {
-                        items(filtrados, key = { "authorization-${it.id}" }) { colaborador ->
-                            CollaboratorAuthorizationRow(
-                                collaborator = colaborador,
-                                onClick = {
-                                    selecionado = colaborador
-                                    busca = ""
+                        item(key = "employee-step-selected") {
+                            StepHeader(
+                                number = "1",
+                                title = "Colaborador",
+                                subtitle = "Confirme quem receberá a autorização.",
+                                completed = true,
+                            )
+                        }
+
+                        item(key = "selected-employee") {
+                            SelectedCollaboratorCard(
+                                collaborator = selecionado!!,
+                                onChange = { selecionado = null },
+                            )
+                        }
+
+                        item(key = "period-step") {
+                            StepHeader(
+                                number = "2",
+                                title = "Período da pausa",
+                                subtitle = "Escolha em qual janela a exceção será válida.",
+                            )
+                        }
+
+                        item(key = "period") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                            ) {
+                                PeriodChip(
+                                    label = "Manhã",
+                                    selected = periodo == "MANHA",
+                                    onClick = { periodo = "MANHA" },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                PeriodChip(
+                                    label = "Tarde",
+                                    selected = periodo == "TARDE",
+                                    onClick = { periodo = "TARDE" },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+
+                        item(key = "reason-step") {
+                            StepHeader(
+                                number = "3",
+                                title = "Motivo",
+                                subtitle = "Explique brevemente por que a pausa precisa ocorrer fora do horário.",
+                            )
+                        }
+
+                        item(key = "reason") {
+                            OutlinedTextField(
+                                value = motivo,
+                                onValueChange = { motivo = it.take(300) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Motivo da autorização") },
+                                placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
+                                minLines = 3,
+                                maxLines = 5,
+                                shape = MaterialTheme.shapes.large,
+                                supportingText = {
+                                    Text(
+                                        "${motivo.length}/300",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.End,
+                                    )
                                 },
                             )
                         }
                     }
-                } else {
-                    item(key = "employee-step-selected") {
-                        StepHeader(
-                            number = "1",
-                            title = "Colaborador",
-                            subtitle = "Confirme quem receberá a autorização.",
-                            completed = true,
-                        )
-                    }
+                }
+            }
 
-                    item(key = "selected-employee") {
-                        SelectedCollaboratorCard(
-                            collaborator = selecionado!!,
-                            onChange = { selecionado = null },
-                        )
-                    }
-
-                    item(key = "period-step") {
-                        StepHeader(
-                            number = "2",
-                            title = "Período da pausa",
-                            subtitle = "Escolha em qual janela a exceção será válida.",
-                        )
-                    }
-
-                    item(key = "period") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
-                            PeriodChip(
-                                label = "Manhã",
-                                selected = periodo == "MANHA",
-                                onClick = { periodo = "MANHA" },
-                                modifier = Modifier.weight(1f),
-                            )
-                            PeriodChip(
-                                label = "Tarde",
-                                selected = periodo == "TARDE",
-                                onClick = { periodo = "TARDE" },
-                                modifier = Modifier.weight(1f),
+            if (showBottomAction) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shadowElevation = 6.dp,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(
+                            start = responsive.pagePadding,
+                            end = responsive.pagePadding,
+                            top = PontoCafeSpacing.sm,
+                            bottom = PontoCafeSpacing.md,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    ) {
+                        if (!motivoValido) {
+                            Text(
+                                "Informe um motivo com pelo menos 2 caracteres.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    }
-
-                    item(key = "reason-step") {
-                        StepHeader(
-                            number = "3",
-                            title = "Motivo",
-                            subtitle = "Explique brevemente por que a pausa precisa ocorrer fora do horário.",
-                        )
-                    }
-
-                    item(key = "reason") {
-                        OutlinedTextField(
-                            value = motivo,
-                            onValueChange = { motivo = it.take(300) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Motivo da autorização") },
-                            placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
-                            minLines = 3,
-                            maxLines = 5,
-                            shape = RoundedCornerShape(20.dp),
-                            supportingText = {
-                                Text(
-                                    "${motivo.length}/300",
-                                    modifier = Modifier.fillMaxWidth(),
-                                    textAlign = TextAlign.End,
-                                )
+                        PcPrimaryButton(
+                            text = if (state.carregando) "Gerando autorização…" else "Gerar código de 6 dígitos",
+                            icon = Icons.Default.Key,
+                            onClick = {
+                                selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivo) }
                             },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = podeGerar,
                         )
                     }
                 }
             }
-        }
 
-        if (state.authorizationCode == null && selecionado != null) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = PontoCafePremium.glassStrong,
-                border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                shadowElevation = 10.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(
-                        start = PontoCafeSpacing.lg,
-                        end = PontoCafeSpacing.lg,
-                        top = PontoCafeSpacing.sm,
-                        bottom = PontoCafeSpacing.md,
+            PcScrollToTopFab(
+                listState = listState,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = responsive.pagePadding,
+                        bottom = if (showBottomAction) 112.dp else PontoCafeSpacing.md,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    if (!motivoValido) {
-                        Text(
-                            "Informe um motivo com pelo menos 2 caracteres.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivo) }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = podeGerar,
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(vertical = 16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        Icon(Icons.Default.Key, contentDescription = null)
-                        Text(
-                            if (state.carregando) "Gerando autorização..." else "Gerar código de 6 dígitos",
-                            modifier = Modifier.padding(start = 8.dp),
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AuthorizationInfoCard() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-    ) {
-        Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-            ) {
-                Icon(
-                    Icons.Default.AccessTime,
-                    contentDescription = null,
-                    modifier = Modifier.padding(10.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    "Exceção temporária",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Gera um código de uso único. A autorização fica registrada automaticamente na auditoria.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            )
         }
     }
 }
@@ -375,16 +343,8 @@ private fun StepHeader(
             color = if (completed) {
                 LocalPontoCafeSemanticColors.current.successContainer
             } else {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                MaterialTheme.colorScheme.primaryContainer
             },
-            border = BorderStroke(
-                1.dp,
-                if (completed) {
-                    LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.25f)
-                } else {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                },
-            ),
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -402,7 +362,7 @@ private fun StepHeader(
                     Text(
                         number,
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -434,13 +394,12 @@ private fun CollaboratorAuthorizationRow(
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
@@ -453,15 +412,13 @@ private fun CollaboratorAuthorizationRow(
                     collaborator.nome,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 CollaboratorDetail(collaborator)
             }
             Icon(
                 Icons.Default.Person,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -473,15 +430,9 @@ private fun SelectedCollaboratorCard(
     collaborator: Colaborador,
     onChange: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)),
-        shadowElevation = 4.dp,
-    ) {
+    PcSectionSurface {
         Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
@@ -494,14 +445,10 @@ private fun SelectedCollaboratorCard(
                     collaborator.nome,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 CollaboratorDetail(collaborator)
             }
-            TextButton(onClick = onChange) {
-                Text("Alterar")
-            }
+            TextButton(onClick = onChange) { Text("Alterar") }
         }
     }
 }
@@ -516,8 +463,6 @@ private fun CollaboratorDetail(collaborator: Colaborador) {
             detail,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -552,43 +497,21 @@ private fun PeriodChip(
             null
         },
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.medium,
     )
 }
 
 @Composable
 private fun EmptyAuthorizationSearch(query: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "Nenhum colaborador encontrado",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (query.isNotBlank()) {
-                Text(
-                    "Tente outro nome, setor ou turno.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
+    PcEmptyState(
+        title = "Nenhum colaborador encontrado",
+        supportingText = if (query.isBlank()) {
+            "Não há colaboradores disponíveis para selecionar."
+        } else {
+            "Tente outro nome, setor ou turno."
+        },
+        icon = Icons.Default.Search,
+    )
 }
 
 @Composable
@@ -598,15 +521,9 @@ private fun GeneratedAuthorizationCard(
     expiresSeconds: Int,
     onGenerateAnother: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = PontoCafePremium.glassStrong,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-        shadowElevation = 10.dp,
-    ) {
+    PcSectionSurface {
         Column(
-            modifier = Modifier.padding(22.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
@@ -660,14 +577,11 @@ private fun GeneratedAuthorizationCard(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(4.dp))
-            Button(
+            PcPrimaryButton(
+                text = "Gerar outra autorização",
                 onClick = onGenerateAnother,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                contentPadding = PaddingValues(vertical = 15.dp),
-            ) {
-                Text("Gerar outra autorização", fontWeight = FontWeight.Bold)
-            }
+            )
         }
     }
 }
