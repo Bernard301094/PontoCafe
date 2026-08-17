@@ -13,15 +13,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/**
+ * Política única de largura para toda a interface. Evita que cada tela invente
+ * breakpoints diferentes e volte a comprimir textos em aparelhos como o A55.
+ */
+enum class PontoCafeWindowSizeClass {
+    COMPACT,
+    MEDIUM,
+    EXPANDED,
+}
+
 @Immutable
 data class PontoCafeResponsiveInfo(
     val availableWidth: Dp,
     val pagePadding: Dp,
+    val windowSizeClass: PontoCafeWindowSizeClass,
     val isNarrow: Boolean,
     val isCompact: Boolean,
     val isMedium: Boolean,
     val isExpanded: Boolean,
-)
+) {
+    val isPhone: Boolean get() = windowSizeClass == PontoCafeWindowSizeClass.COMPACT
+    val supportsTwoColumns: Boolean get() = windowSizeClass != PontoCafeWindowSizeClass.COMPACT
+}
+
+fun pontoCafeWindowSizeClass(width: Dp): PontoCafeWindowSizeClass = when {
+    width < 600.dp -> PontoCafeWindowSizeClass.COMPACT
+    width < 840.dp -> PontoCafeWindowSizeClass.MEDIUM
+    else -> PontoCafeWindowSizeClass.EXPANDED
+}
 
 @Composable
 fun PontoCafeResponsivePage(
@@ -31,20 +51,20 @@ fun PontoCafeResponsivePage(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val width = maxWidth
+        val sizeClass = pontoCafeWindowSizeClass(width)
         val info = PontoCafeResponsiveInfo(
             availableWidth = width,
-            pagePadding = when {
-                width < 360.dp -> 12.dp
-                width < 600.dp -> 16.dp
-                else -> 24.dp
+            pagePadding = when (sizeClass) {
+                PontoCafeWindowSizeClass.COMPACT -> if (width < 360.dp) 12.dp else 16.dp
+                PontoCafeWindowSizeClass.MEDIUM,
+                PontoCafeWindowSizeClass.EXPANDED -> 24.dp
             },
-            // 360 dp era estreito demais como limite: aparelhos atuais como o
-            // Galaxy A55 costumam ficar acima disso e acabavam recebendo layouts
-            // pensados para tablet. Até 479 dp tratamos como telefone estreito.
+            // Sub-breakpoint exclusivamente para componentes muito densos.
+            // A decisão principal de layout deve usar windowSizeClass/isCompact.
             isNarrow = width < 480.dp,
-            isCompact = width < 600.dp,
-            isMedium = width >= 600.dp && width < 840.dp,
-            isExpanded = width >= 840.dp,
+            isCompact = sizeClass == PontoCafeWindowSizeClass.COMPACT,
+            isMedium = sizeClass == PontoCafeWindowSizeClass.MEDIUM,
+            isExpanded = sizeClass == PontoCafeWindowSizeClass.EXPANDED,
         )
 
         Box(
