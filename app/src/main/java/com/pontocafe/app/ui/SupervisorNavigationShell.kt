@@ -44,7 +44,7 @@ import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
 
 private enum class SupervisorPrimaryDestination(val label: String) {
-    LIVE("Ao vivo"),
+    LIVE("Operação"),
     PEOPLE("Pessoas"),
     REPORTS("Relatórios"),
 }
@@ -99,6 +99,9 @@ fun SupervisorAreaShell(
             when (destination) {
                 SupervisorDestination.LOGIN -> SupervisorLoginScreenV2(viewModel, onClose)
                 SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorPersistentScreen(viewModel)
+                SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreenV2(viewModel)
+                SupervisorDestination.HISTORICO -> SupervisorHistoryScreenV2(viewModel)
+                SupervisorDestination.AUTORIZACAO -> SupervisorAuthorizationScreen(viewModel)
                 else -> SupervisorArea(viewModel, onClose)
             }
         }
@@ -128,11 +131,10 @@ fun SupervisorAreaShell(
             AnimatedContent(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .widthIn(max = 960.dp)
+                    .widthIn(max = 1080.dp)
                     .fillMaxWidth(),
                 targetState = current,
                 transitionSpec = {
-                    // Troca de aba deve parecer imediata. Evita slide + animações internas empilhadas.
                     fadeIn(tween(PontoCafeMotion.Quick)) togetherWith
                         fadeOut(tween(PontoCafeMotion.Instant))
                 },
@@ -142,19 +144,19 @@ fun SupervisorAreaShell(
                     SupervisorPrimaryDestination.LIVE -> {
                         val loadingInitialLive =
                             state.pausasAtivas.isEmpty() &&
-                            state.colaboradores.isEmpty() &&
-                            state.ultimaAtualizacaoAoVivoEmMillis == null &&
-                            state.erro == null &&
-                            state.conexaoAoVivoOk
+                                state.colaboradores.isEmpty() &&
+                                state.ultimaAtualizacaoAoVivoEmMillis == null &&
+                                state.erro == null &&
+                                state.conexaoAoVivoOk
                         if (loadingInitialLive) {
                             PontoCafeListSkeletonScreen(
-                                title = "Ao vivo",
+                                title = "Operação",
                                 eyebrow = "Supervisor",
-                                rows = 3,
+                                rows = 4,
                                 showMetrics = true,
                             )
                         } else {
-                            SupervisorLiveScreenV2(viewModel, onClose)
+                            SupervisorOperationScreen(viewModel, onClose)
                         }
                     }
 
@@ -168,11 +170,11 @@ fun SupervisorAreaShell(
                                 showMetrics = true,
                             )
                         } else {
-                            SupervisorPeopleScreenV2(viewModel)
+                            SupervisorPeopleScreenV3(viewModel, onClose)
                         }
                     }
 
-                    SupervisorPrimaryDestination.REPORTS -> SupervisorArea(viewModel, onClose)
+                    SupervisorPrimaryDestination.REPORTS -> SupervisorReportsScreenV2(viewModel, onClose)
                 }
             }
 
