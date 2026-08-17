@@ -48,51 +48,53 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
         if (state.erro != null) draftState.markServerFailure()
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding(),
-        contentPadding = PaddingValues(
-            start = PontoCafeSpacing.lg,
-            end = PontoCafeSpacing.lg,
-            top = PontoCafeSpacing.md,
-            bottom = PontoCafeSpacing.xxl,
-        ),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-    ) {
-        item("header") {
-            PontoCafeScreenHeader(
-                title = "Nova conta de acesso",
-                eyebrow = "Ponto Café",
-                onBack = {
-                    draftState.reset()
-                    viewModel.voltarHome()
-                },
-                backLabel = "Painel",
-            )
-        }
+    PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+            contentPadding = PaddingValues(
+                start = responsive.pagePadding,
+                end = responsive.pagePadding,
+                top = PontoCafeSpacing.md,
+                bottom = PontoCafeSpacing.xxl,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            item("header") {
+                PontoCafeScreenHeader(
+                    title = "Nova conta de acesso",
+                    eyebrow = "Ponto Café",
+                    onBack = {
+                        draftState.reset()
+                        viewModel.voltarHome()
+                    },
+                    backLabel = "Painel",
+                )
+            }
 
-        item("context") {
-            AccountAccessContextCard()
-        }
+            item("context") {
+                AccountAccessContextCard()
+            }
 
-        item("form") {
-            AdminAccountForm(
-                draftState = draftState,
-                carregando = state.carregando,
-                initialProfile = AccountProfile.SUPERVISOR,
-                showHeader = false,
-                onSubmit = { input ->
-                    viewModel.trackAccountDraftSubmission(draftState)
-                    viewModel.criarConta(input)
-                },
-            )
-        }
+            item("form") {
+                AdminAccountForm(
+                    draftState = draftState,
+                    carregando = state.carregando,
+                    initialProfile = AccountProfile.SUPERVISOR,
+                    showHeader = false,
+                    onSubmit = { input ->
+                        viewModel.trackAccountDraftSubmission(draftState)
+                        viewModel.criarConta(input)
+                    },
+                )
+            }
 
-        item("feedback") {
-            AdminFeedback(viewModel)
+            item("feedback") {
+                AdminFeedback(viewModel)
+            }
         }
     }
 }
