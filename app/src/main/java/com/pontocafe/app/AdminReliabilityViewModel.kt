@@ -139,6 +139,25 @@ class AdminReliabilityViewModel(
         }
     }
 
+    fun deleteCollaborator(collaboratorId: String) {
+        if (state.loading) return
+        viewModelScope.launch {
+            state = state.copy(loading = true, error = null, message = null)
+            runCatching { repository.deleteCollaborator(collaboratorId) }
+                .onSuccess { response ->
+                    state = state.copy(
+                        loading = false,
+                        message = "${response.nome} foi removido da equipe. Biometria excluída e histórico preservado.",
+                    )
+                    onWorkforceChanged()
+                    if (state.targetCollaboratorId == collaboratorId) {
+                        closeDetail()
+                    }
+                }
+                .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
+        }
+    }
+
     fun openBiometricDiagnostics() {
         viewModelScope.launch {
             state = state.copy(
