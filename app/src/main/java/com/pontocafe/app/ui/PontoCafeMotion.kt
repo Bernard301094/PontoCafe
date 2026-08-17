@@ -12,8 +12,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,15 +22,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 
 object PontoCafeMotion {
-    const val Quick = 140
-    const val Standard = 240
-    const val Emphasized = 360
-    const val Slow = 520
+    // Motion curto por padrão: o app é operacional e precisa responder imediatamente.
+    const val Instant = 70
+    const val Quick = 90
+    const val Standard = 150
+    const val Emphasized = 220
+    const val Slow = 320
 
     // Aliases mantidos para compatibilidade com componentes anteriores ao sistema Motion V2.
-    const val fast = 160
-    const val normal = 260
-    const val emphasized = 420
+    const val fast = 100
+    const val normal = 160
+    const val emphasized = 240
 
     val StandardEasing = FastOutSlowInEasing
     val EmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -40,24 +40,16 @@ object PontoCafeMotion {
 
 fun pontoEnterTransition(): EnterTransition =
     fadeIn(tween(PontoCafeMotion.Standard)) +
-        slideInVertically(
-            animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-            initialOffsetY = { it / 12 },
-        ) +
         scaleIn(
-            animationSpec = tween(PontoCafeMotion.Standard),
-            initialScale = 0.985f,
+            animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.EmphasizedEasing),
+            initialScale = 0.995f,
         )
 
 fun pontoExitTransition(): ExitTransition =
     fadeOut(tween(PontoCafeMotion.Quick)) +
-        slideOutVertically(
-            animationSpec = tween(PontoCafeMotion.Standard),
-            targetOffsetY = { -it / 18 },
-        ) +
         scaleOut(
             animationSpec = tween(PontoCafeMotion.Quick),
-            targetScale = 0.99f,
+            targetScale = 0.997f,
         )
 
 @Composable
@@ -84,7 +76,7 @@ fun animatedMetricValue(value: String): String {
     val numeric = value.toIntOrNull() ?: return value
     val animated by animateIntAsState(
         targetValue = numeric,
-        animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+        animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.EmphasizedEasing),
         label = "metric-value",
     )
     return animated.toString()
