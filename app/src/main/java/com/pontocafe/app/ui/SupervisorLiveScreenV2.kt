@@ -1,15 +1,5 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,14 +16,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,27 +88,23 @@ fun SupervisorLiveScreenV2(
             .navigationBarsPadding()
             .padding(horizontal = PontoCafeSpacing.lg),
         contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
     ) {
         item(key = "header") {
-            MotionReveal {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    PontoCafeScreenHeader(
-                        title = "Ao vivo",
-                        eyebrow = "Supervisor",
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(onClick = onClose) { Text("Ponto") }
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PontoCafeScreenHeader(
+                    title = "Ao vivo",
+                    eyebrow = "Supervisor",
+                )
+                PcSecondaryButton(
+                    text = "Voltar ao Ponto",
+                    onClick = onClose,
+                )
             }
         }
 
         item(key = "connection") {
-            LiveConnectionStatus(
+            LiveConnectionStatusMaterial(
                 connectionOk = state.conexaoAoVivoOk,
                 lastUpdateMillis = state.ultimaAtualizacaoAoVivoEmMillis,
             )
@@ -126,8 +112,25 @@ fun SupervisorLiveScreenV2(
 
         alert?.let {
             item(key = "live-alert-${it.id}") {
-                MotionReveal { SupervisorLiveActivityAlertBanner(it) }
+                SupervisorLiveActivityAlertBanner(it)
             }
+        }
+
+        item(key = "summary") {
+            PcHeroCard(
+                title = when {
+                    overdue > 0 -> "$overdue pausa(s) acima do limite"
+                    state.pausasAtivas.isEmpty() -> "Nenhuma pausa em andamento"
+                    else -> "${state.pausasAtivas.size} pessoa(s) em pausa"
+                },
+                supportingText = when {
+                    overdue > 0 -> "Os casos que exigem atenção aparecem primeiro na lista."
+                    state.pausasAtivas.isEmpty() -> "A operação está livre neste momento."
+                    else -> "Os cronômetros são atualizados localmente a cada segundo."
+                },
+                icon = if (overdue > 0) Icons.Default.Timer else Icons.Default.Coffee,
+                tone = if (overdue > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+            )
         }
 
         item(key = "metrics") {
@@ -135,16 +138,18 @@ fun SupervisorLiveScreenV2(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                MetricCard(
+                PcMetricTile(
                     value = state.pausasAtivas.size.toString(),
                     label = "Em pausa agora",
+                    icon = Icons.Default.Coffee,
                     modifier = Modifier.weight(1f),
                 )
-                MetricCard(
+                PcMetricTile(
                     value = overdue.toString(),
                     label = "Acima do limite",
+                    icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f),
-                    emphasized = overdue > 0,
+                    attention = overdue > 0,
                 )
             }
         }
@@ -154,68 +159,55 @@ fun SupervisorLiveScreenV2(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                Button(
+                PcPrimaryButton(
+                    text = "Autorizar",
+                    icon = Icons.Default.Coffee,
                     onClick = viewModel::abrirAutorizacao,
                     modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.Default.Coffee, contentDescription = null)
-                    Text(" Autorizar")
-                }
-                OutlinedButton(
+                )
+                PcSecondaryButton(
+                    text = "Atualizar",
+                    icon = Icons.Default.Refresh,
                     onClick = viewModel::atualizarAoVivo,
                     modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Text(" Atualizar")
-                }
+                )
             }
         }
 
         if (state.erro != null && !state.conexaoAoVivoOk) {
             item(key = "connection-error") {
-                MotionReveal {
-                    OperationalAlertCard(
-                        title = "Exibindo os últimos dados disponíveis",
-                        text = state.erro ?: "A conexão será atualizada automaticamente.",
-                        actionLabel = "Tentar agora",
-                        onClick = viewModel::atualizarAoVivo,
-                        tone = PontoCafeTone.WARNING,
-                    )
-                }
+                OperationalAlertCard(
+                    title = "Exibindo os últimos dados disponíveis",
+                    text = state.erro ?: "A conexão será atualizada automaticamente.",
+                    actionLabel = "Tentar agora",
+                    onClick = viewModel::atualizarAoVivo,
+                    tone = PontoCafeTone.WARNING,
+                )
             }
         }
 
         item(key = "active-title") {
             SectionTitle(
                 "Pessoas no café",
-                when {
-                    state.pausasAtivas.isEmpty() -> "Nenhuma pausa em andamento."
-                    overdue > 0 -> "$overdue pessoa(s) exigem atenção. Casos acima do limite aparecem primeiro."
-                    else -> "Cronômetros atualizados a cada segundo."
+                if (orderedPausas.isEmpty()) {
+                    "Nenhuma pausa em andamento."
+                } else {
+                    "Acompanhe tempo restante, progresso e situações acima do limite."
                 },
             )
         }
 
         if (orderedPausas.isEmpty()) {
             item(key = "active-empty") {
-                MotionReveal {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                        shape = RoundedCornerShape(24.dp),
-                    ) {
-                        Text(
-                            "Nenhuma pessoa está em pausa neste momento.",
-                            modifier = Modifier.padding(PontoCafeSpacing.md),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                PcEmptyState(
+                    title = "Tudo livre por aqui",
+                    supportingText = "Quando alguém iniciar uma pausa, o cronômetro aparecerá automaticamente.",
+                    icon = Icons.Default.Groups,
+                )
             }
         } else {
             items(orderedPausas, key = { "pause-${it.id}" }) { pause ->
-                LivePauseCard(pause = pause)
+                LivePauseCardMaterial(pause = pause)
             }
         }
 
@@ -227,30 +219,30 @@ fun SupervisorLiveScreenV2(
                 )
             }
             item(key = "pending-summary") {
-                MotionReveal {
-                    OperationalAlertCard(
-                        title = "${pendingFaces.size} rostos pendentes",
-                        text = "Resolva os cadastros pela seção Pessoas quando houver disponibilidade.",
-                        actionLabel = "Abrir Pessoas",
-                        onClick = viewModel::abrirColaboradores,
-                        tone = PontoCafeTone.WARNING,
-                    )
-                }
+                PcActionTile(
+                    title = "${pendingFaces.size} rosto(s) pendente(s)",
+                    supportingText = "Abra Pessoas para concluir os cadastros biométricos.",
+                    icon = Icons.Default.Face,
+                    onClick = viewModel::abrirColaboradores,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 
         if (!state.sessaoAdministrativa) {
             item(key = "logout") {
-                OutlinedButton(onClick = viewModel::sair, modifier = Modifier.fillMaxWidth()) {
-                    Text("Encerrar sessão de Supervisor")
-                }
+                PcSecondaryButton(
+                    text = "Encerrar sessão de Supervisor",
+                    onClick = viewModel::sair,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun LiveConnectionStatus(
+private fun LiveConnectionStatusMaterial(
     connectionOk: Boolean,
     lastUpdateMillis: Long?,
 ) {
@@ -267,19 +259,24 @@ private fun LiveConnectionStatus(
     val secondsSinceUpdate = lastUpdateMillis?.let {
         ((now - it) / 1000L).coerceAtLeast(0L)
     }
-    StatusPill(
-        text = when {
+    PcStateBanner(
+        title = when {
             !connectionOk -> "Conexão instável"
             secondsSinceUpdate != null && secondsSinceUpdate < 10 -> "Sincronizado"
             secondsSinceUpdate != null -> "Atualizado há ${secondsSinceUpdate}s"
             else -> "Conectando"
+        },
+        supportingText = if (connectionOk) {
+            "Dados operacionais atualizados automaticamente."
+        } else {
+            "Os últimos dados válidos continuam visíveis enquanto reconectamos."
         },
         tone = if (connectionOk) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
     )
 }
 
 @Composable
-private fun LivePauseCard(
+private fun LivePauseCardMaterial(
     pause: PausaSupervisor,
 ) {
     var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
@@ -305,220 +302,127 @@ private fun LivePauseCard(
     val overdue = seconds > pause.limiteSegundos
     val remaining = (pause.limiteSegundos - seconds).coerceAtLeast(0)
     val elapsedOverLimit = (seconds - pause.limiteSegundos).coerceAtLeast(0)
-    val rawProgress = if (pause.limiteSegundos <= 0) {
+    val progress = if (pause.limiteSegundos <= 0) {
         0f
     } else {
         (seconds.toFloat() / pause.limiteSegundos.toFloat()).coerceIn(0f, 1f)
     }
-    val progress = animatedProgress(rawProgress)
-    val nearLimit = !overdue && rawProgress >= 0.80f
+    val nearLimit = !overdue && progress >= 0.80f
     val semantic = LocalPontoCafeSemanticColors.current
-
-    val targetContainerColor = when {
-        overdue -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
-        nearLimit -> semantic.warningContainer.copy(alpha = 0.55f)
-        else -> PontoCafePremium.glassStrong
-    }
-    val targetBorderColor = when {
-        overdue -> MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
-        nearLimit -> semantic.warning.copy(alpha = 0.35f)
-        else -> PontoCafePremium.borderSoft
-    }
-    val targetProgressColor = when {
+    val accent = when {
         overdue -> MaterialTheme.colorScheme.error
         nearLimit -> semantic.warning
         else -> MaterialTheme.colorScheme.primary
     }
-
-    val containerColor by animateColorAsState(
-        targetValue = targetContainerColor,
-        animationSpec = tween(PontoCafeMotion.Emphasized),
-        label = "pause-container",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = targetBorderColor,
-        animationSpec = tween(PontoCafeMotion.Emphasized),
-        label = "pause-border",
-    )
-    val progressColor by animateColorAsState(
-        targetValue = targetProgressColor,
-        animationSpec = tween(PontoCafeMotion.Standard),
-        label = "pause-progress-color",
-    )
-    val elevation by animateDpAsState(
-        targetValue = if (overdue) 8.dp else if (nearLimit) 6.dp else 4.dp,
-        animationSpec = tween(PontoCafeMotion.Standard),
-        label = "pause-elevation",
-    )
+    val container = when {
+        overdue -> MaterialTheme.colorScheme.errorContainer
+        nearLimit -> semantic.warningContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerLow
+    }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .motionScale(overdue, activeScale = 1.012f)
-            .animateContentSize(
-                animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-            ),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = elevation),
-        shape = RoundedCornerShape(26.dp),
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = container),
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PontoCafeSpacing.md),
+            modifier = Modifier.fillMaxWidth().padding(PontoCafeSpacing.md),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
                 InitialAvatar(pause.nome)
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        text = pause.nome,
+                        pause.nome,
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     pause.setor?.takeIf { it.isNotBlank() }?.let { setor ->
                         Text(
-                            text = setor,
+                            setor,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    StatusPill(
-                        text = when {
-                            overdue -> "Limite excedido"
-                            nearLimit -> "Próximo do limite"
-                            else -> "Dentro do limite"
-                        },
-                        tone = when {
-                            overdue -> PontoCafeTone.DANGER
-                            nearLimit -> PontoCafeTone.WARNING
-                            else -> PontoCafeTone.SUCCESS
-                        },
-                    )
                 }
-
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = formatTime(seconds),
+                        formatTime(seconds),
                         style = MaterialTheme.typography.headlineMedium,
-                        color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = if (overdue) "+${formatTime(elapsedOverLimit)}" else "restam ${formatTime(remaining)}",
+                        if (overdue) "+${formatTime(elapsedOverLimit)}" else "restam ${formatTime(remaining)}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = when {
-                            overdue -> MaterialTheme.colorScheme.error
-                            nearLimit -> semantic.warning
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        fontWeight = if (overdue || nearLimit) FontWeight.SemiBold else FontWeight.Normal,
+                        color = accent,
                     )
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Tempo da pausa",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = "Limite ${formatTime(pause.limiteSegundos)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(9.dp)
-                        .clip(RoundedCornerShape(999.dp)),
-                    color = progressColor,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusPill(
+                    text = when {
+                        overdue -> "Limite excedido"
+                        nearLimit -> "Próximo do limite"
+                        else -> "Dentro do limite"
+                    },
+                    tone = when {
+                        overdue -> PontoCafeTone.DANGER
+                        nearLimit -> PontoCafeTone.WARNING
+                        else -> PontoCafeTone.SUCCESS
+                    },
+                )
+                Text(
+                    "Limite ${formatTime(pause.limiteSegundos)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(999.dp)),
+                color = accent,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.50f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.60f)),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "Início",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = pause.inicioLocal,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                    Column {
+                        Text("Início", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(pause.inicioLocal, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                     }
-
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = if (overdue) "Situação" else "Tempo restante",
+                            if (overdue) "Situação" else "Tempo restante",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = if (overdue) "Ação necessária" else formatTime(remaining),
+                            if (overdue) "Ação necessária" else formatTime(remaining),
                             style = MaterialTheme.typography.titleMedium,
-                            color = when {
-                                overdue -> MaterialTheme.colorScheme.error
-                                nearLimit -> semantic.warning
-                                else -> MaterialTheme.colorScheme.onSurface
-                            },
-                            fontWeight = FontWeight.SemiBold,
+                            color = accent,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
-            }
-
-            AnimatedVisibility(
-                visible = overdue || nearLimit,
-                enter = fadeIn(tween(PontoCafeMotion.Standard)) + expandVertically(tween(PontoCafeMotion.Standard)),
-                exit = fadeOut(tween(PontoCafeMotion.Quick)) + shrinkVertically(tween(PontoCafeMotion.Standard)),
-            ) {
-                Text(
-                    text = if (overdue) {
-                        "Esta pausa ultrapassou o limite em ${formatTime(elapsedOverLimit)}."
-                    } else {
-                        "Atenção: esta pausa já consumiu ${(rawProgress * 100).toInt()}% do tempo permitido."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (overdue) MaterialTheme.colorScheme.error else semantic.warning,
-                    fontWeight = FontWeight.SemiBold,
-                )
             }
         }
     }
