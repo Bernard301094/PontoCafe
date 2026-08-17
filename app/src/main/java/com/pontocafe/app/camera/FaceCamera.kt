@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -31,16 +32,17 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
+private const val FACE_CAMERA_TAG = "PontoCafeFaceCamera"
 
 data class FaceObservation(
     val faceCount: Int = 0,
@@ -93,6 +95,10 @@ class FrameCaptureController {
     }
 
     internal fun consume(): Boolean = captureNext.compareAndSet(true, false)
+
+    internal fun retry() {
+        captureNext.set(true)
+    }
 }
 
 enum class LivenessState {
@@ -143,43 +149,71 @@ private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
 @SuppressLint("UnsafeOptInUsageError")
 private fun analyzer(
     detector: FaceDetector,
-    executor: Executor,
     captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
 ) = ImageAnalysis.Analyzer { imageProxy ->
-    val mediaImage = imageProxy.image
-    if (mediaImage == null) {
-        imageProxy.close()
-        return@Analyzer
+    try {
+        val mediaImage = imageProxy.image ?: return@Analyzer
+        val rotation = imageProxy.imageInfo.rotationDegrees
+        val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
+        val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
+        val image = InputImage.fromMediaImage(mediaImage, rotation)
+
+        // O analyzer já roda em um executor de uma única thread. Esperar o ML Kit
+        // aqui mantém no máximo um ImageProxy em uso e elimina callbacks que podem
+        // tentar acessar um frame depois que CameraX ou a tela já foram encerrados.
+        val faces = Tasks.await(detector.process(image))
+        val observation = if (faces.size == 1) {
+            faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
+        } else {
+            FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
+        }
+        runCatching { onObservation(observation) }
+            .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao entregar observação facial.", it) }
+
+        if (faces.size == 1 && captureController.consume()) {
+            try {
+                val sourceBitmap = imageProxy.toBitmap()
+                val uprightBitmap = try {
+                    rotate(sourceBitmap, rotation)
+                } catch (error: Throwable) {
+                    if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
+                    throw error
+                }
+                if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
+                    sourceBitmap.recycle()
+                }
+
+                try {
+                    onFrame(
+                        FaceFrame(
+                            bitmap = uprightBitmap,
+                            faceBounds = Rect(faces.first().boundingBox),
+                        ),
+                    )
+                } catch (error: Throwable) {
+                    if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
+                    throw error
+                }
+            } catch (error: Throwable) {
+                // Não perde a solicitação de captura por uma falha transitória do frame.
+                captureController.retry()
+                Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
+            }
+        }
+    } catch (error: InterruptedException) {
+        Thread.currentThread().interrupt()
+        Log.d(FACE_CAMERA_TAG, "Análise facial interrompida durante o encerramento da câmera.")
+    } catch (error: Throwable) {
+        Log.e(FACE_CAMERA_TAG, "Falha ao analisar frame facial.", error)
+        runCatching { onObservation(FaceObservation()) }
+    } finally {
+        // Cada ImageProxy deve ser fechado exatamente pelo analyzer, mesmo quando
+        // ML Kit, conversão de bitmap ou callbacks falham.
+        runCatching { imageProxy.close() }
+            .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao liberar frame da câmera.", it) }
     }
-
-    val rotation = imageProxy.imageInfo.rotationDegrees
-    val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
-    val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
-    val image = InputImage.fromMediaImage(mediaImage, rotation)
-    detector.process(image)
-        .addOnSuccessListener(executor) { faces ->
-            val observation = if (faces.size == 1) {
-                faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
-            } else {
-                FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
-            }
-            onObservation(observation)
-
-            if (faces.size == 1 && captureController.consume()) {
-                runCatching {
-                    val bitmap = rotate(imageProxy.toBitmap(), rotation)
-                    FaceFrame(bitmap = bitmap, faceBounds = Rect(faces.first().boundingBox))
-                }.onSuccess(onFrame)
-            }
-        }
-        .addOnFailureListener(executor) {
-            onObservation(FaceObservation())
-        }
-        .addOnCompleteListener(executor) {
-            imageProxy.close()
-        }
 }
 
 @Composable
@@ -246,6 +280,7 @@ fun FaceCameraPreview(
     val currentOnFrame = rememberUpdatedState(onFrame)
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    val cameraAlive = remember { AtomicBoolean(true) }
     val detector = remember {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -257,6 +292,7 @@ fun FaceCameraPreview(
         )
     }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
     Box(modifier = modifier) {
         AndroidView(
@@ -277,45 +313,77 @@ fun FaceCameraPreview(
         val view = previewView ?: return@LaunchedEffect
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
-            val provider = providerFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(view.surfaceProvider)
-            }
-            val analysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(640, 480))
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(
-                        executor,
-                        analyzer(
-                            detector = detector,
-                            executor = executor,
-                            captureController = captureController,
-                            onObservation = { observation ->
-                                mainExecutor.execute { currentOnObservation.value(observation) }
-                            },
-                            onFrame = { frame ->
-                                mainExecutor.execute { currentOnFrame.value(frame) }
-                            },
-                        ),
-                    )
-                }
+            if (!cameraAlive.get()) return@addListener
 
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_FRONT_CAMERA,
-                preview,
-                analysis,
-            )
+            runCatching {
+                val provider = providerFuture.get()
+                if (!cameraAlive.get()) {
+                    provider.unbindAll()
+                    return@runCatching
+                }
+                cameraProvider = provider
+
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(view.surfaceProvider)
+                }
+                val analysis = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(640, 480))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also {
+                        it.setAnalyzer(
+                            executor,
+                            analyzer(
+                                detector = detector,
+                                captureController = captureController,
+                                onObservation = { observation ->
+                                    mainExecutor.execute {
+                                        if (cameraAlive.get()) {
+                                            runCatching { currentOnObservation.value(observation) }
+                                                .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao atualizar estado facial.", it) }
+                                        }
+                                    }
+                                },
+                                onFrame = { frame ->
+                                    mainExecutor.execute {
+                                        if (!cameraAlive.get()) {
+                                            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+                                            return@execute
+                                        }
+                                        try {
+                                            currentOnFrame.value(frame)
+                                        } catch (error: Throwable) {
+                                            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+                                            Log.e(FACE_CAMERA_TAG, "Falha ao entregar frame para reconhecimento.", error)
+                                        }
+                                    }
+                                },
+                            ),
+                        )
+                    }
+
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    preview,
+                    analysis,
+                )
+            }.onFailure { error ->
+                if (cameraAlive.get()) {
+                    Log.e(FACE_CAMERA_TAG, "Não foi possível iniciar a câmera frontal.", error)
+                    runCatching { currentOnObservation.value(FaceObservation()) }
+                }
+            }
         }, mainExecutor)
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            detector.close()
-            executor.shutdown()
+            cameraAlive.set(false)
+            runCatching { cameraProvider?.unbindAll() }
+            executor.shutdownNow()
+            runCatching { detector.close() }
         }
     }
 }

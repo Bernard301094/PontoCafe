@@ -24,9 +24,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
+import com.pontocafe.app.data.SecureAdminSessionStore
+import com.pontocafe.app.data.SupervisorApiClient
 import kotlinx.coroutines.delay
 
 private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
+
+private const val TRANSIENT_ALERT_DURATION_MILLIS = 8_000L
+private const val LATEST_RETURN_REFRESH_MILLIS = 10_000L
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -52,15 +57,47 @@ fun rememberSupervisorLiveActivityAlert(
     agoraEmMillis: Long,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val historyRepository = remember(appContext) {
+        SupervisorApiClient.create(
+            supervisorSessionStore = SecureAdminSessionStore(appContext, "supervisor"),
+        )
+    }
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var alert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
+    var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
+    var latestReturnAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
+
+    // O painel de pausas ativas não contém quem já voltou. Recuperamos também o
+    // histórico do dia para manter o último retorno visível no início do Supervisor,
+    // inclusive quando ele abre a tela depois que o retorno já foi registrado.
+    LaunchedEffect(enabled, historyRepository) {
+        if (!enabled) {
+            latestReturnAlert = null
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            runCatching { historyRepository.historico() }
+                .onSuccess { historico ->
+                    val ultimoRetorno = historico
+                        .asSequence()
+                        .filter { !it.fimLocal.isNullOrBlank() }
+                        .maxWithOrNull(
+                            compareBy<PausaSupervisor> { it.fimLocal.orEmpty() }
+                                .thenBy { it.inicioLocal },
+                        )
+                    latestReturnAlert = ultimoRetorno?.toPersistentReturnAlert()
+                }
+            delay(LATEST_RETURN_REFRESH_MILLIS)
+        }
+    }
 
     LaunchedEffect(pausasAtivas, enabled, agoraEmMillis) {
         if (!enabled) {
             baseline = null
             overdueBaseline = emptySet()
-            alert = null
+            transientAlert = null
             return@LaunchedEffect
         }
 
@@ -131,17 +168,19 @@ fun rememberSupervisorLiveActivityAlert(
             }
         }
 
-        alert = novoAlerta
+        transientAlert = novoAlerta
         emitSupervisorLiveAlert(context, novoAlerta.type)
     }
 
-    LaunchedEffect(alert?.id) {
-        val currentId = alert?.id ?: return@LaunchedEffect
-        delay(8_000)
-        if (alert?.id == currentId) alert = null
+    LaunchedEffect(transientAlert?.id) {
+        val currentId = transientAlert?.id ?: return@LaunchedEffect
+        delay(TRANSIENT_ALERT_DURATION_MILLIS)
+        if (transientAlert?.id == currentId) transientAlert = null
     }
 
-    return alert
+    // Eventos novos têm prioridade visual por alguns segundos. Depois disso, o
+    // último retorno confirmado continua visível e não se perde do painel inicial.
+    return transientAlert ?: latestReturnAlert
 }
 
 @Composable
@@ -172,6 +211,31 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
                 modifier = Modifier.padding(top = 3.dp),
             )
         }
+    }
+}
+
+private fun PausaSupervisor.toPersistentReturnAlert(): SupervisorLiveAlert {
+    val retorno = fimLocal.orEmpty()
+    val duracao = duracaoSegundos ?: tempoSegundos
+    val duracaoLabel = duracao?.let { " · pausa ${formatAlertDuration(it)}" }.orEmpty()
+    val stableId = "$id:$retorno".hashCode().toLong()
+    return SupervisorLiveAlert(
+        id = stableId,
+        type = SupervisorLiveAlertType.RETORNO.name,
+        title = "Último retorno registrado",
+        message = "$nome retornou às $retorno · saída $inicioLocal$duracaoLabel",
+    )
+}
+
+private fun formatAlertDuration(totalSeconds: Int): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    val hours = safe / 3600
+    val minutes = (safe % 3600) / 60
+    val seconds = safe % 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}min ${seconds}s"
+        minutes > 0 -> "${minutes}min ${seconds}s"
+        else -> "${seconds}s"
     }
 }
 

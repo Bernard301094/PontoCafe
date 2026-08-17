@@ -24,6 +24,8 @@ class LiteRtFaceEmbeddingEngine(
 ) : FaceEmbeddingEngine {
 
     private val initMutex = Mutex()
+    private val inferenceMutex = Mutex()
+
     @Volatile
     private var interpreter: InterpreterApi? = null
 
@@ -38,20 +40,48 @@ class LiteRtFaceEmbeddingEngine(
             throw FaceModelUnavailableException()
         }
 
-        val face = cropFace(frame.bitmap, frame.faceBounds)
-        val resized = Bitmap.createScaledBitmap(face, INPUT_SIZE, INPUT_SIZE, true)
-        if (face !== frame.bitmap && !face.isRecycled) face.recycle()
+        val source = frame.bitmap
+        check(!source.isRecycled) { "O frame facial já foi liberado." }
 
+        var face: Bitmap? = null
+        var resized: Bitmap? = null
         try {
+            val cropped = cropFace(source, frame.faceBounds)
+            face = cropped
+            val scaled = Bitmap.createScaledBitmap(cropped, INPUT_SIZE, INPUT_SIZE, true)
+            resized = scaled
+
             // Rejeita apenas condições extremas (muito escuro, superexposto,
             // contraste quase inexistente ou desfoque forte) antes do FaceNet.
-            FaceImageQualityAnalyzer.requireAcceptable(resized)
-            val input = toStandardizedBuffer(resized)
+            FaceImageQualityAnalyzer.requireAcceptable(scaled)
+            val input = toStandardizedBuffer(scaled)
             val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
-            getInterpreter().run(input, output)
+            val runtime = getInterpreter()
+
+            // O mesmo InterpreterApi é reutilizado pela aplicação. Serializar a
+            // inferência evita corridas nativas caso duas telas solicitem embedding
+            // quase ao mesmo tempo (Ponto, Admin ou Supervisor).
+            inferenceMutex.withLock {
+                runtime.run(input, output)
+            }
             l2Normalize(output[0])
         } finally {
-            if (resized !== frame.bitmap && !resized.isRecycled) resized.recycle()
+            val scaled = resized
+            val cropped = face
+            if (
+                scaled != null &&
+                scaled !== cropped &&
+                scaled !== source &&
+                !scaled.isRecycled
+            ) {
+                scaled.recycle()
+            }
+            if (cropped != null && cropped !== source && !cropped.isRecycled) {
+                cropped.recycle()
+            }
+            if (!source.isRecycled) {
+                source.recycle()
+            }
         }
     }
 
@@ -63,7 +93,9 @@ class LiteRtFaceEmbeddingEngine(
                 Tasks.await(TfLite.initialize(context.applicationContext))
                 val options = InterpreterApi.Options()
                     .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
-                    .setNumThreads(4)
+                    // Dois threads reduzem pressão de CPU/memória no modo Ponto sem
+                    // prejudicar perceptivelmente um embedding 160x160 por captura.
+                    .setNumThreads(2)
                 InterpreterApi.create(loadModelBuffer(), options).also { interpreter = it }
             }
         }
