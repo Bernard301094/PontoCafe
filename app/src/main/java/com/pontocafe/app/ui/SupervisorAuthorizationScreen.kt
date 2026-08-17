@@ -4,22 +4,27 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -31,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,11 +44,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.Colaborador
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private val SupervisorAuthorizationReasons = listOf(
+    "Necessidade operacional",
+    "Atraso na produção",
+    "Orientação do Supervisor",
+    "Outro",
+)
 
 @Composable
 fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
@@ -50,301 +68,818 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
     var busca by remember { mutableStateOf("") }
     var periodo by remember { mutableStateOf("MANHA") }
-    var motivo by remember { mutableStateOf("") }
+    var motivoRapido by remember { mutableStateOf<String?>(null) }
+    var outroMotivo by remember { mutableStateOf("") }
+    var confirmarLiberacao by remember { mutableStateOf(false) }
+    var confirmarCancelamento by remember { mutableStateOf(false) }
+
+    val motivoFinal = when (motivoRapido) {
+        null -> ""
+        "Outro" -> outroMotivo.trim()
+        else -> motivoRapido.orEmpty()
+    }
+    val motivoValido = motivoFinal.length >= 2
+    val periodoLabel = if (periodo == "MANHA") "Manhã" else "Tarde"
 
     val filtrados = state.colaboradores
+        .asSequence()
         .filter {
-            busca.isBlank() ||
-                it.nome.contains(busca, ignoreCase = true) ||
-                it.setor?.contains(busca, ignoreCase = true) == true
+            val query = busca.trim()
+            query.isBlank() ||
+                it.nome.contains(query, ignoreCase = true) ||
+                it.setor?.contains(query, ignoreCase = true) == true ||
+                it.turno?.contains(query, ignoreCase = true) == true
         }
         .sortedBy { it.nome.lowercase() }
+        .toList()
+
+    val liberacaoAtiva = state.authorizationCode != null
+    val expiraEmMillis = remember(state.authorizationCode, state.authorizationExpiresSeconds) {
+        if (state.authorizationCode != null && (state.authorizationExpiresSeconds ?: 0) > 0) {
+            System.currentTimeMillis() + (state.authorizationExpiresSeconds ?: 0) * 1_000L
+        } else {
+            null
+        }
+    }
+    val expiraEmLocal = expiraEmMillis?.let(::formatAuthorizationClock)
+
+    if (confirmarLiberacao && selecionado != null) {
+        AlertDialog(
+            onDismissRequest = { if (!state.carregando) confirmarLiberacao = false },
+            title = { Text("Confirmar liberação") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Liberar ${selecionado!!.nome} · $periodoLabel?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Motivo: $motivoFinal",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "A liberação é de uso único e expira automaticamente se não for utilizada.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmarLiberacao = false
+                        selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivoFinal) }
+                    },
+                    enabled = !state.carregando,
+                ) {
+                    Text("Liberar pausa")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmarLiberacao = false },
+                    enabled = !state.carregando,
+                ) {
+                    Text("Voltar")
+                }
+            },
+        )
+    }
+
+    if (confirmarCancelamento && selecionado != null) {
+        AlertDialog(
+            onDismissRequest = { if (!state.carregando) confirmarCancelamento = false },
+            title = { Text("Cancelar liberação?") },
+            text = {
+                Text(
+                    "${selecionado!!.nome} deixará de poder iniciar esta pausa fora do horário. Se a liberação já tiver sido usada, o servidor não permitirá o cancelamento.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmarCancelamento = false
+                        selecionado?.let { viewModel.cancelarAutorizacao(it, periodo) }
+                    },
+                    enabled = !state.carregando,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                ) {
+                    Text("Cancelar liberação")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmarCancelamento = false },
+                    enabled = !state.carregando,
+                ) {
+                    Text("Manter liberação")
+                }
+            },
+        )
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .navigationBarsPadding(),
     ) {
-        PontoCafeHeader("Liberações fora do horário")
-        Text(
-            "Libere a pausa antes de o colaborador ir ao Ponto. Nenhum código precisa ser informado no terminal.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(
+                start = PontoCafeSpacing.lg,
+                end = PontoCafeSpacing.lg,
+                top = PontoCafeSpacing.md,
+                bottom = PontoCafeSpacing.xl,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.size(42.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.AccessTime,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+            item(key = "header") {
+                PontoCafeScreenHeader(
+                    title = "Liberações fora do horário",
+                    onBack = viewModel::voltarAoVivo,
+                    backLabel = "Ao vivo",
+                    eyebrow = "Supervisor",
+                )
+            }
+
+            item(key = "context") {
+                AuthorizationContextCard()
+            }
+
+            state.erro?.let { error ->
+                item(key = "error") {
+                    AuthorizationFeedbackCard(
+                        text = error,
+                        error = true,
+                    )
+                }
+            }
+
+            state.mensagem?.let { message ->
+                item(key = "message") {
+                    AuthorizationFeedbackCard(
+                        text = message,
+                        error = false,
+                    )
+                }
+            }
+
+            if (liberacaoAtiva) {
+                item(key = "success") {
+                    AuthorizationReleasedCard(
+                        employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
+                        periodLabel = periodoLabel,
+                        reason = motivoFinal,
+                        expiresAt = expiraEmLocal,
+                        loading = state.carregando,
+                        onCancel = { confirmarCancelamento = true },
+                        onAnother = {
+                            viewModel.limparAutorizacaoGerada()
+                            selecionado = null
+                            busca = ""
+                            motivoRapido = null
+                            outroMotivo = ""
+                        },
+                    )
+                }
+            } else if (selecionado == null) {
+                item(key = "employee-step") {
+                    AuthorizationStepHeader(
+                        number = "1",
+                        title = "Escolha o colaborador",
+                        subtitle = "Busque pelo nome, setor ou turno.",
+                    )
+                }
+
+                item(key = "search") {
+                    OutlinedTextField(
+                        value = busca,
+                        onValueChange = { busca = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Buscar colaborador") },
+                        placeholder = { Text("Digite o nome") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(20.dp),
+                    )
+                }
+
+                item(key = "count") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (busca.isBlank()) "Colaboradores" else "Resultados",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            filtrados.size.toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        "Como funciona",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "Selecione a pessoa, o período e o motivo. Depois de liberar, o reconhecimento facial no Ponto valida a autorização automaticamente.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
 
-        state.erro?.let { error ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Text(
-                    error,
-                    modifier = Modifier.padding(14.dp),
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        }
-
-        if (state.authorizationCode != null) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = LocalPontoCafeSemanticColors.current.successContainer,
-                border = BorderStroke(
-                    1.dp,
-                    LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.35f),
-                ),
-                shadowElevation = 8.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = LocalPontoCafeSemanticColors.current.success,
-                            modifier = Modifier.size(30.dp),
-                        )
-                        Column {
+                if (filtrados.isEmpty()) {
+                    item(key = "empty") {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        ) {
                             Text(
-                                "Pausa liberada",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
+                                "Nenhum colaborador encontrado.",
+                                modifier = Modifier.padding(18.dp),
+                                textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-
-                    Text(
-                        "O colaborador já pode ir ao Ponto. Ao reconhecer o rosto, a liberação será encontrada automaticamente.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        "Período: ${if (periodo == "MANHA") "Manhã" else "Tarde"} · Validade aproximada: ${formatAuthorizationValidity(state.authorizationExpiresSeconds ?: 0)} · Uso único",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    Button(
-                        onClick = {
-                            viewModel.limparAutorizacaoGerada()
-                            selecionado = null
-                            busca = ""
-                            motivo = ""
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                    ) {
-                        Text("Liberar outra pessoa")
+                } else {
+                    items(filtrados.take(60), key = { "liberacao-${it.id}" }) { colaborador ->
+                        AuthorizationEmployeeRow(
+                            collaborator = colaborador,
+                            onClick = {
+                                selecionado = colaborador
+                                busca = ""
+                                motivoRapido = null
+                                outroMotivo = ""
+                            },
+                        )
                     }
                 }
-            }
-        } else {
-            OutlinedTextField(
-                value = busca,
-                onValueChange = { busca = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Buscar colaborador") },
-                placeholder = { Text("Digite o nome") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-            )
+            } else {
+                item(key = "employee-step-selected") {
+                    AuthorizationStepHeader(
+                        number = "1",
+                        title = "Colaborador",
+                        subtitle = "A lista foi recolhida para reduzir erros de seleção.",
+                        completed = true,
+                    )
+                }
 
-            selecionado?.let { colaborador ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Surface(
-                            modifier = Modifier.size(42.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                item(key = "selected-employee") {
+                    AuthorizationSelectedEmployeeCard(
+                        collaborator = selecionado!!,
+                        released = false,
+                        onChange = {
+                            selecionado = null
+                            motivoRapido = null
+                            outroMotivo = ""
+                        },
+                    )
+                }
+
+                item(key = "period-step") {
+                    AuthorizationStepHeader(
+                        number = "2",
+                        title = "Período da pausa",
+                        subtitle = "Defina a qual pausa do dia esta exceção pertence.",
+                    )
+                }
+
+                item(key = "period") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Person, contentDescription = null)
-                            }
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                colaborador.nome,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            FilterChip(
+                                selected = periodo == "MANHA",
+                                onClick = { periodo = "MANHA" },
+                                modifier = Modifier.weight(1f),
+                                label = { Text("Manhã") },
                             )
-                            val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
-                                .filter { it.isNotBlank() }
-                                .joinToString(" · ")
-                            if (detalhe.isNotBlank()) {
-                                Text(
-                                    detalhe,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            FilterChip(
+                                selected = periodo == "TARDE",
+                                onClick = { periodo = "TARDE" },
+                                modifier = Modifier.weight(1f),
+                                label = { Text("Tarde") },
+                            )
                         }
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "Selecionado",
-                            tint = MaterialTheme.colorScheme.primary,
+                        Text(
+                            if (periodo == "MANHA") {
+                                "A liberação será vinculada à pausa da manhã, mesmo sendo utilizada fora da janela normal."
+                            } else {
+                                "A liberação será vinculada à pausa da tarde, mesmo sendo utilizada fora da janela normal."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                item(key = "reason-step") {
+                    AuthorizationStepHeader(
+                        number = "3",
+                        title = "Motivo",
+                        subtitle = "Use um motivo rápido ou escolha Outro para detalhar.",
+                    )
+                }
+
+                item(key = "quick-reasons") {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(end = 8.dp),
+                    ) {
+                        items(SupervisorAuthorizationReasons, key = { it }) { reason ->
+                            FilterChip(
+                                selected = motivoRapido == reason,
+                                onClick = {
+                                    motivoRapido = reason
+                                    if (reason != "Outro") outroMotivo = ""
+                                },
+                                label = { Text(reason) },
+                            )
+                        }
+                    }
+                }
+
+                if (motivoRapido == "Outro") {
+                    item(key = "other-reason") {
+                        OutlinedTextField(
+                            value = outroMotivo,
+                            onValueChange = { outroMotivo = it.take(300) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Descreva o motivo") },
+                            placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
+                            minLines = 3,
+                            maxLines = 5,
+                            shape = RoundedCornerShape(20.dp),
+                            supportingText = {
+                                Text(
+                                    "${outroMotivo.length}/300",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.End,
+                                )
+                            },
+                        )
+                    }
+                }
+
+                item(key = "review") {
+                    AuthorizationReviewCard(
+                        employeeName = selecionado!!.nome,
+                        periodLabel = periodoLabel,
+                        reason = motivoFinal.takeIf { motivoValido },
+                    )
+                }
+            }
+        }
+
+        if (!liberacaoAtiva && selecionado != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = PontoCafePremium.glassStrong,
+                border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                shadowElevation = 12.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        start = PontoCafeSpacing.lg,
+                        end = PontoCafeSpacing.lg,
+                        top = PontoCafeSpacing.sm,
+                        bottom = PontoCafeSpacing.md,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "${selecionado!!.nome.substringBefore(' ')} · $periodoLabel",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Button(
+                        onClick = { confirmarLiberacao = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        enabled = motivoValido && !state.carregando,
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Text(
+                            if (state.carregando) "Liberando..." else "Liberar pausa",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    if (!motivoValido) {
+                        Text(
+                            "Selecione um motivo para habilitar a liberação.",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-
-            Text(
-                if (selecionado == null) "Selecione o colaborador" else "Alterar colaborador",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                items(filtrados.take(40), key = { it.id }) { colaborador ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { selecionado = colaborador },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = if (selecionado?.id == colaborador.id) {
-                            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                        } else {
-                            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-                        },
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                    ) {
-                        Column(
-                            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Text(colaborador.nome, fontWeight = FontWeight.SemiBold)
-                            val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
-                                .filter { it.isNotBlank() }
-                                .joinToString(" · ")
-                            if (detalhe.isNotBlank()) {
-                                Text(
-                                    detalhe,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = periodo == "MANHA",
-                    onClick = { periodo = "MANHA" },
-                    label = { Text("Manhã") },
-                )
-                FilterChip(
-                    selected = periodo == "TARDE",
-                    onClick = { periodo = "TARDE" },
-                    label = { Text("Tarde") },
-                )
-            }
-
-            OutlinedTextField(
-                value = motivo,
-                onValueChange = { motivo = it.take(300) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Motivo da liberação") },
-                placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
-                minLines = 2,
-                maxLines = 4,
-                shape = RoundedCornerShape(18.dp),
-            )
-
-            Button(
-                onClick = { selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivo) } },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = selecionado != null && motivo.trim().length >= 2 && !state.carregando,
-                shape = RoundedCornerShape(18.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Text(
-                    if (state.carregando) "Liberando..." else "Liberar pausa",
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-
-        OutlinedButton(
-            onClick = viewModel::voltarAoVivo,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-        ) {
-            Text("Voltar ao acompanhamento")
         }
     }
 }
 
-private fun formatAuthorizationValidity(seconds: Int): String = when {
-    seconds <= 0 -> "alguns minutos"
-    seconds < 60 -> "${seconds}s"
-    seconds % 60 == 0 -> "${seconds / 60} min"
-    else -> "${seconds / 60} min ${seconds % 60}s"
+@Composable
+private fun AuthorizationContextCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.AccessTime,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "Liberação prévia",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Libere antes de a pessoa ir ao Ponto. O reconhecimento facial valida a autorização automaticamente; nenhum código é digitado no terminal.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
+
+@Composable
+private fun AuthorizationFeedbackCard(text: String, error: Boolean) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = if (error) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            LocalPontoCafeSemanticColors.current.successContainer
+        },
+        border = BorderStroke(
+            1.dp,
+            if (error) MaterialTheme.colorScheme.error.copy(alpha = 0.30f)
+            else LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.30f),
+        ),
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(14.dp),
+            color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun AuthorizationStepHeader(
+    number: String,
+    title: String,
+    subtitle: String,
+    completed: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            modifier = Modifier.size(34.dp),
+            shape = CircleShape,
+            color = if (completed) {
+                LocalPontoCafeSemanticColors.current.successContainer
+            } else {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            },
+            border = BorderStroke(
+                1.dp,
+                if (completed) {
+                    LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.30f)
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                },
+            ),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (completed) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = LocalPontoCafeSemanticColors.current.success,
+                    )
+                } else {
+                    Text(
+                        number,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuthorizationEmployeeRow(
+    collaborator: Colaborador,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            InitialAvatar(collaborator.nome)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    collaborator.nome,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                CollaboratorAuthorizationDetail(collaborator)
+            }
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuthorizationSelectedEmployeeCard(
+    collaborator: Colaborador,
+    released: Boolean,
+    onChange: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+        shadowElevation = 4.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                InitialAvatar(collaborator.nome)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        collaborator.nome,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    CollaboratorAuthorizationDetail(collaborator)
+                }
+                TextButton(onClick = onChange) { Text("Alterar") }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (released) {
+                    LocalPontoCafeSemanticColors.current.successContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+            ) {
+                Text(
+                    if (released) "Liberado agora" else "Não liberado",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (released) {
+                        LocalPontoCafeSemanticColors.current.success
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollaboratorAuthorizationDetail(collaborator: Colaborador) {
+    val detalhe = listOfNotNull(collaborator.setor, collaborator.turno)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+    if (detalhe.isNotBlank()) {
+        Text(
+            detalhe,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun AuthorizationReviewCard(
+    employeeName: String,
+    periodLabel: String,
+    reason: String?,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = PontoCafePremium.glassSoft,
+        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "Revisão",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(employeeName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "$periodLabel · ${reason ?: "Selecione um motivo"}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "A liberação só será criada depois da confirmação final.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuthorizationReleasedCard(
+    employeeName: String,
+    periodLabel: String,
+    reason: String,
+    expiresAt: String?,
+    loading: Boolean,
+    onCancel: () -> Unit,
+    onAnother: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
+        color = LocalPontoCafeSemanticColors.current.successContainer,
+        border = BorderStroke(
+            1.dp,
+            LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.38f),
+        ),
+        shadowElevation = 10.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = LocalPontoCafeSemanticColors.current.success,
+                    modifier = Modifier.size(34.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Pausa liberada",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Liberado agora",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = LocalPontoCafeSemanticColors.current.success,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            Text(
+                employeeName,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.52f),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text("Período: $periodLabel", fontWeight = FontWeight.SemiBold)
+                    Text("Motivo: ${reason.ifBlank { "Exceção operacional" }}")
+                    Text(
+                        if (expiresAt != null) "Liberada até $expiresAt · uso único"
+                        else "Uso único · expira automaticamente",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Text(
+                "O colaborador já pode ir ao Ponto. O reconhecimento facial encontrará esta liberação automaticamente.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.60f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text(if (loading) "Processando..." else "Cancelar liberação", fontWeight = FontWeight.SemiBold)
+            }
+
+            Button(
+                onClick = onAnother,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text("Liberar outra pessoa")
+            }
+        }
+    }
+}
+
+private fun formatAuthorizationClock(epochMillis: Long): String = runCatching {
+    Instant.ofEpochMilli(epochMillis)
+        .atZone(ZoneId.of("America/Fortaleza"))
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrDefault("--:--")
