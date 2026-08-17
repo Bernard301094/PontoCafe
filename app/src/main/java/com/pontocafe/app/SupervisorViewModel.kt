@@ -32,7 +32,9 @@ data class SupervisorUiState(
     val destination: SupervisorDestination = SupervisorDestination.LOGIN,
     val carregando: Boolean = false,
     val pausasAtivas: List<PausaSupervisor> = emptyList(),
+    val ultimoRetorno: PausaSupervisor? = null,
     val historico: List<PausaSupervisor> = emptyList(),
+    val historicoData: String? = null,
     val colaboradores: List<Colaborador> = emptyList(),
     val relatorio: SupervisorReportResponse? = null,
     val relatorioInicio: String? = null,
@@ -67,6 +69,7 @@ class SupervisorViewModel(
     private val biometricSamples = mutableListOf<FloatArray>()
     private var atualizacaoAoVivoEmAndamento = false
     private var atualizacaoPausasEmAndamento = false
+    private var atualizacaoRetornoEmAndamento = false
 
     val faceModelReady: Boolean get() = embeddingEngine.isReady
 
@@ -140,6 +143,36 @@ class SupervisorViewModel(
         }
     }
 
+    fun atualizarUltimoRetornoSilencioso() {
+        if (
+            state.destination != SupervisorDestination.AO_VIVO ||
+            atualizacaoAoVivoEmAndamento ||
+            atualizacaoRetornoEmAndamento
+        ) return
+
+        viewModelScope.launch {
+            atualizacaoRetornoEmAndamento = true
+            try {
+                runCatching { repository.historico(LocalDate.now().toString()) }
+                    .onSuccess { historico ->
+                        state = state.copy(ultimoRetorno = historico.ultimoRetorno())
+                    }
+                    .onFailure { error ->
+                        if (SupervisorRepository.isAuthFailure(error)) {
+                            repository.clearActiveSession()
+                            state = SupervisorUiState(
+                                destination = SupervisorDestination.LOGIN,
+                                erro = "Sua sessão expirou ou não possui acesso de supervisor.",
+                                conexaoAoVivoOk = false,
+                            )
+                        }
+                    }
+            } finally {
+                atualizacaoRetornoEmAndamento = false
+            }
+        }
+    }
+
     private suspend fun atualizarAoVivoInterno() {
         if (atualizacaoAoVivoEmAndamento || atualizacaoPausasEmAndamento) return
         atualizacaoAoVivoEmAndamento = true
@@ -147,13 +180,15 @@ class SupervisorViewModel(
             runCatching {
                 val pausas = repository.pausasAtivas()
                 val colaboradores = repository.collaborators()
-                pausas to colaboradores
+                val historicoHoje = repository.historico(LocalDate.now().toString())
+                Triple(pausas, colaboradores, historicoHoje.ultimoRetorno())
             }
-                .onSuccess { (pausas, colaboradores) ->
+                .onSuccess { (pausas, colaboradores, ultimoRetorno) ->
                     state = state.copy(
                         destination = SupervisorDestination.AO_VIVO,
                         carregando = false,
                         pausasAtivas = pausas,
+                        ultimoRetorno = ultimoRetorno,
                         colaboradores = colaboradores,
                         sessaoAdministrativa = repository.usingAdminSession(),
                         ultimaAtualizacaoAoVivoEmMillis = System.currentTimeMillis(),
@@ -186,15 +221,22 @@ class SupervisorViewModel(
         }
     }
 
-    fun abrirHistorico() {
+    fun abrirHistorico(data: String = LocalDate.now().toString()) {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.historico() }
-                .onSuccess {
+            state = state.copy(
+                destination = SupervisorDestination.HISTORICO,
+                carregando = true,
+                historicoData = data,
+                erro = null,
+                mensagem = null,
+            )
+            runCatching { repository.historico(data) }
+                .onSuccess { historico ->
                     state = state.copy(
                         destination = SupervisorDestination.HISTORICO,
                         carregando = false,
-                        historico = it,
+                        historico = historico,
+                        historicoData = data,
                     )
                 }
                 .onFailure {
@@ -471,12 +513,11 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteBiometric(colaborador.id) }
                 .onSuccess {
-                    val atualizados = runCatching { repository.collaborators() }
-                        .getOrElse {
-                            state.colaboradores.map { item ->
-                                if (item.id == colaborador.id) item.copy(rostoCadastrado = false) else item
-                            }
-                        }
+                    val base = runCatching { repository.collaborators() }
+                        .getOrElse { state.colaboradores }
+                    val atualizados = base.map { item ->
+                        if (item.id == colaborador.id) item.copy(rostoCadastrado = false) else item
+                    }
                     state = state.copy(
                         carregando = false,
                         colaboradores = atualizados,
@@ -494,13 +535,19 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteCollaborator(colaborador.id) }
                 .onSuccess {
-                    val atualizados = runCatching { repository.collaborators() }
-                        .getOrElse { state.colaboradores.filterNot { item -> item.id == colaborador.id } }
+                    // Remove imediatamente da UI assim que o servidor confirma a exclusão.
+                    // Uma atualização posterior nunca pode reintroduzir o item por resposta em cache.
                     state = state.copy(
                         carregando = false,
-                        colaboradores = atualizados,
+                        colaboradores = state.colaboradores.filterNot { item -> item.id == colaborador.id },
                         mensagem = "${colaborador.nome} foi removido dos colaboradores ativos e sua biometria foi excluída.",
                     )
+                    runCatching { repository.collaborators() }
+                        .onSuccess { refreshed ->
+                            state = state.copy(
+                                colaboradores = refreshed.filterNot { item -> item.id == colaborador.id },
+                            )
+                        }
                 }
                 .onFailure {
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
@@ -545,6 +592,15 @@ class SupervisorViewModel(
     }
 
     fun formatarTempo(segundos: Int): String = "%02d:%02d".format(segundos / 60, segundos % 60)
+
+    private fun List<PausaSupervisor>.ultimoRetorno(): PausaSupervisor? =
+        asSequence()
+            .filter { !it.fimLocal.isNullOrBlank() }
+            .maxWithOrNull(
+                compareBy<PausaSupervisor> { it.data.orEmpty() }
+                    .thenBy { it.fimLocal.orEmpty() }
+                    .thenBy { it.inicioLocal },
+            )
 
     private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
         require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
