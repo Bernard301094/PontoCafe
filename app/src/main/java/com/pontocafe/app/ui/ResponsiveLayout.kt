@@ -59,6 +59,7 @@ fun PontoCafeResponsivePage(
                 PontoCafeWindowSizeClass.MEDIUM,
                 PontoCafeWindowSizeClass.EXPANDED -> 24.dp
             },
+            windowSizeClass = sizeClass,
             // Sub-breakpoint exclusivamente para componentes muito densos.
             // A decisão principal de layout deve usar windowSizeClass/isCompact.
             isNarrow = width < 480.dp,
