@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -73,21 +74,14 @@ import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.domain.CsvCollaboratorParser
 import com.pontocafe.app.domain.CsvImportPreview
 
-private enum class PeopleViewFilterV4 {
-    TEAM,
-    PENDING_FACE,
-    ACCESS,
-}
+private enum class PeopleViewFilterV4 { TEAM, PENDING_FACE, ACCESS }
 
 @Composable
-fun AdminPeopleScreenV4(
-    viewModel: AdminViewModel,
-    reliabilityViewModel: AdminReliabilityViewModel,
-) {
+fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminReliabilityViewModel) {
     val context = LocalContext.current
     val state = viewModel.state
     val reliabilityState = reliabilityViewModel.state
-
+    val listState = rememberLazyListState()
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(PeopleViewFilterV4.TEAM) }
     var expandedId by remember { mutableStateOf<String?>(null) }
@@ -100,33 +94,21 @@ fun AdminPeopleScreenV4(
     var showBulkDialog by remember { mutableStateOf(false) }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                    ?: error("Não foi possível abrir o arquivo.")
-            }.onSuccess { text ->
-                importPreview = CsvCollaboratorParser.parse(text)
-            }.onFailure { error ->
-                importPreview = CsvImportPreview(
-                    valid = emptyList(),
-                    errors = listOf(error.message ?: "Não foi possível ler o CSV."),
-                )
+        if (uri != null) runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: error("Não foi possível abrir o arquivo.")
+        }.onSuccess { importPreview = CsvCollaboratorParser.parse(it) }
+            .onFailure { error ->
+                importPreview = CsvImportPreview(emptyList(), listOf(error.message ?: "Não foi possível ler o CSV."))
             }
-        }
     }
 
     editing?.let { collaborator ->
-        EditCollaboratorDialogV4(
-            collaborator = collaborator,
-            loading = state.carregando,
-            onDismiss = { editing = null },
-            onSave = { name, sector, shift ->
-                viewModel.editarColaborador(collaborator, name, sector, shift)
-                editing = null
-            },
-        )
+        EditCollaboratorDialogV4(collaborator, state.carregando, { editing = null }) { name, sector, shift ->
+            viewModel.editarColaborador(collaborator, name, sector, shift)
+            editing = null
+        }
     }
-
     deletingBiometric?.let { collaborator ->
         DeleteBiometricDialogV4(
             collaborator = collaborator,
@@ -139,7 +121,6 @@ fun AdminPeopleScreenV4(
             },
         )
     }
-
     deletingCollaborator?.let { collaborator ->
         DeleteCollaboratorDialogV4(
             collaborator = collaborator,
@@ -152,82 +133,47 @@ fun AdminPeopleScreenV4(
             },
         )
     }
-
     importPreview?.let { preview ->
-        ImportPreviewDialogV4(
-            preview = preview,
-            loading = reliabilityState.loading,
-            onDismiss = { importPreview = null },
-            onConfirm = {
-                reliabilityViewModel.importCollaborators(preview.valid)
-                importPreview = null
-            },
-        )
+        ImportPreviewDialogV4(preview, reliabilityState.loading, { importPreview = null }) {
+            reliabilityViewModel.importCollaborators(preview.valid)
+            importPreview = null
+        }
     }
-
     if (showBulkDialog) {
-        BulkEditDialogV4(
-            selectedCount = selectedIds.size,
-            loading = reliabilityState.loading,
-            onDismiss = { showBulkDialog = false },
-            onApply = { sector, shift, deactivate ->
-                reliabilityViewModel.updateBulk(
-                    ids = selectedIds.toList(),
-                    sector = sector,
-                    shift = shift,
-                    active = if (deactivate) false else null,
-                )
-                selectedIds = emptySet()
-                selectionMode = false
-                showBulkDialog = false
-            },
-        )
+        BulkEditDialogV4(selectedIds.size, reliabilityState.loading, { showBulkDialog = false }) { sector, shift, deactivate ->
+            reliabilityViewModel.updateBulk(selectedIds.toList(), sector, shift, if (deactivate) false else null)
+            selectedIds = emptySet()
+            selectionMode = false
+            showBulkDialog = false
+        }
     }
 
     val allCollaborators = state.colaboradores.sortedBy { it.nome.lowercase() }
     val pendingFaces = allCollaborators.count { !it.rostoCadastrado }
     val readyFaces = allCollaborators.size - pendingFaces
     val query = search.trim()
-
-    val collaborators = allCollaborators
-        .asSequence()
-        .filter { collaborator ->
-            query.isBlank() ||
-                collaborator.nome.contains(query, ignoreCase = true) ||
-                collaborator.setor.orEmpty().contains(query, ignoreCase = true) ||
-                collaborator.turno.orEmpty().contains(query, ignoreCase = true)
+    val collaborators = allCollaborators.asSequence()
+        .filter {
+            query.isBlank() || it.nome.contains(query, true) || it.setor.orEmpty().contains(query, true) || it.turno.orEmpty().contains(query, true)
         }
-        .filter { collaborator ->
-            filter != PeopleViewFilterV4.PENDING_FACE || !collaborator.rostoCadastrado
-        }
+        .filter { filter != PeopleViewFilterV4.PENDING_FACE || !it.rostoCadastrado }
         .sortedWith(compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }))
         .toList()
-
-    val accounts = state.usuarios
-        .asSequence()
-        .filter { user ->
-            query.isBlank() ||
-                user.nome.contains(query, ignoreCase = true) ||
-                user.email.contains(query, ignoreCase = true) ||
-                user.perfil.contains(query, ignoreCase = true)
-        }
+    val accounts = state.usuarios.asSequence()
+        .filter { query.isBlank() || it.nome.contains(query, true) || it.email.contains(query, true) || it.perfil.contains(query, true) }
         .sortedBy { it.nome.lowercase() }
         .toList()
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val compact = maxWidth < 390.dp
-        val pagePadding = when {
-            maxWidth < 360.dp -> 12.dp
-            maxWidth < 600.dp -> 16.dp
-            else -> 20.dp
+        val pagePadding = when (pontoCafeWindowSizeClass(maxWidth)) {
+            PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
+            PontoCafeWindowSizeClass.MEDIUM, PontoCafeWindowSizeClass.EXPANDED -> 20.dp
         }
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding(),
+            state = listState,
+            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
             contentPadding = PaddingValues(
                 start = pagePadding,
                 end = pagePadding,
@@ -236,159 +182,80 @@ fun AdminPeopleScreenV4(
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            item("header") {
-                PontoCafeScreenHeader(
-                    title = "Pessoas",
-                    eyebrow = "Equipe, biometria e acessos",
-                )
-            }
-
+            item("header") { PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Equipe, biometria e acessos") }
             item("summary") {
-                PeopleSummaryV4(
-                    collaborators = allCollaborators.size,
-                    readyFaces = readyFaces,
-                    pendingFaces = pendingFaces,
-                    accessAccounts = state.usuarios.size,
-                )
+                PeopleSummaryV4(allCollaborators.size, readyFaces, pendingFaces, state.usuarios.size)
             }
-
             item("feedback") {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
                     ReliabilityFeedback(reliabilityViewModel)
                 }
             }
-
             item("primary-actions") {
                 if (compact) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        Button(
-                            onClick = viewModel::abrirNovoColaborador,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Novo colaborador", modifier = Modifier.padding(start = 7.dp))
+                        Button(viewModel::abrirNovoColaborador, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Text("Novo colaborador", Modifier.padding(start = 7.dp))
                         }
-                        OutlinedButton(
-                            onClick = viewModel::abrirNovaConta,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Novo acesso", modifier = Modifier.padding(start = 7.dp))
+                        OutlinedButton(viewModel::abrirNovaConta, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.Badge, null, Modifier.size(18.dp)); Text("Novo acesso", Modifier.padding(start = 7.dp))
                         }
                     }
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        Button(
-                            onClick = viewModel::abrirNovoColaborador,
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Colaborador", modifier = Modifier.padding(start = 7.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        Button(viewModel::abrirNovoColaborador, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Text("Colaborador", Modifier.padding(start = 7.dp))
                         }
-                        OutlinedButton(
-                            onClick = viewModel::abrirNovaConta,
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.Badge, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Acesso", modifier = Modifier.padding(start = 7.dp))
+                        OutlinedButton(viewModel::abrirNovaConta, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.Badge, null, Modifier.size(18.dp)); Text("Acesso", Modifier.padding(start = 7.dp))
                         }
                     }
                 }
             }
-
             item("tools") {
+                val toggleSelection = {
+                    selectionMode = !selectionMode
+                    filter = PeopleViewFilterV4.TEAM
+                    expandedId = null
+                    if (!selectionMode) selectedIds = emptySet()
+                }
                 if (compact) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                         OutlinedButton(
-                            onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Importar CSV", modifier = Modifier.padding(start = 7.dp))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                selectionMode = !selectionMode
-                                filter = PeopleViewFilterV4.TEAM
-                                expandedId = null
-                                if (!selectionMode) selectedIds = emptySet()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.GroupWork, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text(
-                                if (selectionMode) "Cancelar seleção" else "Selecionar pessoas",
-                                modifier = Modifier.padding(start = 7.dp),
-                            )
+                            { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
+                            Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+                        ) { Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp)); Text("Importar CSV", Modifier.padding(start = 7.dp)) }
+                        OutlinedButton(toggleSelection, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.GroupWork, null, Modifier.size(18.dp)); Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas", Modifier.padding(start = 7.dp))
                         }
                     }
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                         OutlinedButton(
-                            onClick = { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Importar", modifier = Modifier.padding(start = 7.dp))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                selectionMode = !selectionMode
-                                filter = PeopleViewFilterV4.TEAM
-                                expandedId = null
-                                if (!selectionMode) selectedIds = emptySet()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Icon(Icons.Default.GroupWork, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text(if (selectionMode) "Cancelar" else "Selecionar", modifier = Modifier.padding(start = 7.dp))
+                            { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
+                            Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                        ) { Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp)); Text("Importar", Modifier.padding(start = 7.dp)) }
+                        OutlinedButton(toggleSelection, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
+                            Icon(Icons.Default.GroupWork, null, Modifier.size(18.dp)); Text(if (selectionMode) "Cancelar" else "Selecionar", Modifier.padding(start = 7.dp))
                         }
                     }
                 }
             }
-
             item("search") {
                 OutlinedTextField(
-                    value = search,
-                    onValueChange = { search = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (search.isNotBlank()) {
-                            IconButton(onClick = { search = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Limpar busca")
-                            }
-                        }
-                    },
-                    label = {
-                        Text(if (filter == PeopleViewFilterV4.ACCESS) "Buscar acesso" else "Buscar colaborador")
-                    },
-                    placeholder = {
-                        Text(if (filter == PeopleViewFilterV4.ACCESS) "Nome, e-mail ou perfil" else "Nome, setor ou turno")
-                    },
+                    search, { search = it }, Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = { if (search.isNotBlank()) IconButton({ search = "" }) { Icon(Icons.Default.Close, "Limpar busca") } },
+                    label = { Text(if (filter == PeopleViewFilterV4.ACCESS) "Buscar acesso" else "Buscar colaborador") },
+                    placeholder = { Text(if (filter == PeopleViewFilterV4.ACCESS) "Nome, e-mail ou perfil" else "Nome, setor ou turno") },
                     singleLine = true,
                     shape = MaterialTheme.shapes.large,
                 )
             }
-
             item("filters") {
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                     contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
                 ) {
@@ -400,12 +267,7 @@ fun AdminPeopleScreenV4(
                         }
                         FilterChip(
                             selected = filter == item,
-                            onClick = {
-                                if (!selectionMode || item != PeopleViewFilterV4.ACCESS) {
-                                    filter = item
-                                    expandedId = null
-                                }
-                            },
+                            onClick = { if (!selectionMode || item != PeopleViewFilterV4.ACCESS) { filter = item; expandedId = null } },
                             enabled = !selectionMode || item != PeopleViewFilterV4.ACCESS,
                             label = { Text(label) },
                             colors = FilterChipDefaults.filterChipColors(
@@ -419,47 +281,26 @@ fun AdminPeopleScreenV4(
 
             if (filter != PeopleViewFilterV4.ACCESS) {
                 item("results-heading") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (filter == PeopleViewFilterV4.PENDING_FACE) "Biometrias pendentes" else "Equipe", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (filter == PeopleViewFilterV4.PENDING_FACE) "Biometrias pendentes" else "Equipe",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                if (selectionMode) {
-                                    "Toque nas pessoas que deseja alterar em lote."
-                                } else {
-                                    "Toque em uma pessoa para abrir as ações. O nome completo permanece visível."
-                                },
+                                if (selectionMode) "Toque nas pessoas que deseja alterar em lote." else "Toque em uma pessoa para abrir as ações. O nome completo permanece visível.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                            Text(
-                                collaborators.size.toString(),
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                style = MaterialTheme.typography.labelLarge,
-                            )
+                            Text(collaborators.size.toString(), Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
-
                 if (collaborators.isEmpty()) {
                     item("empty") {
                         PcEmptyState(
-                            title = if (query.isBlank()) "Nenhuma pessoa nesta visão" else "Nenhum resultado",
-                            supportingText = if (query.isBlank()) {
-                                "Não há colaboradores que correspondam ao filtro selecionado."
-                            } else {
-                                "Tente outro nome, setor ou turno."
-                            },
-                            icon = Icons.Default.People,
+                            if (query.isBlank()) "Nenhuma pessoa nesta visão" else "Nenhum resultado",
+                            if (query.isBlank()) "Não há colaboradores que correspondam ao filtro selecionado." else "Tente outro nome, setor ou turno.",
+                            Icons.Default.People,
                         )
                     }
                 } else {
@@ -472,19 +313,10 @@ fun AdminPeopleScreenV4(
                             selected = collaborator.id in selectedIds,
                             expanded = expanded,
                             onClick = {
-                                if (selectionMode) {
-                                    selectedIds = if (collaborator.id in selectedIds) {
-                                        selectedIds - collaborator.id
-                                    } else {
-                                        selectedIds + collaborator.id
-                                    }
-                                } else {
-                                    expandedId = if (expanded) null else collaborator.id
-                                }
+                                if (selectionMode) selectedIds = if (collaborator.id in selectedIds) selectedIds - collaborator.id else selectedIds + collaborator.id
+                                else expandedId = if (expanded) null else collaborator.id
                             },
-                            onSelected = { selected ->
-                                selectedIds = if (selected) selectedIds + collaborator.id else selectedIds - collaborator.id
-                            },
+                            onSelected = { selected -> selectedIds = if (selected) selectedIds + collaborator.id else selectedIds - collaborator.id },
                             onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
                             onEdit = { editing = collaborator },
                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
@@ -494,37 +326,19 @@ fun AdminPeopleScreenV4(
                     }
                 }
             } else {
-                item("access-heading") {
-                    SectionTitle(
-                        title = "Contas de acesso",
-                        subtitle = "Administrador e Supervisor com acesso às áreas protegidas.",
-                    )
-                }
-
+                item("access-heading") { SectionTitle("Contas de acesso", "Administrador e Supervisor com acesso às áreas protegidas.") }
                 if (accounts.isEmpty()) {
-                    item("empty-access") {
-                        PcEmptyState(
-                            title = "Nenhum acesso encontrado",
-                            supportingText = "Tente outro nome, e-mail ou perfil.",
-                            icon = Icons.Default.Badge,
-                        )
-                    }
+                    item("empty-access") { PcEmptyState("Nenhum acesso encontrado", "Tente outro nome, e-mail ou perfil.", Icons.Default.Badge) }
                 } else {
                     items(accounts, key = { "access-v4-${it.id}" }) { user ->
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            Modifier.fillMaxWidth(),
                             onClick = { viewModel.selecionarUsuario(user) },
                             shape = MaterialTheme.shapes.large,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                            elevation = CardDefaults.cardElevation(0.dp),
                         ) {
-                            AccountSummaryRow(
-                                name = user.nome,
-                                email = user.email,
-                                profile = user.perfil,
-                                active = user.ativo,
-                                modifier = Modifier.padding(PontoCafeSpacing.md),
-                            )
+                            AccountSummaryRow(user.nome, user.email, user.perfil, user.ativo, Modifier.padding(PontoCafeSpacing.md))
                         }
                     }
                 }
@@ -533,96 +347,48 @@ fun AdminPeopleScreenV4(
 
         if (selectionMode) {
             Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = pagePadding, vertical = PontoCafeSpacing.sm),
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = pagePadding, vertical = PontoCafeSpacing.sm),
                 shape = MaterialTheme.shapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 6.dp,
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "${selectedIds.size} selecionado(s)",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            "Alterar setor, turno ou status",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${selectedIds.size} selecionado(s)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Alterar setor, turno ou status", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Button(
-                        onClick = { showBulkDialog = true },
-                        enabled = selectedIds.isNotEmpty(),
-                    ) {
-                        Text("Alterar")
-                    }
+                    Button({ showBulkDialog = true }, enabled = selectedIds.isNotEmpty()) { Text("Alterar") }
                 }
             }
+        } else {
+            PcScrollToTopFab(
+                listState,
+                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = pagePadding, bottom = PontoCafeSpacing.md),
+            )
         }
     }
 }
 
 @Composable
-private fun PeopleSummaryV4(
-    collaborators: Int,
-    readyFaces: Int,
-    pendingFaces: Int,
-    accessAccounts: Int,
-) {
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val stacked = maxWidth < 520.dp
+private fun PeopleSummaryV4(collaborators: Int, readyFaces: Int, pendingFaces: Int, accessAccounts: Int) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = pontoCafeWindowSizeClass(maxWidth) == PontoCafeWindowSizeClass.COMPACT
         if (stacked) {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    PcMetricTile(
-                        value = collaborators.toString(),
-                        label = "Equipe",
-                        icon = Icons.Default.People,
-                        modifier = Modifier.weight(1f),
-                    )
-                    PcMetricTile(
-                        value = readyFaces.toString(),
-                        label = "Com rosto",
-                        icon = Icons.Default.CheckCircle,
-                        modifier = Modifier.weight(1f),
-                    )
+                    PcMetricTile(collaborators.toString(), "Equipe", Icons.Default.People, Modifier.weight(1f))
+                    PcMetricTile(readyFaces.toString(), "Com rosto", Icons.Default.CheckCircle, Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    PcMetricTile(
-                        value = pendingFaces.toString(),
-                        label = "Pendentes",
-                        icon = if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle,
-                        modifier = Modifier.weight(1f),
-                        attention = pendingFaces > 0,
-                    )
-                    PcMetricTile(
-                        value = accessAccounts.toString(),
-                        label = "Acessos",
-                        icon = Icons.Default.Badge,
-                        modifier = Modifier.weight(1f),
-                    )
+                    PcMetricTile(pendingFaces.toString(), "Pendentes", if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle, Modifier.weight(1f), attention = pendingFaces > 0)
+                    PcMetricTile(accessAccounts.toString(), "Acessos", Icons.Default.Badge, Modifier.weight(1f))
                 }
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 PcMetricTile(collaborators.toString(), "Equipe", Icons.Default.People, Modifier.weight(1f))
                 PcMetricTile(readyFaces.toString(), "Com rosto", Icons.Default.CheckCircle, Modifier.weight(1f))
-                PcMetricTile(
-                    pendingFaces.toString(),
-                    "Pendentes",
-                    if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    Modifier.weight(1f),
-                    attention = pendingFaces > 0,
-                )
+                PcMetricTile(pendingFaces.toString(), "Pendentes", if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle, Modifier.weight(1f), attention = pendingFaces > 0)
                 PcMetricTile(accessAccounts.toString(), "Acessos", Icons.Default.Badge, Modifier.weight(1f))
             }
         }
@@ -650,154 +416,53 @@ private fun CollaboratorCardV4(
         !collaborator.rostoCadastrado -> semantic.warning.copy(alpha = 0.24f)
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(),
+        Modifier.fillMaxWidth().animateContentSize(),
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
+        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(0.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = onSelected,
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                    )
-                }
-
-                InitialAvatar(
-                    name = collaborator.nome,
-                    modifier = Modifier.align(Alignment.Top),
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    // Sem maxLines/ellipsis: o nome completo é requisito desta tela.
+        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                if (selectionMode) Checkbox(selected, onSelected, Modifier.align(Alignment.CenterVertically))
+                InitialAvatar(collaborator.nome, Modifier.align(Alignment.Top))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(collaborator.nome, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        text = collaborator.nome,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-
-                    Text(
-                        text = listOfNotNull(collaborator.setor, collaborator.turno)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · ")
-                            .ifBlank { "Sem setor/turno" },
+                        listOfNotNull(collaborator.setor, collaborator.turno).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Sem setor/turno" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-
-                    if (!selectionMode) {
-                        StatusPill(
-                            text = if (collaborator.rostoCadastrado) "Pronto" else "Pendente",
-                            tone = if (collaborator.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                        )
-                    }
+                    if (!selectionMode) StatusPill(if (collaborator.rostoCadastrado) "Pronto" else "Pendente", if (collaborator.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING)
                 }
-
-                if (!selectionMode) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expanded) "Recolher ações" else "Ver ações",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .align(Alignment.CenterVertically),
-                    )
-                }
+                if (!selectionMode) Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Recolher ações" else "Ver ações", Modifier.size(24.dp).align(Alignment.CenterVertically), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
             if (!selectionMode && !collaborator.rostoCadastrado) {
-                Button(
-                    onClick = onBiometric,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !loading,
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Cadastrar rosto", modifier = Modifier.padding(start = 7.dp))
+                Button(onBiometric, Modifier.fillMaxWidth(), enabled = !loading, shape = MaterialTheme.shapes.medium) {
+                    Icon(Icons.Default.Face, null, Modifier.size(18.dp)); Text("Cadastrar rosto", Modifier.padding(start = 7.dp))
                 }
             }
-
-            AnimatedVisibility(visible = expanded && !selectionMode) {
+            AnimatedVisibility(expanded && !selectionMode) {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        OutlinedButton(
-                            onClick = onHistory,
-                            modifier = Modifier.weight(1f),
-                            enabled = !loading,
-                        ) {
-                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Histórico", modifier = Modifier.padding(start = 5.dp))
-                        }
-                        OutlinedButton(
-                            onClick = onEdit,
-                            modifier = Modifier.weight(1f),
-                            enabled = !loading,
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Editar", modifier = Modifier.padding(start = 5.dp))
-                        }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        OutlinedButton(onHistory, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.History, null, Modifier.size(17.dp)); Text("Histórico", Modifier.padding(start = 5.dp)) }
+                        OutlinedButton(onEdit, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.Edit, null, Modifier.size(17.dp)); Text("Editar", Modifier.padding(start = 5.dp)) }
                     }
-
                     if (collaborator.rostoCadastrado) {
+                        OutlinedButton(onBiometric, Modifier.fillMaxWidth(), enabled = !loading) { Icon(Icons.Default.Face, null, Modifier.size(18.dp)); Text("Atualizar rosto", Modifier.padding(start = 7.dp)) }
                         OutlinedButton(
-                            onClick = onBiometric,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !loading,
-                        ) {
-                            Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Atualizar rosto", modifier = Modifier.padding(start = 7.dp))
-                        }
-
-                        OutlinedButton(
-                            onClick = onDeleteBiometric,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !loading,
+                            onDeleteBiometric, Modifier.fillMaxWidth(), enabled = !loading,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.40f)),
-                        ) {
-                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Text("Excluir rosto", modifier = Modifier.padding(start = 7.dp))
-                        }
+                        ) { Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp)); Text("Excluir rosto", Modifier.padding(start = 7.dp)) }
                     }
-
                     OutlinedButton(
-                        onClick = onDeleteCollaborator,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !loading,
+                        onDeleteCollaborator, Modifier.fillMaxWidth(), enabled = !loading,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.62f)),
-                    ) {
-                        Icon(Icons.Default.PersonRemove, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Excluir colaborador", modifier = Modifier.padding(start = 7.dp))
-                    }
+                    ) { Icon(Icons.Default.PersonRemove, null, Modifier.size(18.dp)); Text("Excluir colaborador", Modifier.padding(start = 7.dp)) }
                 }
             }
         }
@@ -805,107 +470,51 @@ private fun CollaboratorCardV4(
 }
 
 @Composable
-private fun DeleteCollaboratorDialogV4(
-    collaborator: Colaborador,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
+private fun DeleteCollaboratorDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir colaborador?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                Text(
-                    "${collaborator.nome} será removido da equipe ativa e não poderá mais utilizar o Ponto Café.",
-                )
-                Text(
-                    "Todos os registros faciais serão apagados definitivamente. Autorizações pendentes serão canceladas.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                PcStateBanner(
-                    title = "Histórico preservado",
-                    supportingText = "Pausas concluídas e auditoria permanecem disponíveis para rastreabilidade.",
-                    tone = PontoCafeTone.INFO,
-                )
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.errorContainer,
-                ) {
-                    Text(
-                        "Se houver uma pausa aberta, a exclusão será bloqueada até o retorno ser registrado.",
-                        modifier = Modifier.padding(12.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                Text("${collaborator.nome} será removido da equipe ativa e não poderá mais utilizar o Ponto Café.")
+                Text("Todos os registros faciais serão apagados definitivamente. Autorizações pendentes serão canceladas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PcStateBanner("Histórico preservado", "Pausas concluídas e auditoria permanecem disponíveis para rastreabilidade.", PontoCafeTone.INFO)
+                Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer) {
+                    Text("Se houver uma pausa aberta, a exclusão será bloqueada até o retorno ser registrado.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.SemiBold)
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = !loading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) {
-                Icon(Icons.Default.PersonRemove, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(if (loading) "Excluindo..." else "Excluir colaborador", modifier = Modifier.padding(start = 7.dp))
+            Button(onConfirm, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
+                Icon(Icons.Default.PersonRemove, null, Modifier.size(18.dp)); Text(if (loading) "Excluindo..." else "Excluir colaborador", Modifier.padding(start = 7.dp))
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
-        },
+        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun DeleteBiometricDialogV4(
-    collaborator: Colaborador,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
+private fun DeleteBiometricDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir biometria facial?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 Text("Todos os registros de rosto de ${collaborator.nome} serão apagados definitivamente.")
-                Text(
-                    "O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = !loading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) {
-                Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(if (loading) "Excluindo..." else "Excluir rosto", modifier = Modifier.padding(start = 7.dp))
+            Button(onConfirm, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
+                Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp)); Text(if (loading) "Excluindo..." else "Excluir rosto", Modifier.padding(start = 7.dp))
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
-        },
+        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun ImportPreviewDialogV4(
-    preview: CsvImportPreview,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
+private fun ImportPreviewDialogV4(preview: CsvImportPreview, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Importar colaboradores") },
@@ -915,146 +524,61 @@ private fun ImportPreviewDialogV4(
                 if (preview.errors.isNotEmpty()) {
                     Text("Avisos", style = MaterialTheme.typography.titleSmall)
                     preview.errors.take(6).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
-                    if (preview.errors.size > 6) {
-                        Text("… e mais ${preview.errors.size - 6} aviso(s).")
-                    }
+                    if (preview.errors.size > 6) Text("… e mais ${preview.errors.size - 6} aviso(s).")
                 }
                 Text("Formato recomendado: Nome;Setor;Turno", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = {
-            Button(onClick = onConfirm, enabled = preview.valid.isNotEmpty() && !loading) {
-                Text("Importar ${preview.valid.size}")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
-        },
+        confirmButton = { Button(onConfirm, enabled = preview.valid.isNotEmpty() && !loading) { Text("Importar ${preview.valid.size}") } },
+        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun BulkEditDialogV4(
-    selectedCount: Int,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onApply: (sector: String?, shift: String?, deactivate: Boolean) -> Unit,
-) {
+private fun BulkEditDialogV4(selectedCount: Int, loading: Boolean, onDismiss: () -> Unit, onApply: (String?, String?, Boolean) -> Unit) {
     var sector by remember { mutableStateOf("") }
     var shift by remember { mutableStateOf("") }
     var changeSector by remember { mutableStateOf(false) }
     var changeShift by remember { mutableStateOf(false) }
     var deactivate by remember { mutableStateOf(false) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar $selectedCount colaborador(es)") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = changeSector, onCheckedChange = { changeSector = it })
-                    Text("Alterar setor")
-                }
-                if (changeSector) {
-                    OutlinedTextField(
-                        value = sector,
-                        onValueChange = { sector = it.take(80) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Novo setor") },
-                        singleLine = true,
-                    )
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = changeShift, onCheckedChange = { changeShift = it })
-                    Text("Alterar turno")
-                }
-                if (changeShift) {
-                    OutlinedTextField(
-                        value = shift,
-                        onValueChange = { shift = it.take(40) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Novo turno") },
-                        singleLine = true,
-                    )
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = deactivate, onCheckedChange = { deactivate = it })
-                    Text("Desativar colaboradores selecionados")
-                }
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(changeSector, { changeSector = it }); Text("Alterar setor") }
+                if (changeSector) OutlinedTextField(sector, { sector = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Novo setor") }, singleLine = true)
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(changeShift, { changeShift = it }); Text("Alterar turno") }
+                if (changeShift) OutlinedTextField(shift, { shift = it.take(40) }, Modifier.fillMaxWidth(), label = { Text("Novo turno") }, singleLine = true)
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(deactivate, { deactivate = it }); Text("Desativar colaboradores selecionados") }
             }
         },
         confirmButton = {
             Button(
-                onClick = {
-                    onApply(
-                        sector.takeIf { changeSector }?.trim(),
-                        shift.takeIf { changeShift }?.trim(),
-                        deactivate,
-                    )
-                },
+                { onApply(sector.takeIf { changeSector }?.trim(), shift.takeIf { changeShift }?.trim(), deactivate) },
                 enabled = !loading && (changeSector || changeShift || deactivate),
-            ) {
-                Text(if (loading) "Aplicando..." else "Aplicar alterações")
-            }
+            ) { Text(if (loading) "Aplicando..." else "Aplicar alterações") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
-        },
+        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun EditCollaboratorDialogV4(
-    collaborator: Colaborador,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (name: String, sector: String, shift: String) -> Unit,
-) {
+private fun EditCollaboratorDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
     var name by remember(collaborator.id) { mutableStateOf(collaborator.nome) }
     var sector by remember(collaborator.id) { mutableStateOf(collaborator.setor.orEmpty()) }
     var shift by remember(collaborator.id) { mutableStateOf(collaborator.turno.orEmpty()) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar colaborador") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it.take(160) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Nome") },
-                    singleLine = false,
-                    maxLines = 3,
-                )
-                OutlinedTextField(
-                    value = sector,
-                    onValueChange = { sector = it.take(120) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Setor") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = shift,
-                    onValueChange = { shift = it.take(80) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Turno") },
-                    singleLine = true,
-                )
+                OutlinedTextField(name, { name = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Nome") }, singleLine = false, maxLines = 3)
+                OutlinedTextField(sector, { sector = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Setor") }, singleLine = true)
+                OutlinedTextField(shift, { shift = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Turno") }, singleLine = true)
             }
         },
-        confirmButton = {
-            Button(
-                onClick = { onSave(name.trim(), sector.trim(), shift.trim()) },
-                enabled = !loading && name.trim().length >= 2,
-            ) {
-                Text(if (loading) "Salvando..." else "Salvar")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
-        },
+        confirmButton = { Button({ onSave(name.trim(), sector.trim(), shift.trim()) }, enabled = !loading && name.trim().length >= 2) { Text(if (loading) "Salvando..." else "Salvar") } },
+        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
