@@ -221,50 +221,57 @@ fun AdminArea(
                 }
             },
         ) {
-            AnimatedContent(
-                targetState = rootDestination,
-                transitionSpec = {
-                    fadeIn(tween(PontoCafeMotion.Quick)) togetherWith
-                        fadeOut(tween(PontoCafeMotion.Instant))
-                },
-                label = "admin-primary-navigation",
-            ) { destination ->
-                when (destination) {
-                    AdminPrimaryDestination.HOME -> AdminPanelScreen(
-                        viewModel = viewModel,
-                        onClose = onClose,
-                        onDevicesClick = { setDevicesOpen(true) },
-                    )
-                    AdminPrimaryDestination.PEOPLE -> {
-                        val initialPeopleLoading = state.carregando &&
-                            state.colaboradores.isEmpty() &&
-                            state.usuarios.isEmpty()
-                        if (initialPeopleLoading) {
-                            PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
-                                PontoCafeListSkeletonScreen(
-                                    title = "Pessoas",
-                                    eyebrow = "Equipe, biometria e acessos",
-                                    rows = 5,
-                                    showMetrics = true,
-                                )
-                            }
-                        } else {
-                            PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
-                                AdminPeopleScreenV3(
-                                    viewModel = viewModel,
-                                    reliabilityViewModel = reliabilityViewModel,
-                                )
+            Box(modifier = Modifier.fillMaxSize()) {
+                AnimatedContent(
+                    targetState = rootDestination,
+                    transitionSpec = {
+                        fadeIn(tween(PontoCafeMotion.Quick)) togetherWith
+                            fadeOut(tween(PontoCafeMotion.Instant))
+                    },
+                    label = "admin-primary-navigation",
+                ) { destination ->
+                    when (destination) {
+                        AdminPrimaryDestination.HOME -> AdminPanelScreen(
+                            viewModel = viewModel,
+                            onClose = onClose,
+                            onDevicesClick = { setDevicesOpen(true) },
+                        )
+                        AdminPrimaryDestination.PEOPLE -> {
+                            val initialPeopleLoading = state.carregando &&
+                                state.colaboradores.isEmpty() &&
+                                state.usuarios.isEmpty()
+                            if (initialPeopleLoading) {
+                                PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                                    PontoCafeListSkeletonScreen(
+                                        title = "Pessoas",
+                                        eyebrow = "Equipe, biometria e acessos",
+                                        rows = 5,
+                                        showMetrics = true,
+                                    )
+                                }
+                            } else {
+                                PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
+                                    AdminPeopleScreenV3(
+                                        viewModel = viewModel,
+                                        reliabilityViewModel = reliabilityViewModel,
+                                    )
+                                }
                             }
                         }
+                        AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
+                            viewModel = viewModel,
+                            reliabilityViewModel = reliabilityViewModel,
+                            onDevicesClick = { setDevicesOpen(true) },
+                            onSyncClick = reliabilityViewModel::openSyncCenter,
+                            onKioskClick = { setKioskOpen(true) },
+                        )
                     }
-                    AdminPrimaryDestination.MANAGEMENT -> AdminManagementScreenV2(
-                        viewModel = viewModel,
-                        reliabilityViewModel = reliabilityViewModel,
-                        onDevicesClick = { setDevicesOpen(true) },
-                        onSyncClick = reliabilityViewModel::openSyncCenter,
-                        onKioskClick = { setKioskOpen(true) },
-                    )
                 }
+
+                BiometricRegistrationSuccessFeedback(
+                    message = state.mensagem,
+                    onDismiss = viewModel::limparFeedback,
+                )
             }
         }
         return
