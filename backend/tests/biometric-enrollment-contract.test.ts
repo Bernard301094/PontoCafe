@@ -79,6 +79,15 @@ test('landmarks faciais ficam disponíveis sem quebrar embeddings já cadastrado
   assert.match(engine, /Mantemos exatamente o mesmo recorte\/preprocessamento/)
 })
 
+test('liveness troca o piscar por giro de cabeça quando os olhos não ficam legíveis', () => {
+  assert.match(kioskScreen, /BLINK_FALLBACK_FRAMES = 36/)
+  assert.match(kioskScreen, /blinkPendingFrames/)
+  assert.match(kioskScreen, /challengeAdjustedForEyes/)
+  assert.match(kioskScreen, /KioskLivenessChallenge\.TURN_LEFT/)
+  assert.match(kioskScreen, /KioskLivenessChallenge\.TURN_RIGHT/)
+  assert.match(kioskScreen, /O piscar não ficou nítido/)
+})
+
 test('substituição de identidade continua exigindo exclusão biométrica explícita', () => {
   assert.match(route, /post\('\/colaboradores\/:id\/biometria\/excluir'/)
   assert.match(route, /Exclua a biometria antiga explicitamente/)

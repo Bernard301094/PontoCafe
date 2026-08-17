@@ -83,6 +83,7 @@ private enum class KioskLivenessChallenge(val instruction: String) {
 
 private const val CHALLENGE_STABLE_FRAMES = 4
 private const val RECOGNITION_STABLE_FRAMES = 4
+private const val BLINK_FALLBACK_FRAMES = 36
 
 @Composable
 fun FaceKioskScreen(
@@ -113,6 +114,8 @@ fun FaceKioskScreen(
     var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
     val stableChallengeFrames = remember { intArrayOf(0) }
     val stableRecognitionFrames = remember { intArrayOf(0) }
+    val blinkPendingFrames = remember { intArrayOf(0) }
+    var challengeAdjustedForEyes by remember { mutableStateOf(false) }
     var challengeCompleted by remember { mutableStateOf(false) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
@@ -194,6 +197,8 @@ fun FaceKioskScreen(
         challenge = KioskLivenessChallenge.entries.random()
         stableChallengeFrames[0] = 0
         stableRecognitionFrames[0] = 0
+        blinkPendingFrames[0] = 0
+        challengeAdjustedForEyes = false
         challengeCompleted = false
         captureRequested = false
         detectedFaces = 0
@@ -216,9 +221,31 @@ fun FaceKioskScreen(
                             if (challenge == KioskLivenessChallenge.BLINK) {
                                 val next = liveness.update(observation)
                                 livenessState = next
+
+                                if (observation.isFrontal) {
+                                    blinkPendingFrames[0] += 1
+                                } else {
+                                    blinkPendingFrames[0] = 0
+                                }
+
                                 if (next == LivenessState.CONCLUIDO) {
                                     challengeCompleted = true
                                     stableRecognitionFrames[0] = 0
+                                    blinkPendingFrames[0] = 0
+                                } else if (blinkPendingFrames[0] >= BLINK_FALLBACK_FRAMES) {
+                                    // Reflexos, lentes grossas ou algumas armações podem impedir
+                                    // o ML Kit de estimar a abertura dos olhos de forma estável.
+                                    // Mantemos a prova de vida, mas trocamos automaticamente o
+                                    // desafio por movimento de cabeça em vez de bloquear a pessoa.
+                                    challenge = listOf(
+                                        KioskLivenessChallenge.TURN_LEFT,
+                                        KioskLivenessChallenge.TURN_RIGHT,
+                                    ).random()
+                                    stableChallengeFrames[0] = 0
+                                    blinkPendingFrames[0] = 0
+                                    challengeAdjustedForEyes = true
+                                    liveness.reset()
+                                    livenessState = LivenessState.POSICIONE_ROSTO
                                 }
                             } else {
                                 livenessState = if (observation.isWellPositioned) {
@@ -361,6 +388,7 @@ fun FaceKioskScreen(
             multipleFacesVisible -> "Deixe somente uma pessoa visível na câmera."
             noFaceVisible -> "Centralize o rosto dentro do guia."
             challengeCompleted -> "Mantenha o rosto reto por um instante. A captura é automática."
+            challengeAdjustedForEyes -> "O piscar não ficou nítido. Siga o movimento de cabeça indicado; ele funciona melhor com reflexos ou óculos."
             state.modoOffline -> "O registro será protegido no aparelho e sincronizado quando a conexão voltar."
             else -> "Siga a instrução e mantenha cerca de 40 cm de distância."
         }
