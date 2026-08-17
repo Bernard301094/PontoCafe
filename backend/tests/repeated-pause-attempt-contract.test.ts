@@ -8,6 +8,7 @@ const offlineRoutes = readFileSync(new URL('../src/routes/offline-routes.ts', im
 const offlineStore = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/data/SecurePontoOfflineStore.kt', import.meta.url), 'utf8')
 const viewModel = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/PontoCafeViewModel.kt', import.meta.url), 'utf8')
 const identityScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/IdentityConfirmationScreen.kt', import.meta.url), 'utf8')
+const auditScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminAuditScreen.kt', import.meta.url), 'utf8')
 
 test('bloqueia nova pausa do mesmo periodo e registra a tentativa online', () => {
   assert.match(localBiometric, /PAUSA_PERIODO_JA_UTILIZADA/)
@@ -40,4 +41,10 @@ test('a interface explica que a pausa ja foi usada e nao oferece nova saida', ()
   assert.match(identityScreen, /Nova pausa bloqueada/)
   assert.match(identityScreen, /consulta e auditoria do Supervisor\/Administrador/)
   assert.match(identityScreen, /if \(pausaJaUtilizada \|\| bloqueadaForaHorario\)/)
+})
+
+test('a auditoria administrativa identifica claramente a tentativa repetida', () => {
+  assert.match(auditScreen, /TENTATIVA_PONTO_REPETIDA/)
+  assert.match(auditScreen, /Tentativa repetida de pausa bloqueada/)
+  assert.match(auditScreen, /colaboradorNome/)
 })

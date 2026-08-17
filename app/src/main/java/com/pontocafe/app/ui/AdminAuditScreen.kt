@@ -98,6 +98,7 @@ private fun AuditEventCard(event: AuditEvent) {
             )
             val targetName = event.detalhes?.get("nome")?.toString()
                 ?: event.detalhes?.get("nomeNovo")?.toString()
+                ?: event.detalhes?.get("colaboradorNome")?.toString()
                 ?: event.entidadeId?.take(12)
             if (!targetName.isNullOrBlank()) {
                 Text(
@@ -126,6 +127,7 @@ private fun auditActionLabel(action: String): String = when (action) {
     "ROTACIONAR_TOKEN_DISPOSITIVO" -> "Token de dispositivo revogado"
     "ATIVAR_DISPOSITIVO" -> "Dispositivo ativado"
     "SINCRONIZAR_PONTO_OFFLINE" -> "Registro offline sincronizado"
+    "TENTATIVA_PONTO_REPETIDA" -> "Tentativa repetida de pausa bloqueada"
     "DESBLOQUEAR_MODO_PONTO" -> "Modo Ponto desbloqueado"
     else -> action.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
