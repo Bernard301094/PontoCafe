@@ -20,8 +20,6 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -260,7 +258,9 @@ private fun formatServerClock(value: String?): String {
     if (value.isNullOrBlank()) return "—"
     val normalized = value.trim()
         .replace(' ', 'T')
-        .replace(Regex("([+-]\\d{2})$"), "$1:00")
+        .let { raw ->
+            Regex("([+-]\\d{2})$").replace(raw) { match -> "${match.groupValues[1]}:00" }
+        }
     return runCatching {
         OffsetDateTime.parse(normalized)
             .atZoneSameInstant(ZoneId.systemDefault())
