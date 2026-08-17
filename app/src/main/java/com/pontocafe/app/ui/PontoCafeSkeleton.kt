@@ -63,11 +63,11 @@ private fun SkeletonBlock(
 }
 
 @Composable
-fun PontoCafeSkeletonRow(
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
+private fun PontoCafeSkeletonRowContent(
+    modifier: Modifier,
+    compact: Boolean,
+    alpha: Float,
 ) {
-    val alpha = rememberSkeletonAlpha()
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -114,8 +114,20 @@ fun PontoCafeSkeletonRow(
 }
 
 @Composable
-private fun SkeletonMetricStrip() {
+fun PontoCafeSkeletonRow(
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
     val alpha = rememberSkeletonAlpha()
+    PontoCafeSkeletonRowContent(
+        modifier = modifier,
+        compact = compact,
+        alpha = alpha,
+    )
+}
+
+@Composable
+private fun SkeletonMetricStrip(alpha: Float) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
@@ -148,6 +160,8 @@ fun PontoCafeListSkeletonScreen(
     rows: Int = 5,
     showMetrics: Boolean = true,
 ) {
+    val sharedAlpha = rememberSkeletonAlpha()
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -169,17 +183,20 @@ fun PontoCafeListSkeletonScreen(
             )
         }
         if (showMetrics) {
-            item("skeleton-metrics") { SkeletonMetricStrip() }
+            item("skeleton-metrics") { SkeletonMetricStrip(sharedAlpha) }
         }
         item("skeleton-section") {
-            val alpha = rememberSkeletonAlpha()
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                SkeletonBlock(Modifier.width(156.dp).height(20.dp), alpha = alpha)
-                SkeletonBlock(Modifier.fillMaxWidth(0.62f).height(11.dp), alpha = alpha)
+                SkeletonBlock(Modifier.width(156.dp).height(20.dp), alpha = sharedAlpha)
+                SkeletonBlock(Modifier.fillMaxWidth(0.62f).height(11.dp), alpha = sharedAlpha)
             }
         }
         items(rows, key = { "skeleton-row-$it" }) {
-            PontoCafeSkeletonRow()
+            PontoCafeSkeletonRowContent(
+                modifier = Modifier,
+                compact = false,
+                alpha = sharedAlpha,
+            )
         }
     }
 }
