@@ -3,6 +3,7 @@ package com.pontocafe.app.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -106,34 +107,66 @@ fun AdminAccountForm(
             subtitle = "Supervisor é recomendado para a operação diária. Administrador possui controle total.",
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            ProfileChoiceCard(
-                title = "Supervisor",
-                description = "Pausas, colaboradores, biometria e autorizações.",
-                selected = perfil == AccountProfile.SUPERVISOR,
-                onClick = {
-                    draftState.update(
-                        draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null),
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val stackProfiles = maxWidth < 430.dp
+            if (stackProfiles) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    ProfileChoiceCard(
+                        title = "Supervisor",
+                        description = "Pausas, colaboradores, biometria e autorizações.",
+                        selected = perfil == AccountProfile.SUPERVISOR,
+                        onClick = {
+                            draftState.update(
+                                draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !carregando,
                     )
-                },
-                modifier = Modifier.weight(1f),
-                enabled = !carregando,
-            )
-            ProfileChoiceCard(
-                title = "Administrador",
-                description = "Controle total, acessos, configurações e dispositivos.",
-                selected = perfil == AccountProfile.ADMIN,
-                onClick = {
-                    draftState.update(
-                        draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null),
+                    ProfileChoiceCard(
+                        title = "Administrador",
+                        description = "Controle total, acessos, configurações e dispositivos.",
+                        selected = perfil == AccountProfile.ADMIN,
+                        onClick = {
+                            draftState.update(
+                                draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !carregando,
                     )
-                },
-                modifier = Modifier.weight(1f),
-                enabled = !carregando,
-            )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    ProfileChoiceCard(
+                        title = "Supervisor",
+                        description = "Pausas, colaboradores, biometria e autorizações.",
+                        selected = perfil == AccountProfile.SUPERVISOR,
+                        onClick = {
+                            draftState.update(
+                                draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !carregando,
+                    )
+                    ProfileChoiceCard(
+                        title = "Administrador",
+                        description = "Controle total, acessos, configurações e dispositivos.",
+                        selected = perfil == AccountProfile.ADMIN,
+                        onClick = {
+                            draftState.update(
+                                draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !carregando,
+                    )
+                }
+            }
         }
 
         Card(
