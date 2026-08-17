@@ -116,12 +116,12 @@ fun AdminArea(
                 (fadeIn(tween(PontoCafeMotion.Standard)) +
                     slideInHorizontally(
                         animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-                        initialOffsetX = { it / 12 },
+                        initialOffsetX = { it / 20 },
                     )) togetherWith
                     (fadeOut(tween(PontoCafeMotion.Quick)) +
                         slideOutHorizontally(
                             animationSpec = tween(PontoCafeMotion.Standard),
-                            targetOffsetX = { -it / 18 },
+                            targetOffsetX = { -it / 28 },
                         ))
             },
             label = "admin-reliability-navigation",
@@ -211,19 +211,8 @@ fun AdminArea(
             AnimatedContent(
                 targetState = rootDestination,
                 transitionSpec = {
-                    val forward = targetState.ordinal >= initialState.ordinal
-                    val enterOffset: (Int) -> Int = { width -> if (forward) width / 12 else -width / 12 }
-                    val exitOffset: (Int) -> Int = { width -> if (forward) -width / 18 else width / 18 }
-                    (fadeIn(tween(PontoCafeMotion.Standard)) +
-                        slideInHorizontally(
-                            animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-                            initialOffsetX = enterOffset,
-                        )) togetherWith
-                        (fadeOut(tween(PontoCafeMotion.Quick)) +
-                            slideOutHorizontally(
-                                animationSpec = tween(PontoCafeMotion.Standard),
-                                targetOffsetX = exitOffset,
-                            ))
+                    fadeIn(tween(PontoCafeMotion.Quick)) togetherWith
+                        fadeOut(tween(PontoCafeMotion.Instant))
                 },
                 label = "admin-primary-navigation",
             ) { destination ->
@@ -270,12 +259,12 @@ fun AdminArea(
             (fadeIn(tween(PontoCafeMotion.Standard)) +
                 slideInHorizontally(
                     animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-                    initialOffsetX = { it / 12 },
+                    initialOffsetX = { it / 20 },
                 )) togetherWith
                 (fadeOut(tween(PontoCafeMotion.Quick)) +
                     slideOutHorizontally(
                         animationSpec = tween(PontoCafeMotion.Standard),
-                        targetOffsetX = { -it / 18 },
+                        targetOffsetX = { -it / 28 },
                     ))
         },
         label = "admin-detail-navigation",
