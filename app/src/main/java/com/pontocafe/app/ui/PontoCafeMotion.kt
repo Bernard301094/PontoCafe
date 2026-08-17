@@ -29,6 +29,11 @@ object PontoCafeMotion {
     const val Emphasized = 360
     const val Slow = 520
 
+    // Aliases mantidos para compatibilidade com componentes anteriores ao sistema Motion V2.
+    const val fast = 160
+    const val normal = 260
+    const val emphasized = 420
+
     val StandardEasing = FastOutSlowInEasing
     val EmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 }
