@@ -219,9 +219,6 @@ class MainActivity : FragmentActivity() {
                                             offlineStore = offlineStore,
                                             embeddingEngine = faceEmbeddingEngine,
                                             onWorkforceChanged = {
-                                                // Qualquer mudança de equipe/biometria invalida o catálogo
-                                                // deste dispositivo. Assim uma biometria excluída nunca
-                                                // permanece utilizável pelo modo offline local.
                                                 faceCatalogStore.clear()
                                                 adminVm.abrirColaboradores()
                                             },
@@ -338,7 +335,11 @@ class MainActivity : FragmentActivity() {
                                 }
 
                                 when {
-                                    !state.deviceConfigured -> DeviceSetupScreen(vm, onAdminClick = { enterRestricted(AreaRestrita.ADMIN) })
+                                    !state.deviceConfigured -> DeviceSetupScreen(
+                                        viewModel = vm,
+                                        onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
+                                        onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
+                                    )
                                     state.comprovante != null -> PointReceiptScreen(vm)
                                     state.needsAuthorization -> AuthorizationScreen(vm)
                                     state.identificacao != null -> IdentityConfirmationScreen(vm)
