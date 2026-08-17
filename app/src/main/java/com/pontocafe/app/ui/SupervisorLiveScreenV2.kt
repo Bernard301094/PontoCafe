@@ -61,14 +61,6 @@ fun SupervisorLiveScreenV2(
 ) {
     val state = viewModel.state
     val lifecycleOwner = LocalLifecycleOwner.current
-    var liveNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            liveNow = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -84,14 +76,19 @@ fun SupervisorLiveScreenV2(
         pausasAtivas = state.pausasAtivas,
         enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
     )
-    val pendingFaces = state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() }
-    val orderedPausas = state.pausasAtivas.sortedWith(
-        compareByDescending<PausaSupervisor> { supervisorLiveSeconds(it, liveNow) > it.limiteSegundos }
-            .thenByDescending { supervisorLiveSeconds(it, liveNow) },
-    )
-    val overdue = orderedPausas.count { supervisorLiveSeconds(it, liveNow) > it.limiteSegundos }
-    val secondsSinceUpdate = state.ultimaAtualizacaoAoVivoEmMillis?.let {
-        ((liveNow - it) / 1000L).coerceAtLeast(0L)
+    val pendingFaces = remember(state.colaboradores) {
+        state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() }
+    }
+    val orderedPausas = remember(state.pausasAtivas) {
+        val snapshotNow = System.currentTimeMillis()
+        state.pausasAtivas.sortedWith(
+            compareByDescending<PausaSupervisor> { supervisorLiveSeconds(it, snapshotNow) > it.limiteSegundos }
+                .thenByDescending { supervisorLiveSeconds(it, snapshotNow) },
+        )
+    }
+    val overdue = remember(orderedPausas) {
+        val snapshotNow = System.currentTimeMillis()
+        orderedPausas.count { supervisorLiveSeconds(it, snapshotNow) > it.limiteSegundos }
     }
 
     LazyColumn(
@@ -121,14 +118,9 @@ fun SupervisorLiveScreenV2(
         }
 
         item(key = "connection") {
-            StatusPill(
-                text = when {
-                    !state.conexaoAoVivoOk -> "Conexão instável"
-                    secondsSinceUpdate != null && secondsSinceUpdate < 10 -> "Sincronizado"
-                    secondsSinceUpdate != null -> "Atualizado há ${secondsSinceUpdate}s"
-                    else -> "Conectando"
-                },
-                tone = if (state.conexaoAoVivoOk) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+            LiveConnectionStatus(
+                connectionOk = state.conexaoAoVivoOk,
+                lastUpdateMillis = state.ultimaAtualizacaoAoVivoEmMillis,
             )
         }
 
@@ -223,7 +215,7 @@ fun SupervisorLiveScreenV2(
             }
         } else {
             items(orderedPausas, key = { "pause-${it.id}" }) { pause ->
-                LivePauseCard(pause = pause, now = liveNow)
+                LivePauseCard(pause = pause)
             }
         }
 
@@ -258,10 +250,57 @@ fun SupervisorLiveScreenV2(
 }
 
 @Composable
+private fun LiveConnectionStatus(
+    connectionOk: Boolean,
+    lastUpdateMillis: Long?,
+) {
+    var now by remember(lastUpdateMillis) { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(lastUpdateMillis, connectionOk) {
+        if (lastUpdateMillis == null) return@LaunchedEffect
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+
+    val secondsSinceUpdate = lastUpdateMillis?.let {
+        ((now - it) / 1000L).coerceAtLeast(0L)
+    }
+    StatusPill(
+        text = when {
+            !connectionOk -> "Conexão instável"
+            secondsSinceUpdate != null && secondsSinceUpdate < 10 -> "Sincronizado"
+            secondsSinceUpdate != null -> "Atualizado há ${secondsSinceUpdate}s"
+            else -> "Conectando"
+        },
+        tone = if (connectionOk) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+    )
+}
+
+@Composable
 private fun LivePauseCard(
     pause: PausaSupervisor,
-    now: Long,
 ) {
+    var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
+        mutableLongStateOf(System.currentTimeMillis())
+    }
+
+    LaunchedEffect(
+        pause.id,
+        pause.clienteAtualizadoEmMillis,
+        pause.tempoSegundos,
+        pause.duracaoSegundos,
+        pause.fimLocal,
+    ) {
+        now = System.currentTimeMillis()
+        if (pause.fimLocal != null) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+
     val seconds = supervisorLiveSeconds(pause, now)
     val overdue = seconds > pause.limiteSegundos
     val remaining = (pause.limiteSegundos - seconds).coerceAtLeast(0)
