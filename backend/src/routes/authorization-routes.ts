@@ -90,3 +90,57 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
     aviso: 'Pausa liberada previamente. O Ponto validará a liberação automaticamente.',
   }, 201)
 })
+
+authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
+  const body = await parseJson(c, z.object({
+    colaboradorId: uuidSchema,
+    periodo: periodoSchema,
+  }))
+  if (!body.ok) return body.response
+
+  const user = c.get('user')
+  const canceled = await transaction(async (client) => {
+    const result = await client.query<{ id: string }>(
+      `update autorizacoes
+       set cancelada_em=now()
+       where id=(
+         select id from autorizacoes
+         where colaborador_id=$1 and periodo=$2
+           and usado_em is null
+           and cancelada_em is null
+           and expira_em>now()
+         order by criado_em desc
+         limit 1
+         for update
+       )
+       returning id`,
+      [body.data.colaboradorId, body.data.periodo],
+    )
+    const authorization = result.rows[0]
+    if (!authorization) return null
+
+    await client.query(
+      `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ($1,$2,'CANCELAR_LIBERACAO_FORA_HORARIO','AUTORIZACAO',$3,$4::jsonb)`,
+      [
+        user.id,
+        user.papel,
+        authorization.id,
+        JSON.stringify({
+          colaboradorId: body.data.colaboradorId,
+          periodo: body.data.periodo,
+        }),
+      ],
+    )
+
+    return authorization.id
+  })
+
+  if (!canceled) {
+    return c.json({
+      erro: 'Não existe liberação ativa para cancelar. Ela pode ter expirado ou já ter sido utilizada.',
+    }, 404)
+  }
+
+  return c.json({ ok: true, cancelada: true, id: canceled })
+})
