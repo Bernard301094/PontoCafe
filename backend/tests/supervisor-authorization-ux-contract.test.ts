@@ -35,6 +35,16 @@ test('seleção colapsa para configuração e CTA fica persistente', () => {
   assert.match(ui, /Liberar pausa/)
 })
 
+test('Supervisor não escolhe manualmente manhã ou tarde', () => {
+  assert.match(ui, /Período automático/)
+  assert.match(ui, /Você não precisa escolher Manhã ou Tarde/)
+  assert.doesNotMatch(ui, /selected = periodo == "MANHA"/)
+  assert.doesNotMatch(ui, /selected = periodo == "TARDE"/)
+  assert.match(routes, /async function inferirPeriodoAtual/)
+  assert.match(routes, /periodoDefinidoAutomaticamente: true/)
+  assert.match(routes, /now\(\) at time zone \$1/)
+})
+
 test('UX exige confirmação, oferece motivos rápidos e mostra vencimento', () => {
   assert.match(ui, /AlertDialog/)
   assert.match(ui, /Confirmar liberação/)
@@ -55,5 +65,5 @@ test('cancelamento é ação real de servidor e auditada', () => {
 
 test('segredo legado não é guardado como código visível no estado do Supervisor', () => {
   assert.match(viewModel, /authorizationCode = authorization\.id/)
-  assert.match(routes, /O novo fluxo não exibe nem solicita este valor/)
+  assert.match(routes, /Campo legado mantido para compatibilidade/)
 })
