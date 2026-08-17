@@ -18,13 +18,21 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.data.AdminTestPauseStore
+import com.pontocafe.app.data.SecureAdminSessionStore
 
 @Composable
 fun AdminPanelScreen(
@@ -42,6 +50,15 @@ fun AdminPanelScreen(
     val activeDevices = summary?.dispositivosAtivos ?: 0
     val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
     val online = state.erro == null
+
+    val context = LocalContext.current
+    val adminSessionStore = remember(context) {
+        SecureAdminSessionStore(context.applicationContext, "admin")
+    }
+    val adminDisplayName = remember(adminSessionStore) {
+        adminSessionStore.activeAccount()?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
+    }
+    val testPause by AdminTestPauseStore.active.collectAsState()
 
     PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
         // Abaixo de 720 dp evitamos grids de 3/4 colunas. Em telefones isso
@@ -278,6 +295,49 @@ fun AdminPanelScreen(
                             onClick = onDevicesClick,
                             modifier = Modifier.weight(1f),
                         )
+                    }
+                }
+            }
+
+            item(key = "supervisor-test-title") {
+                SectionTitle(
+                    "Teste visual do Supervisor",
+                    "Simule uma batida de ponto sem criar registros reais.",
+                )
+            }
+
+            item(key = "supervisor-test") {
+                PcSectionSurface {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcStateBanner(
+                            title = if (testPause == null) "Nenhum teste ativo" else "TESTE ativo no Supervisor",
+                            supportingText = if (testPause == null) {
+                                "A simulação existe somente neste aparelho e desaparece ao reiniciar a app."
+                            } else {
+                                "${testPause?.adminName ?: adminDisplayName} aparece em Ao vivo com a etiqueta TESTE. Nada é enviado ao servidor."
+                            },
+                            tone = if (testPause == null) PontoCafeTone.NEUTRAL else PontoCafeTone.INFO,
+                        )
+                        Text(
+                            "O teste não altera pausas reais, métricas, histórico, fila offline, banco de dados ou auditoria.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (testPause == null) {
+                            PcPrimaryButton(
+                                text = "Iniciar teste de ponto",
+                                icon = Icons.Default.Science,
+                                onClick = { AdminTestPauseStore.start(adminDisplayName) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            PcSecondaryButton(
+                                text = "Encerrar teste",
+                                icon = Icons.Default.StopCircle,
+                                onClick = AdminTestPauseStore::stop,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }
