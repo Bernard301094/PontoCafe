@@ -36,7 +36,11 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 
 @Composable
-fun DeviceSetupScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = {}) {
+fun DeviceSetupScreen(
+    viewModel: PontoCafeViewModel,
+    onAdminClick: () -> Unit = {},
+    onSupervisorClick: () -> Unit = {},
+) {
     var token by remember { mutableStateOf("") }
 
     Column(
@@ -101,15 +105,21 @@ fun DeviceSetupScreen(viewModel: PontoCafeViewModel, onAdminClick: () -> Unit = 
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                Text("Precisa administrar a instalação?", style = MaterialTheme.typography.titleMedium)
+            Column(
+                Modifier.padding(PontoCafeSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                Text("Acesso de gestão", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "A área administrativa continua disponível mesmo antes deste aparelho ser ativado como Ponto.",
+                    "Administrador e Supervisor podem entrar mesmo antes deste aparelho ser ativado como Ponto.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
-                    Text("Abrir área administrativa")
+                    Text("Entrar como Administrador")
+                }
+                OutlinedButton(onClick = onSupervisorClick, modifier = Modifier.fillMaxWidth()) {
+                    Text("Entrar como Supervisor")
                 }
             }
         }
