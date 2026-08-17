@@ -7,15 +7,23 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
 
@@ -64,35 +72,47 @@ fun SupervisorAreaShell(
         return
     }
 
-    NavigationSuiteScaffold(
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
-        navigationSuiteItems = {
-            SupervisorPrimaryDestination.entries.forEach { destination ->
-                item(
-                    selected = current == destination,
-                    onClick = {
-                        when (destination) {
-                            SupervisorPrimaryDestination.LIVE -> viewModel.voltarAoVivo()
-                            SupervisorPrimaryDestination.PEOPLE -> viewModel.abrirColaboradores()
-                            SupervisorPrimaryDestination.REPORTS -> viewModel.abrirRelatorios(7)
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = when (destination) {
-                                SupervisorPrimaryDestination.LIVE -> Icons.Default.Home
-                                SupervisorPrimaryDestination.PEOPLE -> Icons.Default.People
-                                SupervisorPrimaryDestination.REPORTS -> Icons.Default.BarChart
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            if (!imeVisible) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    SupervisorPrimaryDestination.entries.forEach { destination ->
+                        NavigationBarItem(
+                            selected = current == destination,
+                            onClick = {
+                                when (destination) {
+                                    SupervisorPrimaryDestination.LIVE -> viewModel.voltarAoVivo()
+                                    SupervisorPrimaryDestination.PEOPLE -> viewModel.abrirColaboradores()
+                                    SupervisorPrimaryDestination.REPORTS -> viewModel.abrirRelatorios(7)
+                                }
                             },
-                            contentDescription = destination.label,
+                            icon = {
+                                Icon(
+                                    imageVector = when (destination) {
+                                        SupervisorPrimaryDestination.LIVE -> Icons.Default.Home
+                                        SupervisorPrimaryDestination.PEOPLE -> Icons.Default.People
+                                        SupervisorPrimaryDestination.REPORTS -> Icons.Default.BarChart
+                                    },
+                                    contentDescription = destination.label,
+                                )
+                            },
+                            label = { Text(destination.label) },
                         )
-                    },
-                    label = { Text(destination.label) },
-                )
+                    }
+                }
             }
         },
-    ) {
+    ) { innerPadding ->
         AnimatedContent(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
             targetState = current,
             transitionSpec = {
                 val forward = targetState.ordinal >= initialState.ordinal
