@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.HealthAndSafety
@@ -26,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -40,12 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.CoffeeRuleV2
 import com.pontocafe.app.domain.PontoCafeRules
+import kotlinx.coroutines.delay
 
 @Composable
 fun AdminManagementScreenV2(
@@ -370,14 +373,64 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
 @Composable
 fun ReliabilityFeedback(viewModel: AdminReliabilityViewModel) {
     val state = viewModel.state
-    state.message?.let { message ->
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-            Text(message, Modifier.padding(PontoCafeSpacing.md), color = MaterialTheme.colorScheme.onPrimaryContainer)
+    val message = state.message
+
+    LaunchedEffect(message) {
+        if (message != null) {
+            delay(3_500)
+            if (viewModel.state.message == message) {
+                viewModel.clearFeedback()
+            }
         }
     }
+
+    message?.let {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = PontoCafeSpacing.md, top = PontoCafeSpacing.xs, bottom = PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    text = it,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                IconButton(onClick = viewModel::clearFeedback) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar aviso",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+    }
+
     state.error?.let { error ->
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-            Text(error, Modifier.padding(PontoCafeSpacing.md), color = MaterialTheme.colorScheme.onErrorContainer)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = PontoCafeSpacing.md, top = PontoCafeSpacing.xs, bottom = PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    text = error,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                IconButton(onClick = viewModel::clearFeedback) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar erro",
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
         }
     }
 }
