@@ -119,18 +119,20 @@ class SupervisorRepository(
     fun hasSession(): Boolean = supervisorToken() != null
     fun usingAdminSession(): Boolean = false
 
+    /**
+     * O login termina quando o servidor autentica as credenciais e devolve o
+     * bearer token. A carga da Operação acontece depois, no ViewModel.
+     *
+     * Antes, pausasAtivas() era chamada aqui para validar o papel. Isso fazia
+     * uma falha de rede/TLS posterior ao login parecer "falha de login" e
+     * devolvia o usuário ao formulário mesmo com uma sessão válida já criada.
+     */
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
         val bearer = response.headers()["set-auth-token"]
             ?: error("O servidor não retornou a sessão do supervisor.")
         supervisorSessionStore.save(bearer)
-        try {
-            api.pausasAtivas()
-        } catch (error: Throwable) {
-            if (isAuthFailure(error)) supervisorSessionStore.clear()
-            throw error
-        }
     }
 
     suspend fun pausasAtivas(): List<PausaSupervisor> {
@@ -191,6 +193,7 @@ class SupervisorRepository(
 
     companion object {
         fun isAuthFailure(error: Throwable): Boolean = AdminRepository.isAuthFailure(error)
+        fun isTlsTrustFailure(error: Throwable): Boolean = AdminRepository.isTlsTrustFailure(error)
         fun message(error: Throwable): String = AdminRepository.message(error)
     }
 }
