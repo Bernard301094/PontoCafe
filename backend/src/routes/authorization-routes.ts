@@ -2,20 +2,47 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
-import { transaction } from '../db.js'
+import { query, transaction } from '../db.js'
 import { generateAuthorizationCode, hashAuthorizationCode, newId } from '../security.js'
 import { parseJson, periodoSchema, uuidSchema } from './shared.js'
 
 export const authorizationRoutes = new Hono<AppEnv>()
 authorizationRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
+async function inferirPeriodoAtual(): Promise<'MANHA' | 'TARDE' | null> {
+  const result = await query<{ periodo: 'MANHA' | 'TARDE' }>(
+    `select periodo
+     from regras_cafe
+     where ativo=true
+     order by
+       case
+         when (now() at time zone $1)::time >= inicio
+          and (now() at time zone $1)::time < fim then 0
+         when (now() at time zone $1)::time < inicio
+           then extract(epoch from (inicio - (now() at time zone $1)::time))
+         else extract(epoch from ((now() at time zone $1)::time - fim))
+       end asc,
+       inicio asc
+     limit 1`,
+    [config.appTimezone],
+  )
+  return result.rows[0]?.periodo ?? null
+}
+
 authorizationRoutes.post('/autorizacoes', async (c) => {
   const body = await parseJson(c, z.object({
     colaboradorId: uuidSchema,
-    periodo: periodoSchema,
+    // Mantido opcional apenas para compatibilidade com APKs anteriores.
+    // O servidor é a fonte de verdade e sempre calcula o período pela hora atual.
+    periodo: periodoSchema.optional(),
     motivo: z.string().trim().min(2).max(300),
   }))
   if (!body.ok) return body.response
+
+  const periodo = await inferirPeriodoAtual()
+  if (!periodo) {
+    return c.json({ erro: 'Não existe regra de café ativa para determinar o período automaticamente.' }, 409)
+  }
 
   const user = c.get('user')
   // Mantemos um segredo interno apenas por compatibilidade com o schema atual.
@@ -32,7 +59,6 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
     if (!collaborator) return null
 
     // Uma pessoa só pode ter uma liberação prévia ativa por vez.
-    // Isso evita ambiguidade caso o Supervisor troque o período antes do uso.
     await client.query(
       `update autorizacoes set cancelada_em=now()
        where colaborador_id=$1 and usado_em is null
@@ -48,7 +74,7 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
         id,
         body.data.colaboradorId,
         user.id,
-        body.data.periodo,
+        periodo,
         hashAuthorizationCode(segredoInterno),
         body.data.motivo,
         config.authorizationTtlSeconds,
@@ -65,7 +91,8 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
         JSON.stringify({
           colaboradorId: collaborator.id,
           colaboradorNome: collaborator.nome,
-          periodo: body.data.periodo,
+          periodo,
+          periodoDefinidoAutomaticamente: true,
           motivo: body.data.motivo,
           expiraEmSegundos: config.authorizationTtlSeconds,
         }),
@@ -79,32 +106,33 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
 
   return c.json({
     id,
-    // Campo mantido temporariamente para compatibilidade com APKs anteriores.
-    // O novo fluxo não exibe nem solicita este valor.
+    // Campo legado mantido para compatibilidade; não é exibido nem solicitado.
     codigo: segredoInterno,
     liberada: true,
     colaboradorNome: created.colaboradorNome,
-    periodo: body.data.periodo,
+    periodo,
+    periodoDefinidoAutomaticamente: true,
     expiraEm: created.expiraEm,
     expiraEmSegundos: config.authorizationTtlSeconds,
-    aviso: 'Pausa liberada previamente. O Ponto validará a liberação automaticamente.',
+    aviso: 'Pausa liberada previamente. O período foi definido automaticamente pelo horário do servidor.',
   }, 201)
 })
 
 authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
   const body = await parseJson(c, z.object({
     colaboradorId: uuidSchema,
-    periodo: periodoSchema,
+    // Compatibilidade com APKs anteriores. O cancelamento usa a liberação ativa mais recente.
+    periodo: periodoSchema.optional(),
   }))
   if (!body.ok) return body.response
 
   const user = c.get('user')
   const canceled = await transaction(async (client) => {
-    const result = await client.query<{ id: string }>(
+    const result = await client.query<{ id: string; periodo: 'MANHA' | 'TARDE' }>(
       `with target as (
-         select id
+         select id,periodo
          from autorizacoes
-         where colaborador_id=$1 and periodo=$2
+         where colaborador_id=$1
            and usado_em is null
            and cancelada_em is null
            and expira_em>now()
@@ -116,8 +144,8 @@ authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
        set cancelada_em=now()
        from target
        where a.id=target.id
-       returning a.id`,
-      [body.data.colaboradorId, body.data.periodo],
+       returning a.id,target.periodo`,
+      [body.data.colaboradorId],
     )
     const authorization = result.rows[0]
     if (!authorization) return null
@@ -131,7 +159,7 @@ authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
         authorization.id,
         JSON.stringify({
           colaboradorId: body.data.colaboradorId,
-          periodo: body.data.periodo,
+          periodo: authorization.periodo,
         }),
       ],
     )
