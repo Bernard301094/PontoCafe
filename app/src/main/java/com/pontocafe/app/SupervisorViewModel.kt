@@ -37,6 +37,7 @@ data class SupervisorUiState(
     val relatorio: SupervisorReportResponse? = null,
     val relatorioInicio: String? = null,
     val relatorioFim: String? = null,
+    // Campo legado usado apenas como marcador de uma liberação ativa na UI.
     val authorizationCode: String? = null,
     val authorizationEmployeeName: String? = null,
     val authorizationExpiresSeconds: Int? = null,
@@ -232,7 +233,7 @@ class SupervisorViewModel(
             return
         }
         if (motivo.trim().length < 2) {
-            state = state.copy(erro = "Informe o motivo da autorização.")
+            state = state.copy(erro = "Informe o motivo da liberação.")
             return
         }
 
@@ -242,10 +243,37 @@ class SupervisorViewModel(
                 .onSuccess { authorization ->
                     state = state.copy(
                         carregando = false,
-                        authorizationCode = authorization.codigo,
+                        // Guardamos o id, e não o segredo interno legado, apenas para marcar a liberação na UI.
+                        authorizationCode = authorization.id,
                         authorizationEmployeeName = colaborador.nome,
                         authorizationExpiresSeconds = authorization.expiraEmSegundos,
-                        mensagem = "Código gerado. Informe-o ao colaborador antes que expire.",
+                        mensagem = null,
+                        erro = null,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    fun cancelarAutorizacao(colaborador: Colaborador, periodo: String) {
+        if (state.authorizationCode == null || state.carregando) return
+        if (periodo != "MANHA" && periodo != "TARDE") {
+            state = state.copy(erro = "Período da liberação inválido.")
+            return
+        }
+
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.cancelAuthorization(colaborador.id, periodo) }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        authorizationCode = null,
+                        authorizationEmployeeName = null,
+                        authorizationExpiresSeconds = null,
+                        mensagem = "Liberação de ${colaborador.nome} cancelada.",
                         erro = null,
                     )
                 }
