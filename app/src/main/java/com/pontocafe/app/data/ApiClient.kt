@@ -209,9 +209,9 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
 
     /**
-     * Retorna null quando o Worker ainda não oferece o fast-path ou quando ele
-     * está temporariamente indisponível. O chamador então usa o fluxo legado
-     * completo, permitindo implantar APK e backend em qualquer ordem.
+     * Retorna null quando o Worker ainda não oferece o fast-path, quando essa
+     * rota responde 5xx ou quando a conexão falha. O chamador então usa o fluxo
+     * legado, que também preserva o modo offline já existente.
      */
     suspend fun registrarRapido(
         colaboradorId: String,
@@ -219,14 +219,18 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
         modelo: String,
         versaoModelo: String,
     ): RegistroRapidoResponse? {
-        val response = api.registroRapido(
-            RegistroRapidoRequest(
-                colaboradorId = colaboradorId,
-                embedding = embedding.toList(),
-                modelo = modelo,
-                versaoModelo = versaoModelo,
-            ),
-        )
+        val response = try {
+            api.registroRapido(
+                RegistroRapidoRequest(
+                    colaboradorId = colaboradorId,
+                    embedding = embedding.toList(),
+                    modelo = modelo,
+                    versaoModelo = versaoModelo,
+                ),
+            )
+        } catch (_: IOException) {
+            return null
+        }
         if (response.code() == 404 || response.code() == 405 || response.code() == 501 || response.code() >= 500) {
             return null
         }
