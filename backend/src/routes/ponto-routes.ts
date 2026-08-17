@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
-import { cosineSimilarity, decryptEmbedding, hashAuthorizationCode, hashToken, newId, newToken } from '../security.js'
+import { cosineSimilarity, decryptEmbedding, hashToken, newId, newToken } from '../security.js'
 import { embeddingSchema, parseJson, periodoSchema, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
@@ -120,6 +120,23 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
     [config.appTimezone],
   )
 
+  const aberta = pausaAberta.rows[0]
+  const regra = regraAtual.rows[0]
+  const liberacao = !aberta && !regra
+    ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number; expira_em: string }>(
+        `select a.periodo,r.limite_segundos,a.expira_em::text
+         from autorizacoes a
+         join regras_cafe r on r.periodo=a.periodo and r.ativo=true
+         where a.colaborador_id=$1
+           and a.usado_em is null
+           and a.cancelada_em is null
+           and a.expira_em>now()
+         order by a.criado_em desc
+         limit 1`,
+        [melhor.colaborador_id],
+      )).rows[0]
+    : undefined
+
   const verificacaoToken = newToken()
   await query(
     `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
@@ -127,10 +144,19 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
     [newId(), melhor.colaborador_id, device.id, hashToken(verificacaoToken), melhor.score, config.verificationTtlSeconds],
   )
 
-  const aberta = pausaAberta.rows[0]
-  const regra = regraAtual.rows[0]
+  const foraHorarioSemPausaAberta = !aberta && !regra
+  const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
+
   return c.json({
     reconhecido: true,
+    motivo: foraHorarioSemPausaAberta
+      ? (autorizadoForaHorario ? 'AUTORIZACAO_PREVIA' : 'FORA_HORARIO_NAO_LIBERADO')
+      : null,
+    mensagem: foraHorarioSemPausaAberta
+      ? (autorizadoForaHorario
+          ? 'Pausa liberada previamente pelo Supervisor.'
+          : 'Você está fora do horário permitido e não possui liberação prévia do Supervisor.')
+      : null,
     score: Number(melhor.score.toFixed(4)),
     verificacaoToken,
     expiraEmSegundos: config.verificationTtlSeconds,
@@ -150,9 +176,11 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    dentroHorario: Boolean(regra),
-    periodoAtual: regra?.periodo ?? null,
-    limiteSegundos: regra?.limite_segundos ?? null,
+    // Compatibilidade: para o app atual, uma liberação prévia significa que a pausa
+    // está permitida agora. O registro continua marcado como fora do horário.
+    dentroHorario: Boolean(regra) || autorizadoForaHorario,
+    periodoAtual: regra?.periodo ?? liberacao?.periodo ?? null,
+    limiteSegundos: regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,
   })
 })
 
@@ -187,6 +215,8 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
   const body = await parseJson(c, z.object({
     colaboradorId: uuidSchema,
     verificacaoToken: z.string().min(20),
+    // Mantidos para aceitar APKs anteriores; a autorização agora é localizada
+    // automaticamente pelo servidor e nenhum código é exigido do colaborador.
     periodo: periodoSchema.optional(),
     codigoAutorizacao: z.string().regex(/^\d{6}$/).optional(),
   }))
@@ -218,19 +248,32 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
         limiteSegundos = activeRule.rows[0].limite_segundos
       } else {
         foraHorario = true
-        if (!body.data.periodo || !body.data.codigoAutorizacao) throw new AppError('Fora do horário permitido. Informe o período e o código do supervisor.', 403)
-        periodo = body.data.periodo
-        const configured = await client.query<{ limite_segundos: number }>('select limite_segundos from regras_cafe where periodo=$1 and ativo=true', [periodo])
-        if (!configured.rows[0]) throw new AppError('Período indisponível.', 409)
-        limiteSegundos = configured.rows[0].limite_segundos
-        const authorization = await client.query<{ id: string }>(
-          `select id from autorizacoes where colaborador_id=$1 and periodo=$2 and codigo_hash=$3
-           and usado_em is null and cancelada_em is null and expira_em>now()
-           order by criado_em desc limit 1 for update`,
-          [body.data.colaboradorId, periodo, hashAuthorizationCode(body.data.codigoAutorizacao)],
+        const authorization = await client.query<{
+          id: string
+          periodo: 'MANHA'|'TARDE'
+          limite_segundos: number
+        }>(
+          `select a.id,a.periodo,r.limite_segundos
+           from autorizacoes a
+           join regras_cafe r on r.periodo=a.periodo and r.ativo=true
+           where a.colaborador_id=$1
+             and a.usado_em is null
+             and a.cancelada_em is null
+             and a.expira_em>now()
+           order by a.criado_em desc
+           limit 1 for update`,
+          [body.data.colaboradorId],
         )
-        if (!authorization.rows[0]) throw new AppError('Código de autorização inválido ou expirado.', 403)
-        autorizacaoId = authorization.rows[0].id
+        const liberacao = authorization.rows[0]
+        if (!liberacao) {
+          throw new AppError(
+            'Pausa não liberada. Você está fora do horário permitido. Solicite a liberação prévia ao Supervisor.',
+            403,
+          )
+        }
+        periodo = liberacao.periodo
+        limiteSegundos = liberacao.limite_segundos
+        autorizacaoId = liberacao.id
         await client.query('update autorizacoes set usado_em=now() where id=$1', [autorizacaoId])
       }
 
