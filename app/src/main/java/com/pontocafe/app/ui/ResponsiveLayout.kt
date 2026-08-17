@@ -40,7 +40,7 @@ fun PontoCafeResponsivePage(
             },
             isNarrow = width < 360.dp,
             isCompact = width < 600.dp,
-            isMedium = width in 600.dp..<840.dp,
+            isMedium = width >= 600.dp && width < 840.dp,
             isExpanded = width >= 840.dp,
         )
 
