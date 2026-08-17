@@ -1,6 +1,5 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,16 +15,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
@@ -45,6 +41,7 @@ fun AdminPanelScreen(
     val openPauses = summary?.pausasAbertas ?: 0
     val activeDevices = summary?.dispositivosAtivos ?: 0
     val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
+    val online = state.erro == null
 
     PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
         LazyColumn(
@@ -55,23 +52,12 @@ fun AdminPanelScreen(
                 .imePadding()
                 .padding(horizontal = responsive.pagePadding),
             contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
         ) {
             item(key = "header") {
-                if (responsive.isNarrow) {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PontoCafeScreenHeader(
-                            title = "Visão geral",
-                            eyebrow = "Administrador",
-                        )
-                        OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-                            Text("Voltar ao Ponto")
-                        }
-                    }
-                } else {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     ) {
                         PontoCafeScreenHeader(
@@ -79,48 +65,101 @@ fun AdminPanelScreen(
                             eyebrow = "Administrador",
                             modifier = Modifier.weight(1f),
                         )
-                        OutlinedButton(onClick = onClose) { Text("Ponto") }
                     }
+                    PcSecondaryButton(
+                        text = "Voltar ao Ponto",
+                        onClick = onClose,
+                        modifier = if (responsive.isNarrow) Modifier.fillMaxWidth() else Modifier,
+                    )
                 }
             }
 
             item(key = "feedback") { AdminFeedback(viewModel) }
 
-            item(key = "operation-status") {
-                OperationStatusCard(
-                    online = state.erro == null,
-                    openPauses = openPauses,
-                    activeDevices = activeDevices,
+            item(key = "hero") {
+                PcHeroCard(
+                    title = if (online) "Operação normal" else "Operando com dados disponíveis",
+                    supportingText = if (online) {
+                        "$activeDevices dispositivo(s) ativo(s) · $openPauses pessoa(s) em pausa agora"
+                    } else {
+                        "A conexão ainda não foi confirmada. Os dados locais permanecem visíveis."
+                    },
+                    icon = if (online) Icons.Default.Security else Icons.Default.Devices,
+                    tone = if (online) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
                 )
+            }
+
+            item(key = "metrics-title") {
+                SectionTitle("Operação", "Indicadores principais do Ponto Café neste momento.")
             }
 
             item(key = "metrics") {
                 if (responsive.isNarrow) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        MetricCard(
-                            value = collaborators.toString(),
-                            label = "Colaboradores",
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                        MetricCard(
-                            value = openPauses.toString(),
-                            label = "Em pausa agora",
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = collaborators.toString(),
+                                label = "Colaboradores",
+                                icon = Icons.Default.Groups,
+                                modifier = Modifier.weight(1f),
+                            )
+                            PcMetricTile(
+                                value = openPauses.toString(),
+                                label = "Em pausa",
+                                icon = Icons.Default.Coffee,
+                                modifier = Modifier.weight(1f),
+                                attention = openPauses > 0,
+                            )
+                        }
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = registeredFaces.toString(),
+                                label = "Biometrias prontas",
+                                icon = Icons.Default.Face,
+                                modifier = Modifier.weight(1f),
+                            )
+                            PcMetricTile(
+                                value = activeDevices.toString(),
+                                label = "Dispositivos",
+                                icon = Icons.Default.Devices,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 } else {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     ) {
-                        MetricCard(
+                        PcMetricTile(
                             value = collaborators.toString(),
                             label = "Colaboradores",
+                            icon = Icons.Default.Groups,
                             modifier = Modifier.weight(1f),
                         )
-                        MetricCard(
+                        PcMetricTile(
                             value = openPauses.toString(),
                             label = "Em pausa agora",
+                            icon = Icons.Default.Coffee,
+                            modifier = Modifier.weight(1f),
+                            attention = openPauses > 0,
+                        )
+                        PcMetricTile(
+                            value = registeredFaces.toString(),
+                            label = "Biometrias prontas",
+                            icon = Icons.Default.Face,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PcMetricTile(
+                            value = activeDevices.toString(),
+                            label = "Dispositivos",
+                            icon = Icons.Default.Devices,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -140,18 +179,15 @@ fun AdminPanelScreen(
 
             if (pendingFaces > 0 || devicesWithoutPin > 0 || activeSupervisors == 0) {
                 item(key = "pending-title") {
-                    SectionTitle(
-                        "Pendências",
-                        "Itens que merecem atenção, sem tratar tarefas operacionais comuns como falhas críticas.",
-                    )
+                    SectionTitle("Pendências", "Ações que exigem configuração ou acompanhamento.")
                 }
             }
 
             if (pendingFaces > 0) {
                 item(key = "pending-faces") {
                     OperationalAlertCard(
-                        title = "$pendingFaces rostos aguardando cadastro",
-                        text = "Esses colaboradores ainda não conseguem utilizar o reconhecimento facial.",
+                        title = "$pendingFaces rosto(s) aguardando cadastro",
+                        text = "Esses colaboradores ainda não conseguem utilizar reconhecimento facial.",
                         actionLabel = "Abrir Pessoas",
                         onClick = viewModel::abrirColaboradores,
                         tone = PontoCafeTone.WARNING,
@@ -163,7 +199,7 @@ fun AdminPanelScreen(
                 item(key = "devices-without-pin") {
                     OperationalAlertCard(
                         title = "$devicesWithoutPin dispositivo(s) sem PIN próprio",
-                        text = "Defina um PIN individual para eliminar dependência do código legado.",
+                        text = "Defina um PIN individual para cada ponto e reduza dependência do código legado.",
                         actionLabel = "Gerenciar dispositivos",
                         onClick = onDevicesClick,
                         tone = PontoCafeTone.WARNING,
@@ -175,7 +211,7 @@ fun AdminPanelScreen(
                 item(key = "no-supervisor") {
                     OperationalAlertCard(
                         title = "Nenhum Supervisor ativo",
-                        text = "Cadastre uma conta de Supervisor para delegar acompanhamento, biometria e autorizações.",
+                        text = "Cadastre uma conta de Supervisor para acompanhamento e autorizações.",
                         actionLabel = "Cadastrar Supervisor",
                         onClick = viewModel::abrirNovaConta,
                         tone = PontoCafeTone.INFO,
@@ -184,24 +220,31 @@ fun AdminPanelScreen(
             }
 
             item(key = "quick-title") {
-                SectionTitle("Ações rápidas", "As tarefas que normalmente precisam de resposta imediata.")
+                SectionTitle("Ações rápidas", "Atalhos para as tarefas administrativas mais usadas.")
             }
 
             item(key = "quick-actions") {
                 if (responsive.isNarrow) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        DashboardActionCard(
-                            title = "Nova pessoa",
-                            subtitle = "Colaborador ou acesso",
+                        PcActionTile(
+                            title = "Pessoas e acessos",
+                            supportingText = "Cadastrar, editar ou gerenciar biometria",
                             icon = Icons.Default.PersonAdd,
                             onClick = viewModel::abrirColaboradores,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        DashboardActionCard(
+                        PcActionTile(
                             title = "Autorizar pausa",
-                            subtitle = "Exceção temporária",
+                            supportingText = "Liberar uma exceção temporária",
                             icon = Icons.Default.Coffee,
                             onClick = viewModel::abrirAutorizacao,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        PcActionTile(
+                            title = "Dispositivos",
+                            supportingText = "PIN, status e configuração do modo Ponto",
+                            icon = Icons.Default.Devices,
+                            onClick = onDevicesClick,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -210,127 +253,54 @@ fun AdminPanelScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     ) {
-                        DashboardActionCard(
-                            title = "Nova pessoa",
-                            subtitle = "Colaborador ou acesso",
+                        PcActionTile(
+                            title = "Pessoas e acessos",
+                            supportingText = "Equipe e biometria",
                             icon = Icons.Default.PersonAdd,
                             onClick = viewModel::abrirColaboradores,
                             modifier = Modifier.weight(1f),
                         )
-                        DashboardActionCard(
+                        PcActionTile(
                             title = "Autorizar pausa",
-                            subtitle = "Exceção temporária",
+                            supportingText = "Exceção temporária",
                             icon = Icons.Default.Coffee,
                             onClick = viewModel::abrirAutorizacao,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PcActionTile(
+                            title = "Dispositivos",
+                            supportingText = "PIN e configuração",
+                            icon = Icons.Default.Devices,
+                            onClick = onDevicesClick,
                             modifier = Modifier.weight(1f),
                         )
                     }
                 }
             }
 
-            item(key = "operation-context") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(PontoCafeSpacing.md),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Column(Modifier.weight(1f)) {
-                            Text("Equipe de acesso", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "$activeSupervisors Supervisor(es) ativo(s) · ${state.usuarios.count { it.ativo }} conta(s) ativa(s)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (!responsive.isNarrow) {
-                            Icon(
-                                Icons.Default.Devices,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+            item(key = "access-context") {
+                PcSectionSurface {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        Text(
+                            "Equipe de acesso",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        )
+                        Text(
+                            "$activeSupervisors Supervisor(es) ativo(s) · ${state.usuarios.count { it.ativo }} conta(s) ativa(s)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
 
             item(key = "logout") {
-                OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth()) {
-                    Text("Encerrar sessão administrativa")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OperationStatusCard(
-    online: Boolean,
-    openPauses: Int,
-    activeDevices: Int,
-) {
-    val semantic = LocalPontoCafeSemanticColors.current
-    val container = if (online) semantic.successContainer else semantic.warningContainer
-    val content = if (online) semantic.onSuccessContainer else semantic.onWarningContainer
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = container),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            StatusPill(
-                text = if (online) "Operação normal" else "Dados locais",
-                tone = if (online) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-            )
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (online) "Ponto Café disponível" else "Conexão sem confirmação",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = content,
+                PcSecondaryButton(
+                    text = "Encerrar sessão administrativa",
+                    onClick = viewModel::logout,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    "$openPauses em pausa · $activeDevices dispositivo(s) ativo(s)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = content.copy(alpha = 0.8f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DashboardActionCard(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier,
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
