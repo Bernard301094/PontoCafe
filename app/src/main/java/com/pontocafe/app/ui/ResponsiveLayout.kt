@@ -38,7 +38,10 @@ fun PontoCafeResponsivePage(
                 width < 600.dp -> 16.dp
                 else -> 24.dp
             },
-            isNarrow = width < 360.dp,
+            // 360 dp era estreito demais como limite: aparelhos atuais como o
+            // Galaxy A55 costumam ficar acima disso e acabavam recebendo layouts
+            // pensados para tablet. Até 479 dp tratamos como telefone estreito.
+            isNarrow = width < 480.dp,
             isCompact = width < 600.dp,
             isMedium = width >= 600.dp && width < 840.dp,
             isExpanded = width >= 840.dp,
