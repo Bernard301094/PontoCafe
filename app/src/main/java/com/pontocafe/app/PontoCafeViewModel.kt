@@ -269,7 +269,7 @@ class PontoCafeViewModel(
                         throw error
                     }
                     pendingOfflineEmbedding = embedding.copyOf()
-                    identificacaoOffline(match.colaborador, match.score)
+                    identificacaoOffline(match.colaborador, match.score, embedding)
                 }
 
                 if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
@@ -309,15 +309,52 @@ class PontoCafeViewModel(
     private fun identificacaoOffline(
         colaborador: com.pontocafe.app.data.Colaborador,
         score: Double,
+        embedding: FloatArray,
     ): IdentificarBiometriaResponse {
         val open = offlineStore.localOpenPause(colaborador.id)
         val rule = offlineStore.currentRule()
+        val completed = if (open == null && rule != null) {
+            offlineStore.completedPauseToday(colaborador.id, rule.periodo)
+        } else {
+            null
+        }
         val elapsed = open?.let {
             ((System.currentTimeMillis() - it.inicioEmMillis) / 1000L)
                 .coerceAtLeast(0L)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
                 .toInt()
         }
+
+        if (completed != null && rule != null) {
+            runCatching {
+                offlineStore.queueOfflineStart(
+                    colaborador = colaborador,
+                    score = score,
+                    embedding = embedding,
+                    model = embeddingEngine.modelName,
+                    modelVersion = embeddingEngine.modelVersion,
+                    rule = rule,
+                )
+            }
+            val minutos = completed.duracaoSegundos / 60
+            val segundos = completed.duracaoSegundos % 60
+            val duracao = if (segundos > 0) "${minutos} min ${segundos} s" else "${minutos} min"
+            val periodoLabel = if (completed.periodo == "MANHA") "manhã" else "tarde"
+            return IdentificarBiometriaResponse(
+                reconhecido = true,
+                motivo = "PAUSA_PERIODO_JA_UTILIZADA",
+                mensagem = "Pausa da $periodoLabel já utilizada hoje. Saída: ${completed.inicioLocal} · Retorno: ${completed.fimLocal} · Duração: $duracao. Esta nova tentativa foi registrada e será sincronizada quando a conexão voltar.",
+                score = score,
+                verificacaoToken = OFFLINE_VERIFICATION_TOKEN,
+                colaborador = colaborador,
+                acaoSugerida = "BLOQUEADO",
+                pausaAberta = null,
+                dentroHorario = false,
+                periodoAtual = completed.periodo,
+                limiteSegundos = completed.limiteSegundos,
+            )
+        }
+
         return IdentificarBiometriaResponse(
             reconhecido = true,
             motivo = "MODO_OFFLINE",
@@ -368,8 +405,8 @@ class PontoCafeViewModel(
 
         val novo = CachedFaceCatalog(
             versao = response.versao,
-            modelo = response.modelo,
-            versaoModelo = response.versaoModelo,
+            modelo = embeddingEngine.modelName,
+            versaoModelo = embeddingEngine.modelVersion,
             limiar = response.limiar,
             margem = response.margem,
             templates = response.templates,
@@ -383,6 +420,11 @@ class PontoCafeViewModel(
         val identificacao = state.identificacao ?: return
         val colaborador = identificacao.colaborador ?: return
         val token = identificacao.verificacaoToken ?: return
+
+        if (identificacao.acaoSugerida == "BLOQUEADO") {
+            rejeitarIdentidade()
+            return
+        }
 
         if (state.modoOffline || token == OFFLINE_VERIFICATION_TOKEN) {
             val embedding = pendingOfflineEmbedding

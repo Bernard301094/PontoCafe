@@ -47,7 +47,6 @@ import com.pontocafe.app.PontoCafeViewModel
 private val IdentityMint = Color(0xFF79E5C2)
 private val IdentityMintSoft = Color(0xFF9AF1D4)
 private val IdentityWarning = Color(0xFFFFB35C)
-private val IdentityWarningSurface = Color(0x33291508)
 private val IdentityBlocked = Color(0xFFFF8A80)
 private val IdentityBlockedSurface = Color(0x331F0909)
 
@@ -57,10 +56,11 @@ fun IdentityConfirmationScreen(viewModel: PontoCafeViewModel) {
     val identificacao = state.identificacao ?: return
     val colaborador = identificacao.colaborador ?: return
     val finalizando = identificacao.acaoSugerida == "FINALIZAR"
-    val liberadaForaHorario = !finalizando && identificacao.motivo == "AUTORIZACAO_PREVIA"
-    val bloqueadaForaHorario = !finalizando &&
-        identificacao.dentroHorario != true &&
-        !liberadaForaHorario
+    val pausaJaUtilizada = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA" ||
+        identificacao.acaoSugerida == "BLOQUEADO"
+    val liberadaForaHorario = !finalizando && !pausaJaUtilizada && identificacao.motivo == "AUTORIZACAO_PREVIA"
+    val bloqueadaForaHorario = !finalizando && !pausaJaUtilizada &&
+        identificacao.dentroHorario != true && !liberadaForaHorario
     val detalhe = listOfNotNull(colaborador.setor, colaborador.turno)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
@@ -70,55 +70,29 @@ fun IdentityConfirmationScreen(viewModel: PontoCafeViewModel) {
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF071713),
-                        Color(0xFF06100E),
-                        Color(0xFF030706),
-                    ),
+                    listOf(Color(0xFF071713), Color(0xFF06100E), Color(0xFF030706)),
                 ),
             ),
     ) {
-        Box(
-            modifier = Modifier
-                .size(320.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            IdentityMint.copy(alpha = 0.10f),
-                            Color.Transparent,
-                        ),
-                    ),
-                    CircleShape,
-                ),
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(top = 22.dp, bottom = 24.dp),
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            MotionReveal {
-                PontoCafeIdentityBrand()
-            }
-
+            MotionReveal { IdentityBrand() }
             Spacer(Modifier.height(22.dp))
-
             MotionReveal {
-                RecognitionBadge(finalizando = finalizando)
+                RecognitionBadge(
+                    finalizando = finalizando,
+                    pausaJaUtilizada = pausaJaUtilizada,
+                )
             }
-
             Spacer(Modifier.height(22.dp))
-
-            MotionReveal {
-                VerifiedIdentityAvatar()
-            }
-
+            MotionReveal { VerifiedIdentityAvatar() }
             Spacer(Modifier.height(18.dp))
 
             MotionReveal {
@@ -147,13 +121,14 @@ fun IdentityConfirmationScreen(viewModel: PontoCafeViewModel) {
             }
 
             Spacer(Modifier.height(26.dp))
-
             MotionReveal {
-                IdentityQuestionCard(
+                IdentityStatusCard(
                     finalizando = finalizando,
+                    pausaJaUtilizada = pausaJaUtilizada,
                     liberadaForaHorario = liberadaForaHorario,
                     bloqueadaForaHorario = bloqueadaForaHorario,
-                    periodoAutorizado = identificacao.periodoAtual,
+                    periodo = identificacao.periodoAtual,
+                    mensagem = identificacao.mensagem,
                     inicioLocal = identificacao.pausaAberta?.inicioLocal,
                     tempoDecorrido = identificacao.pausaAberta?.tempoDecorridoSegundos?.let(viewModel::formatarTempo),
                 )
@@ -161,71 +136,49 @@ fun IdentityConfirmationScreen(viewModel: PontoCafeViewModel) {
 
             state.erro?.let { error ->
                 Spacer(Modifier.height(12.dp))
-                MotionReveal {
-                    IdentityErrorCard(error)
-                }
+                ErrorCard(error)
             }
 
             Spacer(Modifier.height(18.dp))
-
-            MotionReveal {
-                IdentityActions(
-                    finalizando = finalizando,
-                    liberadaForaHorario = liberadaForaHorario,
-                    bloqueadaForaHorario = bloqueadaForaHorario,
-                    loading = state.carregando,
-                    onReject = viewModel::rejeitarIdentidade,
-                    onConfirm = viewModel::confirmarIdentidade,
-                )
-            }
+            IdentityActions(
+                finalizando = finalizando,
+                pausaJaUtilizada = pausaJaUtilizada,
+                liberadaForaHorario = liberadaForaHorario,
+                bloqueadaForaHorario = bloqueadaForaHorario,
+                loading = state.carregando,
+                onReject = viewModel::rejeitarIdentidade,
+                onConfirm = viewModel::confirmarIdentidade,
+            )
         }
     }
 }
 
 @Composable
-private fun PontoCafeIdentityBrand() {
+private fun IdentityBrand() {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .border(1.5.dp, IdentityMint, CircleShape),
+            modifier = Modifier.size(34.dp).clip(CircleShape).border(1.5.dp, IdentityMint, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = null,
-                tint = IdentityMint,
-                modifier = Modifier.size(19.dp),
-            )
+            Icon(Icons.Default.Check, null, tint = IdentityMint, modifier = Modifier.size(19.dp))
         }
-        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Text(
-                text = "PONTO",
-                style = MaterialTheme.typography.titleMedium,
-                color = IdentityMintSoft,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "C A F É",
-                style = MaterialTheme.typography.labelMedium,
-                color = IdentityMint,
-                fontWeight = FontWeight.SemiBold,
-            )
+        Column {
+            Text("PONTO", style = MaterialTheme.typography.titleMedium, color = IdentityMintSoft, fontWeight = FontWeight.Medium)
+            Text("C A F É", style = MaterialTheme.typography.labelMedium, color = IdentityMint, fontWeight = FontWeight.SemiBold)
         }
     }
 }
 
 @Composable
-private fun RecognitionBadge(finalizando: Boolean) {
+private fun RecognitionBadge(finalizando: Boolean, pausaJaUtilizada: Boolean) {
+    val accent = if (pausaJaUtilizada) IdentityWarning else IdentityMint
     Surface(
         color = Color(0xB3132822),
-        contentColor = IdentityMint,
         shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, IdentityMint.copy(alpha = 0.34f)),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.34f)),
         shadowElevation = 5.dp,
     ) {
         Row(
@@ -234,16 +187,20 @@ private fun RecognitionBadge(finalizando: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Icon(
-                imageVector = Icons.Default.CheckCircle,
+                imageVector = if (pausaJaUtilizada) Icons.Default.Info else Icons.Default.CheckCircle,
                 contentDescription = null,
+                tint = accent,
                 modifier = Modifier.size(22.dp),
-                tint = IdentityMint,
             )
             Text(
-                text = if (finalizando) "Retorno identificado" else "Rosto identificado",
+                text = when {
+                    pausaJaUtilizada -> "Tentativa registrada"
+                    finalizando -> "Retorno identificado"
+                    else -> "Rosto identificado"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = IdentityMint,
+                color = accent,
             )
         }
     }
@@ -251,277 +208,135 @@ private fun RecognitionBadge(finalizando: Boolean) {
 
 @Composable
 private fun VerifiedIdentityAvatar() {
-    Box(
-        modifier = Modifier.size(126.dp),
-        contentAlignment = Alignment.Center,
-    ) {
+    Box(modifier = Modifier.size(126.dp), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
                 .size(116.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF213630),
-                            Color(0xFF101B18),
-                        ),
-                    ),
-                )
+                .background(Brush.radialGradient(listOf(Color(0xFF213630), Color(0xFF101B18))))
                 .border(1.5.dp, IdentityMint.copy(alpha = 0.78f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = Color(0xFF82948E),
-                modifier = Modifier.size(76.dp),
-            )
+            Icon(Icons.Default.Person, null, tint = Color(0xFF82948E), modifier = Modifier.size(76.dp))
         }
-
         Surface(
-            modifier = Modifier
-                .size(40.dp)
-                .align(Alignment.BottomEnd),
+            modifier = Modifier.size(40.dp).align(Alignment.BottomEnd),
             shape = CircleShape,
             color = IdentityMint,
-            contentColor = Color(0xFF05251D),
             shadowElevation = 8.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Identidade confirmada",
-                    modifier = Modifier.size(23.dp),
-                    tint = Color(0xFF05251D),
-                )
+                Icon(Icons.Default.Check, "Identidade confirmada", tint = Color(0xFF05251D), modifier = Modifier.size(23.dp))
             }
         }
     }
 }
 
 @Composable
-private fun IdentityQuestionCard(
+private fun IdentityStatusCard(
     finalizando: Boolean,
+    pausaJaUtilizada: Boolean,
     liberadaForaHorario: Boolean,
     bloqueadaForaHorario: Boolean,
-    periodoAutorizado: String?,
+    periodo: String?,
+    mensagem: String?,
     inicioLocal: String?,
     tempoDecorrido: String?,
 ) {
     val accent = when {
+        pausaJaUtilizada -> IdentityWarning
         bloqueadaForaHorario -> IdentityBlocked
         else -> IdentityMint
     }
-
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color(0xE512211D),
-        contentColor = PontoCafePremium.textPrimary,
         shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.26f)),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f)),
         shadowElevation = 12.dp,
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = CircleShape,
-                    color = accent.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, accent.copy(alpha = 0.52f)),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (bloqueadaForaHorario) Icons.Default.Info else Icons.Default.Person,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(25.dp),
-                        )
-                    }
-                }
-                Text(
-                    text = when {
-                        finalizando -> "Confirmar retorno"
-                        bloqueadaForaHorario -> "Pausa não liberada"
-                        liberadaForaHorario -> "Pausa liberada"
-                        else -> "É você?"
-                    },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = PontoCafePremium.textPrimary,
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.16f)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(accent),
+            Text(
+                text = when {
+                    finalizando -> "Confirmar retorno"
+                    pausaJaUtilizada -> "Pausa da ${periodLabel(periodo).lowercase()} já utilizada"
+                    bloqueadaForaHorario -> "Pausa não liberada"
+                    liberadaForaHorario -> "Pausa liberada"
+                    else -> "É você?"
+                },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = PontoCafePremium.textPrimary,
             )
 
             when {
-                finalizando -> {
+                pausaJaUtilizada -> {
                     Text(
-                        text = "É você e deseja registrar seu retorno agora?",
+                        text = mensagem ?: "Você já realizou esta pausa hoje. Uma segunda saída não será aberta.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = PontoCafePremium.textSecondary,
                     )
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
+                        color = IdentityWarning.copy(alpha = 0.08f),
                         shape = RoundedCornerShape(18.dp),
-                        color = Color(0x99101A17),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        border = BorderStroke(1.dp, IdentityWarning.copy(alpha = 0.34f)),
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text(
-                                text = "Pausa em andamento",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = IdentityMint,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                text = "Início registrado às ${inicioLocal ?: "--:--"}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = PontoCafePremium.textPrimary,
-                            )
-                            tempoDecorrido?.let {
+                            Icon(Icons.Default.Info, null, tint = IdentityWarning)
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Tempo decorrido: $it",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    "Nova pausa bloqueada",
+                                    color = IdentityWarning,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                                Text(
+                                    "A tentativa ficou registrada para consulta e auditoria do Supervisor/Administrador.",
                                     color = PontoCafePremium.textSecondary,
+                                    style = MaterialTheme.typography.bodySmall,
                                 )
                             }
                         }
                     }
                 }
-
+                finalizando -> {
+                    Text("É você e deseja registrar seu retorno agora?", color = PontoCafePremium.textSecondary)
+                    Text(
+                        "Início: ${inicioLocal ?: "--:--"}${tempoDecorrido?.let { " · Tempo: $it" } ?: ""}",
+                        color = IdentityMint,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 bloqueadaForaHorario -> {
                     Text(
-                        text = "Você está fora do horário permitido para o café e não existe uma liberação prévia ativa para você.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "Você está fora do horário permitido e não possui uma liberação prévia ativa. Procure seu Supervisor.",
                         color = PontoCafePremium.textSecondary,
                     )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = IdentityBlockedSurface,
-                        border = BorderStroke(1.dp, IdentityBlocked.copy(alpha = 0.40f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                modifier = Modifier.size(25.dp),
-                                tint = IdentityBlocked,
-                            )
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Text(
-                                    text = "Procure seu Supervisor",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = Color(0xFFFFB4AB),
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    text = "O Supervisor precisa liberar sua pausa no perfil dele antes de você retornar ao Ponto.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = PontoCafePremium.textSecondary,
-                                )
-                            }
-                        }
-                    }
                 }
-
                 liberadaForaHorario -> {
                     Text(
-                        text = "Sua pausa foi liberada previamente pelo Supervisor. Confirme para iniciar agora.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "Sua pausa foi liberada previamente pelo Supervisor. Período: ${periodLabel(periodo)} · uso único.",
                         color = PontoCafePremium.textSecondary,
                     )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = IdentityMint.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, IdentityMint.copy(alpha = 0.36f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(25.dp),
-                                tint = IdentityMint,
-                            )
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Text(
-                                    text = "Liberação confirmada",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = IdentityMint,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    text = "Período: ${periodLabel(periodoAutorizado)} · uso único",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = PontoCafePremium.textSecondary,
-                                )
-                            }
-                        }
-                    }
                 }
-
                 else -> {
                     Text(
-                        text = "Ao confirmar, o início da sua pausa será registrado imediatamente.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "Ao confirmar, o início da sua pausa será registrado imediatamente.",
                         color = PontoCafePremium.textSecondary,
                     )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = IdentityWarningSurface,
-                        border = BorderStroke(1.dp, IdentityWarning.copy(alpha = 0.22f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                modifier = Modifier.size(23.dp),
-                                tint = IdentityMint,
-                            )
-                            Text(
-                                text = "Você está dentro do horário permitido.",
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = PontoCafePremium.textSecondary,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                    }
+                    Text(
+                        "Você está dentro do horário permitido.",
+                        color = IdentityMint,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
@@ -529,18 +344,16 @@ private fun IdentityQuestionCard(
 }
 
 @Composable
-private fun IdentityErrorCard(error: String) {
+private fun ErrorCard(error: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.84f),
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.28f)),
     ) {
         Text(
             text = error,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
             textAlign = TextAlign.Center,
         )
     }
@@ -549,75 +362,42 @@ private fun IdentityErrorCard(error: String) {
 @Composable
 private fun IdentityActions(
     finalizando: Boolean,
+    pausaJaUtilizada: Boolean,
     liberadaForaHorario: Boolean,
     bloqueadaForaHorario: Boolean,
     loading: Boolean,
     onReject: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    if (bloqueadaForaHorario) {
+    if (pausaJaUtilizada || bloqueadaForaHorario) {
         Button(
             onClick = onReject,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(62.dp),
+            modifier = Modifier.fillMaxWidth().height(62.dp),
             enabled = !loading,
             shape = RoundedCornerShape(22.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = IdentityMint,
-                contentColor = Color(0xFF05251D),
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = IdentityMint, contentColor = Color(0xFF05251D)),
         ) {
-            Text(
-                "Voltar ao Ponto",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            Text("Voltar ao Ponto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         return
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedButton(
             onClick = onReject,
-            modifier = Modifier
-                .weight(1f)
-                .height(62.dp),
+            modifier = Modifier.weight(1f).height(62.dp),
             enabled = !loading,
             shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, IdentityMint.copy(alpha = 0.58f)),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = PontoCafePremium.textPrimary,
-                disabledContentColor = PontoCafePremium.textSecondary.copy(alpha = 0.48f),
-            ),
         ) {
-            Text(
-                text = "Não sou eu",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Text("Não sou eu", fontWeight = FontWeight.SemiBold)
         }
-
         Button(
             onClick = onConfirm,
-            modifier = Modifier
-                .weight(1f)
-                .height(62.dp),
+            modifier = Modifier.weight(1f).height(62.dp),
             enabled = !loading,
             shape = RoundedCornerShape(22.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = IdentityMint,
-                contentColor = Color(0xFF05251D),
-                disabledContainerColor = IdentityMint.copy(alpha = 0.40f),
-                disabledContentColor = Color(0xFF05251D).copy(alpha = 0.55f),
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 8.dp,
-                pressedElevation = 2.dp,
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = IdentityMint, contentColor = Color(0xFF05251D)),
         ) {
             Text(
                 text = when {
@@ -627,7 +407,6 @@ private fun IdentityActions(
                     liberadaForaHorario -> "Iniciar pausa"
                     else -> "Sim, sou eu"
                 },
-                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
         }

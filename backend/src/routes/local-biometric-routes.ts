@@ -37,6 +37,26 @@ type CatalogTemplateRow = {
   atualizado_em: string
 }
 
+type PausaUtilizadaRow = {
+  id: string
+  periodo: 'MANHA' | 'TARDE'
+  inicio_local: string
+  fim_local: string
+  duracao_segundos: number
+  limite_segundos: number
+}
+
+function periodoLabel(periodo: 'MANHA' | 'TARDE'): string {
+  return periodo === 'MANHA' ? 'manhã' : 'tarde'
+}
+
+function duracaoLabel(segundos: number): string {
+  const minutos = Math.floor(segundos / 60)
+  const restante = segundos % 60
+  if (minutos <= 0) return `${restante} s`
+  return restante > 0 ? `${minutos} min ${restante} s` : `${minutos} min`
+}
+
 export const localBiometricRoutes = new Hono<AppEnv>()
 localBiometricRoutes.use('*', requireDevice)
 
@@ -216,12 +236,74 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
       )).rows[0]
     : undefined
 
+  const periodoPretendido = regra?.periodo ?? liberacao?.periodo
+  const pausaUtilizada = !aberta && periodoPretendido
+    ? (await query<PausaUtilizadaRow>(
+        `select p.id,p.periodo,
+                to_char(p.inicio_em at time zone $3,'HH24:MI') as inicio_local,
+                to_char(p.fim_em at time zone $3,'HH24:MI') as fim_local,
+                floor(extract(epoch from (p.fim_em-p.inicio_em)))::int as duracao_segundos,
+                p.limite_segundos
+           from pausas_cafe p
+          where p.colaborador_id=$1
+            and p.periodo=$2
+            and p.fim_em is not null
+            and (p.inicio_em at time zone $3)::date=(now() at time zone $3)::date
+          order by p.inicio_em desc
+          limit 1`,
+        [stored.colaborador_id, periodoPretendido, config.appTimezone],
+      )).rows[0]
+    : undefined
+
   const verificacaoToken = newToken()
   await query(
     `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
      values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,
     [newId(), stored.colaborador_id, device.id, hashToken(verificacaoToken), score, config.verificationTtlSeconds],
   )
+
+  if (pausaUtilizada) {
+    await query(
+      `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
+      [pausaUtilizada.id, JSON.stringify({
+        colaboradorId: stored.colaborador_id,
+        colaboradorNome: stored.nome,
+        dispositivoId: device.id,
+        dispositivoNome: device.nome,
+        periodo: pausaUtilizada.periodo,
+        tentativaEm: new Date().toISOString(),
+        origem: 'ONLINE',
+        motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+        inicioLocal: pausaUtilizada.inicio_local,
+        fimLocal: pausaUtilizada.fim_local,
+        duracaoSegundos: pausaUtilizada.duracao_segundos,
+        limiteSegundos: pausaUtilizada.limite_segundos,
+        score: Number(score.toFixed(4)),
+      })],
+    )
+
+    return c.json({
+      reconhecido: true,
+      motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+      mensagem: `Pausa da ${periodoLabel(pausaUtilizada.periodo)} já utilizada hoje. Saída: ${pausaUtilizada.inicio_local} · Retorno: ${pausaUtilizada.fim_local} · Duração: ${duracaoLabel(pausaUtilizada.duracao_segundos)}. Esta nova tentativa de bater o ponto foi registrada.`,
+      score: Number(score.toFixed(4)),
+      verificacaoToken,
+      expiraEmSegundos: config.verificationTtlSeconds,
+      colaborador: {
+        id: stored.colaborador_id,
+        matricula: stored.matricula,
+        nome: stored.nome,
+        setor: stored.setor,
+        turno: stored.turno,
+      },
+      acaoSugerida: 'BLOQUEADO',
+      pausaAberta: null,
+      dentroHorario: false,
+      periodoAtual: pausaUtilizada.periodo,
+      limiteSegundos: pausaUtilizada.limite_segundos,
+    })
+  }
 
   const foraHorarioSemPausaAberta = !aberta && !regra
   const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
@@ -255,8 +337,6 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    // Para manter compatibilidade com o app atual, uma liberação prévia torna a pausa
-    // efetivamente permitida agora, embora continue sendo registrada como fora do horário.
     dentroHorario: Boolean(regra) || autorizadoForaHorario,
     periodoAtual: regra?.periodo ?? liberacao?.periodo ?? null,
     limiteSegundos: regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,

@@ -65,6 +65,35 @@ async function auditOffline(
   )
 }
 
+async function auditRepeatedAttempt(
+  client: import('pg').PoolClient,
+  device: Device,
+  event: OfflineEvent,
+  pauseId: string,
+  periodo: 'MANHA' | 'TARDE',
+  verifiedScore: number,
+) {
+  await client.query(
+    `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+     values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
+    [pauseId, JSON.stringify({
+      colaboradorId: event.colaboradorId,
+      dispositivoId: device.id,
+      dispositivoNome: device.nome,
+      periodo,
+      tentativaEm: event.ocorridoEm,
+      origem: 'OFFLINE',
+      motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+      offlineEventId: event.eventId,
+      scoreLocal: event.score,
+      scoreRevalidado: Number(verifiedScore.toFixed(4)),
+      appVersion: event.appVersion,
+      modelo: event.modelo,
+      versaoModelo: event.versaoModelo,
+    })],
+  )
+}
+
 async function processOfflineEvent(device: Device, event: OfflineEvent): Promise<{ status: SyncStatus; pausaId?: string; mensagem?: string }> {
   const occurredMillis = Date.parse(event.ocorridoEm)
   const maxAgeMillis = config.offlineMaxEventAgeHours * 60 * 60 * 1000
@@ -141,16 +170,20 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
         return { status: 'RECONCILIADO' as const, pausaId: open.rows[0].id }
       }
 
-      const samePeriod = await client.query<{ id: string }>(
-        `select id from pausas_cafe
+      const samePeriod = await client.query<{ id: string; periodo: 'MANHA' | 'TARDE' }>(
+        `select id,periodo from pausas_cafe
           where colaborador_id=$1 and periodo=$2
             and (inicio_em at time zone $4)::date=($3::timestamptz at time zone $4)::date
           order by inicio_em desc limit 1`,
         [event.colaboradorId, rule.periodo, event.ocorridoEm, config.appTimezone],
       )
       if (samePeriod.rows[0]) {
-        await auditOffline(client, device, event, samePeriod.rows[0].id, true, verifiedScore)
-        return { status: 'RECONCILIADO' as const, pausaId: samePeriod.rows[0].id }
+        await auditRepeatedAttempt(client, device, event, samePeriod.rows[0].id, samePeriod.rows[0].periodo, verifiedScore)
+        return {
+          status: 'RECONCILIADO' as const,
+          pausaId: samePeriod.rows[0].id,
+          mensagem: 'Tentativa repetida registrada. A pausa deste período já havia sido utilizada.',
+        }
       }
 
       const pauseId = newId()

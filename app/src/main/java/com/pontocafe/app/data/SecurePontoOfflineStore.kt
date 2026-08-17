@@ -42,6 +42,17 @@ data class LocalOpenPause(
     val retornoAteLocal: String,
 )
 
+data class LocalCompletedPause(
+    val colaboradorId: String,
+    val nome: String,
+    val periodo: String,
+    val dataLocal: String,
+    val inicioLocal: String,
+    val fimLocal: String,
+    val duracaoSegundos: Int,
+    val limiteSegundos: Int,
+)
+
 data class OfflineSyncFailure(
     val eventId: String,
     val nome: String,
@@ -74,6 +85,7 @@ data class PontoOfflineSnapshot(
     val regrasAtualizadasEmMillis: Long = 0L,
     val ultimoServidorOkEmMillis: Long = 0L,
     val falhasSincronizacao: List<OfflineSyncFailure> = emptyList(),
+    val pausasConcluidas: List<LocalCompletedPause>? = emptyList(),
 )
 
 class SecurePontoOfflineStore(context: Context) {
@@ -83,6 +95,7 @@ class SecurePontoOfflineStore(context: Context) {
     private val gson = Gson()
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+    private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
     @Volatile
     private var cachedSnapshot: PontoOfflineSnapshot? = null
@@ -161,6 +174,14 @@ class SecurePontoOfflineStore(context: Context) {
         readInternal().pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
 
     @Synchronized
+    fun completedPauseToday(collaboratorId: String, periodo: String): LocalCompletedPause? {
+        val today = ZonedDateTime.now(timezone).format(dateFormatter)
+        return readInternal().pausasConcluidas.orEmpty().firstOrNull {
+            it.colaboradorId == collaboratorId && it.periodo == periodo && it.dataLocal == today
+        }
+    }
+
+    @Synchronized
     fun recordOnlineStart(collaboratorId: String, nome: String, pause: IniciarPausaResponse) {
         val current = readInternal()
         val startedMillis = runCatching { Instant.parse(pause.inicioEm).toEpochMilli() }
@@ -185,9 +206,33 @@ class SecurePontoOfflineStore(context: Context) {
     @Synchronized
     fun recordOnlineFinish(collaboratorId: String) {
         val current = readInternal()
+        val open = current.pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
+        val now = ZonedDateTime.now(timezone)
+        val completed = open?.let {
+            LocalCompletedPause(
+                colaboradorId = it.colaboradorId,
+                nome = it.nome,
+                periodo = it.periodo,
+                dataLocal = now.format(dateFormatter),
+                inicioLocal = it.inicioLocal,
+                fimLocal = now.format(timeFormatter),
+                duracaoSegundos = ((now.toInstant().toEpochMilli() - it.inicioEmMillis) / 1000L)
+                    .coerceAtLeast(0L)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt(),
+                limiteSegundos = it.limiteSegundos,
+            )
+        }
+        val today = now.format(dateFormatter)
+        val completedToday = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today }.toMutableList()
+        if (completed != null) {
+            completedToday.removeAll { it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo }
+            completedToday += completed
+        }
         saveInternal(
             current.copy(
                 pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId },
+                pausasConcluidas = completedToday,
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
         )
@@ -208,6 +253,38 @@ class SecurePontoOfflineStore(context: Context) {
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
 
         val now = ZonedDateTime.now(timezone)
+        val today = now.format(dateFormatter)
+        val completed = current.pausasConcluidas.orEmpty().firstOrNull {
+            it.colaboradorId == colaborador.id && it.periodo == rule.periodo && it.dataLocal == today
+        }
+        if (completed != null) {
+            val repeatedAttempt = OfflinePontoEvent(
+                eventId = UUID.randomUUID().toString(),
+                acao = "INICIAR",
+                colaboradorId = colaborador.id,
+                nome = colaborador.nome,
+                ocorridoEm = now.toInstant().toString(),
+                score = score,
+                embedding = embedding.toList(),
+                appVersion = BuildConfig.VERSION_NAME,
+                modelo = model,
+                versaoModelo = modelVersion,
+            )
+            saveInternal(
+                current.copy(
+                    eventos = current.eventos + repeatedAttempt,
+                    pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
+                ),
+            )
+            val minutos = completed.duracaoSegundos / 60
+            val segundos = completed.duracaoSegundos % 60
+            val duracao = if (segundos > 0) "${minutos} min ${segundos} s" else "${minutos} min"
+            val periodoLabel = if (completed.periodo == "MANHA") "manhã" else "tarde"
+            error(
+                "Pausa da $periodoLabel já utilizada hoje. Saída: ${completed.inicioLocal} · Retorno: ${completed.fimLocal} · Duração: $duracao. Esta nova tentativa foi registrada e será enviada ao servidor quando a conexão voltar.",
+            )
+        }
+
         val event = OfflinePontoEvent(
             eventId = UUID.randomUUID().toString(),
             acao = "INICIAR",
@@ -233,6 +310,7 @@ class SecurePontoOfflineStore(context: Context) {
             current.copy(
                 eventos = current.eventos + event,
                 pausasAbertas = current.pausasAbertas + localPause,
+                pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
             ),
         )
         return localPause
@@ -268,10 +346,25 @@ class SecurePontoOfflineStore(context: Context) {
             .coerceAtLeast(0L)
             .coerceAtMost(Int.MAX_VALUE.toLong())
             .toInt()
+        val completed = LocalCompletedPause(
+            colaboradorId = open.colaboradorId,
+            nome = open.nome,
+            periodo = open.periodo,
+            dataLocal = now.format(dateFormatter),
+            inicioLocal = open.inicioLocal,
+            fimLocal = now.format(timeFormatter),
+            duracaoSegundos = duration,
+            limiteSegundos = open.limiteSegundos,
+        )
+        val today = now.format(dateFormatter)
+        val completedToday = current.pausasConcluidas.orEmpty().filter {
+            it.dataLocal == today && !(it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo)
+        } + completed
         saveInternal(
             current.copy(
                 eventos = current.eventos + event,
                 pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == colaborador.id },
+                pausasConcluidas = completedToday,
             ),
         )
         return open to duration
@@ -281,9 +374,12 @@ class SecurePontoOfflineStore(context: Context) {
     fun recordSyncResults(results: List<OfflineSyncResult>) {
         if (results.isEmpty()) return
         val current = readInternal()
-        val processed = results.filter { it.status.equals("PROCESSADO", true) || it.status.equals("OK", true) }
-            .map { it.eventId }
-            .toSet()
+        val processed = results.filter {
+            it.status.equals("PROCESSADO", true) ||
+                it.status.equals("OK", true) ||
+                it.status.equals("SINCRONIZADO", true) ||
+                it.status.equals("RECONCILIADO", true)
+        }.map { it.eventId }.toSet()
         val pendingIds = current.eventos.map { it.eventId }.toSet() - processed
         val currentFailures = current.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
         val now = System.currentTimeMillis()
