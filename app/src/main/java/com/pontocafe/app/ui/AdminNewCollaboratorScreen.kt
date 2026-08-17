@@ -1,14 +1,10 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -20,8 +16,6 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -30,10 +24,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,10 +37,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.FormDraftRegistry
@@ -79,17 +68,13 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                     .mapNotNull { it.setor?.trim() }
                     .filter { it.isNotBlank() },
             )
-        }
-            .distinctBy { it.lowercase() }
-            .sortedBy { it.lowercase() }
-            .take(10)
+        }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }.take(10)
     }
 
     val cleanName = draft.nome.trim()
     val cleanSector = draft.setor.trim()
     val cleanShift = draft.turno.trim().uppercase()
     val readyToSubmit = cleanName.length >= 2 && cleanSector.isNotBlank() && cleanShift in CollaboratorShiftOptions
-
     val completionHint = when {
         cleanName.length < 2 -> "Informe o nome completo para continuar."
         cleanSector.isBlank() -> "Informe ou selecione o setor."
@@ -99,7 +84,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
 
     PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
         Scaffold(
-            containerColor = Color.Transparent,
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
             bottomBar = {
                 CollaboratorBottomActions(
                     enabled = readyToSubmit && !state.carregando,
@@ -132,79 +117,67 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                 item("header") {
                     PontoCafeScreenHeader(
                         title = "Novo colaborador",
-                        eyebrow = "Ponto Café",
+                        eyebrow = "Administrador",
                         onBack = {
                             draftState.reset()
                             viewModel.voltarColaboradores()
                         },
-                        backLabel = "Colaboradores",
+                        backLabel = "Pessoas",
                     )
                 }
 
                 item("context") {
-                    CollaboratorContextCard()
+                    PcHeroCard(
+                        title = "Cadastro para o modo Ponto",
+                        supportingText = "Cadastre somente pessoas que usarão reconhecimento facial para registrar a pausa. Contas de Supervisor e Administrador ficam separadas.",
+                        icon = Icons.Default.Face,
+                        tone = PontoCafeTone.INFO,
+                    )
                 }
 
-                item("feedback") {
-                    AdminFeedback(viewModel)
-                }
+                item("feedback") { AdminFeedback(viewModel) }
 
                 item("form") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-                        border = BorderStroke(1.dp, PontoCafePremium.border),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
-                    ) {
+                    PcSectionSurface {
                         Column(
-                            modifier = Modifier.padding(PontoCafeSpacing.lg),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                Text(
-                                    "NOME COMPLETO",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                                Text("Nome completo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 OutlinedTextField(
                                     value = draft.nome,
                                     onValueChange = { draftState.update(draft.copy(nome = it)) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("Digite o nome completo") },
+                                    label = { Text("Nome") },
                                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                                     supportingText = { Text("Use o nome completo conforme o cadastro da empresa.") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(20.dp),
-                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Words,
+                                        imeAction = ImeAction.Next,
+                                    ),
                                 )
                             }
 
                             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                Text(
-                                    "SETOR",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                                Text("Setor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 OutlinedTextField(
                                     value = draft.setor,
                                     onValueChange = { draftState.update(draft.copy(setor = it)) },
                                     modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Setor") },
                                     placeholder = { Text("Ex.: Produção") },
                                     leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
-                                    supportingText = {
-                                        Text("Você pode digitar um novo setor ou usar uma sugestão abaixo.")
-                                    },
+                                    supportingText = { Text("Digite um novo setor ou escolha uma sugestão.") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(20.dp),
-                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Words,
+                                        imeAction = ImeAction.Next,
+                                    ),
                                 )
-
                                 if (sectorSuggestions.isNotEmpty()) {
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                                        contentPadding = PaddingValues(top = 2.dp),
-                                    ) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                                         items(sectorSuggestions, key = { "sector-$it" }) { sector ->
                                             FilterChip(
                                                 selected = cleanSector.equals(sector, ignoreCase = true),
@@ -217,13 +190,9 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                             }
 
                             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "TURNO",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                Text(
-                                    "Escolha o turno. Isso evita abreviações diferentes no cadastro.",
+                                    "Selecione o turno para manter o cadastro padronizado.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -232,11 +201,14 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                                 ) {
                                     CollaboratorShiftOptions.forEach { shift ->
-                                        ShiftOptionCard(
-                                            shift = shift,
+                                        FilterChip(
                                             selected = cleanShift == shift,
-                                            modifier = Modifier.weight(1f),
                                             onClick = { draftState.update(draft.copy(turno = shift)) },
+                                            label = { Text("Turno $shift") },
+                                            leadingIcon = if (cleanShift == shift) {
+                                                { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                            } else null,
+                                            modifier = Modifier.weight(1f),
                                         )
                                     }
                                 }
@@ -244,119 +216,6 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CollaboratorContextCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-    ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Surface(
-                    modifier = Modifier.size(44.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Face,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "Cadastro para o modo Ponto",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Use esta tela somente para pessoas que vão registrar a pausa por reconhecimento facial.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Icon(
-                    Icons.Default.Info,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.tertiary,
-                )
-                Text(
-                    "Supervisor e Administrador são contas de acesso, não colaboradores do reconhecimento facial.",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShiftOptionCard(
-    shift: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(
-            1.dp,
-            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else PontoCafePremium.borderSoft,
-        ),
-        shadowElevation = if (selected) 4.dp else 0.dp,
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                "Turno",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                shift,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-            )
-            if (selected) {
-                Icon(
-                    Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                Spacer(Modifier.size(16.dp))
             }
         }
     }
@@ -376,9 +235,9 @@ private fun CollaboratorBottomActions(
             .fillMaxWidth()
             .navigationBarsPadding()
             .imePadding(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-        shadowElevation = 12.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 3.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = horizontalPadding, vertical = PontoCafeSpacing.sm),
@@ -392,8 +251,7 @@ private fun CollaboratorBottomActions(
                     imageVector = if (enabled) Icons.Default.CheckCircle else Icons.Default.Info,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
-                    tint = if (enabled) LocalPontoCafeSemanticColors.current.success
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (enabled) LocalPontoCafeSemanticColors.current.success else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     hint,
@@ -403,41 +261,21 @@ private fun CollaboratorBottomActions(
                 )
             }
 
-            Button(
+            PcPrimaryButton(
+                text = if (loading) "Salvando…" else "Salvar e cadastrar rosto",
+                icon = Icons.Default.Face,
                 onClick = onSave,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
-                shape = RoundedCornerShape(22.dp),
-                contentPadding = PaddingValues(vertical = 16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(20.dp))
-                Text(
-                    if (loading) "Salvando..." else "Salvar e cadastrar rosto",
-                    modifier = Modifier.padding(start = 8.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            )
 
             TextButton(
                 onClick = onSupervisor,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
             ) {
-                Icon(
-                    Icons.Default.AdminPanelSettings,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    "Cadastrar supervisor / conta de acesso",
-                    modifier = Modifier.padding(start = 8.dp),
-                    textAlign = TextAlign.Center,
-                )
+                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Cadastrar Supervisor / conta de acesso", modifier = Modifier.padding(start = PontoCafeSpacing.xs))
             }
         }
     }
