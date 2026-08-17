@@ -1,6 +1,5 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,12 +14,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -66,7 +62,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             item("header") {
                 PontoCafeScreenHeader(
                     title = "Nova conta de acesso",
-                    eyebrow = "Ponto Café",
+                    eyebrow = "Administrador",
                     onBack = {
                         draftState.reset()
                         viewModel.voltarHome()
@@ -75,9 +71,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
                 )
             }
 
-            item("context") {
-                AccountAccessContextCard()
-            }
+            item("context") { AccountAccessContextCard() }
 
             item("form") {
                 AdminAccountForm(
@@ -92,35 +86,27 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
                 )
             }
 
-            item("feedback") {
-                AdminFeedback(viewModel)
-            }
+            item("feedback") { AdminFeedback(viewModel) }
         }
     }
 }
 
 @Composable
 private fun AccountAccessContextCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-    ) {
+    PcSectionSurface {
         Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             AccountContextRow(
                 icon = Icons.Default.Info,
                 title = "Acesso ao sistema",
-                text = "Crie aqui contas para Supervisor ou Administrador. Colaboradores que apenas batem o ponto são cadastrados separadamente.",
+                text = "Crie contas para Supervisor ou Administrador. Colaboradores que apenas registram o Ponto Café são cadastrados em Pessoas.",
             )
             AccountContextRow(
                 icon = Icons.Default.AdminPanelSettings,
                 title = "Supervisor recomendado",
-                text = "Supervisor já vem selecionado para a operação diária. Use Administrador somente quando a pessoa precisar de controle total.",
+                text = "Supervisor é o perfil indicado para a operação diária. Use Administrador somente para quem precisa de controle total.",
             )
         }
     }
@@ -140,21 +126,20 @@ private fun AccountContextRow(
         Surface(
             modifier = Modifier.size(42.dp),
             shape = CircleShape,
-            color = PontoCafePremium.glowSoft,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+            color = MaterialTheme.colorScheme.primaryContainer,
         ) {
             androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp),
                 )
             }
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
         ) {
             Text(
                 title,
