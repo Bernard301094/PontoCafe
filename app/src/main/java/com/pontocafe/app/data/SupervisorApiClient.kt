@@ -1,6 +1,9 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
+import java.security.cert.CertPathValidatorException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
@@ -193,8 +196,29 @@ class SupervisorRepository(
 
     companion object {
         fun isAuthFailure(error: Throwable): Boolean = AdminRepository.isAuthFailure(error)
-        fun isTlsTrustFailure(error: Throwable): Boolean = AdminRepository.isTlsTrustFailure(error)
-        fun message(error: Throwable): String = AdminRepository.message(error)
+
+        fun isTlsTrustFailure(error: Throwable): Boolean {
+            var current: Throwable? = error
+            while (current != null) {
+                if (
+                    current is SSLHandshakeException ||
+                    current is SSLPeerUnverifiedException ||
+                    current is CertPathValidatorException ||
+                    current.javaClass.name.contains("CertPathValidatorException")
+                ) {
+                    return true
+                }
+                current = current.cause
+            }
+            return false
+        }
+
+        fun message(error: Throwable): String {
+            if (isTlsTrustFailure(error)) {
+                return "Não foi possível validar a conexão segura com o servidor. Verifique se data e hora automáticas estão ativadas e tente novamente. Se persistir, teste outra rede."
+            }
+            return AdminRepository.message(error)
+        }
     }
 }
 
