@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
@@ -255,10 +257,6 @@ fun OperationalPauseCompactCard(
     }
 }
 
-/**
- * Mantemos o nome público por compatibilidade com os chamadores, mas em móvel
- * o detalhe é uma bottom sheet: informação não deve parecer um alerta.
- */
 @Composable
 fun OperationalPauseDetailDialog(
     item: OperationalPauseItem,
