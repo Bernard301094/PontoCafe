@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,12 +60,15 @@ private val SupervisorAuthorizationReasons = listOf(
     "Outro",
 )
 
+// Compatibilidade com a assinatura atual do ViewModel. O backend ignora este valor
+// e determina o período real pela hora oficial configurada no servidor.
+private const val LegacyPeriodPlaceholder = "MANHA"
+
 @Composable
 fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     val state = viewModel.state
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
     var busca by remember { mutableStateOf("") }
-    var periodo by remember { mutableStateOf("MANHA") }
     var motivoRapido by remember { mutableStateOf<String?>(null) }
     var outroMotivo by remember { mutableStateOf("") }
     var confirmarLiberacao by remember { mutableStateOf(false) }
@@ -79,7 +80,6 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         else -> motivoRapido.orEmpty()
     }
     val motivoValido = motivoFinal.length >= 2
-    val periodoLabel = if (periodo == "MANHA") "Manhã" else "Tarde"
 
     val filtrados = state.colaboradores
         .asSequence()
@@ -110,7 +110,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Liberar ${selecionado!!.nome} · $periodoLabel?",
+                        "Liberar ${selecionado!!.nome}?",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -119,7 +119,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "A liberação é de uso único e expira automaticamente se não for utilizada.",
+                        "O período será identificado automaticamente pelo servidor de acordo com o horário atual. A liberação é de uso único e expira automaticamente.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -129,7 +129,9 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 Button(
                     onClick = {
                         confirmarLiberacao = false
-                        selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivoFinal) }
+                        selecionado?.let {
+                            viewModel.gerarAutorizacao(it, LegacyPeriodPlaceholder, motivoFinal)
+                        }
                     },
                     enabled = !state.carregando,
                 ) {
@@ -160,7 +162,9 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 Button(
                     onClick = {
                         confirmarCancelamento = false
-                        selecionado?.let { viewModel.cancelarAutorizacao(it, periodo) }
+                        selecionado?.let {
+                            viewModel.cancelarAutorizacao(it, LegacyPeriodPlaceholder)
+                        }
                     },
                     enabled = !state.carregando,
                     colors = ButtonDefaults.buttonColors(
@@ -214,19 +218,13 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
 
             state.erro?.let { error ->
                 item(key = "error") {
-                    AuthorizationFeedbackCard(
-                        text = error,
-                        error = true,
-                    )
+                    AuthorizationFeedbackCard(text = error, error = true)
                 }
             }
 
             state.mensagem?.let { message ->
                 item(key = "message") {
-                    AuthorizationFeedbackCard(
-                        text = message,
-                        error = false,
-                    )
+                    AuthorizationFeedbackCard(text = message, error = false)
                 }
             }
 
@@ -234,7 +232,6 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 item(key = "success") {
                     AuthorizationReleasedCard(
                         employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
-                        periodLabel = periodoLabel,
                         reason = motivoFinal,
                         expiresAt = expiraEmLocal,
                         loading = state.carregando,
@@ -331,7 +328,6 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 item(key = "selected-employee") {
                     AuthorizationSelectedEmployeeCard(
                         collaborator = selecionado!!,
-                        released = false,
                         onChange = {
                             selecionado = null
                             motivoRapido = null
@@ -340,48 +336,13 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     )
                 }
 
-                item(key = "period-step") {
-                    AuthorizationStepHeader(
-                        number = "2",
-                        title = "Período da pausa",
-                        subtitle = "Defina a qual pausa do dia esta exceção pertence.",
-                    )
-                }
-
-                item(key = "period") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            FilterChip(
-                                selected = periodo == "MANHA",
-                                onClick = { periodo = "MANHA" },
-                                modifier = Modifier.weight(1f),
-                                label = { Text("Manhã") },
-                            )
-                            FilterChip(
-                                selected = periodo == "TARDE",
-                                onClick = { periodo = "TARDE" },
-                                modifier = Modifier.weight(1f),
-                                label = { Text("Tarde") },
-                            )
-                        }
-                        Text(
-                            if (periodo == "MANHA") {
-                                "A liberação será vinculada à pausa da manhã, mesmo sendo utilizada fora da janela normal."
-                            } else {
-                                "A liberação será vinculada à pausa da tarde, mesmo sendo utilizada fora da janela normal."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                item(key = "automatic-period") {
+                    AutomaticPeriodCard()
                 }
 
                 item(key = "reason-step") {
                     AuthorizationStepHeader(
-                        number = "3",
+                        number = "2",
                         title = "Motivo",
                         subtitle = "Use um motivo rápido ou escolha Outro para detalhar.",
                     )
@@ -430,7 +391,6 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 item(key = "review") {
                     AuthorizationReviewCard(
                         employeeName = selecionado!!.nome,
-                        periodLabel = periodoLabel,
                         reason = motivoFinal.takeIf { motivoValido },
                     )
                 }
@@ -454,7 +414,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        "${selecionado!!.nome.substringBefore(' ')} · $periodoLabel",
+                        "${selecionado!!.nome.substringBefore(' ')} · período automático",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -529,8 +489,42 @@ private fun AuthorizationContextCard() {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Libere antes de a pessoa ir ao Ponto. O reconhecimento facial valida a autorização automaticamente; nenhum código é digitado no terminal.",
+                    "Escolha apenas a pessoa e o motivo. O sistema define automaticamente a pausa da manhã ou da tarde usando a hora oficial do servidor.",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutomaticPeriodCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                Icons.Default.AccessTime,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Período automático",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Você não precisa escolher Manhã ou Tarde. O servidor relaciona a liberação à janela de café correspondente ao horário atual.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -668,7 +662,6 @@ private fun AuthorizationEmployeeRow(
 @Composable
 private fun AuthorizationSelectedEmployeeCard(
     collaborator: Colaborador,
-    released: Boolean,
     onChange: () -> Unit,
 ) {
     Surface(
@@ -702,22 +695,14 @@ private fun AuthorizationSelectedEmployeeCard(
 
             Surface(
                 shape = RoundedCornerShape(50),
-                color = if (released) {
-                    LocalPontoCafeSemanticColors.current.successContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Text(
-                    if (released) "Liberado agora" else "Não liberado",
+                    "Não liberado",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (released) {
-                        LocalPontoCafeSemanticColors.current.success
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -743,7 +728,6 @@ private fun CollaboratorAuthorizationDetail(collaborator: Colaborador) {
 @Composable
 private fun AuthorizationReviewCard(
     employeeName: String,
-    periodLabel: String,
     reason: String?,
 ) {
     Surface(
@@ -764,13 +748,14 @@ private fun AuthorizationReviewCard(
             )
             Text(employeeName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "$periodLabel · ${reason ?: "Selecione um motivo"}",
+                reason ?: "Selecione um motivo",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "A liberação só será criada depois da confirmação final.",
+                "Período definido automaticamente pelo horário do servidor.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -779,7 +764,6 @@ private fun AuthorizationReviewCard(
 @Composable
 private fun AuthorizationReleasedCard(
     employeeName: String,
-    periodLabel: String,
     reason: String,
     expiresAt: String?,
     loading: Boolean,
@@ -840,7 +824,7 @@ private fun AuthorizationReleasedCard(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text("Período: $periodLabel", fontWeight = FontWeight.SemiBold)
+                    Text("Período: definido automaticamente", fontWeight = FontWeight.SemiBold)
                     Text("Motivo: ${reason.ifBlank { "Exceção operacional" }}")
                     Text(
                         if (expiresAt != null) "Liberada até $expiresAt · uso único"
