@@ -66,6 +66,17 @@ data class BulkCollaboratorResponse(
     val atualizados: Int,
 )
 
+data class CollaboratorDeleteResponse(
+    val ok: Boolean,
+    val colaboradorId: String,
+    val nome: String,
+    val excluido: Boolean,
+    val templatesExcluidos: Int = 0,
+    val verificacoesRevogadas: Int = 0,
+    val autorizacoesCanceladas: Int = 0,
+    val historicoPreservado: Boolean = true,
+)
+
 data class CollaboratorHistoryPerson(
     val id: String,
     val nome: String,
@@ -212,6 +223,9 @@ interface AdminReliabilityApi {
     @PUT("gestao/colaboradores/lote")
     suspend fun updateCollaborators(@Body body: BulkCollaboratorRequest): BulkCollaboratorResponse
 
+    @POST("gestao/colaboradores/{id}/excluir")
+    suspend fun deleteCollaborator(@Path("id") collaboratorId: String): CollaboratorDeleteResponse
+
     @POST("gestao/colaboradores/{id}/biometria/calibrar")
     suspend fun calibrate(
         @Path("id") collaboratorId: String,
@@ -238,6 +252,7 @@ class AdminReliabilityRepository(
         api.importCollaborators(CollaboratorImportRequest(items))
     suspend fun updateCollaborators(ids: List<String>, sector: String?, shift: String?, active: Boolean?) =
         api.updateCollaborators(BulkCollaboratorRequest(ids, sector, shift, active))
+    suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
 
     suspend fun calibrate(
         collaboratorId: String,
