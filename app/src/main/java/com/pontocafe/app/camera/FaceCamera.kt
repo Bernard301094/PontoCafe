@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -276,6 +277,7 @@ fun FaceCameraPreview(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val rootView = LocalView.current
     val currentOnObservation = rememberUpdatedState(onObservation)
     val currentOnFrame = rememberUpdatedState(onFrame)
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -293,6 +295,17 @@ fun FaceCameraPreview(
     }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    // Enquanto a câmera facial estiver em uso (Ponto ou cadastro de biometria),
+    // impede que o Android apague/bloqueie a tela por inatividade. Ao sair da
+    // captura, restaura exatamente o comportamento anterior do aparelho/app.
+    DisposableEffect(rootView) {
+        val previousKeepScreenOn = rootView.keepScreenOn
+        rootView.keepScreenOn = true
+        onDispose {
+            rootView.keepScreenOn = previousKeepScreenOn
+        }
+    }
 
     Box(modifier = modifier) {
         AndroidView(
