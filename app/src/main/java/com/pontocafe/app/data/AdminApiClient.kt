@@ -379,8 +379,12 @@ class AdminRepository(
     suspend fun health() = api.health()
     suspend fun appStatus() = api.appStatus()
 
+    // A lista de colaboradores é operacional e pode mudar por endpoints de
+    // biometria/gestão que pertencem a outro repositório. Por isso não retornamos
+    // uma cópia potencialmente obsoleta daqui: sempre buscamos o estado atual do
+    // servidor e apenas guardamos a última leitura para diagnóstico/compatibilidade.
     suspend fun collaborators(): List<Colaborador> =
-        collaboratorsCache ?: api.collaborators().colaboradores.also { collaboratorsCache = it }
+        api.collaborators().colaboradores.also { collaboratorsCache = it }
 
     suspend fun createCollaborator(name: String, sector: String?, shift: String?): Colaborador {
         val created = api.createCollaborator(
