@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
+import com.pontocafe.app.data.AdminTestPause
 import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.PausaSupervisor
 import java.time.Instant
@@ -61,7 +62,9 @@ fun SupervisorOperationScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val testPause by AdminTestPauseStore.active.collectAsState()
+    val testAsPause = remember(testPause) { testPause?.toSupervisorPause() }
     var selectedPause by remember { mutableStateOf<PausaSupervisor?>(null) }
+    var selectedPauseIsTest by remember { mutableStateOf(false) }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -85,7 +88,11 @@ fun SupervisorOperationScreen(
     selectedPause?.let { pause ->
         SupervisorPauseDetailDialog(
             pause = pause,
-            onDismiss = { selectedPause = null },
+            isTest = selectedPauseIsTest,
+            onDismiss = {
+                selectedPause = null
+                selectedPauseIsTest = false
+            },
         )
     }
 
@@ -105,6 +112,7 @@ fun SupervisorOperationScreen(
         )
     }
     val overdue = orderedPausas.count { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
+    val hasAnyVisualPause = orderedPausas.isNotEmpty() || testAsPause != null
 
     PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -257,28 +265,35 @@ fun SupervisorOperationScreen(
                     }
                 }
 
-                testPause?.let {
-                    item("test") {
-                        PcStateBanner(
-                            title = "TESTE do Administrador ativo",
-                            supportingText = "Existe uma simulação local em execução. Ela não cria pausa, histórico ou métricas reais.",
-                            tone = PontoCafeTone.INFO,
-                        )
-                    }
-                }
-
                 item("active-title") {
                     SectionTitle(
                         "Pessoas no café agora",
-                        if (orderedPausas.isEmpty()) {
-                            "Nenhuma pausa real em andamento."
-                        } else {
-                            "Toque em qualquer pessoa para ver horários, limite, setor e situação completa."
+                        when {
+                            orderedPausas.isNotEmpty() && testAsPause != null ->
+                                "Pausas reais e uma simulação TESTE. O teste usa o mesmo cartão, mas não altera métricas nem histórico."
+                            orderedPausas.isNotEmpty() ->
+                                "Toque em qualquer pessoa para ver horários, limite, setor e situação completa."
+                            testAsPause != null ->
+                                "A simulação TESTE usa exatamente o mesmo visual de uma pausa real e não é salva no sistema."
+                            else -> "Nenhuma pausa real em andamento."
                         },
                     )
                 }
 
-                if (orderedPausas.isEmpty()) {
+                testAsPause?.let { pause ->
+                    item("test-${pause.id}") {
+                        SupervisorOperationPauseCard(
+                            pause = pause,
+                            isTest = true,
+                            onClick = {
+                                selectedPause = pause
+                                selectedPauseIsTest = true
+                            },
+                        )
+                    }
+                }
+
+                if (orderedPausas.isEmpty() && testAsPause == null) {
                     item("empty") {
                         PcEmptyState(
                             title = "Nenhuma pausa aberta",
@@ -290,7 +305,10 @@ fun SupervisorOperationScreen(
                     items(orderedPausas, key = { "operation-${it.id}" }) { pause ->
                         SupervisorOperationPauseCard(
                             pause = pause,
-                            onClick = { selectedPause = pause },
+                            onClick = {
+                                selectedPause = pause
+                                selectedPauseIsTest = false
+                            },
                         )
                     }
                 }
@@ -373,6 +391,7 @@ private fun SupervisorConnectionBanner(
 @Composable
 private fun SupervisorOperationPauseCard(
     pause: PausaSupervisor,
+    isTest: Boolean = false,
     onClick: () -> Unit,
 ) {
     var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
@@ -412,11 +431,20 @@ private fun SupervisorOperationPauseCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    pause.nome,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    Text(
+                        pause.nome,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isTest) {
+                        StatusPill(text = "TESTE", tone = PontoCafeTone.INFO)
+                    }
+                }
                 Text(
                     listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() })
                         .joinToString(" · "),
@@ -428,6 +456,13 @@ private fun SupervisorOperationPauseCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (isTest) {
+                    Text(
+                        "Simulação local · não salva histórico, auditoria ou métricas",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -448,6 +483,7 @@ private fun SupervisorOperationPauseCard(
 @Composable
 private fun SupervisorPauseDetailDialog(
     pause: PausaSupervisor,
+    isTest: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: supervisorOperationSeconds(pause, System.currentTimeMillis())
@@ -457,6 +493,13 @@ private fun SupervisorPauseDetailDialog(
         title = { Text(pause.nome) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                if (isTest) {
+                    PcStateBanner(
+                        title = "TESTE · Não salvo no sistema",
+                        supportingText = "Esta pausa existe somente para visualizar a experiência do Supervisor.",
+                        tone = PontoCafeTone.INFO,
+                    )
+                }
                 PcKeyValueCard(
                     title = "Detalhes da pausa",
                     rows = listOf(
@@ -476,6 +519,26 @@ private fun SupervisorPauseDetailDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Fechar") }
         },
+    )
+}
+
+private fun AdminTestPause.toSupervisorPause(): PausaSupervisor {
+    val local = Instant.ofEpochMilli(startedAtMillis).atZone(ZoneId.systemDefault())
+    return PausaSupervisor(
+        id = id,
+        periodo = if (local.hour < 12) "MANHA" else "TARDE",
+        data = local.toLocalDate().toString(),
+        inicioLocal = local.format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+        fimLocal = null,
+        limiteSegundos = limitSeconds,
+        foraHorario = false,
+        tempoSegundos = 0,
+        duracaoSegundos = null,
+        excedeuLimite = null,
+        colaboradorId = id,
+        nome = adminName,
+        setor = "Simulação",
+        clienteAtualizadoEmMillis = startedAtMillis,
     )
 }
 
