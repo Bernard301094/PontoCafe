@@ -109,10 +109,16 @@ fun SupervisorAreaShell(
             }
         },
     ) { innerPadding ->
-        AnimatedContent(
-            modifier = Modifier
+        val contentModifier = if (imeVisible) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+        }
+
+        AnimatedContent(
+            modifier = contentModifier,
             targetState = current,
             transitionSpec = {
                 val forward = targetState.ordinal >= initialState.ordinal
