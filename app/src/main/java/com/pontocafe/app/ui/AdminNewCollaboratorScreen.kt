@@ -97,145 +97,148 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
         else -> "Tudo pronto. O próximo passo será o cadastro facial."
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        bottomBar = {
-            CollaboratorBottomActions(
-                enabled = readyToSubmit && !state.carregando,
-                loading = state.carregando,
-                hint = completionHint,
-                onSave = {
-                    draftState.markSubmitted()
-                    viewModel.trackCollaboratorDraftSubmission(draftState)
-                    viewModel.criarColaborador(cleanName, cleanSector, cleanShift)
-                },
-                onSupervisor = viewModel::abrirNovaConta,
-            )
-        },
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .imePadding()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(
-                start = PontoCafeSpacing.lg,
-                end = PontoCafeSpacing.lg,
-                top = PontoCafeSpacing.md,
-                bottom = PontoCafeSpacing.xl,
-            ),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
-            item("header") {
-                PontoCafeScreenHeader(
-                    title = "Novo colaborador",
-                    eyebrow = "Ponto Café",
-                    onBack = {
-                        draftState.reset()
-                        viewModel.voltarColaboradores()
+    PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
+                CollaboratorBottomActions(
+                    enabled = readyToSubmit && !state.carregando,
+                    loading = state.carregando,
+                    hint = completionHint,
+                    horizontalPadding = responsive.pagePadding,
+                    onSave = {
+                        draftState.markSubmitted()
+                        viewModel.trackCollaboratorDraftSubmission(draftState)
+                        viewModel.criarColaborador(cleanName, cleanSector, cleanShift)
                     },
-                    backLabel = "Colaboradores",
+                    onSupervisor = viewModel::abrirNovaConta,
                 )
-            }
+            },
+        ) { innerPadding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .imePadding()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(
+                    start = responsive.pagePadding,
+                    end = responsive.pagePadding,
+                    top = PontoCafeSpacing.md,
+                    bottom = PontoCafeSpacing.xl,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+            ) {
+                item("header") {
+                    PontoCafeScreenHeader(
+                        title = "Novo colaborador",
+                        eyebrow = "Ponto Café",
+                        onBack = {
+                            draftState.reset()
+                            viewModel.voltarColaboradores()
+                        },
+                        backLabel = "Colaboradores",
+                    )
+                }
 
-            item("context") {
-                CollaboratorContextCard()
-            }
+                item("context") {
+                    CollaboratorContextCard()
+                }
 
-            item("feedback") {
-                AdminFeedback(viewModel)
-            }
+                item("feedback") {
+                    AdminFeedback(viewModel)
+                }
 
-            item("form") {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-                    border = BorderStroke(1.dp, PontoCafePremium.border),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(PontoCafeSpacing.lg),
-                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                item("form") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
+                        border = BorderStroke(1.dp, PontoCafePremium.border),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            Text(
-                                "NOME COMPLETO",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            OutlinedTextField(
-                                value = draft.nome,
-                                onValueChange = { draftState.update(draft.copy(nome = it)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Digite o nome completo") },
-                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                                supportingText = { Text("Use o nome completo conforme o cadastro da empresa.") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(20.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                            )
-                        }
+                        Column(
+                            modifier = Modifier.padding(PontoCafeSpacing.lg),
+                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                Text(
+                                    "NOME COMPLETO",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                OutlinedTextField(
+                                    value = draft.nome,
+                                    onValueChange = { draftState.update(draft.copy(nome = it)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text("Digite o nome completo") },
+                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                                    supportingText = { Text("Use o nome completo conforme o cadastro da empresa.") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(20.dp),
+                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                                )
+                            }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            Text(
-                                "SETOR",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            OutlinedTextField(
-                                value = draft.setor,
-                                onValueChange = { draftState.update(draft.copy(setor = it)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Ex.: Produção") },
-                                leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
-                                supportingText = {
-                                    Text("Você pode digitar um novo setor ou usar uma sugestão abaixo.")
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(20.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                Text(
+                                    "SETOR",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                OutlinedTextField(
+                                    value = draft.setor,
+                                    onValueChange = { draftState.update(draft.copy(setor = it)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text("Ex.: Produção") },
+                                    leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
+                                    supportingText = {
+                                        Text("Você pode digitar um novo setor ou usar uma sugestão abaixo.")
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(20.dp),
+                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                                )
 
-                            if (sectorSuggestions.isNotEmpty()) {
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                                    contentPadding = PaddingValues(top = 2.dp),
-                                ) {
-                                    items(sectorSuggestions, key = { "sector-$it" }) { sector ->
-                                        FilterChip(
-                                            selected = cleanSector.equals(sector, ignoreCase = true),
-                                            onClick = { draftState.update(draft.copy(setor = sector)) },
-                                            label = { Text(sector) },
-                                        )
+                                if (sectorSuggestions.isNotEmpty()) {
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                        contentPadding = PaddingValues(top = 2.dp),
+                                    ) {
+                                        items(sectorSuggestions, key = { "sector-$it" }) { sector ->
+                                            FilterChip(
+                                                selected = cleanSector.equals(sector, ignoreCase = true),
+                                                onClick = { draftState.update(draft.copy(setor = sector)) },
+                                                label = { Text(sector) },
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            Text(
-                                "TURNO",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                "Escolha o turno. Isso evita abreviações diferentes no cadastro.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                            ) {
-                                CollaboratorShiftOptions.forEach { shift ->
-                                    ShiftOptionCard(
-                                        shift = shift,
-                                        selected = cleanShift == shift,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { draftState.update(draft.copy(turno = shift)) },
-                                    )
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                Text(
+                                    "TURNO",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "Escolha o turno. Isso evita abreviações diferentes no cadastro.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                ) {
+                                    CollaboratorShiftOptions.forEach { shift ->
+                                        ShiftOptionCard(
+                                            shift = shift,
+                                            selected = cleanShift == shift,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { draftState.update(draft.copy(turno = shift)) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -364,6 +367,7 @@ private fun CollaboratorBottomActions(
     enabled: Boolean,
     loading: Boolean,
     hint: String,
+    horizontalPadding: androidx.compose.ui.unit.Dp,
     onSave: () -> Unit,
     onSupervisor: () -> Unit,
 ) {
@@ -377,7 +381,7 @@ private fun CollaboratorBottomActions(
         shadowElevation = 12.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.lg, vertical = PontoCafeSpacing.sm),
+            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = PontoCafeSpacing.sm),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
             Row(
