@@ -81,8 +81,8 @@ fun BiometricRegistrationSuccessFeedback(
         ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 440.dp),
+                    .widthIn(max = 440.dp)
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(30.dp),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
