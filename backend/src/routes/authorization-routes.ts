@@ -101,10 +101,9 @@ authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
   const user = c.get('user')
   const canceled = await transaction(async (client) => {
     const result = await client.query<{ id: string }>(
-      `update autorizacoes
-       set cancelada_em=now()
-       where id=(
-         select id from autorizacoes
+      `with target as (
+         select id
+         from autorizacoes
          where colaborador_id=$1 and periodo=$2
            and usado_em is null
            and cancelada_em is null
@@ -113,7 +112,11 @@ authorizationRoutes.post('/autorizacoes/cancelar', async (c) => {
          limit 1
          for update
        )
-       returning id`,
+       update autorizacoes a
+       set cancelada_em=now()
+       from target
+       where a.id=target.id
+       returning a.id`,
       [body.data.colaboradorId, body.data.periodo],
     )
     const authorization = result.rows[0]
