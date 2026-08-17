@@ -150,6 +150,11 @@ fun SupervisorAreaShell(
                     SupervisorPrimaryDestination.REPORTS -> SupervisorArea(viewModel, onClose)
                 }
             }
+
+            BiometricRegistrationSuccessFeedback(
+                message = state.mensagem,
+                onDismiss = viewModel::limparAviso,
+            )
         }
     }
 
