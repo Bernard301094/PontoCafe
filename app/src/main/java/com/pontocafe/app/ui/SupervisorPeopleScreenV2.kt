@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -19,10 +20,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,11 +33,14 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
     val state = viewModel.state
     val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var search by remember { mutableStateOf("") }
     var pendingOnly by remember { mutableStateOf(false) }
 
@@ -50,8 +56,23 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
         .toList()
     val registered = state.colaboradores.count { it.rostoCadastrado }
     val pending = state.colaboradores.size - registered
+    val collaboratorsSectionIndex =
+        2 +
+            (if (state.colaboradores.isNotEmpty()) 1 else 0) +
+            (if (pending > 0) 1 else 0) +
+            2
+
+    fun updatePendingFilter(enabled: Boolean) {
+        pendingOnly = enabled
+        search = ""
+        focusManager.clearFocus()
+        scope.launch {
+            listState.animateScrollToItem(collaboratorsSectionIndex)
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
@@ -91,11 +112,7 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
                         "Esses colaboradores ainda não conseguem utilizar reconhecimento facial."
                     },
                     actionLabel = if (pendingOnly) "Mostrar todos" else "Mostrar pendentes",
-                    onClick = {
-                        pendingOnly = !pendingOnly
-                        search = ""
-                        focusManager.clearFocus()
-                    },
+                    onClick = { updatePendingFilter(!pendingOnly) },
                     tone = PontoCafeTone.WARNING,
                 )
             }
@@ -128,7 +145,24 @@ fun SupervisorPeopleScreenV2(viewModel: SupervisorViewModel) {
             } else {
                 "${collaborators.size} resultado(s) · pendentes aparecem primeiro."
             }
-            SectionTitle("Colaboradores", detail)
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                SectionTitle("Colaboradores", detail)
+                if (pendingOnly) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        StatusPill(
+                            text = "Filtro: rosto pendente",
+                            tone = PontoCafeTone.INFO,
+                        )
+                        TextButton(onClick = { updatePendingFilter(false) }) {
+                            Text("Mostrar todos")
+                        }
+                    }
+                }
+            }
         }
 
         if (collaborators.isEmpty()) {
