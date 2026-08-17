@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
+import kotlinx.coroutines.delay
 
 private enum class SupervisorPrimaryDestination(val label: String) {
     LIVE("Operação"),
@@ -45,6 +46,15 @@ fun SupervisorAreaShell(
 ) {
     val state = viewModel.state
     var pendingPrimaryDestination by remember { mutableStateOf<SupervisorPrimaryDestination?>(null) }
+
+    val transientMessage = state.mensagem?.takeUnless { message ->
+        message.startsWith("Rosto de ") && message.contains("cadastrado com 5 amostras")
+    }
+    LaunchedEffect(transientMessage) {
+        val message = transientMessage ?: return@LaunchedEffect
+        delay(4_000)
+        if (viewModel.state.mensagem == message) viewModel.limparAviso()
+    }
 
     val stateCurrent = when (state.destination) {
         SupervisorDestination.AO_VIVO -> SupervisorPrimaryDestination.LIVE
@@ -61,9 +71,7 @@ fun SupervisorAreaShell(
             SupervisorDestination.RELATORIOS -> SupervisorPrimaryDestination.REPORTS
             else -> null
         }
-        if (resolved == pending || !state.carregando) {
-            pendingPrimaryDestination = null
-        }
+        if (resolved == pending || !state.carregando) pendingPrimaryDestination = null
     }
 
     val current = pendingPrimaryDestination ?: stateCurrent
@@ -98,9 +106,7 @@ fun SupervisorAreaShell(
     }
 
     fun openDestination(destination: SupervisorPrimaryDestination) {
-        if (current != destination) {
-            pendingPrimaryDestination = destination
-        }
+        if (current != destination) pendingPrimaryDestination = destination
         when (destination) {
             SupervisorPrimaryDestination.LIVE -> viewModel.voltarAoVivo()
             SupervisorPrimaryDestination.PEOPLE -> viewModel.abrirColaboradores()
@@ -141,8 +147,7 @@ fun SupervisorAreaShell(
                     .fillMaxWidth(),
                 targetState = current,
                 transitionSpec = {
-                    fadeIn(tween(PontoCafeMotion.Quick)) togetherWith
-                        fadeOut(tween(PontoCafeMotion.Instant))
+                    fadeIn(tween(PontoCafeMotion.Quick)) togetherWith fadeOut(tween(PontoCafeMotion.Instant))
                 },
                 label = "supervisor-primary-navigation",
             ) { destination ->
