@@ -7,6 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.HttpException
+import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -143,6 +144,23 @@ data class FinalizarPausaResponse(
     val excedeuLimite: Boolean,
 )
 
+data class RegistroRapidoRequest(
+    val colaboradorId: String,
+    val embedding: List<Float>,
+    val modelo: String,
+    val versaoModelo: String,
+)
+
+data class RegistroRapidoResponse(
+    val status: String,
+    val score: Double? = null,
+    val colaborador: Colaborador? = null,
+    val inicio: IniciarPausaResponse? = null,
+    val retorno: FinalizarPausaResponse? = null,
+    val motivo: String? = null,
+    val mensagem: String? = null,
+)
+
 data class OfflineSyncRequest(val eventos: List<OfflinePontoEvent>)
 data class OfflineSyncResult(
     val eventId: String,
@@ -171,6 +189,7 @@ interface PontoCafeApi {
     @POST("ponto/biometria/confirmar-local") suspend fun confirmarBiometriaLocal(@Body body: ConfirmarBiometriaLocalRequest): IdentificarBiometriaResponse
     @POST("ponto/biometria/identificar") suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
     @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
+    @POST("ponto/registro-rapido") suspend fun registroRapido(@Body body: RegistroRapidoRequest): Response<RegistroRapidoResponse>
     @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): IniciarPausaResponse
     @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): FinalizarPausaResponse
     @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
@@ -188,6 +207,33 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
     suspend fun confirmarIdentidadeLocal(colaboradorId: String, embedding: FloatArray, modelo: String, versaoModelo: String): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo))
     suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse = api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
+
+    /**
+     * Retorna null quando o Worker ainda não oferece o fast-path ou quando ele
+     * está temporariamente indisponível. O chamador então usa o fluxo legado
+     * completo, permitindo implantar APK e backend em qualquer ordem.
+     */
+    suspend fun registrarRapido(
+        colaboradorId: String,
+        embedding: FloatArray,
+        modelo: String,
+        versaoModelo: String,
+    ): RegistroRapidoResponse? {
+        val response = api.registroRapido(
+            RegistroRapidoRequest(
+                colaboradorId = colaboradorId,
+                embedding = embedding.toList(),
+                modelo = modelo,
+                versaoModelo = versaoModelo,
+            ),
+        )
+        if (response.code() == 404 || response.code() == 405 || response.code() == 501 || response.code() >= 500) {
+            return null
+        }
+        if (!response.isSuccessful) throw HttpException(response)
+        return response.body() ?: error("O servidor não retornou o resultado do registro rápido.")
+    }
+
     suspend fun iniciar(colaboradorId: String, verificacaoToken: String, periodo: String? = null, codigoAutorizacao: String? = null): IniciarPausaResponse = api.iniciarPausa(IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao))
     suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse = api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken))
     suspend fun sincronizarOffline(eventos: List<OfflinePontoEvent>): OfflineSyncResponse =
