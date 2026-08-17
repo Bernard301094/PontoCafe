@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
+import java.time.LocalDate
 import kotlinx.coroutines.delay
 
 private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
@@ -60,8 +61,11 @@ fun rememberSupervisorLiveActivityAlert(
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
-    val latestReturnAlert = remember(latestReturn?.id, latestReturn?.fimLocal) {
-        latestReturn?.toPersistentReturnAlert()
+    val today = LocalDate.now().toString()
+    val latestReturnAlert = remember(latestReturn?.id, latestReturn?.fimLocal, latestReturn?.data, today) {
+        latestReturn
+            ?.takeIf { retorno -> retorno.data == today }
+            ?.toPersistentReturnAlert()
     }
 
     LaunchedEffect(pausasAtivas, enabled, agoraEmMillis) {
@@ -147,9 +151,9 @@ fun rememberSupervisorLiveActivityAlert(
         if (transientAlert?.id == currentId) transientAlert = null
     }
 
-    // Eventos novos têm prioridade por alguns segundos. Depois disso, o último
-    // retorno vem do SupervisorViewModel e permanece imediatamente disponível
-    // mesmo quando o usuário troca de aba e volta para Operação.
+    // Eventos novos têm prioridade por alguns segundos. Depois disso, somente
+    // o último retorno DO DIA ATUAL pode permanecer no painel de Operação.
+    // Isso impede que o Supervisor carregue um retorno de ontem após a virada do dia.
     return transientAlert ?: latestReturnAlert
 }
 
