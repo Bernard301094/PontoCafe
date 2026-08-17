@@ -1,6 +1,7 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -21,58 +23,103 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Tokens legados mantidos para compatibilidade com as telas existentes.
+ *
+ * Eles deixaram de representar "vidro escuro" e agora são neutros translúcidos
+ * que funcionam sobre os esquemas claro e escuro do Material 3. Novos componentes
+ * devem preferir MaterialTheme.colorScheme.surfaceContainer* diretamente.
+ */
 object PontoCafePremium {
-    val backgroundTop = Color(0xFF0A1512)
-    val backgroundMid = Color(0xFF07100E)
-    val backgroundBottom = Color(0xFF040806)
-    val glass = Color(0xE6111A18)
-    val glassStrong = Color(0xF015211D)
-    val glassSoft = Color(0xCC172520)
-    val border = Color(0x3D9CE7D0)
-    val borderSoft = Color(0x244E6B62)
-    val glow = Color(0xFF8DE6C8)
-    val glowSoft = Color(0x338DE6C8)
-    val ice = Color(0xFFA8D8FF)
-    val textPrimary = Color(0xFFF2F7F5)
-    val textSecondary = Color(0xFFB5C4BE)
+    val backgroundTop = Color(0xFF0A100E)
+    val backgroundMid = Color(0xFF0B0F0E)
+    val backgroundBottom = Color(0xFF080B0A)
+    val glass = Color(0x12758A82)
+    val glassStrong = Color(0x1E758A82)
+    val glassSoft = Color(0x14758A82)
+    val border = Color(0x357A9188)
+    val borderSoft = Color(0x247A9188)
+    val glow = Color(0xFF55D6B2)
+    val glowSoft = Color(0x2455D6B2)
+    val ice = Color(0xFF8AC7FF)
+    val textPrimary = Color(0xFFF3F8F5)
+    val textSecondary = Color(0xFFB9C7C1)
 }
 
-private val PremiumColors = darkColorScheme(
-    primary = Color(0xFF8DE6C8),
-    onPrimary = Color(0xFF062A21),
-    primaryContainer = Color(0xCC163C32),
-    onPrimaryContainer = Color(0xFFD6FFF2),
-    secondary = Color(0xFFB7CBC4),
-    onSecondary = Color(0xFF162A24),
-    secondaryContainer = Color(0xCC263934),
-    onSecondaryContainer = Color(0xFFE1EEE9),
-    tertiary = Color(0xFFA8D8FF),
-    onTertiary = Color(0xFF0C2D45),
-    tertiaryContainer = Color(0xCC203E53),
-    onTertiaryContainer = Color(0xFFE0F1FF),
+private val PontoCafeDarkColors = darkColorScheme(
+    primary = Color(0xFF72DCBC),
+    onPrimary = Color(0xFF00382B),
+    primaryContainer = Color(0xFF165143),
+    onPrimaryContainer = Color(0xFFB0F2DD),
+    secondary = Color(0xFFB5CCC4),
+    onSecondary = Color(0xFF20352F),
+    secondaryContainer = Color(0xFF354B44),
+    onSecondaryContainer = Color(0xFFD1E8DF),
+    tertiary = Color(0xFFA5CDFF),
+    onTertiary = Color(0xFF003258),
+    tertiaryContainer = Color(0xFF174B75),
+    onTertiaryContainer = Color(0xFFD3E5FF),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
-    errorContainer = Color(0xCC7B1F1A),
+    errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color.Transparent,
-    onBackground = PontoCafePremium.textPrimary,
-    surface = PontoCafePremium.glass,
-    onSurface = PontoCafePremium.textPrimary,
-    surfaceVariant = PontoCafePremium.glassSoft,
-    onSurfaceVariant = PontoCafePremium.textSecondary,
-    surfaceDim = Color(0xFF06100D),
-    surfaceBright = Color(0xFF253631),
-    surfaceContainerLowest = Color(0xB3070E0C),
-    surfaceContainerLow = Color(0xCC0D1714),
-    surfaceContainer = Color(0xE6121D19),
-    surfaceContainerHigh = Color(0xF0182420),
-    surfaceContainerHighest = Color(0xFF1E2B27),
-    surfaceTint = Color(0xFF8DE6C8),
-    outline = Color(0xFF51645D),
-    outlineVariant = PontoCafePremium.borderSoft,
-    inverseSurface = Color(0xFFE5ECE9),
-    inverseOnSurface = Color(0xFF1D2A26),
-    scrim = Color(0xCC000000),
+    background = Color(0xFF0D1210),
+    onBackground = Color(0xFFE4EAE6),
+    surface = Color(0xFF0D1210),
+    onSurface = Color(0xFFE4EAE6),
+    surfaceVariant = Color(0xFF3F4945),
+    onSurfaceVariant = Color(0xFFBEC9C3),
+    surfaceDim = Color(0xFF0D1210),
+    surfaceBright = Color(0xFF333A37),
+    surfaceContainerLowest = Color(0xFF080D0B),
+    surfaceContainerLow = Color(0xFF151A18),
+    surfaceContainer = Color(0xFF191F1C),
+    surfaceContainerHigh = Color(0xFF232925),
+    surfaceContainerHighest = Color(0xFF2D332F),
+    surfaceTint = Color(0xFF72DCBC),
+    outline = Color(0xFF89938E),
+    outlineVariant = Color(0xFF3F4945),
+    inverseSurface = Color(0xFFE4EAE6),
+    inverseOnSurface = Color(0xFF2A302D),
+    scrim = Color(0xFF000000),
+)
+
+private val PontoCafeLightColors = lightColorScheme(
+    primary = Color(0xFF006B56),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF9AF2D5),
+    onPrimaryContainer = Color(0xFF002019),
+    secondary = Color(0xFF4A635B),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFCDE8DE),
+    onSecondaryContainer = Color(0xFF07201A),
+    tertiary = Color(0xFF35618D),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFD1E4FF),
+    onTertiaryContainer = Color(0xFF001D35),
+    error = Color(0xFFBA1A1A),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFF7FAF8),
+    onBackground = Color(0xFF181D1B),
+    surface = Color(0xFFF7FAF8),
+    onSurface = Color(0xFF181D1B),
+    surfaceVariant = Color(0xFFDBE5DF),
+    onSurfaceVariant = Color(0xFF3F4945),
+    surfaceDim = Color(0xFFD7DBD8),
+    surfaceBright = Color(0xFFF7FAF8),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF1F5F2),
+    surfaceContainer = Color(0xFFEBEFEC),
+    surfaceContainerHigh = Color(0xFFE5E9E6),
+    surfaceContainerHighest = Color(0xFFDCE2DE),
+    surfaceTint = Color(0xFF006B56),
+    outline = Color(0xFF6F7974),
+    outlineVariant = Color(0xFFBEC9C3),
+    inverseSurface = Color(0xFF2D312F),
+    inverseOnSurface = Color(0xFFEFF1EF),
+    scrim = Color(0xFF000000),
 )
 
 @Immutable
@@ -88,19 +135,31 @@ data class PontoCafeSemanticColors(
     val onInfoContainer: Color,
 )
 
-private val PremiumSemanticColors = PontoCafeSemanticColors(
-    success = Color(0xFF7BE0B7),
-    successContainer = Color(0xCC153B30),
-    onSuccessContainer = Color(0xFFD2F9E9),
-    warning = Color(0xFFFFD27D),
-    warningContainer = Color(0xCC46351A),
-    onWarningContainer = Color(0xFFFFEDC9),
-    info = Color(0xFFA8D8FF),
-    infoContainer = Color(0xCC203B50),
-    onInfoContainer = Color(0xFFE0F1FF),
+private val DarkSemanticColors = PontoCafeSemanticColors(
+    success = Color(0xFF72DCBC),
+    successContainer = Color(0xFF164D40),
+    onSuccessContainer = Color(0xFFB0F2DD),
+    warning = Color(0xFFFFC867),
+    warningContainer = Color(0xFF55431E),
+    onWarningContainer = Color(0xFFFFEAB8),
+    info = Color(0xFFA5CDFF),
+    infoContainer = Color(0xFF244A6E),
+    onInfoContainer = Color(0xFFD3E5FF),
 )
 
-val LocalPontoCafeSemanticColors = staticCompositionLocalOf { PremiumSemanticColors }
+private val LightSemanticColors = PontoCafeSemanticColors(
+    success = Color(0xFF006B56),
+    successContainer = Color(0xFF9AF2D5),
+    onSuccessContainer = Color(0xFF002019),
+    warning = Color(0xFF795900),
+    warningContainer = Color(0xFFFFE08A),
+    onWarningContainer = Color(0xFF251A00),
+    info = Color(0xFF35618D),
+    infoContainer = Color(0xFFD1E4FF),
+    onInfoContainer = Color(0xFF001D35),
+)
+
+val LocalPontoCafeSemanticColors = staticCompositionLocalOf { DarkSemanticColors }
 
 object PontoCafeSpacing {
     val xxs = 4.dp
@@ -113,41 +172,40 @@ object PontoCafeSpacing {
 }
 
 private val PontoCafeShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 private val PontoCafeTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 37.sp,
-        lineHeight = 43.sp,
-        letterSpacing = (-0.7).sp,
+        fontSize = 36.sp,
+        lineHeight = 42.sp,
+        letterSpacing = (-0.6).sp,
     ),
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 31.sp,
-        lineHeight = 37.sp,
-        letterSpacing = (-0.55).sp,
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.45).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
-        letterSpacing = (-0.35).sp,
+        fontSize = 25.sp,
+        lineHeight = 31.sp,
+        letterSpacing = (-0.25).sp,
     ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
-        letterSpacing = (-0.2).sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -157,74 +215,93 @@ private val PontoCafeTypography = Typography(
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         fontSize = 16.sp,
         lineHeight = 22.sp,
+    ),
+    titleSmall = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
-        lineHeight = 25.sp,
+        lineHeight = 24.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
-        lineHeight = 21.sp,
+        lineHeight = 20.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
-        lineHeight = 18.sp,
+        lineHeight = 17.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
+        letterSpacing = 0.1.sp,
     ),
     labelMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
-        lineHeight = 17.sp,
-        letterSpacing = 0.2.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.3.sp,
     ),
 )
 
 @Composable
 fun PontoCafeAppBackground(
     modifier: Modifier = Modifier,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
+    val wash = if (darkTheme) {
+        listOf(
+            colors.surfaceContainerLow,
+            colors.background,
+            colors.background,
+        )
+    } else {
+        listOf(
+            colors.primaryContainer.copy(alpha = 0.16f),
+            colors.background,
+            colors.background,
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        PontoCafePremium.backgroundTop,
-                        PontoCafePremium.backgroundMid,
-                        PontoCafePremium.backgroundBottom,
-                    ),
-                ),
-            ),
+            .background(Brush.verticalGradient(wash)),
     ) {
         content()
     }
 }
 
 @Composable
-fun PontoCafeTheme(content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalPontoCafeSemanticColors provides PremiumSemanticColors) {
+fun PontoCafeTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    val semanticColors = if (darkTheme) DarkSemanticColors else LightSemanticColors
+    CompositionLocalProvider(LocalPontoCafeSemanticColors provides semanticColors) {
         MaterialTheme(
-            colorScheme = PremiumColors,
+            colorScheme = if (darkTheme) PontoCafeDarkColors else PontoCafeLightColors,
             typography = PontoCafeTypography,
             shapes = PontoCafeShapes,
         ) {
-            PontoCafeAppBackground(content = content)
+            PontoCafeAppBackground(darkTheme = darkTheme, content = content)
         }
     }
 }
