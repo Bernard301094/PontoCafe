@@ -40,7 +40,7 @@ export const config = {
   faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72, 0.5, 0.99),
   faceIdentificationMargin: numberEnv('FACE_IDENTIFICATION_MARGIN', 0.06, 0.01, 0.3),
   faceEnrollmentDuplicateThreshold: numberEnv('FACE_ENROLLMENT_DUPLICATE_THRESHOLD', 0.78, 0.7, 0.999),
-  authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 180, 30, 900),
+  authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 600, 30, 900),
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180, 30, 900),
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
   biometricRetentionDays: numberEnv('BIOMETRIC_RETENTION_DAYS', 90, 1, 3650),
