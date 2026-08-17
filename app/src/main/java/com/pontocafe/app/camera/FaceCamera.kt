@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.Rect
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
@@ -46,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
 private const val FACE_CAMERA_TAG = "PontoCafeFaceCamera"
+private const val OBSERVATION_DELIVERY_INTERVAL_MS = 50L
 
 data class FaceObservation(
     val faceCount: Int = 0,
@@ -165,66 +167,80 @@ private fun analyzer(
     captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
-) = ImageAnalysis.Analyzer { imageProxy ->
-    try {
-        val mediaImage = imageProxy.image ?: return@Analyzer
-        val rotation = imageProxy.imageInfo.rotationDegrees
-        val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
-        val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
-        val image = InputImage.fromMediaImage(mediaImage, rotation)
+): ImageAnalysis.Analyzer {
+    var lastObservationDeliveryAt = 0L
+    var lastDeliveredFaceCount = -1
 
-        val faces = Tasks.await(detector.process(image))
-        val observation = if (faces.size == 1) {
-            faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
-        } else {
-            FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
-        }
-        runCatching { onObservation(observation) }
-            .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao entregar observação facial.", it) }
+    return ImageAnalysis.Analyzer { imageProxy ->
+        try {
+            val mediaImage = imageProxy.image ?: return@Analyzer
+            val rotation = imageProxy.imageInfo.rotationDegrees
+            val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
+            val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
+            val image = InputImage.fromMediaImage(mediaImage, rotation)
 
-        if (faces.size == 1 && captureController.consume()) {
-            try {
-                val face = faces.first()
-                val sourceBitmap = imageProxy.toBitmap()
-                val uprightBitmap = try {
-                    rotate(sourceBitmap, rotation)
-                } catch (error: Throwable) {
-                    if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
-                    throw error
-                }
-                if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
-                    sourceBitmap.recycle()
-                }
-
-                try {
-                    onFrame(
-                        FaceFrame(
-                            bitmap = uprightBitmap,
-                            faceBounds = Rect(face.boundingBox),
-                            leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
-                            rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
-                            noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
-                            mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
-                        ),
-                    )
-                } catch (error: Throwable) {
-                    if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
-                    throw error
-                }
-            } catch (error: Throwable) {
-                captureController.retry()
-                Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
+            val faces = Tasks.await(detector.process(image))
+            val observation = if (faces.size == 1) {
+                faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
+            } else {
+                FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
             }
+
+            val now = SystemClock.uptimeMillis()
+            val shouldDeliverObservation =
+                observation.faceCount != lastDeliveredFaceCount ||
+                    now - lastObservationDeliveryAt >= OBSERVATION_DELIVERY_INTERVAL_MS
+            if (shouldDeliverObservation) {
+                lastObservationDeliveryAt = now
+                lastDeliveredFaceCount = observation.faceCount
+                runCatching { onObservation(observation) }
+                    .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao entregar observação facial.", it) }
+            }
+
+            if (faces.size == 1 && captureController.consume()) {
+                try {
+                    val face = faces.first()
+                    val sourceBitmap = imageProxy.toBitmap()
+                    val uprightBitmap = try {
+                        rotate(sourceBitmap, rotation)
+                    } catch (error: Throwable) {
+                        if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
+                        throw error
+                    }
+                    if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
+                        sourceBitmap.recycle()
+                    }
+
+                    try {
+                        onFrame(
+                            FaceFrame(
+                                bitmap = uprightBitmap,
+                                faceBounds = Rect(face.boundingBox),
+                                leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
+                                rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
+                                noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
+                                mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
+                            ),
+                        )
+                    } catch (error: Throwable) {
+                        if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
+                        throw error
+                    }
+                } catch (error: Throwable) {
+                    captureController.retry()
+                    Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
+                }
+            }
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.d(FACE_CAMERA_TAG, "Análise facial interrompida durante o encerramento da câmera.")
+        } catch (error: Throwable) {
+            Log.e(FACE_CAMERA_TAG, "Falha ao analisar frame facial.", error)
+            runCatching { onObservation(FaceObservation()) }
+        } finally {
+            runCatching { imageProxy.close() }
+                .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao liberar frame da câmera.", it) }
         }
-    } catch (error: InterruptedException) {
-        Thread.currentThread().interrupt()
-        Log.d(FACE_CAMERA_TAG, "Análise facial interrompida durante o encerramento da câmera.")
-    } catch (error: Throwable) {
-        Log.e(FACE_CAMERA_TAG, "Falha ao analisar frame facial.", error)
-        runCatching { onObservation(FaceObservation()) }
-    } finally {
-        runCatching { imageProxy.close() }
-            .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao liberar frame da câmera.", it) }
     }
 }
 
@@ -321,6 +337,7 @@ fun FaceCameraPreview(
             modifier = Modifier.fillMaxSize(),
             factory = {
                 PreviewView(it).also { view ->
+                    view.implementationMode = PreviewView.ImplementationMode.PERFORMANCE
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
                     previewView = view
                 }
