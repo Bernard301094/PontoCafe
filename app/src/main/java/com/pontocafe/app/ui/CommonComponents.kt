@@ -1,16 +1,12 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +31,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +43,7 @@ enum class PontoCafeTone { NEUTRAL, SUCCESS, WARNING, INFO, DANGER }
 private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
     val semantic = LocalPontoCafeSemanticColors.current
     return when (tone) {
-        PontoCafeTone.NEUTRAL -> PontoCafePremium.glassSoft to MaterialTheme.colorScheme.onSurfaceVariant
+        PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurfaceVariant
         PontoCafeTone.SUCCESS -> semantic.successContainer to semantic.onSuccessContainer
         PontoCafeTone.WARNING -> semantic.warningContainer to semantic.onWarningContainer
         PontoCafeTone.INFO -> semantic.infoContainer to semantic.onInfoContainer
@@ -58,26 +53,24 @@ private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
 
 @Composable
 fun PontoCafeHeader(subtitle: String? = null) {
-    MotionReveal {
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+        Text(
+            text = "PONTO CAFÉ",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = "Ponto Café",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (!subtitle.isNullOrBlank()) {
             Text(
-                text = "PONTO CAFÉ",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                text = "Ponto Café",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold,
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -90,58 +83,50 @@ fun PontoCafeScreenHeader(
     eyebrow: String? = "Ponto Café",
     modifier: Modifier = Modifier,
 ) {
-    MotionReveal(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            if (onBack != null) {
-                Surface(
-                    modifier = Modifier.size(46.dp),
-                    shape = CircleShape,
-                    color = PontoCafePremium.glassSoft,
-                    border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = backLabel,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+    ) {
+        if (onBack != null) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
-                if (!eyebrow.isNullOrBlank()) {
-                    Text(
-                        eyebrow.uppercase(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = backLabel,
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (!eyebrow.isNullOrBlank()) {
                 Text(
-                    title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.SemiBold,
+                    eyebrow.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
 
 @Composable
 fun SectionTitle(title: String, subtitle: String? = null) {
-    Column(
-        modifier = Modifier.animateContentSize(
-            animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.StandardEasing),
-        ),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,
@@ -168,32 +153,28 @@ fun MetricCard(
     val semantic = LocalPontoCafeSemanticColors.current
     val displayValue = animatedMetricValue(value)
     Card(
-        modifier = modifier.animateContentSize(
-            animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.StandardEasing),
-        ),
+        modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = if (emphasized) semantic.warningContainer else PontoCafePremium.glassStrong,
+            containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         ),
-        border = BorderStroke(
-            1.dp,
-            if (emphasized) semantic.warning.copy(alpha = 0.38f) else PontoCafePremium.border,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        border = if (emphasized) BorderStroke(1.dp, semantic.warning.copy(alpha = 0.28f)) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 displayValue,
                 style = MaterialTheme.typography.headlineMedium,
                 color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (emphasized) semantic.onWarningContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (emphasized) semantic.onWarningContainer.copy(alpha = 0.82f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
             )
         }
@@ -213,37 +194,25 @@ fun StatusPill(text: String, positive: Boolean, modifier: Modifier = Modifier) {
 fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier) {
     val (container, content) = toneColors(tone)
     Surface(
-        modifier = modifier.animateContentSize(
-            animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.StandardEasing),
-        ),
+        modifier = modifier,
         shape = CircleShape,
         color = container,
-        border = BorderStroke(1.dp, content.copy(alpha = 0.14f)),
     ) {
-        AnimatedContent(
-            targetState = text to tone,
-            transitionSpec = {
-                fadeIn(tween(PontoCafeMotion.Standard)) togetherWith fadeOut(tween(PontoCafeMotion.Quick))
-            },
-            label = "status-pill",
-        ) { (animatedText, animatedTone) ->
-            val (_, animatedContent) = toneColors(animatedTone)
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val icon = when (animatedTone) {
-                    PontoCafeTone.SUCCESS -> Icons.Default.CheckCircle
-                    PontoCafeTone.WARNING, PontoCafeTone.DANGER -> Icons.Default.Warning
-                    PontoCafeTone.INFO -> Icons.Default.Info
-                    PontoCafeTone.NEUTRAL -> null
-                }
-                if (icon != null) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = animatedContent)
-                }
-                Text(text = animatedText, style = MaterialTheme.typography.labelMedium, color = animatedContent)
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val icon = when (tone) {
+                PontoCafeTone.SUCCESS -> Icons.Default.CheckCircle
+                PontoCafeTone.WARNING, PontoCafeTone.DANGER -> Icons.Default.Warning
+                PontoCafeTone.INFO -> Icons.Default.Info
+                PontoCafeTone.NEUTRAL -> null
             }
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = content)
+            }
+            Text(text = text, style = MaterialTheme.typography.labelMedium, color = content)
         }
     }
 }
@@ -267,18 +236,16 @@ fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
         .ifBlank { "?" }
 
     Surface(
-        modifier = modifier.size(48.dp),
+        modifier = modifier.size(44.dp),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)),
-        shadowElevation = 4.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 initials,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -294,14 +261,10 @@ fun OperationalAlertCard(
 ) {
     val (container, content) = toneColors(tone)
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
-            ),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = container),
-        border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
@@ -325,7 +288,7 @@ fun OperationalAlertCard(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            Text(text, style = MaterialTheme.typography.bodyMedium, color = content.copy(alpha = 0.84f))
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = content.copy(alpha = 0.86f))
             TextButton(onClick = onClick) { Text(actionLabel, color = content) }
         }
     }
@@ -340,11 +303,7 @@ fun AccountSummaryRow(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.StandardEasing),
-            ),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
@@ -354,6 +313,7 @@ fun AccountSummaryRow(
                 name,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -378,10 +338,10 @@ fun AccountSummaryRow(
 @Composable
 fun RulesCard() {
     Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-        border = BorderStroke(1.dp, PontoCafePremium.border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Horários de café", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -415,10 +375,10 @@ fun MessageCard(viewModel: PontoCafeViewModel) {
         val isError = state.erro != null
         val (container, content) = toneColors(if (isError) PontoCafeTone.DANGER else PontoCafeTone.INFO)
         Card(
-            Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = container),
-            border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = MaterialTheme.shapes.large,
         ) {
             Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
