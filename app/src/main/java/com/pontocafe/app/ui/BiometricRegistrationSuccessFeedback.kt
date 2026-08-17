@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 
-private const val BIOMETRIC_SUCCESS_VISIBLE_MILLIS = 4_500L
+private const val BIOMETRIC_SUCCESS_VISIBLE_MILLIS = 6_500L
 
 @Composable
 fun BiometricRegistrationSuccessFeedback(
@@ -116,6 +116,18 @@ fun BiometricRegistrationSuccessFeedback(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Text(
+                            "Para aumentar a precisão, você pode repetir o cadastro com outra aparência real de trabalho — por exemplo, com touca, sem touca, com óculos ou sem óculos. As novas amostras são adicionadas às anteriores; elas não substituem o rosto já salvo.",
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     StatusPill(
                         text = "Biometria pronta",
                         tone = PontoCafeTone.SUCCESS,
