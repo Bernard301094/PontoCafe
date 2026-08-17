@@ -18,7 +18,9 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
   if (!body.ok) return body.response
 
   const user = c.get('user')
-  const codigo = generateAuthorizationCode()
+  // Mantemos um segredo interno apenas por compatibilidade com o schema atual.
+  // O colaborador não precisa mais receber nem digitar código no Ponto.
+  const segredoInterno = generateAuthorizationCode()
   const id = newId()
 
   const created = await transaction(async (client) => {
@@ -29,12 +31,13 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
     const collaborator = employee.rows[0]
     if (!collaborator) return null
 
-    // Só pode existir um código temporário válido por colaborador/período.
+    // Uma pessoa só pode ter uma liberação prévia ativa por vez.
+    // Isso evita ambiguidade caso o Supervisor troque o período antes do uso.
     await client.query(
       `update autorizacoes set cancelada_em=now()
-       where colaborador_id=$1 and periodo=$2 and usado_em is null
+       where colaborador_id=$1 and usado_em is null
          and cancelada_em is null and expira_em>now()`,
-      [body.data.colaboradorId, body.data.periodo],
+      [body.data.colaboradorId],
     )
 
     const inserted = await client.query<{ expira_em: string }>(
@@ -46,7 +49,7 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
         body.data.colaboradorId,
         user.id,
         body.data.periodo,
-        hashAuthorizationCode(codigo),
+        hashAuthorizationCode(segredoInterno),
         body.data.motivo,
         config.authorizationTtlSeconds,
       ],
@@ -54,7 +57,7 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
 
     await client.query(
       `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
-       values ($1,$2,'GERAR_AUTORIZACAO_FORA_HORARIO','AUTORIZACAO',$3,$4::jsonb)`,
+       values ($1,$2,'LIBERAR_PAUSA_FORA_HORARIO','AUTORIZACAO',$3,$4::jsonb)`,
       [
         user.id,
         user.papel,
@@ -76,10 +79,14 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
 
   return c.json({
     id,
-    codigo,
+    // Campo mantido temporariamente para compatibilidade com APKs anteriores.
+    // O novo fluxo não exibe nem solicita este valor.
+    codigo: segredoInterno,
+    liberada: true,
     colaboradorNome: created.colaboradorNome,
+    periodo: body.data.periodo,
     expiraEm: created.expiraEm,
     expiraEmSegundos: config.authorizationTtlSeconds,
-    aviso: 'O código é exibido somente nesta resposta.',
+    aviso: 'Pausa liberada previamente. O Ponto validará a liberação automaticamente.',
   }, 201)
 })
