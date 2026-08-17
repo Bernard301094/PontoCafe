@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -60,98 +61,147 @@ fun AdminManagementScreenV2(
         reliabilityViewModel.loadManagement()
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = PontoCafeSpacing.lg),
-        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-    ) {
-        item("header") {
-            PontoCafeScreenHeader(title = "Gestão", eyebrow = "Operação e segurança")
-        }
-        item("intro") {
-            Text(
-                "Saúde do sistema, rastreabilidade, sincronização, biometria e regras operacionais.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        item("feedback-admin") { AdminFeedback(viewModel) }
-        item("feedback-reliability") { ReliabilityFeedback(reliabilityViewModel) }
+    PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
+        val stackTiles = responsive.availableWidth < 420.dp
 
-        item("tools-title") {
-            SectionTitle("Ferramentas", "Áreas administrativas organizadas por finalidade.")
-        }
-        item("tools-row-1") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                ManagementTileV2("Dispositivos", "PIN, tokens e aparelhos", Icons.Default.Devices, onDevicesClick, Modifier.weight(1f))
-                ManagementTileV2("Sincronização", "Offline e pendências", Icons.Default.Sync, onSyncClick, Modifier.weight(1f))
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = responsive.pagePadding),
+            contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            item("header") {
+                PontoCafeScreenHeader(title = "Gestão", eyebrow = "Operação e segurança")
             }
-        }
-        item("tools-row-2") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                ManagementTileV2(
-                    "Biometria",
-                    "Precisão, modelos e retenção",
-                    Icons.Default.Fingerprint,
-                    reliabilityViewModel::openBiometricDiagnostics,
-                    Modifier.weight(1f),
-                )
-                ManagementTileV2(
-                    "Diagnóstico",
-                    "Servidor, DB e configuração",
-                    Icons.Default.HealthAndSafety,
-                    reliabilityViewModel::openSystemDiagnostics,
-                    Modifier.weight(1f),
+            item("intro") {
+                Text(
+                    "Saúde do sistema, rastreabilidade, sincronização, biometria e regras operacionais.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        item("tools-row-3") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                ManagementTileV2("Modo terminal", "Kiosco e tela protegida", Icons.Default.Security, onKioskClick, Modifier.weight(1f))
-                ManagementTileV2("Auditoria", "Ações administrativas", Icons.Default.History, viewModel::abrirAuditoria, Modifier.weight(1f))
+            item("feedback-admin") { AdminFeedback(viewModel) }
+            item("feedback-reliability") { ReliabilityFeedback(reliabilityViewModel) }
+
+            item("tools-title") {
+                SectionTitle("Ferramentas", "Áreas administrativas organizadas por finalidade.")
             }
-        }
-        item("tools-row-4") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                ManagementTileV2("Autorizações", "Exceções fora do horário", Icons.Default.LockClock, viewModel::abrirAutorizacao, Modifier.weight(1f))
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                ) {
-                    Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Regra padrão", style = MaterialTheme.typography.labelLarge)
-                        Text("15:00", style = MaterialTheme.typography.headlineSmall)
-                        Text("15 minutos por pausa", style = MaterialTheme.typography.bodySmall)
+            item("tools-row-1") {
+                if (stackTiles) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Dispositivos", "PIN, tokens e aparelhos", Icons.Default.Devices, onDevicesClick, Modifier.fillMaxWidth())
+                        ManagementTileV2("Sincronização", "Offline e pendências", Icons.Default.Sync, onSyncClick, Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Dispositivos", "PIN, tokens e aparelhos", Icons.Default.Devices, onDevicesClick, Modifier.weight(1f))
+                        ManagementTileV2("Sincronização", "Offline e pendências", Icons.Default.Sync, onSyncClick, Modifier.weight(1f))
+                    }
+                }
+            }
+            item("tools-row-2") {
+                if (stackTiles) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2(
+                            "Biometria",
+                            "Precisão, modelos e retenção",
+                            Icons.Default.Fingerprint,
+                            reliabilityViewModel::openBiometricDiagnostics,
+                            Modifier.fillMaxWidth(),
+                        )
+                        ManagementTileV2(
+                            "Diagnóstico",
+                            "Servidor, DB e configuração",
+                            Icons.Default.HealthAndSafety,
+                            reliabilityViewModel::openSystemDiagnostics,
+                            Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2(
+                            "Biometria",
+                            "Precisão, modelos e retenção",
+                            Icons.Default.Fingerprint,
+                            reliabilityViewModel::openBiometricDiagnostics,
+                            Modifier.weight(1f),
+                        )
+                        ManagementTileV2(
+                            "Diagnóstico",
+                            "Servidor, DB e configuração",
+                            Icons.Default.HealthAndSafety,
+                            reliabilityViewModel::openSystemDiagnostics,
+                            Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            item("tools-row-3") {
+                if (stackTiles) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Modo terminal", "Quiosque e tela protegida", Icons.Default.Security, onKioskClick, Modifier.fillMaxWidth())
+                        ManagementTileV2("Auditoria", "Ações administrativas", Icons.Default.History, viewModel::abrirAuditoria, Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Modo terminal", "Quiosque e tela protegida", Icons.Default.Security, onKioskClick, Modifier.weight(1f))
+                        ManagementTileV2("Auditoria", "Ações administrativas", Icons.Default.History, viewModel::abrirAuditoria, Modifier.weight(1f))
+                    }
+                }
+            }
+            item("tools-row-4") {
+                if (stackTiles) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Autorizações", "Exceções fora do horário", Icons.Default.LockClock, viewModel::abrirAutorizacao, Modifier.fillMaxWidth())
+                        DefaultRuleCard(Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        ManagementTileV2("Autorizações", "Exceções fora do horário", Icons.Default.LockClock, viewModel::abrirAutorizacao, Modifier.weight(1f))
+                        DefaultRuleCard(Modifier.weight(1f))
+                    }
+                }
+            }
+
+            item("rules-title") {
+                SectionTitle(
+                    "Horários e tempo de café",
+                    "O padrão atual é 15 minutos (900 s). O editor aceita segundos para manter precisão sem alterar esse padrão.",
+                )
+            }
+
+            if (reliability.rules.isEmpty() && reliability.loading) {
+                item("rules-loading") {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text("Carregando regras…", Modifier.padding(PontoCafeSpacing.md))
+                    }
+                }
+            } else {
+                reliability.rules.forEach { rule ->
+                    item("rule-${rule.periodo}") {
+                        CoffeeRuleEditorV2(reliabilityViewModel, rule)
                     }
                 }
             }
         }
+    }
+}
 
-        item("rules-title") {
-            SectionTitle(
-                "Horários e tempo de café",
-                "O padrão atual é 15 minutos (900 s). O editor aceita segundos para manter precisão sem alterar esse padrão.",
-            )
-        }
-
-        if (reliability.rules.isEmpty() && reliability.loading) {
-            item("rules-loading") {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("Carregando regras…", Modifier.padding(PontoCafeSpacing.md))
-                }
-            }
-        } else {
-            reliability.rules.forEach { rule ->
-                item("rule-${rule.periodo}") {
-                    CoffeeRuleEditorV2(reliabilityViewModel, rule)
-                }
-            }
+@Composable
+private fun DefaultRuleCard(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Regra padrão", style = MaterialTheme.typography.labelLarge)
+            Text("15:00", style = MaterialTheme.typography.headlineSmall)
+            Text("15 minutos por pausa", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -195,80 +245,123 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(if (rule.periodo == "MANHA") "Período da manhã" else "Período da tarde", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Duração atual ${PontoCafeRules.formatDuration(rule.limiteSegundos)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val stackFields = maxWidth < 430.dp
+            Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(if (rule.periodo == "MANHA") "Período da manhã" else "Período da tarde", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Duração atual ${PontoCafeRules.formatDuration(rule.limiteSegundos)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = active, onCheckedChange = { active = it })
                 }
-                Switch(checked = active, onCheckedChange = { active = it })
-            }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                OutlinedTextField(
-                    value = start,
-                    onValueChange = { start = it.take(5) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Início") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = end,
-                    onValueChange = { end = it.take(5) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Fim") },
-                    singleLine = true,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                OutlinedTextField(
-                    value = minutes,
-                    onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Minutos") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = seconds,
-                    onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Segundos") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                )
-            }
-
-            localError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(
-                onClick = {
-                    val mins = minutes.toIntOrNull()
-                    val secs = seconds.toIntOrNull()
-                    localError = when {
-                        !start.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário inicial válido."
-                        !end.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário final válido."
-                        start >= end -> "O horário final deve ser posterior ao inicial."
-                        mins == null || secs == null -> "Informe minutos e segundos."
-                        secs !in 0..59 -> "Os segundos devem ficar entre 0 e 59."
-                        else -> runCatching { PontoCafeRules.durationSeconds(mins, secs) }.exceptionOrNull()?.message
+                if (stackFields) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        OutlinedTextField(
+                            value = start,
+                            onValueChange = { start = it.take(5) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Início") },
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = end,
+                            onValueChange = { end = it.take(5) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Fim") },
+                            singleLine = true,
+                        )
                     }
-                    if (localError == null && mins != null && secs != null) {
-                        viewModel.saveRule(rule.periodo, start, end, PontoCafeRules.durationSeconds(mins, secs), active)
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        OutlinedTextField(
+                            value = start,
+                            onValueChange = { start = it.take(5) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Início") },
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = end,
+                            onValueChange = { end = it.take(5) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Fim") },
+                            singleLine = true,
+                        )
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !viewModel.state.loading,
-            ) {
-                Text("Salvar regra")
+                }
+
+                if (stackFields) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        OutlinedTextField(
+                            value = minutes,
+                            onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Minutos") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = seconds,
+                            onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Segundos") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                        )
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        OutlinedTextField(
+                            value = minutes,
+                            onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Minutos") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = seconds,
+                            onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Segundos") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                        )
+                    }
+                }
+
+                localError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Button(
+                    onClick = {
+                        val mins = minutes.toIntOrNull()
+                        val secs = seconds.toIntOrNull()
+                        localError = when {
+                            !start.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário inicial válido."
+                            !end.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário final válido."
+                            start >= end -> "O horário final deve ser posterior ao inicial."
+                            mins == null || secs == null -> "Informe minutos e segundos."
+                            secs !in 0..59 -> "Os segundos devem ficar entre 0 e 59."
+                            else -> runCatching { PontoCafeRules.durationSeconds(mins, secs) }.exceptionOrNull()?.message
+                        }
+                        if (localError == null && mins != null && secs != null) {
+                            viewModel.saveRule(rule.periodo, start, end, PontoCafeRules.durationSeconds(mins, secs), active)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !viewModel.state.loading,
+                ) {
+                    Text("Salvar regra")
+                }
             }
         }
     }
