@@ -4,16 +4,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -254,45 +255,81 @@ fun OperationalPauseCompactCard(
     }
 }
 
+/**
+ * Mantemos o nome público por compatibilidade com os chamadores, mas em móvel
+ * o detalhe é uma bottom sheet: informação não deve parecer um alerta.
+ */
 @Composable
 fun OperationalPauseDetailDialog(
     item: OperationalPauseItem,
     onDismiss: () -> Unit,
 ) {
     val pause = item.pause
-    val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: operationalPauseElapsed(pause, System.currentTimeMillis())
+    val duration = pause.duracaoSegundos ?: pause.tempoSegundos
+        ?: operationalPauseElapsed(pause, System.currentTimeMillis())
     val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(pause.nome) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                if (item.isTest) {
-                    PcStateBanner(
-                        title = "TESTE · Não salvo no sistema",
-                        supportingText = "A simulação usa a mesma visualização de uma pausa real, mas não altera banco, histórico, auditoria ou métricas.",
-                        tone = PontoCafeTone.INFO,
-                    )
-                }
-                PcKeyValueCard(
-                    title = "Detalhes da pausa",
-                    rows = listOf(
-                        "Data" to (pause.data ?: "Hoje"),
-                        "Período" to pause.periodo,
-                        "Setor" to (pause.setor ?: "—"),
-                        "Saída" to pause.inicioLocal,
-                        "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
-                        "Duração" to formatOperationalDuration(duration),
-                        "Limite" to formatOperationalDuration(pause.limiteSegundos),
-                        "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
-                        "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
-                    ),
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(
+                    start = PontoCafeSpacing.lg,
+                    end = PontoCafeSpacing.lg,
+                    bottom = PontoCafeSpacing.xl,
+                ),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+                Text(
+                    text = pause.nome,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() })
+                        .joinToString(" · ")
+                        .ifBlank { "Pausa do café" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
-    )
+
+            if (item.isTest) {
+                PcStateBanner(
+                    title = "TESTE · Não salvo no sistema",
+                    supportingText = "A simulação usa a mesma visualização de uma pausa real, mas não altera banco, histórico, auditoria ou métricas.",
+                    tone = PontoCafeTone.INFO,
+                )
+            }
+
+            PcKeyValueCard(
+                title = "Detalhes da pausa",
+                rows = listOf(
+                    "Data" to (pause.data ?: "Hoje"),
+                    "Período" to pause.periodo,
+                    "Setor" to (pause.setor ?: "—"),
+                    "Saída" to pause.inicioLocal,
+                    "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
+                    "Duração" to formatOperationalDuration(duration),
+                    "Limite" to formatOperationalDuration(pause.limiteSegundos),
+                    "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
+                    "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
+                ),
+            )
+
+            PcPrimaryButton(
+                text = "Fechar",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 private fun AdminTestPause.toOperationalPause(): PausaSupervisor {
