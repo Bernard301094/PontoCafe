@@ -1,0 +1,80 @@
+name: Build PontoCafe Release Unsigned
+
+on:
+  push:
+    branches:
+      - agent/backend-api-v2-review
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build aligned unsigned Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: b71b531917d846a4e292a26ce0086df8766fea02
+          fetch-depth: 1
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Validate release identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "b71b531917d846a4e292a26ce0086df8766fea02"
+          grep -q 'versionName = "0.10.0"' app/build.gradle.kts
+          grep -q 'versionCode = 22' app/build.gradle.kts
+
+      - name: Prepare exact FaceNet model
+        shell: bash
+        run: |
+          mkdir -p app/src/main/assets
+          curl -fL --retry 8 --retry-delay 3 \
+            'https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/289bc10420aad15fed99094eee364eb24f908ecc/app/src/main/assets/facenet.tflite' \
+            -o app/src/main/assets/facenet.tflite
+          test "$(git hash-object app/src/main/assets/facenet.tflite)" = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
+
+      - name: Build Release
+        shell: bash
+        run: gradle --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Zipalign Release
+        shell: bash
+        run: |
+          INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
+          OUTPUT='PontoCafe-0.10.0-b71b5319-aligned-unsigned.apk'
+          test -f "$INPUT"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$INPUT" "$OUTPUT"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$OUTPUT"
+          sha256sum "$OUTPUT"
+
+      - name: Upload aligned unsigned APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PontoCafe-0.10.0-aligned-unsigned
+          path: PontoCafe-0.10.0-b71b5319-aligned-unsigned.apk
+          retention-days: 7
+          if-no-files-found: error
