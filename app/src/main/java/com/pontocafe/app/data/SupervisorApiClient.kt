@@ -5,7 +5,9 @@ import java.security.cert.CertPathValidatorException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import retrofit2.HttpException
 import retrofit2.Response
@@ -33,6 +35,7 @@ data class PausaSupervisor(
     val colaboradorId: String,
     val nome: String,
     val setor: String?,
+    val avatarUrl: String? = null,
     val clienteAtualizadoEmMillis: Long = 0L,
 )
 
@@ -72,6 +75,13 @@ data class CollaboratorMutationResponse(
     val rostoExcluido: Boolean? = null,
 )
 
+data class AvatarMutationResponse(
+    val ok: Boolean,
+    val colaboradorId: String,
+    val avatarUrl: String? = null,
+    val bytes: Int? = null,
+)
+
 data class CancelAuthorizationRequest(
     val colaboradorId: String,
     val periodo: String,
@@ -104,6 +114,11 @@ interface SupervisorApi {
     ): CancelAuthorizationResponse
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
+    @PUT("gestao/colaboradores/{id}/avatar") suspend fun uploadAvatar(
+        @Path("id") id: String,
+        @Body body: okhttp3.RequestBody,
+    ): AvatarMutationResponse
+    @POST("gestao/colaboradores/{id}/avatar/excluir") suspend fun deleteAvatar(@Path("id") id: String): AvatarMutationResponse
     @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(
         @Path("id") id: String,
         @Body body: BiometricEnrollmentRequest,
@@ -164,6 +179,14 @@ class SupervisorRepository(
             turno = shift?.trim()?.ifBlank { null },
         ),
     )
+
+    suspend fun uploadAvatar(collaboratorId: String, webp: ByteArray): AvatarMutationResponse {
+        require(webp.isNotEmpty()) { "Avatar vazio." }
+        val body = webp.toRequestBody("image/webp".toMediaType())
+        return api.uploadAvatar(collaboratorId, body)
+    }
+
+    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse = api.deleteAvatar(collaboratorId)
 
     suspend fun saveBiometric(
         collaboratorId: String,
