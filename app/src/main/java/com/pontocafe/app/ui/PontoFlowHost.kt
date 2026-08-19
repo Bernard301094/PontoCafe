@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,17 +35,28 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
+import com.pontocafe.app.data.LocalCompletedPause
+import com.pontocafe.app.data.SecurePontoOfflineStore
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlinx.coroutines.delay
 
 private const val POINT_RECEIPT_VISIBLE_MILLIS = 3_000L
 private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 private const val USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L
+private val PONTO_TIMEZONE: ZoneId = ZoneId.of("America/Fortaleza")
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
  * avisos e comprovante. Não existe confirmação manual de identidade nem tela
  * de código temporário no Ponto: depois da validação biométrica, o backend
  * decide se registra ou bloqueia a tentativa.
+ *
+ * A UI também consulta o histórico local cifrado de pausas concluídas. Essa
+ * segunda barreira é somente de bloqueio: ela nunca autoriza um registro. Isso
+ * garante que um Worker antigo não transforme uma folga já usada em um aviso
+ * genérico de "fora do horário".
  */
 @Composable
 fun PontoFlowHost(
@@ -59,6 +71,25 @@ fun PontoFlowHost(
     val activity = context.findActivity()
     val state = viewModel.state
     val identificacao = state.identificacao
+    val offlineStore = remember(context.applicationContext) {
+        SecurePontoOfflineStore(context.applicationContext)
+    }
+
+    val localCompletedBreak = identificacao?.colaborador?.id?.let { colaboradorId ->
+        findRelevantCompletedBreak(
+            store = offlineStore,
+            collaboratorId = colaboradorId,
+        )
+    }
+    val serverSaysUsedBreak = identificacao?.motivo == "PAUSA_PERIODO_JA_UTILIZADA"
+    val usedBreakDetected = serverSaysUsedBreak || localCompletedBreak != null
+    val usedBreakMessage = when {
+        localCompletedBreak != null -> localUsedBreakMessage(localCompletedBreak)
+        serverSaysUsedBreak -> usedBreakMessage(
+            identificacao?.mensagem ?: "Você já utilizou sua folga deste período hoje.",
+        )
+        else -> null
+    }
 
     DisposableEffect(activity) {
         val window = activity?.window
@@ -104,29 +135,86 @@ fun PontoFlowHost(
             identificacao?.acaoSugerida == "BLOQUEADO" -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
-                mensagem = identificacao.mensagem
-                    ?: "Você já utilizou sua folga deste período hoje.",
-                repeatedPause = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA",
+                mensagem = if (usedBreakDetected) {
+                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
+                } else {
+                    identificacao.mensagem ?: "Nenhum ponto foi registrado."
+                },
+                repeatedPause = usedBreakDetected,
             )
 
             state.needsAuthorization -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao?.colaborador?.nome,
-                mensagem = identificacao?.mensagem
-                    ?: "Fora do horário permitido. Nenhum ponto foi registrado.",
-                repeatedPause = false,
+                mensagem = if (usedBreakDetected) {
+                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
+                } else {
+                    identificacao?.mensagem
+                        ?: "Fora do horário permitido. Nenhum ponto foi registrado."
+                },
+                repeatedPause = usedBreakDetected,
             )
 
             identificacao != null && !state.erro.isNullOrBlank() -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
-                mensagem = state.erro,
-                repeatedPause = state.erro.contains("já registrou esta pausa", ignoreCase = true) ||
+                mensagem = if (usedBreakDetected) {
+                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
+                } else {
+                    state.erro
+                },
+                repeatedPause = usedBreakDetected ||
+                    state.erro.contains("já registrou esta pausa", ignoreCase = true) ||
                     state.erro.contains("já utilizada", ignoreCase = true) ||
                     state.erro.contains("folga", ignoreCase = true),
             )
         }
     }
+}
+
+/**
+ * Descobre qual período é relevante neste instante. Dentro da janela usa a
+ * própria regra ativa. Fora dela usa a janela mais próxima. Exemplo: depois
+ * do fim da janela da tarde, TARDE continua sendo a referência e uma folga de
+ * tarde concluída hoje tem prioridade sobre o aviso genérico de fora do horário.
+ */
+private fun findRelevantCompletedBreak(
+    store: SecurePontoOfflineStore,
+    collaboratorId: String,
+): LocalCompletedPause? {
+    val snapshot = store.snapshot()
+    if (snapshot.regras.isEmpty()) return null
+
+    val now = ZonedDateTime.now(PONTO_TIMEZONE)
+    val nowSeconds = now.toLocalTime().toSecondOfDay()
+
+    val referencePeriod = snapshot.regras.mapNotNull { rule ->
+        runCatching {
+            val startSeconds = LocalTime.parse(rule.inicio).toSecondOfDay()
+            val endSeconds = LocalTime.parse(rule.fim).toSecondOfDay()
+            val distance = when {
+                nowSeconds < startSeconds -> startSeconds - nowSeconds
+                nowSeconds >= endSeconds -> nowSeconds - endSeconds
+                else -> 0
+            }
+            rule.periodo to distance
+        }.getOrNull()
+    }.minByOrNull { (_, distance) -> distance }?.first ?: return null
+
+    return store.completedPauseToday(collaboratorId, referencePeriod)
+}
+
+private fun localUsedBreakMessage(completed: LocalCompletedPause): String {
+    val periodo = if (completed.periodo == "MANHA") "manhã" else "tarde"
+    val minutos = completed.duracaoSegundos / 60
+    val segundos = completed.duracaoSegundos % 60
+    val duracao = when {
+        minutos <= 0 -> "${segundos} s"
+        segundos > 0 -> "${minutos} min ${segundos} s"
+        else -> "${minutos} min"
+    }
+    return "Você já utilizou sua folga da $periodo hoje. " +
+        "Saída: ${completed.inicioLocal} · Retorno: ${completed.fimLocal} · Duração: $duracao."
 }
 
 @Composable
