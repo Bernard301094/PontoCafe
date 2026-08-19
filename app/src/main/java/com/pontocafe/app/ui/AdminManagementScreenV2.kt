@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
@@ -22,19 +24,26 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LockClock
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,13 +51,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.CoffeeRuleV2
+import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.domain.PontoCafeRules
 import kotlinx.coroutines.delay
+
+private enum class RuleTimeTarget { START, END }
 
 @Composable
 fun AdminManagementScreenV2(
@@ -59,6 +73,11 @@ fun AdminManagementScreenV2(
     onKioskClick: () -> Unit,
 ) {
     val reliability = reliabilityViewModel.state
+    val context = LocalContext.current
+    val adminSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "admin") }
+    val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
+    val adminName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
+    val testPause by AdminTestPauseStore.active.collectAsState()
 
     LaunchedEffect(Unit) {
         reliabilityViewModel.loadManagement()
@@ -109,37 +128,13 @@ fun AdminManagementScreenV2(
             item("tools-row-2") {
                 if (stackTiles) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        ManagementTileV2(
-                            "Biometria",
-                            "Precisão, modelos e retenção",
-                            Icons.Default.Fingerprint,
-                            reliabilityViewModel::openBiometricDiagnostics,
-                            Modifier.fillMaxWidth(),
-                        )
-                        ManagementTileV2(
-                            "Diagnóstico",
-                            "Servidor, DB e configuração",
-                            Icons.Default.HealthAndSafety,
-                            reliabilityViewModel::openSystemDiagnostics,
-                            Modifier.fillMaxWidth(),
-                        )
+                        ManagementTileV2("Biometria", "Precisão, modelos e retenção", Icons.Default.Fingerprint, reliabilityViewModel::openBiometricDiagnostics, Modifier.fillMaxWidth())
+                        ManagementTileV2("Diagnóstico", "Servidor, DB e configuração", Icons.Default.HealthAndSafety, reliabilityViewModel::openSystemDiagnostics, Modifier.fillMaxWidth())
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        ManagementTileV2(
-                            "Biometria",
-                            "Precisão, modelos e retenção",
-                            Icons.Default.Fingerprint,
-                            reliabilityViewModel::openBiometricDiagnostics,
-                            Modifier.weight(1f),
-                        )
-                        ManagementTileV2(
-                            "Diagnóstico",
-                            "Servidor, DB e configuração",
-                            Icons.Default.HealthAndSafety,
-                            reliabilityViewModel::openSystemDiagnostics,
-                            Modifier.weight(1f),
-                        )
+                        ManagementTileV2("Biometria", "Precisão, modelos e retenção", Icons.Default.Fingerprint, reliabilityViewModel::openBiometricDiagnostics, Modifier.weight(1f))
+                        ManagementTileV2("Diagnóstico", "Servidor, DB e configuração", Icons.Default.HealthAndSafety, reliabilityViewModel::openSystemDiagnostics, Modifier.weight(1f))
                     }
                 }
             }
@@ -170,10 +165,22 @@ fun AdminManagementScreenV2(
                 }
             }
 
+            item("test-title") {
+                SectionTitle("Teste operacional", "Simule o cartão do Supervisor sem criar qualquer registro real.")
+            }
+            item("test-tool") {
+                PcAdminVisualTestTool(
+                    testPause = testPause,
+                    adminName = adminName,
+                    onStart = { AdminTestPauseStore.start(adminName) },
+                    onStop = AdminTestPauseStore::stop,
+                )
+            }
+
             item("rules-title") {
                 SectionTitle(
                     "Horários e tempo de café",
-                    "O padrão atual é 15 minutos (900 s). O editor aceita segundos para manter precisão sem alterar esse padrão.",
+                    "Escolha os horários e use uma duração rápida de 10, 12 ou 15 minutos. Personalize somente quando necessário.",
                 )
             }
 
@@ -239,8 +246,44 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
     var end by remember(rule) { mutableStateOf(rule.fim) }
     var minutes by remember(rule) { mutableStateOf(initial.first.toString()) }
     var seconds by remember(rule) { mutableStateOf(initial.second.toString()) }
+    var customDuration by remember(rule) {
+        mutableStateOf(initial.second != 0 || initial.first !in setOf(10, 12, 15))
+    }
     var active by remember(rule) { mutableStateOf(rule.ativo) }
     var localError by remember(rule) { mutableStateOf<String?>(null) }
+    var editingTime by remember(rule) { mutableStateOf<RuleTimeTarget?>(null) }
+
+    editingTime?.let { target ->
+        val source = if (target == RuleTimeTarget.START) start else end
+        val hour = source.substringBefore(":").toIntOrNull()?.coerceIn(0, 23) ?: 8
+        val minute = source.substringAfter(":", "00").toIntOrNull()?.coerceIn(0, 59) ?: 0
+        val pickerState = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { editingTime = null },
+            title = { Text(if (target == RuleTimeTarget.START) "Horário inicial" else "Horário final") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    TimeInput(state = pickerState)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val value = "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                        if (target == RuleTimeTarget.START) start = value else end = value
+                        editingTime = null
+                        localError = null
+                    },
+                ) { Text("Aplicar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingTime = null }) { Text("Cancelar") }
+            },
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -259,7 +302,7 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
                     Column(modifier = Modifier.weight(1f)) {
                         Text(if (rule.periodo == "MANHA") "Período da manhã" else "Período da tarde", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Duração atual ${PontoCafeRules.formatDuration(rule.limiteSegundos)}",
+                            "Atual: ${rule.inicio}–${rule.fim} · ${PontoCafeRules.formatDuration(rule.limiteSegundos)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -269,77 +312,77 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
 
                 if (stackFields) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        OutlinedTextField(
-                            value = start,
-                            onValueChange = { start = it.take(5) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Início") },
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = end,
-                            onValueChange = { end = it.take(5) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Fim") },
-                            singleLine = true,
-                        )
+                        RuleTimeSelector("Início", start, { editingTime = RuleTimeTarget.START }, Modifier.fillMaxWidth())
+                        RuleTimeSelector("Fim", end, { editingTime = RuleTimeTarget.END }, Modifier.fillMaxWidth())
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        OutlinedTextField(
-                            value = start,
-                            onValueChange = { start = it.take(5) },
+                        RuleTimeSelector("Início", start, { editingTime = RuleTimeTarget.START }, Modifier.weight(1f))
+                        RuleTimeSelector("Fim", end, { editingTime = RuleTimeTarget.END }, Modifier.weight(1f))
+                    }
+                }
+
+                Text("Duração da pausa", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    listOf(10, 12, 15).forEach { preset ->
+                        FilterChip(
+                            selected = !customDuration && minutes.toIntOrNull() == preset && seconds.toIntOrNull() == 0,
+                            onClick = {
+                                minutes = preset.toString()
+                                seconds = "0"
+                                customDuration = false
+                                localError = null
+                            },
+                            label = { Text("$preset min") },
                             modifier = Modifier.weight(1f),
-                            label = { Text("Início") },
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = end,
-                            onValueChange = { end = it.take(5) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Fim") },
-                            singleLine = true,
                         )
                     }
                 }
 
-                if (stackFields) {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        OutlinedTextField(
-                            value = minutes,
-                            onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Minutos") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = seconds,
-                            onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Segundos") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                        )
-                    }
+                if (!customDuration) {
+                    TextButton(onClick = { customDuration = true }) { Text("Personalizar duração") }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        OutlinedTextField(
-                            value = minutes,
-                            onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Minutos") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                        )
-                        OutlinedTextField(
-                            value = seconds,
-                            onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Segundos") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                        )
+                    if (stackFields) {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            OutlinedTextField(
+                                value = minutes,
+                                onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Minutos") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
+                                value = seconds,
+                                onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Segundos") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                            )
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            OutlinedTextField(
+                                value = minutes,
+                                onValueChange = { minutes = it.filter(Char::isDigit).take(3) },
+                                modifier = Modifier.weight(1f),
+                                label = { Text("Minutos") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
+                                value = seconds,
+                                onValueChange = { seconds = it.filter(Char::isDigit).take(2) },
+                                modifier = Modifier.weight(1f),
+                                label = { Text("Segundos") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                            )
+                        }
                     }
                 }
 
@@ -366,6 +409,34 @@ private fun CoffeeRuleEditorV2(viewModel: AdminReliabilityViewModel, rule: Coffe
                     Text("Salvar regra")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RuleTimeSelector(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.titleLarge)
+            }
+            Icon(Icons.Default.Schedule, contentDescription = "Escolher $label", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
