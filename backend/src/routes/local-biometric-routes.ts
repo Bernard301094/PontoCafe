@@ -245,22 +245,30 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
 
   const aberta = pausaAberta.rows[0]
   const regra = regraAtual.rows[0]
-  const liberacao = !aberta && !regra
-    ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number; expira_em: string }>(
-        `select a.periodo,r.limite_segundos,a.expira_em::text
-         from autorizacoes a
-         join regras_cafe r on r.periodo=a.periodo and r.ativo=true
-         where a.colaborador_id=$1
-           and a.usado_em is null
-           and a.cancelada_em is null
-           and a.expira_em>now()
-         order by a.criado_em desc
-         limit 1`,
-        [stored.colaborador_id],
-      )).rows[0]
-    : undefined
 
-  const periodoPretendido = regra?.periodo ?? liberacao?.periodo
+  // Fora do horário não existe mais autorização por código no Ponto. Ainda assim,
+  // precisamos descobrir qual período a tentativa representa para responder
+  // "pausa já utilizada" em vez de abrir o fluxo legado. A regra ativa vence;
+  // fora dela usamos a janela de café mais próxima no relógio local.
+  const regraReferencia = !aberta && !regra
+    ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number }>(
+        `select periodo,limite_segundos
+           from regras_cafe
+          where ativo=true
+          order by case
+            when (now() at time zone $1)::time < inicio
+              then extract(epoch from (inicio - (now() at time zone $1)::time))
+            when (now() at time zone $1)::time >= fim
+              then extract(epoch from ((now() at time zone $1)::time - fim))
+            else 0
+          end asc,
+          inicio asc
+          limit 1`,
+        [config.appTimezone],
+      )).rows[0]
+    : regra
+
+  const periodoPretendido = regra?.periodo ?? regraReferencia?.periodo
   const pausaUtilizada = !aberta && periodoPretendido
     ? (await query<PausaUtilizadaRow>(
         `select p.id,p.periodo,
@@ -310,7 +318,7 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     return c.json({
       reconhecido: true,
       motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
-      mensagem: `Pausa da ${periodoLabel(pausaUtilizada.periodo)} já utilizada hoje. Saída: ${pausaUtilizada.inicio_local} · Retorno: ${pausaUtilizada.fim_local} · Duração: ${duracaoLabel(pausaUtilizada.duracao_segundos)}. Esta nova tentativa de bater o ponto foi registrada.`,
+      mensagem: `Pausa da ${periodoLabel(pausaUtilizada.periodo)} já utilizada hoje. Saída: ${pausaUtilizada.inicio_local} · Retorno: ${pausaUtilizada.fim_local} · Duração: ${duracaoLabel(pausaUtilizada.duracao_segundos)}.`,
       score: Number(score.toFixed(4)),
       verificacaoToken,
       expiraEmSegundos: config.verificationTtlSeconds,
@@ -329,19 +337,35 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     })
   }
 
-  const foraHorarioSemPausaAberta = !aberta && !regra
-  const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
+  // Sem pausa aberta e fora de qualquer janela: bloqueio terminal. O Ponto não
+  // solicita mais código de Supervisor/Administrador.
+  if (!aberta && !regra) {
+    return c.json({
+      reconhecido: true,
+      motivo: 'FORA_HORARIO',
+      mensagem: 'Fora do horário permitido. Nenhum ponto foi registrado.',
+      score: Number(score.toFixed(4)),
+      verificacaoToken,
+      expiraEmSegundos: config.verificationTtlSeconds,
+      colaborador: {
+        id: stored.colaborador_id,
+        matricula: stored.matricula,
+        nome: stored.nome,
+        setor: stored.setor,
+        turno: stored.turno,
+      },
+      acaoSugerida: 'BLOQUEADO',
+      pausaAberta: null,
+      dentroHorario: false,
+      periodoAtual: regraReferencia?.periodo ?? null,
+      limiteSegundos: regraReferencia?.limite_segundos ?? null,
+    })
+  }
 
   return c.json({
     reconhecido: true,
-    motivo: foraHorarioSemPausaAberta
-      ? (autorizadoForaHorario ? 'AUTORIZACAO_PREVIA' : 'FORA_HORARIO_NAO_LIBERADO')
-      : null,
-    mensagem: foraHorarioSemPausaAberta
-      ? (autorizadoForaHorario
-          ? 'Pausa liberada previamente pelo Supervisor.'
-          : 'Você está fora do horário permitido e não possui liberação prévia do Supervisor.')
-      : null,
+    motivo: null,
+    mensagem: null,
     score: Number(score.toFixed(4)),
     verificacaoToken,
     expiraEmSegundos: config.verificationTtlSeconds,
@@ -361,8 +385,8 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    dentroHorario: Boolean(regra) || autorizadoForaHorario,
-    periodoAtual: regra?.periodo ?? liberacao?.periodo ?? null,
-    limiteSegundos: regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,
+    dentroHorario: Boolean(regra),
+    periodoAtual: aberta?.periodo ?? regra?.periodo ?? null,
+    limiteSegundos: aberta?.limite_segundos ?? regra?.limite_segundos ?? null,
   })
 })
