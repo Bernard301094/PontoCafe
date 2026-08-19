@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -42,10 +41,9 @@ private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
- * autorização, avisos e comprovante. Não existe mais confirmação manual de
- * identidade: depois da validação biométrica, a ação segura é executada
- * automaticamente. Isso evita o antigo fluxo "É você?" e mantém a decisão
- * autoritativa no backend.
+ * avisos e comprovante. Não existe confirmação manual de identidade nem tela
+ * de código temporário no Ponto: depois da validação biométrica, o backend
+ * decide se registra ou bloqueia a tentativa.
  */
 @Composable
 fun PontoFlowHost(
@@ -81,10 +79,10 @@ fun PontoFlowHost(
         }
     }
 
-    // A antiga tela "É você?" foi removida do fluxo. Quando o servidor já
-    // confirmou a identidade e a ação é permitida, registramos automaticamente.
-    // Casos bloqueados são tratados abaixo como aviso terminal e casos fora do
-    // horário continuam abrindo somente a autorização do Supervisor.
+    // Compatibilidade com respostas de Workers antigos: uma identificação válida
+    // ainda pode chegar sem ação terminal. Nesses casos permitidos, registramos
+    // automaticamente. Se o Worker sinalizar autorização antiga, não abrimos a
+    // tela de código: o caso é tratado abaixo como bloqueio de fora de horário.
     LaunchedEffect(identificacao?.verificacaoToken, state.needsAuthorization) {
         val atual = identificacao ?: return@LaunchedEffect
         if (state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
@@ -109,16 +107,23 @@ fun PontoFlowHost(
                 comprovante = state.comprovante,
             )
 
-            state.needsAuthorization -> OpaquePontoOverlay {
-                AuthorizationScreen(viewModel)
-            }
-
             identificacao?.acaoSugerida == "BLOQUEADO" -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = identificacao.mensagem
                     ?: "Esta pausa já foi utilizada hoje. É permitida apenas uma pausa por período.",
                 repeatedPause = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA",
+            )
+
+            // A tela antiga de autorização por código foi removida. Esta condição
+            // existe apenas para respostas de Workers anteriores já instalados:
+            // em vez de pedir código, mostra bloqueio direto e retorna ao scanner.
+            state.needsAuthorization -> FastPointBlockedOverlay(
+                viewModel = viewModel,
+                nome = identificacao?.colaborador?.nome,
+                mensagem = identificacao?.mensagem
+                    ?: "Fora do horário permitido. Nenhum ponto foi registrado.",
+                repeatedPause = false,
             )
 
             identificacao != null && !state.erro.isNullOrBlank() -> FastPointBlockedOverlay(
@@ -129,16 +134,6 @@ fun PontoFlowHost(
                     state.erro.contains("já utilizada", ignoreCase = true),
             )
         }
-    }
-}
-
-@Composable
-private fun OpaquePontoOverlay(content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        content()
     }
 }
 
@@ -306,7 +301,7 @@ private fun FastPointReceiptOverlay(
                 }
             } else if (comprovante.foraHorario) {
                 Text(
-                    "Liberação do Supervisor validada",
+                    "Registro validado",
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
