@@ -8,7 +8,7 @@ import {
   isWebP,
   validateAvatarSignature,
 } from '../avatar-storage.js'
-import { query } from '../db.js'
+import { query, transaction } from '../db.js'
 import { hashToken } from '../security.js'
 import { uuidSchema } from './shared.js'
 
@@ -169,8 +169,6 @@ avatarManagementRoutes.post('/colaboradores/:id/avatar/excluir', async (c) => {
     [collaboratorId],
   )
 
-  // Se a remoção física falhar depois daqui, a imagem já ficou inacessível porque
-  // avatar_version=0 não produz URL assinada. O objeto órfão pode ser removido depois.
   try {
     await bucket.delete(avatarObjectKey(collaboratorId))
   } catch (error) {
@@ -189,6 +187,77 @@ avatarManagementRoutes.post('/colaboradores/:id/avatar/excluir', async (c) => {
   )
 
   return c.json({ ok: true, colaboradorId: collaboratorId, avatarUrl: null })
+})
+
+// Intercepta a exclusão lógica antes da rota legada para que o objeto WebP não
+// fique órfão no R2. O histórico do colaborador continua preservado exatamente
+// como no fluxo anterior.
+avatarManagementRoutes.post('/colaboradores/:id/excluir', async (c) => {
+  const collaboratorId = c.req.param('id')
+  if (!uuidSchema.safeParse(collaboratorId).success) {
+    return c.json({ erro: 'Colaborador inválido.' }, 400)
+  }
+
+  const result = await transaction(async (client) => {
+    const collaborator = await client.query<{ id: string; nome: string; ativo: boolean }>(
+      'select id,nome,ativo from colaboradores where id=$1 for update',
+      [collaboratorId],
+    )
+    const row = collaborator.rows[0]
+    if (!row || !row.ativo) return { status: 'NOT_FOUND' as const }
+
+    const openPause = await client.query<{ id: string }>(
+      'select id from pausas_cafe where colaborador_id=$1 and fim_em is null limit 1',
+      [collaboratorId],
+    )
+    if (openPause.rows[0]) return { status: 'OPEN_PAUSE' as const }
+
+    await client.query('delete from templates_faciais where colaborador_id=$1', [collaboratorId])
+    await client.query(
+      'update colaboradores set ativo=false,avatar_version=0,atualizado_em=now() where id=$1',
+      [collaboratorId],
+    )
+
+    const actor = c.get('user')
+    await client.query(
+      `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ($1,$2,'EXCLUIR_COLABORADOR','COLABORADOR',$3,$4::jsonb)`,
+      [
+        actor.id,
+        actor.papel,
+        collaboratorId,
+        JSON.stringify({ nome: row.nome, exclusaoLogica: true, rostoExcluido: true, avatarExcluido: true }),
+      ],
+    )
+
+    return { status: 'OK' as const }
+  })
+
+  if (result.status === 'NOT_FOUND') return c.json({ erro: 'Colaborador não encontrado.' }, 404)
+  if (result.status === 'OPEN_PAUSE') {
+    return c.json({ erro: 'Finalize a pausa aberta antes de excluir este colaborador.' }, 409)
+  }
+
+  const bucket = c.env.AVATARS
+  if (bucket) {
+    try {
+      await bucket.delete(avatarObjectKey(collaboratorId))
+    } catch (error) {
+      console.error(JSON.stringify({
+        evento: 'avatar_r2_delete_failure_after_collaborator_delete',
+        colaboradorId: collaboratorId,
+        erro: error instanceof Error ? error.message : 'erro desconhecido',
+      }))
+    }
+  }
+
+  return c.json({
+    ok: true,
+    excluido: true,
+    exclusaoLogica: true,
+    rostoExcluido: true,
+    avatarExcluido: true,
+  })
 })
 
 export const avatarPontoRoutes = new Hono<AppEnv>()
