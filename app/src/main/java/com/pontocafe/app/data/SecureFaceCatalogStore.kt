@@ -47,8 +47,6 @@ class SecureFaceCatalogStore(context: Context) {
     private val prefs = context.getSharedPreferences("pontocafe_face_catalog_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_face_catalog_key"
     private val catalogKey = "catalogo_facial"
-    private val schemaKey = "catalog_schema_version"
-    private val schemaVersion = 2
     private val gson = Gson()
 
     @Volatile
@@ -57,28 +55,13 @@ class SecureFaceCatalogStore(context: Context) {
     @Volatile
     private var cacheLoaded: Boolean = false
 
-    init {
-        // A v2 adicionou avatarUrl ao colaborador cacheado. Limpamos somente uma
-        // vez o cache antigo para garantir que a primeira execução da nova APK
-        // faça uma sincronização completa. Nenhum template é apagado no servidor.
-        if (prefs.getInt(schemaKey, 0) < schemaVersion) {
-            prefs.edit()
-                .remove(catalogKey)
-                .putInt(schemaKey, schemaVersion)
-                .apply()
-        }
-    }
-
     fun save(catalog: CachedFaceCatalog) {
         val plaintext = gson.toJson(catalog).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val encrypted = cipher.doFinal(plaintext)
         val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-        prefs.edit()
-            .putString(catalogKey, payload)
-            .putInt(schemaKey, schemaVersion)
-            .apply()
+        prefs.edit().putString(catalogKey, payload).apply()
         cachedCatalog = catalog
         cacheLoaded = true
     }
@@ -193,6 +176,8 @@ object LocalFaceMatcher {
         if (winner.score < catalog.limiar) return null
         if (secondScore != null && winner.score - secondScore < catalog.margem) return null
 
+        // O avatar é apenas um efeito visual do match já aprovado. Não participa
+        // do score, limiar, margem, liveness nem de qualquer decisão biométrica.
         PontoAvatarRuntime.recognized(winner.template.colaborador.avatarUrl)
 
         return LocalFaceMatch(
