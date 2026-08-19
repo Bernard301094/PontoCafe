@@ -60,9 +60,6 @@ fun PontoFlowHost(
     val state = viewModel.state
     val identificacao = state.identificacao
 
-    // Brilho somente desta janela. Não modifica a preferência global do Android
-    // e não exige WRITE_SETTINGS. Ao sair do Ponto, restauramos exatamente o
-    // valor anterior (-1f também é preservado quando o sistema controlava).
     DisposableEffect(activity) {
         val window = activity?.window
         val previousBrightness = window?.attributes?.screenBrightness
@@ -80,10 +77,6 @@ fun PontoFlowHost(
         }
     }
 
-    // Compatibilidade com respostas de Workers antigos: uma identificação válida
-    // ainda pode chegar sem ação terminal. Nesses casos permitidos, registramos
-    // automaticamente. Se o Worker sinalizar autorização antiga, não abrimos a
-    // tela de código: o caso é tratado abaixo como bloqueio de fora de horário.
     LaunchedEffect(identificacao?.verificacaoToken, state.needsAuthorization) {
         val atual = identificacao ?: return@LaunchedEffect
         if (state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
@@ -116,9 +109,6 @@ fun PontoFlowHost(
                 repeatedPause = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA",
             )
 
-            // A tela antiga de autorização por código foi removida. Esta condição
-            // existe apenas para respostas de Workers anteriores já instalados:
-            // em vez de pedir código, mostra bloqueio direto e retorna ao scanner.
             state.needsAuthorization -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao?.colaborador?.nome,
@@ -147,8 +137,9 @@ private fun FastPointBlockedOverlay(
     repeatedPause: Boolean,
 ) {
     val view = LocalView.current
+    val mensagemExibida = if (repeatedPause) usedBreakMessage(mensagem) else mensagem
 
-    LaunchedEffect(nome, mensagem, repeatedPause) {
+    LaunchedEffect(nome, mensagemExibida, repeatedPause) {
         runCatching {
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
         }
@@ -198,7 +189,7 @@ private fun FastPointBlockedOverlay(
             }
 
             Text(
-                text = mensagem,
+                text = mensagemExibida,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
                 color = Color.White.copy(alpha = 0.84f),
@@ -216,6 +207,27 @@ private fun FastPointBlockedOverlay(
     }
 }
 
+/**
+ * Normaliza qualquer resposta antiga do backend para a linguagem atual da UI.
+ * Mantém os detalhes de saída/retorno/duração quando estiverem disponíveis.
+ */
+private fun usedBreakMessage(original: String): String {
+    val periodo = when {
+        original.contains("manhã", ignoreCase = true) -> " da manhã"
+        original.contains("tarde", ignoreCase = true) -> " da tarde"
+        else -> " deste período"
+    }
+
+    val saidaIndex = original.indexOf("Saída:", ignoreCase = true)
+    val detalhes = if (saidaIndex >= 0) {
+        " " + original.substring(saidaIndex).trim()
+    } else {
+        ""
+    }
+
+    return "Você já utilizou sua folga$periodo hoje.$detalhes"
+}
+
 @Composable
 private fun FastPointReceiptOverlay(
     viewModel: PontoCafeViewModel,
@@ -226,16 +238,12 @@ private fun FastPointReceiptOverlay(
     val warning = !start && comprovante.excedeuLimite
 
     LaunchedEffect(comprovante) {
-        // Feedback tátil é complementar. Uma falha do dispositivo ao vibrar não
-        // pode impedir o encerramento automático do comprovante.
         runCatching {
             view.performHapticFeedback(
                 if (warning) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.CONFIRM,
             )
         }
 
-        // O comprovante nunca depende do último faceCount para sair da tela.
-        // Três segundos dão tempo para ler a confirmação sem travar a fila.
         delay(POINT_RECEIPT_VISIBLE_MILLIS)
         viewModel.concluirComprovante()
     }
