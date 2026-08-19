@@ -191,7 +191,10 @@ fun OperationalPauseCompactCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                InitialAvatar(pause.nome)
+                CollaboratorAvatar(
+                    name = pause.nome,
+                    avatarUrl = pause.avatarUrl,
+                )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -283,19 +286,33 @@ fun OperationalPauseDetailDialog(
                 ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-                Text(
-                    text = pause.nome,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                CollaboratorAvatar(
+                    name = pause.nome,
+                    avatarUrl = pause.avatarUrl,
+                    avatarSize = 56.dp,
                 )
-                Text(
-                    text = listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() })
-                        .joinToString(" · ")
-                        .ifBlank { "Pausa do café" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+                ) {
+                    Text(
+                        text = pause.nome,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() })
+                            .joinToString(" · ")
+                            .ifBlank { "Pausa do café" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             if (item.isTest) {
@@ -346,6 +363,7 @@ private fun AdminTestPause.toOperationalPause(): PausaSupervisor {
         colaboradorId = id,
         nome = adminName,
         setor = "Simulação",
+        avatarUrl = null,
         clienteAtualizadoEmMillis = startedAtMillis,
     )
 }
