@@ -65,6 +65,10 @@ function fastMargin(): number {
   return Math.max(config.faceIdentificationMargin + 0.02, config.faceIdentificationMargin * 1.5)
 }
 
+function periodoLabel(periodo: 'MANHA' | 'TARDE'): string {
+  return periodo === 'MANHA' ? 'manhã' : 'tarde'
+}
+
 export const fastPontoRoutes = new Hono<AppEnv>()
 fastPontoRoutes.use('*', requireDevice)
 
@@ -283,10 +287,26 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [best.colaborador_id, periodo, config.appTimezone],
     )
     if (alreadyUsed.rows[0]) {
+      const mensagem = `Pausa da ${periodoLabel(periodo)} já utilizada hoje. É permitida apenas uma pausa por período (manhã e tarde).`
+      await client.query(
+        `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+         values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
+        [alreadyUsed.rows[0].id, JSON.stringify({
+          colaboradorId: best.colaborador_id,
+          colaboradorNome: best.nome,
+          dispositivoId: device.id,
+          dispositivoNome: device.nome,
+          periodo,
+          tentativaEm: new Date().toISOString(),
+          origem: 'ONLINE_FAST_PATH',
+          motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
+          score: Number(best.score.toFixed(4)),
+        })],
+      )
       return {
-        status: 'INTERACAO_NECESSARIA' as const,
+        status: 'BLOQUEADO' as const,
         motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
-        mensagem: 'Esta pausa já foi utilizada hoje.',
+        mensagem,
         score: Number(best.score.toFixed(4)),
         colaborador: collaborator,
       }
@@ -352,6 +372,10 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       inicio,
     }
   })
+
+  if (result.status === 'BLOQUEADO') {
+    return c.json({ erro: result.mensagem, motivo: result.motivo }, 409)
+  }
 
   return c.json(result)
 })
