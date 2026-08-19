@@ -116,8 +116,6 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("com.airbnb.android:lottie-compose:6.7.1")
-    implementation("com.patrykandpatrick.vico:compose:3.2.1")
-    implementation("com.patrykandpatrick.vico:compose-m3:3.2.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     val cameraX = "1.6.1"
