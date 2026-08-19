@@ -275,7 +275,10 @@ internal fun HistoryPauseCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            InitialAvatar(pause.nome)
+            CollaboratorAvatar(
+                name = pause.nome,
+                avatarUrl = pause.avatarUrl,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
