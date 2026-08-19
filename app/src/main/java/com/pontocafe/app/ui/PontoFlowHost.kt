@@ -35,12 +35,9 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
-import com.pontocafe.app.camera.FacePresenceMonitor
 import kotlinx.coroutines.delay
 
-private const val FAST_RECEIPT_MIN_VISIBLE_MILLIS = 900L
-private const val FACE_CLEAR_STABLE_MILLIS = 250L
-private const val FACE_CLEAR_POLL_MILLIS = 50L
+private const val POINT_RECEIPT_VISIBLE_MILLIS = 5_000L
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante identificação,
@@ -125,22 +122,20 @@ private fun FastPointReceiptOverlay(
     val warning = !start && comprovante.excedeuLimite
 
     LaunchedEffect(comprovante) {
-        view.performHapticFeedback(
-            if (warning) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.CONFIRM,
-        )
-
-        // O comprovante fica visível o tempo mínimo necessário para ser lido,
-        // mas o scanner só rearma quando a pessoa realmente saiu do enquadramento.
-        // Exigimos também um curto intervalo estável sem rosto para evitar que a
-        // troca instantânea entre duas pessoas seja interpretada como continuidade.
-        delay(FAST_RECEIPT_MIN_VISIBLE_MILLIS)
-        while (true) {
-            while (FacePresenceMonitor.faceCount > 0) {
-                delay(FACE_CLEAR_POLL_MILLIS)
-            }
-            delay(FACE_CLEAR_STABLE_MILLIS)
-            if (FacePresenceMonitor.faceCount == 0) break
+        // Feedback tátil é complementar. Uma falha do dispositivo ao vibrar não
+        // pode impedir o encerramento automático do comprovante.
+        runCatching {
+            view.performHapticFeedback(
+                if (warning) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.CONFIRM,
+            )
         }
+
+        // O comprovante nunca depende do último faceCount para sair da tela.
+        // O monitor facial pode manter uma amostra antiga quando a análise da
+        // câmera muda de estado; esperar indefinidamente por faceCount == 0
+        // deixava este overlay preso até reiniciar a aplicação. O cooldown de
+        // mesma pessoa no ViewModel continua protegendo contra registro duplicado.
+        delay(POINT_RECEIPT_VISIBLE_MILLIS)
         viewModel.concluirComprovante()
     }
 
@@ -224,7 +219,7 @@ private fun FastPointReceiptOverlay(
             }
 
             Text(
-                "Afaste-se da câmera · próxima pessoa",
+                "Próxima pessoa em instantes",
                 modifier = Modifier.padding(top = 10.dp),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
