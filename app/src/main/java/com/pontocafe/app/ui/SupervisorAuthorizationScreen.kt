@@ -635,7 +635,10 @@ private fun AuthorizationEmployeeRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            InitialAvatar(collaborator.nome)
+            CollaboratorAvatar(
+                name = collaborator.nome,
+                avatarUrl = collaborator.avatarUrl,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -679,7 +682,10 @@ private fun AuthorizationSelectedEmployeeCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                InitialAvatar(collaborator.nome)
+                CollaboratorAvatar(
+                    name = collaborator.nome,
+                    avatarUrl = collaborator.avatarUrl,
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         collaborator.nome,
