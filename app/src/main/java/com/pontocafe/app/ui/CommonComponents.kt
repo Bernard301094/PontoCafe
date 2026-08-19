@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,10 +32,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.pontocafe.app.PontoCafeViewModel
 
 enum class PontoCafeTone { NEUTRAL, SUCCESS, WARNING, INFO, DANGER }
@@ -228,7 +233,11 @@ fun ProfilePill(profile: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
+fun InitialAvatar(
+    name: String,
+    modifier: Modifier = Modifier,
+    avatarSize: Dp = 44.dp,
+) {
     val initials = name.trim().split(Regex("\\s+"))
         .filter { it.isNotBlank() }
         .take(2)
@@ -236,16 +245,38 @@ fun InitialAvatar(name: String, modifier: Modifier = Modifier) {
         .ifBlank { "?" }
 
     Surface(
-        modifier = modifier.size(44.dp),
+        modifier = modifier.size(avatarSize),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 initials,
-                style = MaterialTheme.typography.labelLarge,
+                style = if (avatarSize >= 72.dp) MaterialTheme.typography.titleLarge else MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+fun CollaboratorAvatar(
+    name: String,
+    avatarUrl: String?,
+    modifier: Modifier = Modifier,
+    avatarSize: Dp = 44.dp,
+) {
+    Box(modifier = modifier.size(avatarSize), contentAlignment = Alignment.Center) {
+        // O fallback já fica desenhado por baixo. Se a rede estiver lenta ou o
+        // arquivo não existir, o usuário nunca vê um espaço vazio.
+        InitialAvatar(name = name, avatarSize = avatarSize)
+        if (!avatarUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = "Avatar de $name",
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop,
             )
         }
     }
