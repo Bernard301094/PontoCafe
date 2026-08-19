@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GroupWork
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Search
@@ -60,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,18 +70,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.avatar.AvatarImageOptimizer
+import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.domain.CsvCollaboratorParser
 import com.pontocafe.app.domain.CsvImportPreview
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class PeopleViewFilterV4 { TEAM, PENDING_FACE, ACCESS }
 
 @Composable
 fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminReliabilityViewModel) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val state = viewModel.state
     val reliabilityState = reliabilityViewModel.state
     val listState = rememberLazyListState()
+    val adminSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "admin") }
+    val avatarRepository = remember(adminSessionStore) { AdminApiClient.create(adminSessionStore) }
+
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(PeopleViewFilterV4.TEAM) }
     var expandedId by remember { mutableStateOf<String?>(null) }
@@ -90,6 +102,36 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDialog by remember { mutableStateOf(false) }
+    var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
+    var avatarBusyId by remember { mutableStateOf<String?>(null) }
+    var avatarError by remember { mutableStateOf<String?>(null) }
+    var avatarMessage by remember { mutableStateOf<String?>(null) }
+
+    val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val target = avatarTarget
+        avatarTarget = null
+        if (uri != null && target != null) {
+            avatarBusyId = target.id
+            avatarError = null
+            avatarMessage = null
+            scope.launch {
+                runCatching {
+                    val optimized = withContext(Dispatchers.IO) {
+                        AvatarImageOptimizer.optimize(context.applicationContext, uri)
+                    }
+                    avatarRepository.uploadAvatar(target.id, optimized)
+                    optimized.size
+                }.onSuccess { bytes ->
+                    avatarBusyId = null
+                    avatarMessage = "Avatar de ${target.nome} otimizado para ${(bytes / 1024.0).let { String.format("%.1f", it) }} KB."
+                    viewModel.abrirColaboradores()
+                }.onFailure { error ->
+                    avatarBusyId = null
+                    avatarError = error.message ?: "Não foi possível salvar o avatar."
+                }
+            }
+        }
+    }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runCatching {
@@ -186,6 +228,17 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
                     ReliabilityFeedback(reliabilityViewModel)
+                    PcFeedbackBanner(
+                        message = avatarError,
+                        tone = PontoCafeTone.DANGER,
+                        onDismiss = { avatarError = null },
+                    )
+                    PcFeedbackBanner(
+                        message = avatarMessage,
+                        tone = PontoCafeTone.SUCCESS,
+                        onDismiss = { avatarMessage = null },
+                        autoDismissMillis = 4_000L,
+                    )
                 }
             }
             item("primary-actions") {
@@ -281,7 +334,7 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
                         Column(Modifier.weight(1f)) {
                             Text(if (filter == PeopleViewFilterV4.PENDING_FACE) "Biometrias pendentes" else "Equipe", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (selectionMode) "Toque nas pessoas que deseja alterar em lote." else "Toque em uma pessoa para abrir as ações. O nome completo permanece visível.",
+                                if (selectionMode) "Toque nas pessoas que deseja alterar em lote." else "Toque em uma pessoa para abrir rosto, avatar, histórico e edição.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -302,9 +355,10 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
                 } else {
                     items(collaborators, key = { "person-v4-${it.id}" }) { collaborator ->
                         val expanded = expandedId == collaborator.id
+                        val avatarLoading = avatarBusyId == collaborator.id
                         CollaboratorCardV4(
                             collaborator = collaborator,
-                            loading = state.carregando || reliabilityState.loading,
+                            loading = state.carregando || reliabilityState.loading || avatarLoading,
                             selectionMode = selectionMode,
                             selected = collaborator.id in selectedIds,
                             expanded = expanded,
@@ -316,6 +370,28 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
                             onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
                             onEdit = { editing = collaborator },
                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                            onAvatar = {
+                                avatarError = null
+                                avatarTarget = collaborator
+                                avatarLauncher.launch("image/*")
+                            },
+                            onDeleteAvatar = {
+                                avatarBusyId = collaborator.id
+                                avatarError = null
+                                avatarMessage = null
+                                scope.launch {
+                                    runCatching { avatarRepository.deleteAvatar(collaborator.id) }
+                                        .onSuccess {
+                                            avatarBusyId = null
+                                            avatarMessage = "Avatar de ${collaborator.nome} removido."
+                                            viewModel.abrirColaboradores()
+                                        }
+                                        .onFailure { error ->
+                                            avatarBusyId = null
+                                            avatarError = error.message ?: "Não foi possível remover o avatar."
+                                        }
+                                }
+                            },
                             onDeleteBiometric = { deletingBiometric = collaborator },
                             onDeleteCollaborator = { deletingCollaborator = collaborator },
                         )
@@ -403,6 +479,8 @@ private fun CollaboratorCardV4(
     onHistory: () -> Unit,
     onEdit: () -> Unit,
     onBiometric: () -> Unit,
+    onAvatar: () -> Unit,
+    onDeleteAvatar: () -> Unit,
     onDeleteBiometric: () -> Unit,
     onDeleteCollaborator: () -> Unit,
 ) {
@@ -423,7 +501,11 @@ private fun CollaboratorCardV4(
         Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 if (selectionMode) Checkbox(selected, onSelected, Modifier.align(Alignment.CenterVertically))
-                InitialAvatar(collaborator.nome, Modifier.align(Alignment.Top))
+                CollaboratorAvatar(
+                    name = collaborator.nome,
+                    avatarUrl = collaborator.avatarUrl,
+                    modifier = Modifier.align(Alignment.Top),
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(collaborator.nome, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     Text(
@@ -431,7 +513,12 @@ private fun CollaboratorCardV4(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (!selectionMode) StatusPill(if (collaborator.rostoCadastrado) "Pronto" else "Pendente", if (collaborator.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING)
+                    if (!selectionMode) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StatusPill(if (collaborator.rostoCadastrado) "Rosto pronto" else "Rosto pendente", if (collaborator.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING)
+                            if (!collaborator.avatarUrl.isNullOrBlank()) StatusPill("Avatar", PontoCafeTone.INFO)
+                        }
+                    }
                 }
                 if (!selectionMode) Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Recolher ações" else "Ver ações", Modifier.size(24.dp).align(Alignment.CenterVertically), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -446,6 +533,20 @@ private fun CollaboratorCardV4(
                         OutlinedButton(onHistory, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.History, null, Modifier.size(17.dp)); Text("Histórico", Modifier.padding(start = 5.dp)) }
                         OutlinedButton(onEdit, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.Edit, null, Modifier.size(17.dp)); Text("Editar", Modifier.padding(start = 5.dp)) }
                     }
+                    OutlinedButton(onAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
+                        Icon(Icons.Default.Image, null, Modifier.size(18.dp))
+                        Text(if (collaborator.avatarUrl.isNullOrBlank()) "Escolher avatar" else "Trocar avatar", Modifier.padding(start = 7.dp))
+                    }
+                    if (!collaborator.avatarUrl.isNullOrBlank()) {
+                        OutlinedButton(onDeleteAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
+                            Icon(Icons.Default.Close, null, Modifier.size(18.dp)); Text("Remover avatar", Modifier.padding(start = 7.dp))
+                        }
+                    }
+                    Text(
+                        "A imagem é recortada, reduzida e convertida para WebP antes do envio. Ela não é usada para reconhecimento facial e não é salva na base de dados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (collaborator.rostoCadastrado) {
                         OutlinedButton(onBiometric, Modifier.fillMaxWidth(), enabled = !loading) { Icon(Icons.Default.Face, null, Modifier.size(18.dp)); Text("Atualizar rosto", Modifier.padding(start = 7.dp)) }
                         OutlinedButton(
