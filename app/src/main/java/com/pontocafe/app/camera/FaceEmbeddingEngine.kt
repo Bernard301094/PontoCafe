@@ -13,27 +13,43 @@ interface FaceEmbeddingEngine {
     val modelName: String
     val modelVersion: String
 
-    /**
-     * Permite preparar runtimes/modelos pesados antes da primeira captura.
-     * Implementações que não precisam de aquecimento mantêm o comportamento
-     * padrão sem custo e sem alterar o contrato existente.
-     */
     suspend fun warmUp() = Unit
 
     /**
-     * Embedding canônico usado no cadastro biométrico e mantido compatível com
-     * todas as biometrias já existentes.
+     * Embedding canônico usado no cadastro biométrico. Deve permanecer estável
+     * para que todas as biometrias existentes continuem comparáveis.
      */
     suspend fun embed(frame: FaceFrame): FloatArray
 
     /**
-     * Embeddings candidatos para identificação no Ponto a partir de uma única
-     * captura. A primeira posição DEVE ser exatamente o embedding canônico de
-     * [embed]. Implementações podem acrescentar recortes alternativos do mesmo
-     * frame para aumentar robustez sem pedir novas fotos nem alterar limiares.
+     * Identificação adaptativa a partir de UMA captura.
+     *
+     * A primeira tentativa é sempre o mesmo embedding canônico de [embed]. A
+     * implementação só deve produzir uma tentativa alternativa quando
+     * [accepted] devolver false para a anterior. Assim o caso comum continua
+     * com uma única inferência FaceNet e os fallbacks só custam CPU quando são
+     * realmente necessários.
+     *
+     * [embeddings] contém apenas as tentativas realmente executadas e permite
+     * reavaliá-las caso o catálogo seja atualizado após um miss.
      */
-    suspend fun embedForIdentification(frame: FaceFrame): List<FloatArray> = listOf(embed(frame))
+    suspend fun embedForIdentification(
+        frame: FaceFrame,
+        accepted: suspend (FloatArray) -> Boolean,
+    ): FaceIdentificationEmbeddings {
+        val canonical = embed(frame)
+        val acceptedIndex = if (accepted(canonical)) 0 else null
+        return FaceIdentificationEmbeddings(
+            embeddings = listOf(canonical),
+            acceptedIndex = acceptedIndex,
+        )
+    }
 }
+
+data class FaceIdentificationEmbeddings(
+    val embeddings: List<FloatArray>,
+    val acceptedIndex: Int?,
+)
 
 class FaceModelUnavailableException : IllegalStateException(
     "O módulo de reconhecimento facial ainda não foi instalado neste dispositivo.",
