@@ -74,8 +74,16 @@ fun SupervisorPeopleScreenV3(
     val scope = rememberCoroutineScope()
     val state = viewModel.state
     val listState = rememberLazyListState()
-    val supervisorSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "supervisor") }
-    val avatarRepository = remember(supervisorSessionStore) { SupervisorApiClient.create(supervisorSessionStore) }
+    val sessionStore = remember(context, state.sessaoAdministrativa) {
+        SecureAdminSessionStore(
+            context.applicationContext,
+            if (state.sessaoAdministrativa) "admin" else "supervisor",
+        )
+    }
+    val avatarRepository = remember(sessionStore) { SupervisorApiClient.create(sessionStore) }
+    val activeAccount = remember(sessionStore, state.sessaoAdministrativa) { sessionStore.activeAccount() }
+    val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
+    val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
 
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(SupervisorPeopleFilterV3.ALL) }
@@ -86,6 +94,7 @@ fun SupervisorPeopleScreenV3(
     var avatarBusyId by remember { mutableStateOf<String?>(null) }
     var avatarError by remember { mutableStateOf<String?>(null) }
     var avatarMessage by remember { mutableStateOf<String?>(null) }
+    var showAccountSheet by remember { mutableStateOf(false) }
 
     val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = avatarTarget
@@ -111,6 +120,23 @@ fun SupervisorPeopleScreenV3(
                 }
             }
         }
+    }
+
+    if (showAccountSheet) {
+        PcAccountProfileSheet(
+            account = activeAccount,
+            fallbackName = accountFallbackName,
+            profileLabel = accountProfileLabel,
+            onDismiss = { showAccountSheet = false },
+            onLogout = if (state.sessaoAdministrativa) {
+                null
+            } else {
+                {
+                    showAccountSheet = false
+                    viewModel.sair()
+                }
+            },
+        )
     }
 
     deleteFace?.let { collaborator ->
@@ -199,20 +225,20 @@ fun SupervisorPeopleScreenV3(
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
                     end = responsive.pagePadding,
-                    top = PontoCafeSpacing.lg,
+                    top = PontoCafeSpacing.md,
                     bottom = 104.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Supervisor")
-                        PcSecondaryButton(
-                            text = "Voltar ao Ponto",
-                            onClick = onClose,
-                            modifier = if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier,
-                        )
-                    }
+                    PcAreaTopBar(
+                        title = "Pessoas",
+                        eyebrow = accountProfileLabel,
+                        account = activeAccount,
+                        fallbackName = accountFallbackName,
+                        onProfileClick = { showAccountSheet = true },
+                        onBackToPonto = onClose,
+                    )
                 }
 
                 item("summary") {
