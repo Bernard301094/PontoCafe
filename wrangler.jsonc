@@ -28,6 +28,12 @@
       "id": "270792708424473aa5859f5bf607f758"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "AVATARS",
+      "bucket_name": "pontocafe-avatars"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
