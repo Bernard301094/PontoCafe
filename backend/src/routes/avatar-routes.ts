@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { createMiddleware } from 'hono/factory'
+import { requireRole, requireUser, type AppEnv, type Device } from '../auth-runtime.js'
 import {
   AVATAR_MAX_BYTES,
   avatarObjectKey,
@@ -8,10 +9,59 @@ import {
   validateAvatarSignature,
 } from '../avatar-storage.js'
 import { query } from '../db.js'
+import { hashToken } from '../security.js'
 import { uuidSchema } from './shared.js'
+
+const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
+  const token = c.req.header('X-Device-Token')?.trim()
+  if (!token) return c.json({ erro: 'Dispositivo não autenticado.' }, 401)
+
+  const result = await query<Device>(
+    'select id,nome from dispositivos where token_hash=$1 and ativo=true limit 1',
+    [hashToken(token)],
+  )
+  const device = result.rows[0]
+  if (!device) return c.json({ erro: 'Dispositivo inválido.' }, 401)
+
+  c.set('device', device)
+  await next()
+})
 
 export const avatarManagementRoutes = new Hono<AppEnv>()
 avatarManagementRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
+
+// Esta rota vem antes da lista legada de colaboradores e a enriquece com avatar.
+// A foto em si nunca sai do R2 para o banco: somente avatar_version é lido aqui.
+avatarManagementRoutes.get('/colaboradores', async (c) => {
+  const result = await query<{
+    id: string
+    nome: string
+    setor: string | null
+    turno: string | null
+    ativo: boolean
+    rostoCadastrado: boolean
+    avatarVersion: number
+  }>(
+    `select col.id,col.nome,col.setor,col.turno,col.ativo,
+            col.avatar_version as "avatarVersion",
+            exists(select 1 from templates_faciais t where t.colaborador_id=col.id) as "rostoCadastrado"
+       from colaboradores col
+      where col.ativo=true
+      order by col.nome`,
+  )
+  const origin = new URL(c.req.url).origin
+  return c.json({
+    colaboradores: result.rows.map((row) => ({
+      id: row.id,
+      nome: row.nome,
+      setor: row.setor,
+      turno: row.turno,
+      ativo: row.ativo,
+      rostoCadastrado: row.rostoCadastrado,
+      avatarUrl: avatarUrl(origin, row.id, row.avatarVersion),
+    })),
+  })
+})
 
 avatarManagementRoutes.put('/colaboradores/:id/avatar', async (c) => {
   const collaboratorId = c.req.param('id')
@@ -108,7 +158,7 @@ avatarManagementRoutes.post('/colaboradores/:id/avatar/excluir', async (c) => {
 
   // Se a remoção física falhar depois daqui, a imagem já ficou inacessível porque
   // avatar_version=0 não produz URL assinada. O objeto órfão pode ser removido depois.
-  runCatchingDelete: try {
+  try {
     await bucket.delete(avatarObjectKey(collaboratorId))
   } catch (error) {
     console.error(JSON.stringify({
@@ -126,6 +176,27 @@ avatarManagementRoutes.post('/colaboradores/:id/avatar/excluir', async (c) => {
   )
 
   return c.json({ ok: true, colaboradorId: collaboratorId, avatarUrl: null })
+})
+
+export const avatarPontoRoutes = new Hono<AppEnv>()
+avatarPontoRoutes.use('*', requireDevice)
+
+// Catálogo minúsculo separado do catálogo biométrico. Isso evita colocar bytes de
+// imagem junto dos embeddings e permite atualizar o avatar sem alterar biometria.
+avatarPontoRoutes.get('/avatares', async (c) => {
+  const result = await query<{ id: string; avatarVersion: number }>(
+    `select id,avatar_version as "avatarVersion"
+       from colaboradores
+      where ativo=true and avatar_version>0
+      order by id`,
+  )
+  const origin = new URL(c.req.url).origin
+  return c.json({
+    avatares: result.rows.map((row) => ({
+      colaboradorId: row.id,
+      avatarUrl: avatarUrl(origin, row.id, row.avatarVersion),
+    })),
+  })
 })
 
 export const avatarMediaRoutes = new Hono<AppEnv>()
