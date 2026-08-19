@@ -10,6 +10,7 @@ import { adminRoutes } from './routes/admin-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
+import { avatarManagementRoutes, avatarMediaRoutes } from './routes/avatar-routes.js'
 import { biometricCalibrationRoutes } from './routes/biometric-calibration-routes.js'
 import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
@@ -160,9 +161,13 @@ app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
+app.route('/media', avatarMediaRoutes)
 // A exclusão biométrica destrutiva é Admin-only e precisa interceptar esta rota
 // antes da implementação compatível mantida em collaboratorManagementRoutes.
 app.route('/gestao', adminBiometricDeletionRoutes)
+// Upload/remoção de avatar é separado da biometria: a imagem é apenas visual e
+// fica em R2; o template facial continua cifrado e independente.
+app.route('/gestao', avatarManagementRoutes)
 // Calibração específica precisa preceder a versão compatível mantida em workforceRoutes.
 app.route('/gestao', biometricCalibrationRoutes)
 // Rotas específicas (importar/lote/histórico) precisam preceder /colaboradores/:id.
