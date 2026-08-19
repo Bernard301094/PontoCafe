@@ -1,14 +1,41 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { avatarUrl } from '../avatar-storage.js'
 import { config } from '../config.js'
 import { query } from '../db.js'
 
 export const liveRoutes = new Hono<AppEnv>()
 liveRoutes.use('*', requireUser, requireRole('ADMIN', 'SUPERVISOR'))
 
+type PauseRow = {
+  id: string
+  periodo: string
+  data?: string | null
+  inicioLocal: string
+  fimLocal?: string | null
+  limiteSegundos: number
+  foraHorario: boolean
+  tempoSegundos?: number | null
+  duracaoSegundos?: number | null
+  excedeuLimite?: boolean | null
+  colaboradorId: string
+  nome: string
+  matricula: string | null
+  setor: string | null
+  avatarVersion: number
+}
+
+function withAvatar(origin: string, row: PauseRow) {
+  const { avatarVersion, ...pause } = row
+  return {
+    ...pause,
+    avatarUrl: avatarUrl(origin, row.colaboradorId, avatarVersion),
+  }
+}
+
 liveRoutes.get('/pausas/ativas', async (c) => {
-  const result = await query(
+  const result = await query<PauseRow>(
     `select p.id,
             p.periodo,
             to_char(p.inicio_em at time zone $1,'HH24:MI') as "inicioLocal",
@@ -18,14 +45,16 @@ liveRoutes.get('/pausas/ativas', async (c) => {
             col.id as "colaboradorId",
             col.nome,
             col.matricula,
-            col.setor
+            col.setor,
+            col.avatar_version as "avatarVersion"
      from pausas_cafe p
      join colaboradores col on col.id=p.colaborador_id
      where p.fim_em is null
      order by p.inicio_em`,
     [config.appTimezone],
   )
-  return c.json({ pausas: result.rows })
+  const origin = new URL(c.req.url).origin
+  return c.json({ pausas: result.rows.map((row) => withAvatar(origin, row)) })
 })
 
 liveRoutes.get('/pausas', async (c) => {
@@ -39,7 +68,7 @@ liveRoutes.get('/pausas', async (c) => {
   }
 
   const data = parsed?.data ?? null
-  const result = await query(
+  const result = await query<PauseRow>(
     `select p.id,
             p.periodo,
             (p.inicio_em at time zone $1)::date::text as data,
@@ -58,7 +87,8 @@ liveRoutes.get('/pausas', async (c) => {
             col.id as "colaboradorId",
             col.nome,
             col.matricula,
-            col.setor
+            col.setor,
+            col.avatar_version as "avatarVersion"
      from pausas_cafe p
      join colaboradores col on col.id=p.colaborador_id
      where (p.inicio_em at time zone $1)::date = coalesce($2::date,(now() at time zone $1)::date)
@@ -67,5 +97,6 @@ liveRoutes.get('/pausas', async (c) => {
     [config.appTimezone, data],
   )
 
-  return c.json({ pausas: result.rows })
+  const origin = new URL(c.req.url).origin
+  return c.json({ pausas: result.rows.map((row) => withAvatar(origin, row)) })
 })
