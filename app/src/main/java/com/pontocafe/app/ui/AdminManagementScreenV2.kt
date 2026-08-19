@@ -71,6 +71,7 @@ fun AdminManagementScreenV2(
     onDevicesClick: () -> Unit,
     onSyncClick: () -> Unit,
     onKioskClick: () -> Unit,
+    onClose: () -> Unit,
 ) {
     val reliability = reliabilityViewModel.state
     val context = LocalContext.current
@@ -78,9 +79,23 @@ fun AdminManagementScreenV2(
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
     val testPause by AdminTestPauseStore.active.collectAsState()
+    var showAccountSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         reliabilityViewModel.loadManagement()
+    }
+
+    if (showAccountSheet) {
+        PcAccountProfileSheet(
+            account = activeAccount,
+            fallbackName = adminName,
+            profileLabel = "Administrador",
+            onDismiss = { showAccountSheet = false },
+            onLogout = {
+                showAccountSheet = false
+                viewModel.logout()
+            },
+        )
     }
 
     PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
@@ -93,11 +108,18 @@ fun AdminManagementScreenV2(
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = responsive.pagePadding),
-            contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
+            contentPadding = PaddingValues(top = PontoCafeSpacing.md, bottom = PontoCafeSpacing.xxl),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             item("header") {
-                PontoCafeScreenHeader(title = "Gestão", eyebrow = "Operação e segurança")
+                PcAreaTopBar(
+                    title = "Gestão",
+                    eyebrow = "Administrador",
+                    account = activeAccount,
+                    fallbackName = adminName,
+                    onProfileClick = { showAccountSheet = true },
+                    onBackToPonto = onClose,
+                )
             }
             item("intro") {
                 Text(
