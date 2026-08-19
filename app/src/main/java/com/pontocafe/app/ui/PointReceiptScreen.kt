@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
+import com.pontocafe.app.avatar.PontoAvatarRuntime
 import kotlinx.coroutines.delay
 
 private const val RECEIPT_VISIBLE_SECONDS = 5
@@ -37,7 +38,13 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val withinLimit = !comprovante.excedeuLimite
     val view = LocalView.current
+    val avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl
     var secondsLeft by remember(comprovante) { mutableIntStateOf(RECEIPT_VISIBLE_SECONDS) }
+
+    fun conclude() {
+        PontoAvatarRuntime.clear()
+        viewModel.concluirComprovante()
+    }
 
     LaunchedEffect(comprovante) {
         view.performHapticFeedback(
@@ -47,7 +54,7 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
             delay(1_000)
             secondsLeft = (secondsLeft - 1).coerceAtLeast(0)
         }
-        viewModel.concluirComprovante()
+        conclude()
     }
 
     PontoCafeResponsivePage(maxContentWidth = 620.dp) { responsive ->
@@ -59,7 +66,18 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            PontoCafeSuccessAnimation(Modifier.size(96.dp))
+            // O avatar é exclusivamente visual. A identidade já foi confirmada
+            // pelo FaceNet antes deste comprovante aparecer.
+            CollaboratorAvatar(
+                name = comprovante.nome,
+                avatarUrl = avatarUrl,
+                avatarSize = 92.dp,
+            )
+            PontoCafeSuccessAnimation(
+                modifier = Modifier
+                    .padding(top = PontoCafeSpacing.sm)
+                    .size(58.dp),
+            )
 
             Text(
                 text = if (start) "Pausa iniciada" else "Retorno registrado",
@@ -162,7 +180,7 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
 
             PcPrimaryButton(
                 text = "Concluir agora",
-                onClick = viewModel::concluirComprovante,
+                onClick = ::conclude,
                 modifier = Modifier.fillMaxWidth().padding(top = PontoCafeSpacing.md),
             )
         }
