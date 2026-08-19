@@ -77,7 +77,7 @@ class LiteRtFaceEmbeddingEngine(
             try {
                 val primaryRect = canonicalRect(source, frame.faceBounds)
                 usedRects += primaryRect
-                candidates += embedRect(source, primaryRect, required = true)
+                candidates += requireNotNull(embedRect(source, primaryRect, required = true))
 
                 val tightRect = faceRect(
                     bitmap = source,
