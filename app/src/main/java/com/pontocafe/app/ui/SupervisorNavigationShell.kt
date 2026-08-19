@@ -99,7 +99,12 @@ fun SupervisorAreaShell(
                 SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreenV2(viewModel)
                 SupervisorDestination.HISTORICO -> SupervisorHistoryScreenV2(viewModel)
                 SupervisorDestination.AUTORIZACAO -> SupervisorAuthorizationScreen(viewModel)
-                else -> SupervisorArea(viewModel, onClose)
+                // Estes destinos são tratados pelo NavigationSuite abaixo. Se o
+                // estado mudar durante uma animação, não reintroduzimos a antiga
+                // árvore SupervisorArea: a próxima recomposição resolve o root.
+                SupervisorDestination.AO_VIVO,
+                SupervisorDestination.COLABORADORES,
+                SupervisorDestination.RELATORIOS -> Unit
             }
         }
         return
