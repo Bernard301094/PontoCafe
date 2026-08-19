@@ -61,62 +61,47 @@ class LiteRtFaceEmbeddingEngine(
     }
 
     /**
-     * Identificação adaptativa e preguiçosa com uma única captura.
+     * Identificação adaptativa com uma única foto.
      *
-     * O recorte canônico é executado primeiro. Se ele já for aceito pelo matcher,
-     * nenhuma inferência extra é feita. Apenas em caso de miss são calculados os
-     * recortes alternativos do mesmo frame. Isso preserva a latência do caminho
-     * normal e concentra o custo extra nos casos difíceis.
+     * O primeiro embedding é sempre o canônico. Os demais usam somente recortes
+     * alternativos do MESMO frame para reduzir a influência de cabelo, touca e
+     * pequenas variações do bounding-box. FaceNet, normalização, liveness,
+     * limiar e margem não são alterados.
      */
-    override suspend fun embedForIdentification(
-        frame: FaceFrame,
-        accepted: suspend (FloatArray) -> Boolean,
-    ): FaceIdentificationEmbeddings = withContext(Dispatchers.Default) {
-        validateFrame(frame)
-        val source = frame.bitmap
-        val candidates = ArrayList<FloatArray>(MAX_IDENTIFICATION_CANDIDATES)
-        val usedRects = LinkedHashSet<Rect>(MAX_IDENTIFICATION_CANDIDATES)
-        var acceptedIndex: Int? = null
+    override suspend fun embedForIdentification(frame: FaceFrame): List<FloatArray> =
+        withContext(Dispatchers.Default) {
+            validateFrame(frame)
+            val source = frame.bitmap
+            val candidates = ArrayList<FloatArray>(MAX_IDENTIFICATION_CANDIDATES)
+            val usedRects = LinkedHashSet<Rect>(MAX_IDENTIFICATION_CANDIDATES)
 
-        suspend fun evaluate(rect: Rect, required: Boolean): Boolean {
-            if (!usedRects.add(rect)) return false
-            val embedding = embedRect(source, rect, required) ?: return false
-            candidates += embedding
-            if (accepted(embedding)) {
-                acceptedIndex = candidates.lastIndex
-                return true
-            }
-            return false
-        }
+            try {
+                val primaryRect = canonicalRect(source, frame.faceBounds)
+                usedRects += primaryRect
+                candidates += requireNotNull(embedRect(source, primaryRect, required = true))
 
-        try {
-            val primaryRect = canonicalRect(source, frame.faceBounds)
-            if (evaluate(primaryRect, required = true)) {
-                return@withContext FaceIdentificationEmbeddings(candidates, acceptedIndex)
-            }
-
-            val tightRect = faceRect(
-                bitmap = source,
-                bounds = frame.faceBounds,
-                horizontalMargin = 0.10f,
-                topMargin = 0.02f,
-                bottomMargin = 0.14f,
-            )
-            if (evaluate(tightRect, required = false)) {
-                return@withContext FaceIdentificationEmbeddings(candidates, acceptedIndex)
-            }
-
-            landmarkAnchoredRect(source, frame)?.let { landmarkRect ->
-                if (candidates.size < MAX_IDENTIFICATION_CANDIDATES) {
-                    evaluate(landmarkRect, required = false)
+                val tightRect = faceRect(
+                    bitmap = source,
+                    bounds = frame.faceBounds,
+                    horizontalMargin = 0.10f,
+                    topMargin = 0.02f,
+                    bottomMargin = 0.14f,
+                )
+                if (usedRects.add(tightRect)) {
+                    embedRect(source, tightRect, required = false)?.let(candidates::add)
                 }
-            }
 
-            FaceIdentificationEmbeddings(candidates, acceptedIndex)
-        } finally {
-            if (!source.isRecycled) source.recycle()
+                landmarkAnchoredRect(source, frame)?.let { landmarkRect ->
+                    if (candidates.size < MAX_IDENTIFICATION_CANDIDATES && usedRects.add(landmarkRect)) {
+                        embedRect(source, landmarkRect, required = false)?.let(candidates::add)
+                    }
+                }
+
+                candidates
+            } finally {
+                if (!source.isRecycled) source.recycle()
+            }
         }
-    }
 
     private fun validateFrame(frame: FaceFrame) {
         if (!isReady) throw FaceModelUnavailableException()
