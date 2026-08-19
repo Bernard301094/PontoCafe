@@ -13,6 +13,7 @@ import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SupervisorReportResponse
 import com.pontocafe.app.data.SupervisorRepository
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
@@ -37,6 +38,7 @@ data class SupervisorUiState(
     val historicoData: String? = null,
     val colaboradores: List<Colaborador> = emptyList(),
     val relatorio: SupervisorReportResponse? = null,
+    val relatorioAnterior: SupervisorReportResponse? = null,
     val relatorioInicio: String? = null,
     val relatorioFim: String? = null,
     // Campo legado usado apenas como marcador de uma liberação ativa na UI.
@@ -348,15 +350,32 @@ class SupervisorViewModel(
                 carregando = true,
                 relatorioInicio = inicio,
                 relatorioFim = fim,
+                relatorioAnterior = null,
                 erro = null,
                 mensagem = null,
             )
-            runCatching { repository.report(inicio, fim) }
-                .onSuccess {
+
+            val inicioDate = runCatching { LocalDate.parse(inicio) }.getOrNull()
+            val fimDate = runCatching { LocalDate.parse(fim) }.getOrNull()
+
+            runCatching {
+                val atual = repository.report(inicio, fim)
+                val anterior = if (inicioDate != null && fimDate != null && !fimDate.isBefore(inicioDate)) {
+                    val dias = (ChronoUnit.DAYS.between(inicioDate, fimDate) + 1L).coerceAtLeast(1L)
+                    val fimAnterior = inicioDate.minusDays(1)
+                    val inicioAnterior = fimAnterior.minusDays(dias - 1L)
+                    runCatching { repository.report(inicioAnterior.toString(), fimAnterior.toString()) }.getOrNull()
+                } else {
+                    null
+                }
+                atual to anterior
+            }
+                .onSuccess { (atual, anterior) ->
                     state = state.copy(
                         destination = SupervisorDestination.RELATORIOS,
                         carregando = false,
-                        relatorio = it,
+                        relatorio = atual,
+                        relatorioAnterior = anterior,
                     )
                 }
                 .onFailure {
@@ -535,8 +554,6 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.deleteCollaborator(colaborador.id) }
                 .onSuccess {
-                    // Remove imediatamente da UI assim que o servidor confirma a exclusão.
-                    // Uma atualização posterior nunca pode reintroduzir o item por resposta em cache.
                     state = state.copy(
                         carregando = false,
                         colaboradores = state.colaboradores.filterNot { item -> item.id == colaborador.id },
