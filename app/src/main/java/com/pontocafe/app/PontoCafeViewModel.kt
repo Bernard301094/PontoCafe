@@ -258,30 +258,33 @@ class PontoCafeViewModel(
             pendingOfflineEmbedding = null
             state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
             try {
-                val embedding = embeddingEngine.embed(frame)
+                val embeddings = embeddingEngine.embedForIdentification(frame)
+                require(embeddings.isNotEmpty()) { "Nenhum embedding facial foi gerado." }
+
                 var catalogo = obterCatalogoAtual(force = false)
-                var match = catalogo?.let { currentCatalog ->
+                var resolvedMatch = catalogo?.let { currentCatalog ->
                     withContext(Dispatchers.Default) {
-                        LocalFaceMatcher.match(embedding, currentCatalog)
+                        LocalFaceMatcher.matchBest(embeddings, currentCatalog)
                     }
                 }
 
-                if (match == null) {
+                if (resolvedMatch == null) {
                     val now = System.currentTimeMillis()
                     val canRefreshAfterMiss =
                         now - lastCatalogMissRefreshMillis >= catalogMissRefreshCooldownMillis
                     if (canRefreshAfterMiss) {
                         lastCatalogMissRefreshMillis = now
                         catalogo = obterCatalogoAtual(force = true)
-                        match = catalogo?.let { currentCatalog ->
+                        resolvedMatch = catalogo?.let { currentCatalog ->
                             withContext(Dispatchers.Default) {
-                                LocalFaceMatcher.match(embedding, currentCatalog)
+                                LocalFaceMatcher.matchBest(embeddings, currentCatalog)
                             }
                         }
                     }
                 }
 
-                if (match == null) {
+                val resolved = resolvedMatch
+                if (resolved == null) {
                     state = state.copy(
                         carregando = false,
                         scanning = true,
@@ -295,6 +298,9 @@ class PontoCafeViewModel(
                     )
                     return@launch
                 }
+
+                val match = resolved.match
+                val embedding = resolved.embedding
 
                 if (samePersonCooldownActive(match.colaborador.id)) {
                     state = state.copy(
