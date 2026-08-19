@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.7 — Reconhecimento facial adaptativo
+
+### Biometria
+- O Ponto passa a gerar até três embeddings a partir da mesma captura facial, sem pedir fotos adicionais ao colaborador.
+- A primeira tentativa continua usando exatamente o recorte canônico já utilizado nas versões anteriores, preservando compatibilidade com todas as biometrias existentes.
+- Somente quando a tentativa canônica falha são considerados recortes alternativos do mesmo frame: um recorte mais fechado e, quando os landmarks estão disponíveis, um recorte ancorado nos olhos.
+- FaceNet, modelo, normalização, liveness, limiar de reconhecimento e margem entre identidades permanecem inalterados.
+- O embedding efetivamente aprovado localmente é o mesmo enviado ao backend para revalidação autoritativa.
+- O fluxo de cadastro deixa de orientar o registro de aparências extras com touca/óculos; um único cadastro biométrico continua sendo a referência operacional.
+- Testes unitários cobrem prioridade da tentativa canônica, fallback adaptativo e preservação da margem de segurança.
+
+### Manutenção
+- Workflow de Release unsigned deixou de depender de branch e versão antigas; agora valida PRs para `main`, executa testes unitários e resolve versão/código diretamente do projeto.
+
 ## 0.7.0 — Reliability + Operations
 
 ### Regra operacional
