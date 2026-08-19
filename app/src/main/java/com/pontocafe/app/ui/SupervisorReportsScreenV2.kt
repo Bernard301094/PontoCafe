@@ -47,6 +47,7 @@ import androidx.core.content.FileProvider
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.ReportDay
 import com.pontocafe.app.data.ReportDelay
+import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SupervisorReportResponse
 import java.io.File
 import java.time.Instant
@@ -71,7 +72,18 @@ fun SupervisorReportsScreenV2(
     var localError by remember { mutableStateOf<String?>(null) }
     var showCalendar by remember { mutableStateOf(false) }
     var selectedDelay by remember { mutableStateOf<ReportDelay?>(null) }
+    var showAccountSheet by remember { mutableStateOf(false) }
     val collaboratorById = remember(state.colaboradores) { state.colaboradores.associateBy { it.id } }
+
+    val sessionStore = remember(context, state.sessaoAdministrativa) {
+        SecureAdminSessionStore(
+            context.applicationContext,
+            if (state.sessaoAdministrativa) "admin" else "supervisor",
+        )
+    }
+    val activeAccount = remember(sessionStore, state.sessaoAdministrativa) { sessionStore.activeAccount() }
+    val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
+    val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
 
     val selectedDays = remember(state.relatorioInicio, state.relatorioFim) {
         val start = state.relatorioInicio
@@ -79,6 +91,23 @@ fun SupervisorReportsScreenV2(
         if (start == null || end == null) 7 else runCatching {
             (ChronoUnit.DAYS.between(LocalDate.parse(start), LocalDate.parse(end)) + 1L).toInt()
         }.getOrDefault(7)
+    }
+
+    if (showAccountSheet) {
+        PcAccountProfileSheet(
+            account = activeAccount,
+            fallbackName = accountFallbackName,
+            profileLabel = accountProfileLabel,
+            onDismiss = { showAccountSheet = false },
+            onLogout = if (state.sessaoAdministrativa) {
+                null
+            } else {
+                {
+                    showAccountSheet = false
+                    viewModel.sair()
+                }
+            },
+        )
     }
 
     if (showCalendar) {
@@ -149,14 +178,14 @@ fun SupervisorReportsScreenV2(
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        PontoCafeScreenHeader(title = "Relatórios", eyebrow = "Supervisor")
-                        PcSecondaryButton(
-                            text = "Voltar ao Ponto",
-                            onClick = onClose,
-                            modifier = if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier,
-                        )
-                    }
+                    PcAreaTopBar(
+                        title = "Relatórios",
+                        eyebrow = accountProfileLabel,
+                        account = activeAccount,
+                        fallbackName = accountFallbackName,
+                        onProfileClick = { showAccountSheet = true },
+                        onBackToPonto = onClose,
+                    )
                 }
 
                 item("periods") {
