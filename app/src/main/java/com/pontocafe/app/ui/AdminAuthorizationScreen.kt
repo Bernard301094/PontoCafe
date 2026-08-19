@@ -403,7 +403,10 @@ private fun CollaboratorAuthorizationRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            InitialAvatar(collaborator.nome)
+            CollaboratorAvatar(
+                name = collaborator.nome,
+                avatarUrl = collaborator.avatarUrl,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -436,7 +439,10 @@ private fun SelectedCollaboratorCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            InitialAvatar(collaborator.nome)
+            CollaboratorAvatar(
+                name = collaborator.nome,
+                avatarUrl = collaborator.avatarUrl,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
