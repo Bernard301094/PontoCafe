@@ -36,8 +36,9 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
 import kotlinx.coroutines.delay
 
-private const val POINT_RECEIPT_VISIBLE_MILLIS = 2_000L
+private const val POINT_RECEIPT_VISIBLE_MILLIS = 3_000L
 private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
+private const val USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
@@ -111,7 +112,7 @@ fun PontoFlowHost(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = identificacao.mensagem
-                    ?: "Esta pausa já foi utilizada hoje. É permitida apenas uma pausa por período.",
+                    ?: "Você já utilizou sua folga deste período hoje.",
                 repeatedPause = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA",
             )
 
@@ -131,7 +132,8 @@ fun PontoFlowHost(
                 nome = identificacao.colaborador?.nome,
                 mensagem = state.erro,
                 repeatedPause = state.erro.contains("já registrou esta pausa", ignoreCase = true) ||
-                    state.erro.contains("já utilizada", ignoreCase = true),
+                    state.erro.contains("já utilizada", ignoreCase = true) ||
+                    state.erro.contains("folga", ignoreCase = true),
             )
         }
     }
@@ -150,7 +152,10 @@ private fun FastPointBlockedOverlay(
         runCatching {
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
         }
-        delay(POINT_BLOCKED_VISIBLE_MILLIS)
+        delay(
+            if (repeatedPause) USED_BREAK_WARNING_VISIBLE_MILLIS
+            else POINT_BLOCKED_VISIBLE_MILLIS,
+        )
         viewModel.rejeitarIdentidade()
     }
 
@@ -175,7 +180,7 @@ private fun FastPointBlockedOverlay(
             )
 
             Text(
-                text = if (repeatedPause) "PAUSA JÁ UTILIZADA" else "REGISTRO NÃO REALIZADO",
+                text = if (repeatedPause) "FOLGA JÁ UTILIZADA" else "REGISTRO NÃO REALIZADO",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -230,8 +235,7 @@ private fun FastPointReceiptOverlay(
         }
 
         // O comprovante nunca depende do último faceCount para sair da tela.
-        // Dois segundos são suficientes para confirmar visualmente o registro
-        // sem interromper desnecessariamente a fila do Ponto.
+        // Três segundos dão tempo para ler a confirmação sem travar a fila.
         delay(POINT_RECEIPT_VISIBLE_MILLIS)
         viewModel.concluirComprovante()
     }
