@@ -126,9 +126,10 @@ class SupervisorRepository(
      * O login termina quando o servidor autentica as credenciais e devolve o
      * bearer token. A carga da Operação acontece depois, no ViewModel.
      *
-     * Antes, pausasAtivas() era chamada aqui para validar o papel. Isso fazia
-     * uma falha de rede/TLS posterior ao login parecer "falha de login" e
-     * devolvia o usuário ao formulário mesmo com uma sessão válida já criada.
+     * O interceptor também garante que /api/auth/sign-in/email nunca reutilize
+     * o bearer de uma conta Supervisor salva anteriormente. Isso é importante no
+     * seletor multi-conta: um token vencido ou pertencente a outra conta não pode
+     * contaminar uma nova tentativa de login.
      */
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
@@ -215,7 +216,7 @@ class SupervisorRepository(
 
         fun message(error: Throwable): String {
             if (isTlsTrustFailure(error)) {
-                return "Não foi possível validar a conexão segura com o servidor. Verifique se data e hora automáticas estão ativadas e tente novamente. Se persistir, teste outra rede."
+                return "A conexão segura falhou antes de o servidor validar o e-mail e a senha. A conta Supervisor não foi rejeitada. Verifique data e hora automáticas e tente novamente; se persistir, teste outra rede."
             }
             return AdminRepository.message(error)
         }
@@ -223,19 +224,35 @@ class SupervisorRepository(
 }
 
 object SupervisorApiClient {
+    private const val SIGN_IN_PATH = "/api/auth/sign-in/email"
+
     fun create(
         supervisorSessionStore: SecureAdminSessionStore,
     ): SupervisorRepository {
         val authInterceptor = Interceptor { chain ->
+            val original = chain.request()
+            val isCredentialSignIn =
+                original.method.equals("POST", ignoreCase = true) &&
+                    original.url.encodedPath == SIGN_IN_PATH
             val token = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
-            val request = chain.request().newBuilder().apply {
-                token?.let { header("Authorization", "Bearer $it") }
+
+            val request = original.newBuilder().apply {
+                // Nunca envie a sessão ativa ao autenticar outra conta. Além de
+                // desnecessário, um bearer antigo pode tornar o comportamento do
+                // login dependente de qual Supervisor estava ativo no aparelho.
+                if (isCredentialSignIn) {
+                    removeHeader("Authorization")
+                    header("Cache-Control", "no-store")
+                } else {
+                    token?.let { header("Authorization", "Bearer $it") }
+                }
                 header("X-App-Version", BuildConfig.VERSION_NAME)
             }.build()
             chain.proceed(request)
         }
 
         val client = OkHttpClient.Builder()
+            .retryOnConnectionFailure(true)
             .addInterceptor(authInterceptor)
             .build()
         val retrofit = Retrofit.Builder()
