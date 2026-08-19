@@ -1,0 +1,482 @@
+package com.pontocafe.app.data
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import com.google.gson.Gson
+import com.pontocafe.app.BuildConfig
+import java.security.KeyStore
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.UUID
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+
+data class OfflinePontoEvent(
+    val eventId: String,
+    val acao: String,
+    val colaboradorId: String,
+    val nome: String,
+    val ocorridoEm: String,
+    val score: Double,
+    val embedding: List<Float>,
+    val appVersion: String,
+    val modelo: String,
+    val versaoModelo: String,
+)
+
+data class LocalOpenPause(
+    val colaboradorId: String,
+    val nome: String,
+    val periodo: String,
+    val inicioEmMillis: Long,
+    val inicioLocal: String,
+    val limiteSegundos: Int,
+    val retornoAteLocal: String,
+)
+
+data class LocalCompletedPause(
+    val colaboradorId: String,
+    val nome: String,
+    val periodo: String,
+    val dataLocal: String,
+    val inicioLocal: String,
+    val fimLocal: String,
+    val duracaoSegundos: Int,
+    val limiteSegundos: Int,
+)
+
+data class OfflineSyncFailure(
+    val eventId: String,
+    val nome: String,
+    val acao: String,
+    val mensagem: String,
+    val tentativas: Int,
+    val ultimaTentativaEmMillis: Long,
+)
+
+data class SyncCenterEvent(
+    val eventId: String,
+    val nome: String,
+    val acao: String,
+    val ocorridoEm: String,
+    val appVersion: String,
+    val falha: OfflineSyncFailure?,
+)
+
+data class SyncCenterSnapshot(
+    val pending: List<SyncCenterEvent>,
+    val failures: List<OfflineSyncFailure>,
+    val lastServerOkMillis: Long,
+    val rulesUpdatedAtMillis: Long,
+)
+
+data class PontoOfflineSnapshot(
+    val eventos: List<OfflinePontoEvent> = emptyList(),
+    val pausasAbertas: List<LocalOpenPause> = emptyList(),
+    val regras: List<RegraCafe> = emptyList(),
+    val regrasAtualizadasEmMillis: Long = 0L,
+    val ultimoServidorOkEmMillis: Long = 0L,
+    val falhasSincronizacao: List<OfflineSyncFailure> = emptyList(),
+    val pausasConcluidas: List<LocalCompletedPause>? = emptyList(),
+)
+
+class SecurePontoOfflineStore(context: Context) {
+    private val prefs = context.getSharedPreferences("pontocafe_offline_secure", Context.MODE_PRIVATE)
+    private val keyAlias = "pontocafe_offline_key"
+    private val payloadKey = "offline_snapshot"
+    private val gson = Gson()
+    private val timezone = ZoneId.of("America/Fortaleza")
+    private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+    private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+    @Volatile
+    private var cachedSnapshot: PontoOfflineSnapshot? = null
+
+    @Synchronized
+    fun snapshot(): PontoOfflineSnapshot = readInternal()
+
+    @Synchronized
+    fun pendingEvents(): List<OfflinePontoEvent> = readInternal().eventos
+
+    @Synchronized
+    fun pendingCount(): Int = readInternal().eventos.size
+
+    @Synchronized
+    fun lastServerOkMillis(): Long = readInternal().ultimoServidorOkEmMillis
+
+    @Synchronized
+    fun syncCenterSnapshot(): SyncCenterSnapshot {
+        val current = readInternal()
+        val failureById = current.falhasSincronizacao.associateBy { it.eventId }
+        return SyncCenterSnapshot(
+            pending = current.eventos.map { event ->
+                SyncCenterEvent(
+                    eventId = event.eventId,
+                    nome = event.nome,
+                    acao = event.acao,
+                    ocorridoEm = event.ocorridoEm,
+                    appVersion = event.appVersion,
+                    falha = failureById[event.eventId],
+                )
+            },
+            failures = current.falhasSincronizacao.filter { failure -> current.eventos.any { it.eventId == failure.eventId } },
+            lastServerOkMillis = current.ultimoServidorOkEmMillis,
+            rulesUpdatedAtMillis = current.regrasAtualizadasEmMillis,
+        )
+    }
+
+    @Synchronized
+    fun canOperateOffline(maxOfflineMillis: Long): Boolean {
+        val lastOk = readInternal().ultimoServidorOkEmMillis
+        return lastOk > 0L && System.currentTimeMillis() - lastOk <= maxOfflineMillis
+    }
+
+    @Synchronized
+    fun markServerOk() {
+        val current = readInternal()
+        saveInternal(current.copy(ultimoServidorOkEmMillis = System.currentTimeMillis()))
+    }
+
+    @Synchronized
+    fun saveRules(rules: List<RegraCafe>) {
+        val current = readInternal()
+        saveInternal(
+            current.copy(
+                regras = rules,
+                regrasAtualizadasEmMillis = System.currentTimeMillis(),
+                ultimoServidorOkEmMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Synchronized
+    fun currentRule(now: ZonedDateTime = ZonedDateTime.now(timezone)): RegraCafe? {
+        val currentTime = now.toLocalTime()
+        return readInternal().regras.firstOrNull { rule ->
+            runCatching {
+                val start = LocalTime.parse(rule.inicio)
+                val end = LocalTime.parse(rule.fim)
+                !currentTime.isBefore(start) && currentTime.isBefore(end)
+            }.getOrDefault(false)
+        }
+    }
+
+    @Synchronized
+    fun localOpenPause(collaboratorId: String): LocalOpenPause? =
+        readInternal().pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
+
+    @Synchronized
+    fun completedPauseToday(collaboratorId: String, periodo: String): LocalCompletedPause? {
+        val today = ZonedDateTime.now(timezone).format(dateFormatter)
+        return readInternal().pausasConcluidas.orEmpty().firstOrNull {
+            it.colaboradorId == collaboratorId && it.periodo == periodo && it.dataLocal == today
+        }
+    }
+
+    @Synchronized
+    fun recordOnlineStart(collaboratorId: String, nome: String, pause: IniciarPausaResponse) {
+        val current = readInternal()
+        val startedMillis = runCatching { Instant.parse(pause.inicioEm).toEpochMilli() }
+            .getOrDefault(System.currentTimeMillis())
+        val localPause = LocalOpenPause(
+            colaboradorId = collaboratorId,
+            nome = nome,
+            periodo = pause.periodo,
+            inicioEmMillis = startedMillis,
+            inicioLocal = pause.inicioLocal,
+            limiteSegundos = pause.limiteSegundos,
+            retornoAteLocal = pause.retornoAteLocal,
+        )
+        saveInternal(
+            current.copy(
+                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId } + localPause,
+                ultimoServidorOkEmMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Synchronized
+    fun recordOnlineFinish(collaboratorId: String) {
+        val current = readInternal()
+        val open = current.pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
+        val now = ZonedDateTime.now(timezone)
+        val completed = open?.let {
+            LocalCompletedPause(
+                colaboradorId = it.colaboradorId,
+                nome = it.nome,
+                periodo = it.periodo,
+                dataLocal = now.format(dateFormatter),
+                inicioLocal = it.inicioLocal,
+                fimLocal = now.format(timeFormatter),
+                duracaoSegundos = ((now.toInstant().toEpochMilli() - it.inicioEmMillis) / 1000L)
+                    .coerceAtLeast(0L)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt(),
+                limiteSegundos = it.limiteSegundos,
+            )
+        }
+        val today = now.format(dateFormatter)
+        val completedToday = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today }.toMutableList()
+        if (completed != null) {
+            completedToday.removeAll { it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo }
+            completedToday += completed
+        }
+        saveInternal(
+            current.copy(
+                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId },
+                pausasConcluidas = completedToday,
+                ultimoServidorOkEmMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Synchronized
+    fun queueOfflineStart(
+        colaborador: Colaborador,
+        score: Double,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+        rule: RegraCafe,
+    ): LocalOpenPause {
+        val current = readInternal()
+        require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
+        require(current.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
+        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
+
+        val now = ZonedDateTime.now(timezone)
+        val today = now.format(dateFormatter)
+        val completed = current.pausasConcluidas.orEmpty().firstOrNull {
+            it.colaboradorId == colaborador.id && it.periodo == rule.periodo && it.dataLocal == today
+        }
+        if (completed != null) {
+            val repeatedAttempt = OfflinePontoEvent(
+                eventId = UUID.randomUUID().toString(),
+                acao = "INICIAR",
+                colaboradorId = colaborador.id,
+                nome = colaborador.nome,
+                ocorridoEm = now.toInstant().toString(),
+                score = score,
+                embedding = embedding.toList(),
+                appVersion = BuildConfig.VERSION_NAME,
+                modelo = model,
+                versaoModelo = modelVersion,
+            )
+            saveInternal(
+                current.copy(
+                    eventos = current.eventos + repeatedAttempt,
+                    pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
+                ),
+            )
+            val minutos = completed.duracaoSegundos / 60
+            val segundos = completed.duracaoSegundos % 60
+            val duracao = if (segundos > 0) "${minutos} min ${segundos} s" else "${minutos} min"
+            val periodoLabel = if (completed.periodo == "MANHA") "manhã" else "tarde"
+            error(
+                "Pausa da $periodoLabel já utilizada hoje. Saída: ${completed.inicioLocal} · Retorno: ${completed.fimLocal} · Duração: $duracao. Esta nova tentativa foi registrada e será enviada ao servidor quando a conexão voltar.",
+            )
+        }
+
+        val event = OfflinePontoEvent(
+            eventId = UUID.randomUUID().toString(),
+            acao = "INICIAR",
+            colaboradorId = colaborador.id,
+            nome = colaborador.nome,
+            ocorridoEm = now.toInstant().toString(),
+            score = score,
+            embedding = embedding.toList(),
+            appVersion = BuildConfig.VERSION_NAME,
+            modelo = model,
+            versaoModelo = modelVersion,
+        )
+        val localPause = LocalOpenPause(
+            colaboradorId = colaborador.id,
+            nome = colaborador.nome,
+            periodo = rule.periodo,
+            inicioEmMillis = now.toInstant().toEpochMilli(),
+            inicioLocal = now.format(timeFormatter),
+            limiteSegundos = rule.limiteSegundos,
+            retornoAteLocal = now.plusSeconds(rule.limiteSegundos.toLong()).format(timeFormatter),
+        )
+        saveInternal(
+            current.copy(
+                eventos = current.eventos + event,
+                pausasAbertas = current.pausasAbertas + localPause,
+                pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
+            ),
+        )
+        return localPause
+    }
+
+    @Synchronized
+    fun queueOfflineFinish(
+        colaborador: Colaborador,
+        score: Double,
+        embedding: FloatArray,
+        model: String,
+        modelVersion: String,
+    ): Pair<LocalOpenPause, Int> {
+        val current = readInternal()
+        require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
+        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
+        val open = current.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
+            ?: error("Não existe pausa local aberta para este colaborador.")
+        val now = ZonedDateTime.now(timezone)
+        val event = OfflinePontoEvent(
+            eventId = UUID.randomUUID().toString(),
+            acao = "FINALIZAR",
+            colaboradorId = colaborador.id,
+            nome = colaborador.nome,
+            ocorridoEm = now.toInstant().toString(),
+            score = score,
+            embedding = embedding.toList(),
+            appVersion = BuildConfig.VERSION_NAME,
+            modelo = model,
+            versaoModelo = modelVersion,
+        )
+        val duration = ((now.toInstant().toEpochMilli() - open.inicioEmMillis) / 1000L)
+            .coerceAtLeast(0L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+        val completed = LocalCompletedPause(
+            colaboradorId = open.colaboradorId,
+            nome = open.nome,
+            periodo = open.periodo,
+            dataLocal = now.format(dateFormatter),
+            inicioLocal = open.inicioLocal,
+            fimLocal = now.format(timeFormatter),
+            duracaoSegundos = duration,
+            limiteSegundos = open.limiteSegundos,
+        )
+        val today = now.format(dateFormatter)
+        val completedToday = current.pausasConcluidas.orEmpty().filter {
+            it.dataLocal == today && !(it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo)
+        } + completed
+        saveInternal(
+            current.copy(
+                eventos = current.eventos + event,
+                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == colaborador.id },
+                pausasConcluidas = completedToday,
+            ),
+        )
+        return open to duration
+    }
+
+    @Synchronized
+    fun recordSyncResults(results: List<OfflineSyncResult>) {
+        if (results.isEmpty()) return
+        val current = readInternal()
+        val processed = results.filter {
+            it.status.equals("PROCESSADO", true) ||
+                it.status.equals("OK", true) ||
+                it.status.equals("SINCRONIZADO", true) ||
+                it.status.equals("RECONCILIADO", true)
+        }.map { it.eventId }.toSet()
+        val pendingIds = current.eventos.map { it.eventId }.toSet() - processed
+        val currentFailures = current.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
+        val now = System.currentTimeMillis()
+
+        results.forEach { result ->
+            if (result.eventId in processed) {
+                currentFailures.remove(result.eventId)
+            } else if (result.eventId in pendingIds) {
+                val event = current.eventos.firstOrNull { it.eventId == result.eventId } ?: return@forEach
+                val previous = currentFailures[result.eventId]
+                currentFailures[result.eventId] = OfflineSyncFailure(
+                    eventId = result.eventId,
+                    nome = event.nome,
+                    acao = event.acao,
+                    mensagem = result.mensagem?.take(300) ?: "O servidor não processou este registro.",
+                    tentativas = (previous?.tentativas ?: 0) + 1,
+                    ultimaTentativaEmMillis = now,
+                )
+            }
+        }
+
+        saveInternal(
+            current.copy(
+                eventos = current.eventos.filterNot { it.eventId in processed },
+                falhasSincronizacao = currentFailures.values.filter { it.eventId in pendingIds }.sortedByDescending { it.ultimaTentativaEmMillis },
+                ultimoServidorOkEmMillis = now,
+            ),
+        )
+    }
+
+    @Synchronized
+    fun removeProcessed(eventIds: Collection<String>) {
+        if (eventIds.isEmpty()) return
+        val ids = eventIds.toHashSet()
+        val current = readInternal()
+        saveInternal(
+            current.copy(
+                eventos = current.eventos.filterNot { it.eventId in ids },
+                falhasSincronizacao = current.falhasSincronizacao.filterNot { it.eventId in ids },
+            ),
+        )
+    }
+
+    @Synchronized
+    fun clear() {
+        cachedSnapshot = PontoOfflineSnapshot()
+        prefs.edit().remove(payloadKey).apply()
+    }
+
+    private fun readInternal(): PontoOfflineSnapshot {
+        cachedSnapshot?.let { return it }
+        val payload = prefs.getString(payloadKey, null) ?: return PontoOfflineSnapshot().also { cachedSnapshot = it }
+        val snapshot = runCatching {
+            val bytes = Base64.decode(payload, Base64.NO_WRAP)
+            require(bytes.size > 12)
+            val iv = bytes.copyOfRange(0, 12)
+            val encrypted = bytes.copyOfRange(12, bytes.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+            val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
+            gson.fromJson(json, PontoOfflineSnapshot::class.java) ?: PontoOfflineSnapshot()
+        }.getOrElse {
+            prefs.edit().remove(payloadKey).apply()
+            PontoOfflineSnapshot()
+        }
+        cachedSnapshot = snapshot
+        return snapshot
+    }
+
+    private fun saveInternal(snapshot: PontoOfflineSnapshot) {
+        cachedSnapshot = snapshot
+        val plaintext = gson.toJson(snapshot).toByteArray(Charsets.UTF_8)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val encrypted = cipher.doFinal(plaintext)
+        val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
+        prefs.edit().putString(payloadKey, payload).apply()
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getKey(keyAlias, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                keyAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
+    companion object {
+        private const val MAX_PENDING_EVENTS = 500
+    }
+}

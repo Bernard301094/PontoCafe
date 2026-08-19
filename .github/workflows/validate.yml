@@ -1,0 +1,28 @@
+name: PontoCafe Runner Canary
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pontocafe-runner-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    name: GitHub hosted runner canary
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Verify runner
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "RUNNER_OK"
+          uname -a
+          java -version || true
+          git --version
+          curl --version | head -n 1
