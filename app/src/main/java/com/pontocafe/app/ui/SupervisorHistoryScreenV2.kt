@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +15,14 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.PausaSupervisor
@@ -83,7 +89,6 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
     selectedPause?.let { pause ->
         HistoryPauseDetailDialog(
             pause = pause,
-            viewModel = viewModel,
             onDismiss = { selectedPause = null },
         )
     }
@@ -108,7 +113,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                     top = PontoCafeSpacing.lg,
                     bottom = 104.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
                     PontoCafeScreenHeader(
@@ -183,7 +188,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                 item("title") {
                     SectionTitle(
                         "Registros de ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM"))}",
-                        if (state.historico.isEmpty()) "Nenhuma pausa encontrada nesta data." else "Todos os cartões são clicáveis.",
+                        if (state.historico.isEmpty()) "Nenhuma pausa encontrada nesta data." else "Lista compacta · toque em um registro para ver todos os detalhes.",
                     )
                 }
 
@@ -204,7 +209,6 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                     ) { pause ->
                         HistoryPauseCard(
                             pause = pause,
-                            viewModel = viewModel,
                             onClick = { selectedPause = pause },
                         )
                     }
@@ -223,52 +227,89 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
 }
 
 @Composable
-private fun HistoryPauseCard(
+internal fun HistoryPauseCard(
     pause: PausaSupervisor,
-    viewModel: SupervisorViewModel,
     onClick: () -> Unit,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
     val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
-    androidx.compose.material3.Card(
+    val statusText = when {
+        exceeded -> "Acima do limite"
+        pause.foraHorario -> "Fora do horário"
+        else -> "No limite"
+    }
+    val statusColor = when {
+        exceeded -> MaterialTheme.colorScheme.error
+        pause.foraHorario -> LocalPontoCafeSemanticColors.current.warning
+        else -> LocalPontoCafeSemanticColors.current.success
+    }
+    val meta = listOfNotNull(
+        "${pause.inicioLocal} → ${pause.fimLocal ?: "em andamento"}",
+        pause.setor?.takeIf { it.isNotBlank() },
+        pause.periodo.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+
+    Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = if (exceeded) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        colors = CardDefaults.cardColors(
+            containerColor = if (exceeded) {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.58f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
         ),
-        shape = MaterialTheme.shapes.large,
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(
+            1.dp,
+            if (exceeded) {
+                MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+            },
+        ),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             InitialAvatar(pause.nome)
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Text(pause.nome, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${pause.inicioLocal} → ${pause.fimLocal ?: "em andamento"}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = pause.nome,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    listOfNotNull(pause.setor, pause.periodo.takeIf { it.isNotBlank() }).joinToString(" · "),
+                    text = meta,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
                 Text(
-                    viewModel.formatarTempo(duration),
-                    style = MaterialTheme.typography.titleMedium,
+                    text = formatHistoryDuration(duration),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                     color = if (exceeded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
-                StatusPill(
-                    text = if (exceeded) "Excedido" else "Dentro do limite",
-                    tone = if (exceeded) PontoCafeTone.DANGER else PontoCafeTone.SUCCESS,
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    maxLines = 1,
                 )
             }
         }
@@ -276,9 +317,8 @@ private fun HistoryPauseCard(
 }
 
 @Composable
-private fun HistoryPauseDetailDialog(
+internal fun HistoryPauseDetailDialog(
     pause: PausaSupervisor,
-    viewModel: SupervisorViewModel,
     onDismiss: () -> Unit,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
@@ -296,8 +336,8 @@ private fun HistoryPauseDetailDialog(
                     "Setor" to (pause.setor ?: "—"),
                     "Saída" to pause.inicioLocal,
                     "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
-                    "Duração" to viewModel.formatarTempo(duration),
-                    "Limite" to viewModel.formatarTempo(pause.limiteSegundos),
+                    "Duração" to formatHistoryDuration(duration),
+                    "Limite" to formatHistoryDuration(pause.limiteSegundos),
                     "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
                     "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
                 ),
@@ -307,6 +347,18 @@ private fun HistoryPauseDetailDialog(
             TextButton(onClick = onDismiss) { Text("Fechar") }
         },
     )
+}
+
+internal fun formatHistoryDuration(totalSeconds: Int): String {
+    val total = totalSeconds.coerceAtLeast(0)
+    val hours = total / 3600
+    val minutes = (total % 3600) / 60
+    val seconds = total % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(Locale.ROOT, hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(Locale.ROOT, minutes, seconds)
+    }
 }
 
 private fun formatHistoryDate(date: LocalDate): String =
