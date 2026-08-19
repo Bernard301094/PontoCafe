@@ -43,6 +43,9 @@ import com.pontocafe.app.data.SecureAdminSessionStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val LIVE_PAUSES_REFRESH_MILLIS = 15_000L
+private const val LAST_RETURN_REFRESH_MILLIS = 30_000L
+
 @Composable
 fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
     val state = viewModel.state
@@ -64,8 +67,18 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             viewModel.atualizarPausasAoVivoSilencioso()
             viewModel.atualizarUltimoRetornoSilencioso()
-            launch { while (true) { delay(5_000); viewModel.atualizarPausasAoVivoSilencioso() } }
-            launch { while (true) { delay(10_000); viewModel.atualizarUltimoRetornoSilencioso() } }
+            launch {
+                while (true) {
+                    delay(LIVE_PAUSES_REFRESH_MILLIS)
+                    viewModel.atualizarPausasAoVivoSilencioso()
+                }
+            }
+            launch {
+                while (true) {
+                    delay(LAST_RETURN_REFRESH_MILLIS)
+                    viewModel.atualizarUltimoRetornoSilencioso()
+                }
+            }
         }
     }
 
