@@ -271,6 +271,7 @@ fun AdminArea(
                                     AdminPeopleScreenV4(
                                         viewModel = viewModel,
                                         reliabilityViewModel = reliabilityViewModel,
+                                        onClose = onClose,
                                     )
                                 }
                             }
@@ -295,6 +296,7 @@ fun AdminArea(
                                     onDevicesClick = { setDevicesOpen(true) },
                                     onSyncClick = reliabilityViewModel::openSyncCenter,
                                     onKioskClick = { setKioskOpen(true) },
+                                    onClose = onClose,
                                 )
                             }
                         }
