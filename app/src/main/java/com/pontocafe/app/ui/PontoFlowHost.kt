@@ -71,21 +71,29 @@ fun PontoFlowHost(
     val activity = context.findActivity()
     val state = viewModel.state
     val identificacao = state.identificacao
-    val offlineStore = remember(context.applicationContext) {
+
+    // Uma nova instância é criada para cada ciclo/identificação relevante para
+    // evitar ler um cachedSnapshot anterior ao retorno que acabou de ser salvo
+    // pelo ViewModel em outra instância do SecurePontoOfflineStore.
+    val localHistoryStore = remember(
+        identificacao?.verificacaoToken,
+        state.scanCycle,
+        state.needsAuthorization,
+    ) {
         SecurePontoOfflineStore(context.applicationContext)
     }
 
     val localCompletedBreak = identificacao?.colaborador?.id?.let { colaboradorId ->
         findRelevantCompletedBreak(
-            store = offlineStore,
+            store = localHistoryStore,
             collaboratorId = colaboradorId,
         )
     }
     val serverSaysUsedBreak = identificacao?.motivo == "PAUSA_PERIODO_JA_UTILIZADA"
     val usedBreakDetected = serverSaysUsedBreak || localCompletedBreak != null
-    val usedBreakMessage = when {
+    val resolvedUsedBreakMessage = when {
         localCompletedBreak != null -> localUsedBreakMessage(localCompletedBreak)
-        serverSaysUsedBreak -> usedBreakMessage(
+        serverSaysUsedBreak -> normalizeUsedBreakMessage(
             identificacao?.mensagem ?: "Você já utilizou sua folga deste período hoje.",
         )
         else -> null
@@ -108,9 +116,16 @@ fun PontoFlowHost(
         }
     }
 
-    LaunchedEffect(identificacao?.verificacaoToken, state.needsAuthorization) {
+    LaunchedEffect(
+        identificacao?.verificacaoToken,
+        state.needsAuthorization,
+        usedBreakDetected,
+    ) {
         val atual = identificacao ?: return@LaunchedEffect
-        if (state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
+        // Folga concluída hoje é um estado terminal. Não deixamos o fluxo cair
+        // em confirmarIdentidade(), porque Workers antigos transformavam isso em
+        // needsAuthorization/fora do horário e encurtavam o aviso para 2 s.
+        if (usedBreakDetected || state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
             return@LaunchedEffect
         }
         viewModel.confirmarIdentidade()
@@ -132,42 +147,42 @@ fun PontoFlowHost(
                 comprovante = state.comprovante,
             )
 
+            // Prioridade máxima: se o servidor OU o histórico local seguro sabe
+            // que esta folga já terminou hoje, nunca mostramos FORA DO HORÁRIO.
+            usedBreakDetected && identificacao != null -> FastPointBlockedOverlay(
+                viewModel = viewModel,
+                nome = identificacao.colaborador?.nome,
+                mensagem = resolvedUsedBreakMessage
+                    ?: "Você já utilizou sua folga deste período hoje.",
+                repeatedPause = true,
+            )
+
             identificacao?.acaoSugerida == "BLOQUEADO" -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
-                mensagem = if (usedBreakDetected) {
-                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
-                } else {
-                    identificacao.mensagem ?: "Nenhum ponto foi registrado."
-                },
-                repeatedPause = usedBreakDetected,
+                mensagem = identificacao.mensagem ?: "Nenhum ponto foi registrado.",
+                repeatedPause = false,
             )
 
             state.needsAuthorization -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao?.colaborador?.nome,
-                mensagem = if (usedBreakDetected) {
-                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
-                } else {
-                    identificacao?.mensagem
-                        ?: "Fora do horário permitido. Nenhum ponto foi registrado."
-                },
-                repeatedPause = usedBreakDetected,
+                mensagem = identificacao?.mensagem
+                    ?: "Fora do horário permitido. Nenhum ponto foi registrado.",
+                repeatedPause = false,
             )
 
-            identificacao != null && !state.erro.isNullOrBlank() -> FastPointBlockedOverlay(
-                viewModel = viewModel,
-                nome = identificacao.colaborador?.nome,
-                mensagem = if (usedBreakDetected) {
-                    usedBreakMessage ?: "Você já utilizou sua folga deste período hoje."
-                } else {
-                    state.erro
-                },
-                repeatedPause = usedBreakDetected ||
-                    state.erro.contains("já registrou esta pausa", ignoreCase = true) ||
-                    state.erro.contains("já utilizada", ignoreCase = true) ||
-                    state.erro.contains("folga", ignoreCase = true),
-            )
+            identificacao != null && !state.erro.isNullOrBlank() -> {
+                val errorMessage = state.erro.orEmpty()
+                FastPointBlockedOverlay(
+                    viewModel = viewModel,
+                    nome = identificacao.colaborador?.nome,
+                    mensagem = errorMessage,
+                    repeatedPause = errorMessage.contains("já registrou esta pausa", ignoreCase = true) ||
+                        errorMessage.contains("já utilizada", ignoreCase = true) ||
+                        errorMessage.contains("folga", ignoreCase = true),
+                )
+            }
         }
     }
 }
@@ -225,7 +240,7 @@ private fun FastPointBlockedOverlay(
     repeatedPause: Boolean,
 ) {
     val view = LocalView.current
-    val mensagemExibida = if (repeatedPause) usedBreakMessage(mensagem) else mensagem
+    val mensagemExibida = if (repeatedPause) normalizeUsedBreakMessage(mensagem) else mensagem
 
     LaunchedEffect(nome, mensagemExibida, repeatedPause) {
         runCatching {
@@ -299,7 +314,11 @@ private fun FastPointBlockedOverlay(
  * Normaliza qualquer resposta antiga do backend para a linguagem atual da UI.
  * Mantém os detalhes de saída/retorno/duração quando estiverem disponíveis.
  */
-private fun usedBreakMessage(original: String): String {
+private fun normalizeUsedBreakMessage(original: String): String {
+    if (original.startsWith("Você já utilizou sua folga", ignoreCase = true)) {
+        return original
+    }
+
     val periodo = when {
         original.contains("manhã", ignoreCase = true) -> " da manhã"
         original.contains("tarde", ignoreCase = true) -> " da tarde"
