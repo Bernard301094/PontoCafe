@@ -10,7 +10,7 @@ import { adminRoutes } from './routes/admin-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
-import { avatarManagementRoutes, avatarMediaRoutes } from './routes/avatar-routes.js'
+import { avatarManagementRoutes, avatarMediaRoutes, avatarPontoRoutes } from './routes/avatar-routes.js'
 import { biometricCalibrationRoutes } from './routes/biometric-calibration-routes.js'
 import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
@@ -175,6 +175,7 @@ app.route('/gestao', workforceRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', deviceTelemetryRoutes)
+app.route('/ponto', avatarPontoRoutes)
 app.route('/ponto', localBiometricRoutes)
 // O fast-path vem antes das rotas legadas e é opcional para o APK: clientes
 // novos voltam automaticamente ao fluxo anterior caso esta rota ainda não esteja implantada.
