@@ -121,6 +121,14 @@ avatarManagementRoutes.put('/colaboradores/:id/avatar', async (c) => {
   const version = updated.rows[0]?.avatar_version
   if (!version) return c.json({ erro: 'Não foi possível atualizar o avatar do colaborador.' }, 409)
 
+  // O catálogo facial usa atualizado_em dos templates para decidir se o Ponto
+  // precisa sincronizar. Alteramos SOMENTE esse metadado: embeddings, modelo,
+  // limiares e amostras biométricas permanecem intocados.
+  await query(
+    'update templates_faciais set atualizado_em=now() where colaborador_id=$1',
+    [collaboratorId],
+  )
+
   const actor = c.get('user')
   await query(
     `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
@@ -155,6 +163,11 @@ avatarManagementRoutes.post('/colaboradores/:id/avatar/excluir', async (c) => {
     [collaboratorId],
   )
   if (!updated.rows[0]) return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
+
+  await query(
+    'update templates_faciais set atualizado_em=now() where colaborador_id=$1',
+    [collaboratorId],
+  )
 
   // Se a remoção física falhar depois daqui, a imagem já ficou inacessível porque
   // avatar_version=0 não produz URL assinada. O objeto órfão pode ser removido depois.
