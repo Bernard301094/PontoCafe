@@ -64,12 +64,14 @@ fun SupervisorReportsScreenV2(
 ) {
     val state = viewModel.state
     val report = state.relatorio
+    val previousReport = state.relatorioAnterior
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var localError by remember { mutableStateOf<String?>(null) }
     var showCalendar by remember { mutableStateOf(false) }
     var selectedDelay by remember { mutableStateOf<ReportDelay?>(null) }
+    val collaboratorById = remember(state.colaboradores) { state.colaboradores.associateBy { it.id } }
 
     val selectedDays = remember(state.relatorioInicio, state.relatorioFim) {
         val start = state.relatorioInicio
@@ -141,13 +143,13 @@ fun SupervisorReportsScreenV2(
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
                     end = responsive.pagePadding,
-                    top = PontoCafeSpacing.lg,
+                    top = PontoCafeSpacing.md,
                     bottom = 104.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                         PontoCafeScreenHeader(title = "Relatórios", eyebrow = "Supervisor")
                         PcSecondaryButton(
                             text = "Voltar ao Ponto",
@@ -155,13 +157,6 @@ fun SupervisorReportsScreenV2(
                             modifier = if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier,
                         )
                     }
-                }
-
-                item("period-title") {
-                    SectionTitle(
-                        "Período",
-                        "Use um atalho ou escolha uma data no calendário. Cada dia do relatório pode ser aberto.",
-                    )
                 }
 
                 item("periods") {
@@ -217,9 +212,16 @@ fun SupervisorReportsScreenV2(
                     item("hero") {
                         PcHeroCard(
                             title = formatReportPeriod(report),
-                            supportingText = "${report.resumo.totalPausas} pausa(s) de ${report.resumo.colaboradores} pessoa(s) no período selecionado.",
+                            supportingText = "${report.resumo.totalPausas} pausa(s) de ${report.resumo.colaboradores} pessoa(s).",
                             icon = Icons.Default.CalendarMonth,
                             tone = if (report.resumo.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+                        )
+                    }
+
+                    item("comparison") {
+                        PcReportComparisonCard(
+                            current = report.resumo,
+                            previous = previousReport?.resumo,
                         )
                     }
 
@@ -228,18 +230,8 @@ fun SupervisorReportsScreenV2(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                         ) {
-                            PcMetricTile(
-                                value = report.resumo.totalPausas.toString(),
-                                label = "Pausas",
-                                icon = Icons.Default.Coffee,
-                                modifier = Modifier.weight(1f),
-                            )
-                            PcMetricTile(
-                                value = report.resumo.colaboradores.toString(),
-                                label = "Pessoas",
-                                icon = Icons.Default.Groups,
-                                modifier = Modifier.weight(1f),
-                            )
+                            PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.weight(1f))
+                            PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.weight(1f))
                         }
                     }
 
@@ -248,19 +240,8 @@ fun SupervisorReportsScreenV2(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                         ) {
-                            PcMetricTile(
-                                value = viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
-                                label = "Tempo médio",
-                                icon = Icons.Default.Timer,
-                                modifier = Modifier.weight(1f),
-                            )
-                            PcMetricTile(
-                                value = report.resumo.acimaLimite.toString(),
-                                label = "Acima do limite",
-                                icon = Icons.Default.Timer,
-                                modifier = Modifier.weight(1f),
-                                attention = report.resumo.acimaLimite > 0,
-                            )
+                            PcMetricTile(viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0), "Tempo médio", Icons.Default.Timer, Modifier.weight(1f))
+                            PcMetricTile(report.resumo.acimaLimite.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = report.resumo.acimaLimite > 0)
                         }
                     }
 
@@ -274,10 +255,14 @@ fun SupervisorReportsScreenV2(
                         }
                     }
 
+                    if (report.porDia.isNotEmpty()) {
+                        item("trend") { PcReportTrendChart(report.porDia) }
+                    }
+
                     item("days-title") {
                         SectionTitle(
                             "Histórico por data",
-                            "Toque em um dia para abrir todas as pausas registradas naquela data.",
+                            "Toque em um dia para abrir todas as pausas registradas.",
                         )
                     }
 
@@ -301,7 +286,7 @@ fun SupervisorReportsScreenV2(
                     item("ranking-title") {
                         SectionTitle(
                             "Maiores excessos",
-                            "Toque em uma pessoa para abrir o resumo completo de ocorrências no período.",
+                            "Toque em uma pessoa para abrir o resumo completo do período.",
                         )
                     }
 
@@ -325,15 +310,19 @@ fun SupervisorReportsScreenV2(
                                 elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(PontoCafeSpacing.md),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                                 ) {
-                                    InitialAvatar(delay.nome)
+                                    CollaboratorAvatar(
+                                        name = delay.nome,
+                                        avatarUrl = collaboratorById[delay.colaboradorId]?.avatarUrl,
+                                        avatarSize = 40.dp,
+                                    )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(delay.nome, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                         Text(
-                                            "${delay.ocorrencias} ocorrência(s) · maior pausa ${viewModel.formatarTempo(delay.maiorDuracaoSegundos)}",
+                                            "${delay.ocorrencias} ocorrência(s) · maior ${viewModel.formatarTempo(delay.maiorDuracaoSegundos)}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -364,10 +353,7 @@ fun SupervisorReportsScreenV2(
                                     scope.launch {
                                         runCatching {
                                             val bytes = viewModel.baixarRelatorioCsv()
-                                            val file = supervisorReportFileV2(
-                                                context,
-                                                "pontocafe-${report.periodo.inicio}-${report.periodo.fim}.csv",
-                                            )
+                                            val file = supervisorReportFileV2(context, "pontocafe-${report.periodo.inicio}-${report.periodo.fim}.csv")
                                             file.writeBytes(bytes)
                                             shareSupervisorReportV2(context, file, "text/csv")
                                         }.onFailure {
@@ -423,7 +409,7 @@ private fun ReportDayCardV2(day: ReportDay, onClick: () -> Unit) {
         elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
