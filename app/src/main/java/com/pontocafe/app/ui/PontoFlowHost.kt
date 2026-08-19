@@ -38,11 +38,14 @@ import com.pontocafe.app.TipoComprovantePonto
 import kotlinx.coroutines.delay
 
 private const val POINT_RECEIPT_VISIBLE_MILLIS = 2_000L
+private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 
 /**
- * Host contínuo do Ponto. A câmera permanece montada durante identificação,
- * autorização e comprovante; as etapas intermediárias são overlays opacos.
- * Isso evita reinicializar CameraX/ML Kit entre duas pessoas da fila.
+ * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
+ * autorização, avisos e comprovante. Não existe mais confirmação manual de
+ * identidade: depois da validação biométrica, a ação segura é executada
+ * automaticamente. Isso evita o antigo fluxo "É você?" e mantém a decisão
+ * autoritativa no backend.
  */
 @Composable
 fun PontoFlowHost(
@@ -56,6 +59,7 @@ fun PontoFlowHost(
     val context = LocalContext.current
     val activity = context.findActivity()
     val state = viewModel.state
+    val identificacao = state.identificacao
 
     // Brilho somente desta janela. Não modifica a preferência global do Android
     // e não exige WRITE_SETTINGS. Ao sair do Ponto, restauramos exatamente o
@@ -77,6 +81,18 @@ fun PontoFlowHost(
         }
     }
 
+    // A antiga tela "É você?" foi removida do fluxo. Quando o servidor já
+    // confirmou a identidade e a ação é permitida, registramos automaticamente.
+    // Casos bloqueados são tratados abaixo como aviso terminal e casos fora do
+    // horário continuam abrindo somente a autorização do Supervisor.
+    LaunchedEffect(identificacao?.verificacaoToken, state.needsAuthorization) {
+        val atual = identificacao ?: return@LaunchedEffect
+        if (state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
+            return@LaunchedEffect
+        }
+        viewModel.confirmarIdentidade()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         FaceKioskScreen(
             viewModel = viewModel,
@@ -92,12 +108,26 @@ fun PontoFlowHost(
                 viewModel = viewModel,
                 comprovante = state.comprovante,
             )
+
             state.needsAuthorization -> OpaquePontoOverlay {
                 AuthorizationScreen(viewModel)
             }
-            state.identificacao != null -> OpaquePontoOverlay {
-                IdentityConfirmationScreen(viewModel)
-            }
+
+            identificacao?.acaoSugerida == "BLOQUEADO" -> FastPointBlockedOverlay(
+                viewModel = viewModel,
+                nome = identificacao.colaborador?.nome,
+                mensagem = identificacao.mensagem
+                    ?: "Esta pausa já foi utilizada hoje. É permitida apenas uma pausa por período.",
+                repeatedPause = identificacao.motivo == "PAUSA_PERIODO_JA_UTILIZADA",
+            )
+
+            identificacao != null && !state.erro.isNullOrBlank() -> FastPointBlockedOverlay(
+                viewModel = viewModel,
+                nome = identificacao.colaborador?.nome,
+                mensagem = state.erro,
+                repeatedPause = state.erro.contains("já registrou esta pausa", ignoreCase = true) ||
+                    state.erro.contains("já utilizada", ignoreCase = true),
+            )
         }
     }
 }
@@ -109,6 +139,80 @@ private fun OpaquePontoOverlay(content: @Composable () -> Unit) {
         color = MaterialTheme.colorScheme.background,
     ) {
         content()
+    }
+}
+
+@Composable
+private fun FastPointBlockedOverlay(
+    viewModel: PontoCafeViewModel,
+    nome: String?,
+    mensagem: String,
+    repeatedPause: Boolean,
+) {
+    val view = LocalView.current
+
+    LaunchedEffect(nome, mensagem, repeatedPause) {
+        runCatching {
+            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        }
+        delay(POINT_BLOCKED_VISIBLE_MILLIS)
+        viewModel.rejeitarIdentidade()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF160B08))
+            .systemBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 28.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                modifier = Modifier.size(88.dp),
+                tint = MaterialTheme.colorScheme.tertiary,
+            )
+
+            Text(
+                text = if (repeatedPause) "PAUSA JÁ UTILIZADA" else "REGISTRO NÃO REALIZADO",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                color = Color.White,
+            )
+
+            if (!nome.isNullOrBlank()) {
+                Text(
+                    text = nome,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    color = Color.White,
+                )
+            }
+
+            Text(
+                text = mensagem,
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                color = Color.White.copy(alpha = 0.84f),
+            )
+
+            Text(
+                text = "Nenhum novo ponto foi registrado",
+                modifier = Modifier.padding(top = 10.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White.copy(alpha = 0.94f),
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
