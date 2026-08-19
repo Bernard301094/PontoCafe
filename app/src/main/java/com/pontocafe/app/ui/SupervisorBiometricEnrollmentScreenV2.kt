@@ -409,7 +409,7 @@ private fun SupervisorEnrollmentBottomSheetV2(
                 color = Color.White.copy(alpha = 0.62f),
             )
             Text(
-                "Touca e óculos podem ser cadastrados como aparências adicionais depois. O sistema mantém a validação contra a biometria anterior e contra outros colaboradores.",
+                "Um único cadastro biométrico é usado no Ponto. O reconhecimento adapta o recorte da mesma captura sem exigir fotos extras.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.58f),
                 textAlign = TextAlign.Center,
