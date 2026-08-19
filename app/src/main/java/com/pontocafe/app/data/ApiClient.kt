@@ -22,11 +22,18 @@ data class Colaborador(
     val setor: String?,
     val turno: String?,
     val rostoCadastrado: Boolean = false,
+    val avatarUrl: String? = null,
     @Deprecated("Matrícula não é mais utilizada pelo Ponto Café")
     val matricula: String? = null,
 )
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
+
+data class AvatarCatalogItem(
+    val colaboradorId: String,
+    val avatarUrl: String,
+)
+data class AvatarCatalogResponse(val avatares: List<AvatarCatalogItem>)
 
 data class DeviceActivationRequest(val token: String)
 data class DeviceActivationResponse(val token: String)
@@ -178,6 +185,7 @@ interface PontoCafeApi {
     @POST("setup/device-activation") suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
     @POST("ponto/device/unlock") suspend fun unlockDevice(@Body body: DeviceUnlockRequest): DeviceUnlockResponse
     @GET("ponto/colaboradores") suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
+    @GET("ponto/avatares") suspend fun avatarCatalog(): AvatarCatalogResponse
     @GET("ponto/horario") suspend fun horario(): HorarioCafeResponse
     @GET("health") suspend fun health(): SystemHealthResponse
     @GET("app-status") suspend fun appStatus(): AppStatusResponse
@@ -200,6 +208,8 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
     suspend fun validarPinSaida(pin: String, area: String): DeviceUnlockResponse =
         api.unlockDevice(DeviceUnlockRequest(pin.trim(), area))
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
+    suspend fun avatarCatalog(): Map<String, String> =
+        api.avatarCatalog().avatares.associate { it.colaboradorId to it.avatarUrl }
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
     suspend fun health(): SystemHealthResponse = api.health()
     suspend fun appStatus(): AppStatusResponse = api.appStatus()
