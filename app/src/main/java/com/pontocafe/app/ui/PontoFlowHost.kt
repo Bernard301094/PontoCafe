@@ -37,7 +37,7 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
 import kotlinx.coroutines.delay
 
-private const val POINT_RECEIPT_VISIBLE_MILLIS = 5_000L
+private const val POINT_RECEIPT_VISIBLE_MILLIS = 2_000L
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante identificação,
@@ -131,10 +131,8 @@ private fun FastPointReceiptOverlay(
         }
 
         // O comprovante nunca depende do último faceCount para sair da tela.
-        // O monitor facial pode manter uma amostra antiga quando a análise da
-        // câmera muda de estado; esperar indefinidamente por faceCount == 0
-        // deixava este overlay preso até reiniciar a aplicação. O cooldown de
-        // mesma pessoa no ViewModel continua protegendo contra registro duplicado.
+        // Dois segundos são suficientes para confirmar visualmente o registro
+        // sem interromper desnecessariamente a fila do Ponto.
         delay(POINT_RECEIPT_VISIBLE_MILLIS)
         viewModel.concluirComprovante()
     }
