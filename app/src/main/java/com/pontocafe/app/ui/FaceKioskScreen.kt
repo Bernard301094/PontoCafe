@@ -32,8 +32,8 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -57,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.pontocafe.app.PontoCafeViewModel
@@ -344,7 +343,6 @@ fun FaceKioskScreen(
         KioskTopBar(
             offline = state.modoOffline,
             pendingEvents = state.eventosPendentes,
-            totalBiometrics = state.totalBiometrias,
             hasAdminSession = hasAdminSession,
             hasSupervisorSession = hasSupervisorSession,
             onAdmin = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN },
@@ -373,13 +371,13 @@ fun FaceKioskScreen(
             !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
             state.sincronizandoBiometrias -> "Sincronizando o catálogo facial deste dispositivo."
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
-            state.carregando -> "Aguarde um instante enquanto validamos seu rosto."
+            state.carregando -> "Aguarde um instante."
             multipleFacesVisible -> "Deixe somente uma pessoa visível na câmera."
             noFaceVisible -> "Centralize o rosto dentro do guia."
-            challengeCompleted -> "Mantenha o rosto reto por um instante. A captura é automática."
-            challengeAdjustedForEyes -> "O piscar não ficou nítido. Siga o movimento de cabeça indicado; ele funciona melhor com reflexos ou óculos."
-            state.modoOffline -> "O registro será protegido no aparelho e sincronizado quando a conexão voltar."
-            else -> "Siga a instrução e mantenha cerca de 40 cm de distância."
+            challengeCompleted -> "Mantenha o rosto reto por um instante."
+            challengeAdjustedForEyes -> "Siga o movimento de cabeça indicado."
+            state.modoOffline -> "O registro ficará protegido neste aparelho até a conexão voltar."
+            else -> "Siga a instrução mostrada acima."
         }
 
         KioskInstructionSheet(
@@ -410,7 +408,6 @@ fun FaceKioskScreen(
 private fun KioskTopBar(
     offline: Boolean,
     pendingEvents: Int,
-    totalBiometrics: Int,
     hasAdminSession: Boolean,
     hasSupervisorSession: Boolean,
     onAdmin: () -> Unit,
@@ -422,65 +419,61 @@ private fun KioskTopBar(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         color = Color(0xE8161B19),
         contentColor = Color.White,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Surface(
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(32.dp),
                 shape = CircleShape,
                 color = if (offline) Color(0xFFFFC867).copy(alpha = 0.14f) else Color(0xFF72DCBC).copy(alpha = 0.14f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
-                        contentDescription = null,
+                        contentDescription = if (offline) "Offline" else "Online",
                         tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
-                        modifier = Modifier.size(19.dp),
+                        modifier = Modifier.size(17.dp),
                     )
                 }
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     "Ponto Café",
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                 )
-                val faceCountLabel = if (totalBiometrics == 1) "1 rosto pronto" else "$totalBiometrics rostos prontos"
                 Text(
-                    if (offline) "Offline · $pendingEvents pendente(s)" else "Online · $faceCountLabel",
-                    color = Color.White.copy(alpha = 0.66f),
+                    if (offline) "Offline · $pendingEvents pendente(s)" else "Pronto para registrar",
+                    color = Color.White.copy(alpha = 0.64f),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
+
             if (hasAdminSession) {
-                FilledTonalButton(onClick = onAdmin) {
-                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Text("Admin", modifier = Modifier.padding(start = 5.dp))
+                IconButton(onClick = onAdmin, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.AdminPanelSettings, contentDescription = "Abrir Administrador", modifier = Modifier.size(20.dp))
                 }
             }
             if (hasSupervisorSession) {
-                FilledTonalButton(onClick = onSupervisor) {
-                    Icon(Icons.Default.SupervisorAccount, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Text("Supervisor", modifier = Modifier.padding(start = 5.dp))
+                IconButton(onClick = onSupervisor, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.SupervisorAccount, contentDescription = "Abrir Supervisor", modifier = Modifier.size(20.dp))
                 }
             }
             if (!hasAdminSession && !hasSupervisorSession) {
-                FilledTonalButton(onClick = onAccess) {
-                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Text("Acesso", modifier = Modifier.padding(start = 5.dp))
+                IconButton(onClick = onAccess, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Lock, contentDescription = "Acesso restrito", modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -521,40 +514,42 @@ private fun KioskInstructionSheet(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         color = Color(0xF5161B19),
         contentColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Surface(
-                modifier = Modifier.size(42.dp),
+                modifier = Modifier.size(36.dp),
                 shape = CircleShape,
                 color = accent.copy(alpha = 0.12f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Face, contentDescription = null, tint = accent, modifier = Modifier.size(21.dp))
+                    Icon(Icons.Default.Face, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
                 }
             }
             Text(
                 title,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 color = accent,
             )
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = Color.White.copy(alpha = 0.70f),
-            )
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = Color.White.copy(alpha = 0.70f),
+                )
+            }
 
             if (updateRequired) {
                 StatusPill("Atualização obrigatória · ${latestVersion ?: "nova versão"}", PontoCafeTone.DANGER)
@@ -581,7 +576,7 @@ private fun KioskInstructionSheet(
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
