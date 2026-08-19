@@ -22,9 +22,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -176,7 +174,7 @@ fun AdminPanelScreen(
     val filteredItems = remember(operationItems, pauseFilter, livePauses) { filterOperationalPauseItems(operationItems, pauseFilter, System.currentTimeMillis()) }
 
     val sortedHistory = historyPauses.sortedByDescending { it.inicioLocal }
-    val visibleHistory = if (showAllHistory) sortedHistory else sortedHistory.take(5)
+    val visibleHistory = if (showAllHistory) sortedHistory else sortedHistory.take(3)
     val historyOverLimit = historyPauses.count { pause ->
         val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
         pause.excedeuLimite ?: (duration > pause.limiteSegundos)
@@ -201,21 +199,17 @@ fun AdminPanelScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = responsive.pagePadding),
-                contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = 104.dp),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                contentPadding = PaddingValues(top = PontoCafeSpacing.md, bottom = 104.dp),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PontoCafeScreenHeader(title = "Visão geral", eyebrow = "Administrador")
-                        PcSecondaryButton("Voltar ao Ponto", onClose, if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier)
-                    }
-                }
-                item("account") {
-                    PcAccountSummaryCard(
+                    PcAreaTopBar(
+                        title = "Visão geral",
+                        eyebrow = "Administrador",
                         account = activeAccount,
                         fallbackName = adminDisplayName,
-                        profileLabel = "Administrador",
-                        onClick = { showAccountSheet = true },
+                        onProfileClick = { showAccountSheet = true },
+                        onBackToPonto = onClose,
                     )
                 }
                 item("feedback") { AdminFeedback(viewModel) }
@@ -227,7 +221,7 @@ fun AdminPanelScreen(
                         tone = if (online) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
                     )
                 }
-                item("metrics-title") { SectionTitle("Operação", "Indicadores principais do Ponto Café neste momento.") }
+                item("metrics-title") { SectionTitle("Agora", "Indicadores essenciais do Ponto Café.") }
                 item("metrics") {
                     if (compactDashboard) {
                         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
@@ -249,7 +243,7 @@ fun AdminPanelScreen(
                         }
                     }
                 }
-                item("live-title") { SectionTitle("Pessoas no café agora", "O mesmo painel operacional do Supervisor, com prioridade automática por risco.") }
+                item("live-title") { SectionTitle("Centro de atenção", "Excedidos e pausas próximas do limite aparecem primeiro.") }
                 item("live-overview") { OperationalPauseOverview(livePauses, operationItems, pauseFilter, { pauseFilter = it }) }
                 if (filteredItems.isEmpty()) {
                     item("live-empty-${pauseFilter.name}") {
@@ -260,8 +254,8 @@ fun AdminPanelScreen(
                                 OperationalPauseFilter.EXCEDIDOS -> "Nenhuma pausa excedida"
                             },
                             supportingText = when (pauseFilter) {
-                                OperationalPauseFilter.TODOS -> if (livePausesLoaded) "As novas saídas aparecerão automaticamente a cada atualização." else "Consultando o painel operacional com a sessão administrativa."
-                                OperationalPauseFilter.ATENCAO -> "Aqui aparecem pessoas com até 2 minutos restantes antes do limite."
+                                OperationalPauseFilter.TODOS -> if (livePausesLoaded) "As novas saídas aparecerão automaticamente." else "Consultando o painel operacional."
+                                OperationalPauseFilter.ATENCAO -> "Aqui aparecem pessoas com até 2 minutos restantes."
                                 OperationalPauseFilter.EXCEDIDOS -> "Os casos acima do limite aparecerão aqui automaticamente."
                             },
                             icon = Icons.Default.Coffee,
@@ -318,10 +312,10 @@ fun AdminPanelScreen(
                             onClick = { selectedHistoryPause = pause },
                         )
                     }
-                    if (historyPauses.size > 5) {
+                    if (historyPauses.size > 3) {
                         item("history-toggle") {
                             PcSecondaryButton(
-                                text = if (showAllHistory) "Mostrar menos" else "Ver todos os ${historyPauses.size} registros",
+                                text = if (showAllHistory) "Mostrar somente os mais recentes" else "Ver histórico completo · ${historyPauses.size}",
                                 onClick = { showAllHistory = !showAllHistory },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -334,12 +328,12 @@ fun AdminPanelScreen(
                         ThinProgressSummary(registeredFaces, collaborators, "Reconhecimento facial", "$registeredFaces de $collaborators colaboradores com rosto cadastrado")
                     }
                 }
-                if (pendingFaces > 0 || devicesWithoutPin > 0 || activeSupervisors == 0) item("pending-title") { SectionTitle("Pendências", "Ações que exigem configuração ou acompanhamento.") }
+                if (pendingFaces > 0 || devicesWithoutPin > 0 || activeSupervisors == 0) item("pending-title") { SectionTitle("Pendências", "Somente o que exige configuração ou acompanhamento.") }
                 if (pendingFaces > 0) {
                     item("pending-faces") { OperationalAlertCard("$pendingFaces rosto(s) aguardando cadastro", "Esses colaboradores ainda não conseguem utilizar reconhecimento facial.", "Abrir Pessoas", viewModel::abrirColaboradores, PontoCafeTone.WARNING) }
                 }
                 if (devicesWithoutPin > 0) {
-                    item("devices-without-pin") { OperationalAlertCard("$devicesWithoutPin dispositivo(s) sem PIN próprio", "Defina um PIN individual para cada ponto e reduza dependência do código legado.", "Gerenciar dispositivos", onDevicesClick, PontoCafeTone.WARNING) }
+                    item("devices-without-pin") { OperationalAlertCard("$devicesWithoutPin dispositivo(s) sem PIN próprio", "Defina um PIN individual para cada ponto.", "Gerenciar dispositivos", onDevicesClick, PontoCafeTone.WARNING) }
                 }
                 if (activeSupervisors == 0) {
                     item("no-supervisor") { OperationalAlertCard("Nenhum Supervisor ativo", "Cadastre uma conta de Supervisor para acompanhamento e autorizações.", "Cadastrar Supervisor", viewModel::abrirNovaConta, PontoCafeTone.INFO) }
@@ -360,33 +354,6 @@ fun AdminPanelScreen(
                         }
                     }
                 }
-                item("supervisor-test-title") { SectionTitle("Teste visual do Supervisor", "Simule uma batida de ponto sem criar registros reais.") }
-                item("supervisor-test") {
-                    PcSectionSurface {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcStateBanner(
-                                title = if (testPause == null) "Nenhum teste ativo" else "TESTE ativo no painel operacional",
-                                supportingText = if (testPause == null) "A simulação existe somente neste aparelho e desaparece ao reiniciar a app." else "${testPause?.adminName ?: adminDisplayName} aparece acima com exatamente o mesmo cartão de uma pausa real.",
-                                tone = if (testPause == null) PontoCafeTone.NEUTRAL else PontoCafeTone.INFO,
-                            )
-                            Text("O teste não altera pausas reais, métricas, histórico, fila offline, banco de dados ou auditoria.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (testPause == null) {
-                                PcPrimaryButton("Iniciar teste de ponto", { AdminTestPauseStore.start(adminDisplayName) }, Modifier.fillMaxWidth(), icon = Icons.Default.Science)
-                            } else {
-                                PcSecondaryButton("Encerrar teste", AdminTestPauseStore::stop, Modifier.fillMaxWidth(), icon = Icons.Default.StopCircle)
-                            }
-                        }
-                    }
-                }
-                item("access-context") {
-                    PcSectionSurface {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            Text("Equipe de acesso", style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                            Text("$activeSupervisors Supervisor(es) ativo(s) · ${state.usuarios.count { it.ativo }} conta(s) ativa(s)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                item("logout") { PcSecondaryButton("Encerrar sessão administrativa", viewModel::logout, Modifier.fillMaxWidth()) }
             }
             PcScrollToTopFab(listState, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md))
         }
