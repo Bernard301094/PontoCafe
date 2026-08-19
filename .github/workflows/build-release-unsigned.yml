@@ -1,21 +1,24 @@
 name: Build PontoCafe Release Unsigned
 
 on:
-  push:
-    branches:
-      - agent/backend-api-v2-review
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: pontocafe-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release:
-    name: Build aligned unsigned Release
+    name: Test and build Android release
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout release source
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -40,13 +43,17 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Validate release identity
+      - name: Resolve release identity
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          grep -q 'versionName = "0.10.0"' app/build.gradle.kts
-          grep -q 'versionCode = 22' app/build.gradle.kts
+          VERSION_NAME="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION_NAME"
+          test -n "$VERSION_CODE"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
+          echo "Building PontoCafe $VERSION_NAME ($VERSION_CODE)"
 
       - name: Prepare exact FaceNet model
         shell: bash
@@ -57,9 +64,9 @@ jobs:
             -o app/src/main/assets/facenet.tflite
           test "$(git hash-object app/src/main/assets/facenet.tflite)" = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
 
-      - name: Build Release
+      - name: Unit tests and Release build
         shell: bash
-        run: gradle --no-daemon --stacktrace :app:assembleRelease
+        run: gradle --no-daemon --stacktrace :app:testReleaseUnitTest :app:assembleRelease
 
       - name: Verify FaceNet inside APK
         shell: bash
@@ -72,8 +79,7 @@ jobs:
         shell: bash
         run: |
           INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
-          OUTPUT="PontoCafe-0.10.0-${SHORT_SHA}-aligned-unsigned.apk"
-          test -f "$INPUT"
+          OUTPUT="PontoCafe-${VERSION_NAME}-${SHORT_SHA}-aligned-unsigned.apk"
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$INPUT" "$OUTPUT"
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$OUTPUT"
           sha256sum "$OUTPUT"
@@ -81,7 +87,7 @@ jobs:
       - name: Upload aligned unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: PontoCafe-0.10.0-${{ github.sha }}-aligned-unsigned
-          path: PontoCafe-0.10.0-*-aligned-unsigned.apk
+          name: PontoCafe-${{ env.VERSION_NAME }}-${{ env.SHORT_SHA }}-aligned-unsigned
+          path: PontoCafe-*-aligned-unsigned.apk
           retention-days: 7
           if-no-files-found: error
