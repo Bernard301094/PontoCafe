@@ -213,7 +213,32 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
     suspend fun health(): SystemHealthResponse = api.health()
     suspend fun appStatus(): AppStatusResponse = api.appStatus()
-    suspend fun sincronizarCatalogo(modelo: String, versaoModelo: String, versaoAtual: String? = null): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
+
+    suspend fun sincronizarCatalogo(
+        modelo: String,
+        versaoModelo: String,
+        versaoAtual: String? = null,
+    ): FaceCatalogResponse {
+        val response = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
+        if (!response.atualizado || response.templates.isEmpty()) return response
+
+        // O catálogo de avatar só contém IDs + URLs assinadas; nenhum byte de
+        // imagem é misturado ao catálogo biométrico. Se esta consulta auxiliar
+        // falhar, o reconhecimento facial continua funcionando normalmente.
+        val avatars = runCatching { avatarCatalog() }.getOrDefault(emptyMap())
+        if (avatars.isEmpty()) return response
+
+        return response.copy(
+            templates = response.templates.map { template ->
+                template.copy(
+                    colaborador = template.colaborador.copy(
+                        avatarUrl = avatars[template.colaborador.id],
+                    ),
+                )
+            },
+        )
+    }
+
     suspend fun confirmarIdentidadeLocal(colaboradorId: String, embedding: FloatArray, modelo: String, versaoModelo: String): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo))
     suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse = api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
