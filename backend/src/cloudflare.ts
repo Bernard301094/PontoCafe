@@ -1,6 +1,9 @@
+import type { AvatarBucket } from './avatar-storage.js'
+
 type WorkerEnv = {
   HYPERDRIVE?: { connectionString: string }
   CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string }
+  AVATARS?: AvatarBucket
   BETTER_AUTH_SECRET?: string
   CODE_PEPPER?: string
   BIOMETRIC_MASTER_KEY?: string
@@ -60,7 +63,7 @@ const textBindingNames = [
 ] as const satisfies ReadonlyArray<keyof WorkerEnv>
 
 function safeBindingDiagnostics(env: WorkerEnv) {
-  const known = ['HYPERDRIVE', 'CF_VERSION_METADATA', ...textBindingNames] as const
+  const known = ['HYPERDRIVE', 'AVATARS', 'CF_VERSION_METADATA', ...textBindingNames] as const
 
   return {
     nomes: Object.keys(env).sort(),
