@@ -20,7 +20,19 @@ interface FaceEmbeddingEngine {
      */
     suspend fun warmUp() = Unit
 
+    /**
+     * Embedding canônico usado no cadastro biométrico e mantido compatível com
+     * todas as biometrias já existentes.
+     */
     suspend fun embed(frame: FaceFrame): FloatArray
+
+    /**
+     * Embeddings candidatos para identificação no Ponto a partir de uma única
+     * captura. A primeira posição DEVE ser exatamente o embedding canônico de
+     * [embed]. Implementações podem acrescentar recortes alternativos do mesmo
+     * frame para aumentar robustez sem pedir novas fotos nem alterar limiares.
+     */
+    suspend fun embedForIdentification(frame: FaceFrame): List<FloatArray> = listOf(embed(frame))
 }
 
 class FaceModelUnavailableException : IllegalStateException(
