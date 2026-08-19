@@ -95,45 +95,64 @@ fun OperationalPauseOverview(
     }
     val testActive = items.any { it.isTest }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-    ) {
-        PcStateBanner(
-            title = when {
-                realOverdue > 0 -> "$realOverdue pausa(s) acima do limite"
-                realAttention > 0 -> "$realAttention pausa(s) próximas do limite"
-                realPauses.isNotEmpty() -> "${realPauses.size} pessoa(s) no café agora"
-                testActive -> "Nenhuma pausa real · TESTE ativo"
-                else -> "Nenhuma pausa aberta"
-            },
-            supportingText = buildString {
-                append("${realPauses.size} real")
-                append(" · $realAttention em atenção")
-                append(" · $realOverdue excedida(s)")
-                if (testActive) append(" · 1 TESTE visual")
-            },
-            tone = when {
-                realOverdue > 0 -> PontoCafeTone.DANGER
-                realAttention > 0 -> PontoCafeTone.WARNING
-                realPauses.isNotEmpty() -> PontoCafeTone.SUCCESS
-                testActive -> PontoCafeTone.INFO
-                else -> PontoCafeTone.NEUTRAL
-            },
-        )
-
-        Row(
+    PcSectionSurface(modifier) {
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            OperationalPauseFilter.entries.forEach { option ->
-                val count = filterOperationalPauseItems(items, option, now).size
-                FilterChip(
-                    selected = filter == option,
-                    onClick = { onFilterChange(option) },
-                    label = { Text("${option.label} $count") },
-                    modifier = Modifier.weight(1f),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = when {
+                            realOverdue > 0 -> "$realOverdue exige(m) atenção agora"
+                            realAttention > 0 -> "$realAttention próximo(s) do limite"
+                            realPauses.isNotEmpty() -> "Operação sob controle"
+                            testActive -> "TESTE visual ativo"
+                            else -> "Nenhuma pausa aberta"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "${realPauses.size} em pausa · $realAttention atenção · $realOverdue excedida(s)" +
+                            if (testActive) " · TESTE" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                StatusPill(
+                    text = when {
+                        realOverdue > 0 -> "URGENTE"
+                        realAttention > 0 -> "ATENÇÃO"
+                        realPauses.isNotEmpty() -> "OK"
+                        else -> "LIVRE"
+                    },
+                    tone = when {
+                        realOverdue > 0 -> PontoCafeTone.DANGER
+                        realAttention > 0 -> PontoCafeTone.WARNING
+                        realPauses.isNotEmpty() -> PontoCafeTone.SUCCESS
+                        else -> PontoCafeTone.NEUTRAL
+                    },
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                OperationalPauseFilter.entries.forEach { option ->
+                    val count = filterOperationalPauseItems(items, option, now).size
+                    FilterChip(
+                        selected = filter == option,
+                        onClick = { onFilterChange(option) },
+                        label = { Text("${option.label} $count") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
