@@ -2,7 +2,9 @@ package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
@@ -253,6 +255,10 @@ interface AdminApi {
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}")
     suspend fun updateCollaborator(@Path("id") id: String, @Body body: UpdateCollaboratorRequest): Colaborador
+    @PUT("gestao/colaboradores/{id}/avatar")
+    suspend fun uploadAvatar(@Path("id") id: String, @Body body: okhttp3.RequestBody): AvatarMutationResponse
+    @POST("gestao/colaboradores/{id}/avatar/excluir")
+    suspend fun deleteAvatar(@Path("id") id: String): AvatarMutationResponse
     @PUT("gestao/colaboradores/{id}/biometria")
     suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
 
@@ -410,6 +416,19 @@ class AdminRepository(
         )
         collaboratorsCache = null
         return updated
+    }
+
+    suspend fun uploadAvatar(collaboratorId: String, webp: ByteArray): AvatarMutationResponse {
+        require(webp.isNotEmpty()) { "Avatar vazio." }
+        val result = api.uploadAvatar(collaboratorId, webp.toRequestBody("image/webp".toMediaType()))
+        collaboratorsCache = null
+        return result
+    }
+
+    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse {
+        val result = api.deleteAvatar(collaboratorId)
+        collaboratorsCache = null
+        return result
     }
 
     suspend fun saveBiometric(
