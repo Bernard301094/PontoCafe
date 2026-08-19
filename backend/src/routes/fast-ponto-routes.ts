@@ -65,10 +65,6 @@ function fastMargin(): number {
   return Math.max(config.faceIdentificationMargin + 0.02, config.faceIdentificationMargin * 1.5)
 }
 
-function periodoLabel(periodo: 'MANHA' | 'TARDE'): string {
-  return periodo === 'MANHA' ? 'manhã' : 'tarde'
-}
-
 export const fastPontoRoutes = new Hono<AppEnv>()
 fastPontoRoutes.use('*', requireDevice)
 
@@ -79,8 +75,8 @@ fastPontoRoutes.use('*', requireDevice)
  * - o cliente nunca informa o score confiável: o servidor recalcula tudo;
  * - todos os colaboradores compatíveis competem entre si no servidor;
  * - o fast-path exige limiar e margem MAIS estritos que o fluxo normal;
- * - qualquer caso não inequívoco volta como INTERACAO_NECESSARIA e o APK usa
- *   o fluxo legado completo, sem reduzir as proteções existentes;
+ * - casos não inequívocos, repetidos ou fora do horário seguem para a
+ *   confirmação biométrica autoritativa, sem tela manual e sem código;
  * - início/retorno e consumo da verificação acontecem na mesma transação.
  */
 fastPontoRoutes.post('/registro-rapido', async (c) => {
@@ -131,7 +127,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
     return c.json({
       status: 'INTERACAO_NECESSARIA',
       motivo: 'IDENTIDADE_NAO_INEQUIVOCA',
-      mensagem: 'Confirme sua identidade na tela para continuar.',
+      mensagem: 'A validação reforçada não foi conclusiva. Continuando pela verificação biométrica segura.',
     })
   }
 
@@ -140,7 +136,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
     return c.json({
       status: 'INTERACAO_NECESSARIA',
       motivo: 'CONFIANCA_REFORCADA_NAO_ATINGIDA',
-      mensagem: 'Confirme sua identidade na tela para continuar.',
+      mensagem: 'A validação reforçada não foi conclusiva. Continuando pela verificação biométrica segura.',
       score: Number(best.score.toFixed(4)),
     })
   }
@@ -238,46 +234,22 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [config.appTimezone],
     )
 
-    let periodo: 'MANHA' | 'TARDE'
-    let limiteSegundos: number
-    let foraHorario = false
-    let authorizationId: string | null = null
-
-    if (activeRule.rows[0]) {
-      periodo = activeRule.rows[0].periodo
-      limiteSegundos = activeRule.rows[0].limite_segundos
-    } else {
-      foraHorario = true
-      const authorization = await client.query<{
-        id: string
-        periodo: 'MANHA' | 'TARDE'
-        limite_segundos: number
-      }>(
-        `select a.id,a.periodo,r.limite_segundos
-           from autorizacoes a
-           join regras_cafe r on r.periodo=a.periodo and r.ativo=true
-          where a.colaborador_id=$1
-            and a.usado_em is null
-            and a.cancelada_em is null
-            and a.expira_em>now()
-          order by a.criado_em desc
-          limit 1 for update`,
-        [best.colaborador_id],
-      )
-      const release = authorization.rows[0]
-      if (!release) {
-        return {
-          status: 'INTERACAO_NECESSARIA' as const,
-          motivo: 'FORA_HORARIO_NAO_LIBERADO',
-          mensagem: 'Você está fora do horário permitido. Procure o Supervisor.',
-          score: Number(best.score.toFixed(4)),
-          colaborador: collaborator,
-        }
+    const rule = activeRule.rows[0]
+    if (!rule) {
+      // Não existe mais liberação por código no Ponto. O fluxo completo decide
+      // qual período está mais próximo e devolve o bloqueio correto (inclusive
+      // "pausa já utilizada" quando aplicável).
+      return {
+        status: 'INTERACAO_NECESSARIA' as const,
+        motivo: 'FORA_HORARIO',
+        mensagem: 'Fora do horário permitido. Verificando o estado da pausa.',
+        score: Number(best.score.toFixed(4)),
+        colaborador: collaborator,
       }
-      periodo = release.periodo
-      limiteSegundos = release.limite_segundos
-      authorizationId = release.id
     }
+
+    const periodo = rule.periodo
+    const limiteSegundos = rule.limite_segundos
 
     const alreadyUsed = await client.query<{ id: string }>(
       `select id from pausas_cafe
@@ -287,26 +259,12 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [best.colaborador_id, periodo, config.appTimezone],
     )
     if (alreadyUsed.rows[0]) {
-      const mensagem = `Pausa da ${periodoLabel(periodo)} já utilizada hoje. É permitida apenas uma pausa por período (manhã e tarde).`
-      await client.query(
-        `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
-         values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
-        [alreadyUsed.rows[0].id, JSON.stringify({
-          colaboradorId: best.colaborador_id,
-          colaboradorNome: best.nome,
-          dispositivoId: device.id,
-          dispositivoNome: device.nome,
-          periodo,
-          tentativaEm: new Date().toISOString(),
-          origem: 'ONLINE_FAST_PATH',
-          motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
-          score: Number(best.score.toFixed(4)),
-        })],
-      )
+      // O fluxo completo compõe a mensagem com saída, retorno e duração e grava
+      // uma única auditoria da tentativa repetida.
       return {
-        status: 'BLOQUEADO' as const,
+        status: 'INTERACAO_NECESSARIA' as const,
         motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
-        mensagem,
+        mensagem: 'Esta pausa já foi utilizada hoje. Verificando o registro existente.',
         score: Number(best.score.toFixed(4)),
         colaborador: collaborator,
       }
@@ -328,23 +286,17 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       ],
     )
 
-    if (authorizationId) {
-      await client.query('update autorizacoes set usado_em=now() where id=$1', [authorizationId])
-    }
-
     const pauseId = newId()
     const inserted = await client.query<{ inicio_em: string }>(
       `insert into pausas_cafe
          (id,colaborador_id,periodo,limite_segundos,fora_horario,autorizacao_id,dispositivo_inicio_id,verificacao_inicio_id)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)
+       values ($1,$2,$3,$4,false,null,$5,$6)
        returning inicio_em::text`,
       [
         pauseId,
         best.colaborador_id,
         periodo,
         limiteSegundos,
-        foraHorario,
-        authorizationId,
         device.id,
         verificationId,
       ],
@@ -360,7 +312,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       id: pauseId,
       periodo,
       limiteSegundos,
-      foraHorario,
+      foraHorario: false,
       inicioEm,
       inicioLocal: timeRow.inicio_local,
       retornoAteLocal: timeRow.retorno_local,
@@ -372,10 +324,6 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       inicio,
     }
   })
-
-  if (result.status === 'BLOQUEADO') {
-    return c.json({ erro: result.mensagem, motivo: result.motivo }, 409)
-  }
 
   return c.json(result)
 })
