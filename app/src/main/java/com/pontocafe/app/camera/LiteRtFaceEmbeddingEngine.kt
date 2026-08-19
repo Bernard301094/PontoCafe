@@ -51,8 +51,9 @@ class LiteRtFaceEmbeddingEngine(
         val source = frame.bitmap
         var cropped: Bitmap? = null
         try {
-            cropped = crop(source, canonicalRect(source, frame.faceBounds))
-            embedBitmap(cropped)
+            val currentCrop = crop(source, canonicalRect(source, frame.faceBounds))
+            cropped = currentCrop
+            embedBitmap(currentCrop)
         } finally {
             cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
             if (!source.isRecycled) source.recycle()
@@ -110,11 +111,12 @@ class LiteRtFaceEmbeddingEngine(
     private suspend fun embedRect(source: Bitmap, rect: Rect, required: Boolean): FloatArray? {
         var cropped: Bitmap? = null
         return try {
-            cropped = crop(source, rect)
+            val currentCrop = crop(source, rect)
+            cropped = currentCrop
             if (required) {
-                embedBitmap(cropped)
+                embedBitmap(currentCrop)
             } else {
-                runCatching { embedBitmap(cropped) }.getOrNull()
+                runCatching { embedBitmap(currentCrop) }.getOrNull()
             }
         } finally {
             cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
@@ -124,10 +126,11 @@ class LiteRtFaceEmbeddingEngine(
     private suspend fun embedBitmap(face: Bitmap): FloatArray {
         var resized: Bitmap? = null
         try {
-            resized = Bitmap.createScaledBitmap(face, INPUT_SIZE, INPUT_SIZE, true)
-            FaceImageQualityAnalyzer.requireAcceptable(resized)
+            val scaled = Bitmap.createScaledBitmap(face, INPUT_SIZE, INPUT_SIZE, true)
+            resized = scaled
+            FaceImageQualityAnalyzer.requireAcceptable(scaled)
 
-            val input = toStandardizedBuffer(resized)
+            val input = toStandardizedBuffer(scaled)
             val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
             val runtime = getInterpreter()
 
