@@ -109,57 +109,38 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
-                contentPadding = PaddingValues(start = responsive.pagePadding, end = responsive.pagePadding, top = PontoCafeSpacing.lg, bottom = 104.dp),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                contentPadding = PaddingValues(start = responsive.pagePadding, end = responsive.pagePadding, top = PontoCafeSpacing.md, bottom = 104.dp),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("header") {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PontoCafeScreenHeader(title = "Visão geral", eyebrow = "Supervisor")
-                        PcSecondaryButton(text = "Voltar ao Ponto", onClick = onClose, modifier = if (responsive.isCompact) Modifier.fillMaxWidth() else Modifier)
-                    }
-                }
-                item("account") {
-                    PcAccountSummaryCard(
+                    PcAreaTopBar(
+                        title = "Operação",
+                        eyebrow = accountProfileLabel,
                         account = activeAccount,
                         fallbackName = accountFallbackName,
-                        profileLabel = accountProfileLabel,
-                        onClick = { showAccountSheet = true },
-                    )
-                }
-                item("hero") {
-                    PcHeroCard(
-                        title = when {
-                            overdue > 0 -> "$overdue pausa(s) exigem atenção"
-                            state.pausasAtivas.isEmpty() -> "Operação sem pausas reais abertas"
-                            else -> "${state.pausasAtivas.size} pessoa(s) em pausa agora"
-                        },
-                        supportingText = when {
-                            overdue > 0 -> "Os casos acima do limite aparecem primeiro no painel operacional."
-                            state.pausasAtivas.isEmpty() -> "Quando alguém sair para o café, o registro aparecerá automaticamente aqui."
-                            else -> "A lista prioriza excedidos, depois quem está a menos de 2 minutos do limite."
-                        },
-                        icon = if (overdue > 0) Icons.Default.Timer else Icons.Default.Coffee,
-                        tone = if (overdue > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+                        onProfileClick = { showAccountSheet = true },
+                        onBackToPonto = onClose,
                     )
                 }
                 item("connection") { SupervisorConnectionBanner(state.conexaoAoVivoOk, state.ultimaAtualizacaoAoVivoEmMillis) }
                 alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
+                item("attention") {
+                    OperationalPauseOverview(
+                        realPauses = state.pausasAtivas,
+                        items = operationItems,
+                        filter = pauseFilter,
+                        onFilterChange = { pauseFilter = it },
+                    )
+                }
                 item("metrics") {
-                    if (responsive.isCompact) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
-                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
-                        }
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa agora", Icons.Default.Coffee, Modifier.weight(1f))
-                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
+                        PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
+                        if (!responsive.isCompact) {
                             PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.weight(1f), attention = pendingFaces.isNotEmpty())
                         }
                     }
                 }
-                item("active-title") { SectionTitle("Pessoas no café agora", "Painel compacto para acompanhar muitas pausas sem perder os casos prioritários.") }
-                item("active-overview") { OperationalPauseOverview(state.pausasAtivas, operationItems, pauseFilter, { pauseFilter = it }) }
                 if (filteredItems.isEmpty()) {
                     item("active-empty-${pauseFilter.name}") {
                         PcEmptyState(
@@ -181,11 +162,11 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         OperationalPauseCompactCard(item = item, onClick = { selectedPause = item })
                     }
                 }
-                item("actions-title") { SectionTitle("Ações rápidas", "Acesse as tarefas do Supervisor sem misturar acompanhamento com configuração.") }
+                item("actions-title") { SectionTitle("Ações rápidas", "Tarefas mais usadas durante a operação.") }
                 item("actions") {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         PcActionTile("Autorizar exceção", "Liberar uma pausa fora da janela normal", Icons.Default.Coffee, viewModel::abrirAutorizacao)
-                        PcActionTile("Histórico por data", "Escolher um dia no calendário e abrir cada registro", Icons.Default.CalendarMonth, { viewModel.abrirHistorico() })
+                        PcActionTile("Histórico por data", "Escolher um dia e abrir cada registro", Icons.Default.CalendarMonth, { viewModel.abrirHistorico() })
                         PcActionTile("Pessoas e biometria", "Cadastrar, atualizar ou excluir colaboradores e rostos", Icons.Default.PersonSearch, viewModel::abrirColaboradores)
                     }
                 }
@@ -198,9 +179,6 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     item("pending") { PcActionTile("${pendingFaces.size} biometria(s) pendente(s)", "Abra Pessoas para concluir os registros faciais.", Icons.Default.Face, viewModel::abrirColaboradores) }
                 }
                 item("refresh") { PcSecondaryButton(if (state.carregando) "Atualizando…" else "Atualizar agora", viewModel::atualizarAoVivo, Modifier.fillMaxWidth(), !state.carregando, Icons.Default.Refresh) }
-                if (!state.sessaoAdministrativa) {
-                    item("logout") { PcSecondaryButton("Encerrar sessão de Supervisor", viewModel::sair, Modifier.fillMaxWidth()) }
-                }
             }
             PcScrollToTopFab(listState, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md))
         }
@@ -222,7 +200,7 @@ private fun SupervisorConnectionBanner(connectionOk: Boolean, lastUpdateMillis: 
             seconds < 10 -> "Dados sincronizados"
             else -> "Última atualização há ${seconds}s"
         },
-        supportingText = if (connectionOk) "Pausas atualizadas a cada 5 segundos e último retorno a cada 10 segundos." else "Os últimos dados válidos permanecem na tela enquanto o sistema reconecta.",
+        supportingText = if (connectionOk) "Atualização automática ativa." else "Os últimos dados válidos permanecem visíveis enquanto o sistema reconecta.",
         tone = if (connectionOk) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
     )
 }
