@@ -18,7 +18,6 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@v4
         with:
-          ref: b71b531917d846a4e292a26ce0086df8766fea02
           fetch-depth: 1
 
       - name: Java 17
@@ -44,9 +43,10 @@ jobs:
       - name: Validate release identity
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "b71b531917d846a4e292a26ce0086df8766fea02"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           grep -q 'versionName = "0.10.0"' app/build.gradle.kts
           grep -q 'versionCode = 22' app/build.gradle.kts
+          echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
 
       - name: Prepare exact FaceNet model
         shell: bash
@@ -61,11 +61,18 @@ jobs:
         shell: bash
         run: gradle --no-daemon --stacktrace :app:assembleRelease
 
+      - name: Verify FaceNet inside APK
+        shell: bash
+        run: |
+          INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
+          test -f "$INPUT"
+          unzip -l "$INPUT" | grep -q 'assets/facenet.tflite'
+
       - name: Zipalign Release
         shell: bash
         run: |
           INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
-          OUTPUT='PontoCafe-0.10.0-b71b5319-aligned-unsigned.apk'
+          OUTPUT="PontoCafe-0.10.0-${SHORT_SHA}-aligned-unsigned.apk"
           test -f "$INPUT"
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$INPUT" "$OUTPUT"
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$OUTPUT"
@@ -74,7 +81,7 @@ jobs:
       - name: Upload aligned unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: PontoCafe-0.10.0-aligned-unsigned
-          path: PontoCafe-0.10.0-b71b5319-aligned-unsigned.apk
+          name: PontoCafe-0.10.0-${{ github.sha }}-aligned-unsigned
+          path: PontoCafe-0.10.0-*-aligned-unsigned.apk
           retention-days: 7
           if-no-files-found: error
