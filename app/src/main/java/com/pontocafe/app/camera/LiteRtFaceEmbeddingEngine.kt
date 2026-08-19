@@ -14,6 +14,7 @@ import org.tensorflow.lite.InterpreterApi.Options.TfLiteRuntime
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -40,52 +41,102 @@ class LiteRtFaceEmbeddingEngine(
         getInterpreter()
     }
 
+    /**
+     * Caminho canônico do cadastro biométrico. Este recorte permanece idêntico
+     * ao usado nas versões anteriores para manter compatibilidade integral com
+     * todos os embeddings já cadastrados.
+     */
     override suspend fun embed(frame: FaceFrame): FloatArray = withContext(Dispatchers.Default) {
-        if (!isReady) {
-            throw FaceModelUnavailableException()
+        validateFrame(frame)
+        val source = frame.bitmap
+        var cropped: Bitmap? = null
+        try {
+            cropped = crop(source, canonicalRect(source, frame.faceBounds))
+            embedBitmap(cropped)
+        } finally {
+            cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
+            if (!source.isRecycled) source.recycle()
+        }
+    }
+
+    /**
+     * Identificação adaptativa com uma única foto.
+     *
+     * O primeiro embedding é sempre o canônico. Os demais usam somente recortes
+     * alternativos do MESMO frame para reduzir a influência de cabelo, touca e
+     * pequenas variações do bounding-box. FaceNet, normalização, liveness,
+     * limiar e margem não são alterados.
+     */
+    override suspend fun embedForIdentification(frame: FaceFrame): List<FloatArray> =
+        withContext(Dispatchers.Default) {
+            validateFrame(frame)
+            val source = frame.bitmap
+            val candidates = ArrayList<FloatArray>(MAX_IDENTIFICATION_CANDIDATES)
+            val usedRects = LinkedHashSet<Rect>(MAX_IDENTIFICATION_CANDIDATES)
+
+            try {
+                val primaryRect = canonicalRect(source, frame.faceBounds)
+                usedRects += primaryRect
+                candidates += embedRect(source, primaryRect, required = true)
+
+                val tightRect = faceRect(
+                    bitmap = source,
+                    bounds = frame.faceBounds,
+                    horizontalMargin = 0.10f,
+                    topMargin = 0.02f,
+                    bottomMargin = 0.14f,
+                )
+                if (usedRects.add(tightRect)) {
+                    embedRect(source, tightRect, required = false)?.let(candidates::add)
+                }
+
+                landmarkAnchoredRect(source, frame)?.let { landmarkRect ->
+                    if (candidates.size < MAX_IDENTIFICATION_CANDIDATES && usedRects.add(landmarkRect)) {
+                        embedRect(source, landmarkRect, required = false)?.let(candidates::add)
+                    }
+                }
+
+                candidates
+            } finally {
+                if (!source.isRecycled) source.recycle()
+            }
         }
 
-        val source = frame.bitmap
-        check(!source.isRecycled) { "O frame facial já foi liberado." }
+    private fun validateFrame(frame: FaceFrame) {
+        if (!isReady) throw FaceModelUnavailableException()
+        check(!frame.bitmap.isRecycled) { "O frame facial já foi liberado." }
+    }
 
-        var face: Bitmap? = null
+    private suspend fun embedRect(source: Bitmap, rect: Rect, required: Boolean): FloatArray? {
+        var cropped: Bitmap? = null
+        return try {
+            cropped = crop(source, rect)
+            if (required) {
+                embedBitmap(cropped)
+            } else {
+                runCatching { embedBitmap(cropped) }.getOrNull()
+            }
+        } finally {
+            cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
+        }
+    }
+
+    private suspend fun embedBitmap(face: Bitmap): FloatArray {
         var resized: Bitmap? = null
         try {
-            // Mantemos exatamente o mesmo recorte/preprocessamento da versão
-            // anterior para que todas as biometrias já cadastradas continuem
-            // comparáveis. A robustez a touca/óculos é obtida por múltiplos
-            // templates da mesma identidade, não mudando o espaço FaceNet.
-            val cropped = cropFace(source, frame.faceBounds)
-            face = cropped
-            val scaled = Bitmap.createScaledBitmap(cropped, INPUT_SIZE, INPUT_SIZE, true)
-            resized = scaled
+            resized = Bitmap.createScaledBitmap(face, INPUT_SIZE, INPUT_SIZE, true)
+            FaceImageQualityAnalyzer.requireAcceptable(resized)
 
-            FaceImageQualityAnalyzer.requireAcceptable(scaled)
-            val input = toStandardizedBuffer(scaled)
+            val input = toStandardizedBuffer(resized)
             val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
             val runtime = getInterpreter()
 
             inferenceMutex.withLock {
                 runtime.run(input, output)
             }
-            l2Normalize(output[0])
+            return l2Normalize(output[0])
         } finally {
-            val scaled = resized
-            val cropped = face
-            if (
-                scaled != null &&
-                scaled !== cropped &&
-                scaled !== source &&
-                !scaled.isRecycled
-            ) {
-                scaled.recycle()
-            }
-            if (cropped != null && cropped !== source && !cropped.isRecycled) {
-                cropped.recycle()
-            }
-            if (!source.isRecycled) {
-                source.recycle()
-            }
+            resized?.takeIf { it !== face && !it.isRecycled }?.recycle()
         }
     }
 
@@ -116,16 +167,64 @@ class LiteRtFaceEmbeddingEngine(
         }
     }
 
-    private fun cropFace(bitmap: Bitmap, bounds: Rect): Bitmap {
-        val extraX = (bounds.width() * FACE_MARGIN).toInt()
-        val extraY = (bounds.height() * FACE_MARGIN).toInt()
+    private fun canonicalRect(bitmap: Bitmap, bounds: Rect): Rect = faceRect(
+        bitmap = bitmap,
+        bounds = bounds,
+        horizontalMargin = FACE_MARGIN,
+        topMargin = FACE_MARGIN,
+        bottomMargin = FACE_MARGIN,
+    )
+
+    private fun faceRect(
+        bitmap: Bitmap,
+        bounds: Rect,
+        horizontalMargin: Float,
+        topMargin: Float,
+        bottomMargin: Float,
+    ): Rect {
+        val extraX = (bounds.width() * horizontalMargin).toInt()
+        val extraTop = (bounds.height() * topMargin).toInt()
+        val extraBottom = (bounds.height() * bottomMargin).toInt()
         val left = max(0, bounds.left - extraX)
-        val top = max(0, bounds.top - extraY)
+        val top = max(0, bounds.top - extraTop)
         val right = min(bitmap.width, bounds.right + extraX)
-        val bottom = min(bitmap.height, bounds.bottom + extraY)
+        val bottom = min(bitmap.height, bounds.bottom + extraBottom)
         require(right > left && bottom > top) { "Área facial inválida." }
-        return Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+        return Rect(left, top, right, bottom)
     }
+
+    /**
+     * Recorte estável ancorado nos olhos. Ele evita que cabelo ou cobertura da
+     * cabeça desloquem excessivamente a região enviada ao FaceNet. Só é usado
+     * como fallback; o embedding canônico continua sendo a primeira tentativa.
+     */
+    private fun landmarkAnchoredRect(bitmap: Bitmap, frame: FaceFrame): Rect? {
+        val leftEye = frame.leftEye ?: return null
+        val rightEye = frame.rightEye ?: return null
+        val eyeDistance = hypot(
+            (rightEye.x - leftEye.x).toDouble(),
+            (rightEye.y - leftEye.y).toDouble(),
+        ).toFloat()
+        if (!eyeDistance.isFinite() || eyeDistance < 12f) return null
+
+        val centerX = (leftEye.x + rightEye.x) / 2f
+        val eyeY = (leftEye.y + rightEye.y) / 2f
+        val halfWidth = eyeDistance * 1.42f
+        val top = eyeY - eyeDistance * 0.92f
+        val bottom = eyeY + eyeDistance * 2.08f
+
+        val rect = Rect(
+            max(0, (centerX - halfWidth).toInt()),
+            max(0, top.toInt()),
+            min(bitmap.width, (centerX + halfWidth).toInt()),
+            min(bitmap.height, bottom.toInt()),
+        )
+        if (rect.width() < 32 || rect.height() < 32) return null
+        return rect
+    }
+
+    private fun crop(bitmap: Bitmap, rect: Rect): Bitmap =
+        Bitmap.createBitmap(bitmap, rect.left, rect.top, rect.width(), rect.height())
 
     private fun toStandardizedBuffer(bitmap: Bitmap): ByteBuffer {
         val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
@@ -177,5 +276,6 @@ class LiteRtFaceEmbeddingEngine(
         const val INPUT_SIZE = 160
         const val EMBEDDING_SIZE = 128
         const val FACE_MARGIN = 0.18f
+        private const val MAX_IDENTIFICATION_CANDIDATES = 3
     }
 }
