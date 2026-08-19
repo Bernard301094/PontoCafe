@@ -75,8 +75,9 @@ fastPontoRoutes.use('*', requireDevice)
  * - o cliente nunca informa o score confiável: o servidor recalcula tudo;
  * - todos os colaboradores compatíveis competem entre si no servidor;
  * - o fast-path exige limiar e margem MAIS estritos que o fluxo normal;
- * - casos não inequívocos, repetidos ou fora do horário seguem para a
- *   confirmação biométrica autoritativa, sem tela manual e sem código;
+ * - casos não inequívocos ou repetidos seguem para a confirmação biométrica
+ *   autoritativa, sem confirmação manual;
+ * - exceções fora do horário usam somente liberação prévia do Supervisor;
  * - início/retorno e consumo da verificação acontecem na mesma transação.
  */
 fastPontoRoutes.post('/registro-rapido', async (c) => {
@@ -150,8 +151,6 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
   }
 
   const result = await transaction(async (client) => {
-    // Serializa as decisões desta identidade para impedir corridas entre dois
-    // registros quase simultâneos do mesmo colaborador.
     const lockedCollaborator = await client.query<{ id: string }>(
       'select id from colaboradores where id=$1 and ativo=true for update',
       [best.colaborador_id],
@@ -234,22 +233,48 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [config.appTimezone],
     )
 
-    const rule = activeRule.rows[0]
-    if (!rule) {
-      // Não existe mais liberação por código no Ponto. O fluxo completo decide
-      // qual período está mais próximo e devolve o bloqueio correto (inclusive
-      // "pausa já utilizada" quando aplicável).
-      return {
-        status: 'INTERACAO_NECESSARIA' as const,
-        motivo: 'FORA_HORARIO',
-        mensagem: 'Fora do horário permitido. Verificando o estado da pausa.',
-        score: Number(best.score.toFixed(4)),
-        colaborador: collaborator,
-      }
-    }
+    let periodo: 'MANHA' | 'TARDE'
+    let limiteSegundos: number
+    let foraHorario = false
+    let authorizationId: string | null = null
 
-    const periodo = rule.periodo
-    const limiteSegundos = rule.limite_segundos
+    if (activeRule.rows[0]) {
+      periodo = activeRule.rows[0].periodo
+      limiteSegundos = activeRule.rows[0].limite_segundos
+    } else {
+      // O único mecanismo atual para exceção é a liberação prévia criada no
+      // perfil do Supervisor. O segredo interno legado nunca é solicitado no Ponto.
+      const authorization = await client.query<{
+        id: string
+        periodo: 'MANHA' | 'TARDE'
+        limite_segundos: number
+      }>(
+        `select a.id,a.periodo,r.limite_segundos
+           from autorizacoes a
+           join regras_cafe r on r.periodo=a.periodo and r.ativo=true
+          where a.colaborador_id=$1
+            and a.usado_em is null
+            and a.cancelada_em is null
+            and a.expira_em>now()
+          order by a.criado_em desc
+          limit 1 for update`,
+        [best.colaborador_id],
+      )
+      const release = authorization.rows[0]
+      if (!release) {
+        return {
+          status: 'INTERACAO_NECESSARIA' as const,
+          motivo: 'FORA_HORARIO',
+          mensagem: 'Fora do horário permitido. Verificando o estado da pausa.',
+          score: Number(best.score.toFixed(4)),
+          colaborador: collaborator,
+        }
+      }
+      periodo = release.periodo
+      limiteSegundos = release.limite_segundos
+      foraHorario = true
+      authorizationId = release.id
+    }
 
     const alreadyUsed = await client.query<{ id: string }>(
       `select id from pausas_cafe
@@ -259,8 +284,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       [best.colaborador_id, periodo, config.appTimezone],
     )
     if (alreadyUsed.rows[0]) {
-      // O fluxo completo compõe a mensagem com saída, retorno e duração e grava
-      // uma única auditoria da tentativa repetida.
+      // O fluxo completo devolve os horários/duração e grava a auditoria uma vez.
       return {
         status: 'INTERACAO_NECESSARIA' as const,
         motivo: 'PAUSA_PERIODO_JA_UTILIZADA',
@@ -286,17 +310,23 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       ],
     )
 
+    if (authorizationId) {
+      await client.query('update autorizacoes set usado_em=now() where id=$1', [authorizationId])
+    }
+
     const pauseId = newId()
     const inserted = await client.query<{ inicio_em: string }>(
       `insert into pausas_cafe
          (id,colaborador_id,periodo,limite_segundos,fora_horario,autorizacao_id,dispositivo_inicio_id,verificacao_inicio_id)
-       values ($1,$2,$3,$4,false,null,$5,$6)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)
        returning inicio_em::text`,
       [
         pauseId,
         best.colaborador_id,
         periodo,
         limiteSegundos,
+        foraHorario,
+        authorizationId,
         device.id,
         verificationId,
       ],
@@ -312,7 +342,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       id: pauseId,
       periodo,
       limiteSegundos,
-      foraHorario: false,
+      foraHorario,
       inicioEm,
       inicioLocal: timeRow.inicio_local,
       retornoAteLocal: timeRow.retorno_local,
