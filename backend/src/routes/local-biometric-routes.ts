@@ -246,11 +246,26 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
   const aberta = pausaAberta.rows[0]
   const regra = regraAtual.rows[0]
 
-  // Fora do horário não existe mais autorização por código no Ponto. Ainda assim,
-  // precisamos descobrir qual período a tentativa representa para responder
-  // "pausa já utilizada" em vez de abrir o fluxo legado. A regra ativa vence;
-  // fora dela usamos a janela de café mais próxima no relógio local.
-  const regraReferencia = !aberta && !regra
+  // O fluxo atual usa liberação prévia: o Supervisor seleciona a pessoa e o
+  // motivo no próprio perfil. Nenhum código é exibido ou digitado no Ponto.
+  const liberacao = !aberta && !regra
+    ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number; expira_em: string }>(
+        `select a.periodo,r.limite_segundos,a.expira_em::text
+         from autorizacoes a
+         join regras_cafe r on r.periodo=a.periodo and r.ativo=true
+         where a.colaborador_id=$1
+           and a.usado_em is null
+           and a.cancelada_em is null
+           and a.expira_em>now()
+         order by a.criado_em desc
+         limit 1`,
+        [stored.colaborador_id],
+      )).rows[0]
+    : undefined
+
+  // Sem janela ativa nem liberação, usamos a regra mais próxima apenas para
+  // identificar corretamente uma tentativa repetida (ex.: 17:04 -> TARDE).
+  const regraReferencia = !aberta && !regra && !liberacao
     ? (await query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number }>(
         `select periodo,limite_segundos
            from regras_cafe
@@ -266,9 +281,9 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
           limit 1`,
         [config.appTimezone],
       )).rows[0]
-    : regra
+    : undefined
 
-  const periodoPretendido = regra?.periodo ?? regraReferencia?.periodo
+  const periodoPretendido = regra?.periodo ?? liberacao?.periodo ?? regraReferencia?.periodo
   const pausaUtilizada = !aberta && periodoPretendido
     ? (await query<PausaUtilizadaRow>(
         `select p.id,p.periodo,
@@ -337,13 +352,16 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     })
   }
 
-  // Sem pausa aberta e fora de qualquer janela: bloqueio terminal. O Ponto não
-  // solicita mais código de Supervisor/Administrador.
-  if (!aberta && !regra) {
+  const foraHorarioSemPausaAberta = !aberta && !regra
+  const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
+
+  // Sem liberação prévia, o caso é terminal. Não existe mais tela para digitar
+  // código temporário no Ponto.
+  if (foraHorarioSemPausaAberta && !autorizadoForaHorario) {
     return c.json({
       reconhecido: true,
       motivo: 'FORA_HORARIO',
-      mensagem: 'Fora do horário permitido. Nenhum ponto foi registrado.',
+      mensagem: 'Fora do horário permitido. Solicite uma liberação prévia ao Supervisor.',
       score: Number(score.toFixed(4)),
       verificacaoToken,
       expiraEmSegundos: config.verificationTtlSeconds,
@@ -364,8 +382,8 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
 
   return c.json({
     reconhecido: true,
-    motivo: null,
-    mensagem: null,
+    motivo: autorizadoForaHorario ? 'AUTORIZACAO_PREVIA' : null,
+    mensagem: autorizadoForaHorario ? 'Pausa liberada previamente pelo Supervisor.' : null,
     score: Number(score.toFixed(4)),
     verificacaoToken,
     expiraEmSegundos: config.verificationTtlSeconds,
@@ -385,8 +403,8 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
       limiteSegundos: aberta.limite_segundos,
       tempoDecorridoSegundos: aberta.tempo_decorrido_segundos,
     } : null,
-    dentroHorario: Boolean(regra),
-    periodoAtual: aberta?.periodo ?? regra?.periodo ?? null,
-    limiteSegundos: aberta?.limite_segundos ?? regra?.limite_segundos ?? null,
+    dentroHorario: Boolean(regra) || autorizadoForaHorario,
+    periodoAtual: aberta?.periodo ?? regra?.periodo ?? liberacao?.periodo ?? null,
+    limiteSegundos: aberta?.limite_segundos ?? regra?.limite_segundos ?? liberacao?.limite_segundos ?? null,
   })
 })
