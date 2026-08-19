@@ -83,7 +83,11 @@ import kotlinx.coroutines.withContext
 private enum class PeopleViewFilterV4 { TEAM, PENDING_FACE, ACCESS }
 
 @Composable
-fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminReliabilityViewModel) {
+fun AdminPeopleScreenV4(
+    viewModel: AdminViewModel,
+    reliabilityViewModel: AdminReliabilityViewModel,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state = viewModel.state
@@ -91,6 +95,8 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
     val listState = rememberLazyListState()
     val adminSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "admin") }
     val avatarRepository = remember(adminSessionStore) { AdminApiClient.create(adminSessionStore) }
+    val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
+    val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
 
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(PeopleViewFilterV4.TEAM) }
@@ -106,6 +112,7 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
     var avatarBusyId by remember { mutableStateOf<String?>(null) }
     var avatarError by remember { mutableStateOf<String?>(null) }
     var avatarMessage by remember { mutableStateOf<String?>(null) }
+    var showAccountSheet by remember { mutableStateOf(false) }
 
     val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = avatarTarget
@@ -141,6 +148,19 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
             .onFailure { error ->
                 importPreview = CsvImportPreview(emptyList(), listOf(error.message ?: "Não foi possível ler o CSV."))
             }
+    }
+
+    if (showAccountSheet) {
+        PcAccountProfileSheet(
+            account = activeAccount,
+            fallbackName = adminDisplayName,
+            profileLabel = "Administrador",
+            onDismiss = { showAccountSheet = false },
+            onLogout = {
+                showAccountSheet = false
+                viewModel.logout()
+            },
+        )
     }
 
     editing?.let { collaborator ->
@@ -222,7 +242,16 @@ fun AdminPeopleScreenV4(viewModel: AdminViewModel, reliabilityViewModel: AdminRe
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            item("header") { PontoCafeScreenHeader(title = "Pessoas", eyebrow = "Equipe, biometria e acessos") }
+            item("header") {
+                PcAreaTopBar(
+                    title = "Pessoas",
+                    eyebrow = "Administrador",
+                    account = activeAccount,
+                    fallbackName = adminDisplayName,
+                    onProfileClick = { showAccountSheet = true },
+                    onBackToPonto = onClose,
+                )
+            }
             item("summary") { PeopleSummaryV4(allCollaborators.size, readyFaces, pendingFaces, state.usuarios.size) }
             item("feedback") {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
