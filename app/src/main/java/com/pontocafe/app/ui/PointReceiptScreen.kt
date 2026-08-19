@@ -16,7 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,32 +29,45 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
 import com.pontocafe.app.avatar.PontoAvatarRuntime
 import kotlinx.coroutines.delay
+import kotlin.math.ceil
 
-private const val RECEIPT_VISIBLE_SECONDS = 5
+private const val RECEIPT_NORMAL_MILLIS = 2_400L
+private const val RECEIPT_ATTENTION_MILLIS = 5_000L
+private const val RECEIPT_TICK_MILLIS = 100L
 
 @Composable
 fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
     val comprovante = viewModel.state.comprovante ?: return
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val withinLimit = !comprovante.excedeuLimite
+    val needsAttention = comprovante.pendenteSincronizacao || comprovante.excedeuLimite || comprovante.foraHorario
+    val totalVisibleMillis = if (needsAttention) RECEIPT_ATTENTION_MILLIS else RECEIPT_NORMAL_MILLIS
     val view = LocalView.current
     val avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl
-    var secondsLeft by remember(comprovante) { mutableIntStateOf(RECEIPT_VISIBLE_SECONDS) }
+    var remainingMillis by remember(comprovante) { mutableLongStateOf(totalVisibleMillis) }
 
     fun conclude() {
         PontoAvatarRuntime.clear()
         viewModel.concluirComprovante()
     }
 
-    LaunchedEffect(comprovante) {
+    LaunchedEffect(comprovante, totalVisibleMillis) {
         view.performHapticFeedback(
             if (withinLimit) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT,
         )
-        repeat(RECEIPT_VISIBLE_SECONDS) {
-            delay(1_000)
-            secondsLeft = (secondsLeft - 1).coerceAtLeast(0)
+        var elapsed = 0L
+        while (elapsed < totalVisibleMillis) {
+            val step = minOf(RECEIPT_TICK_MILLIS, totalVisibleMillis - elapsed)
+            delay(step)
+            elapsed += step
+            remainingMillis = (totalVisibleMillis - elapsed).coerceAtLeast(0L)
         }
         conclude()
+    }
+
+    val secondsLeft = ceil(remainingMillis / 1_000.0).toInt().coerceAtLeast(0)
+    val progress = if (totalVisibleMillis <= 0L) 0f else {
+        (remainingMillis.toFloat() / totalVisibleMillis.toFloat()).coerceIn(0f, 1f)
     }
 
     PontoCafeResponsivePage(maxContentWidth = 620.dp) { responsive ->
@@ -98,11 +111,13 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
                 text = when {
                     comprovante.pendenteSincronizacao -> "Salvo offline"
                     !start && comprovante.excedeuLimite -> "Registro confirmado · limite excedido"
+                    comprovante.foraHorario -> "Registro autorizado"
                     else -> "Registro confirmado"
                 },
                 tone = when {
                     comprovante.pendenteSincronizacao -> PontoCafeTone.INFO
                     !start && comprovante.excedeuLimite -> PontoCafeTone.WARNING
+                    comprovante.foraHorario -> PontoCafeTone.INFO
                     else -> PontoCafeTone.SUCCESS
                 },
                 modifier = Modifier.padding(top = PontoCafeSpacing.md),
@@ -168,13 +183,17 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
             }
 
             Text(
-                "Voltando para a câmera em ${secondsLeft}s",
+                if (needsAttention) {
+                    "Voltando para a câmera em ${secondsLeft}s · leia o aviso acima"
+                } else {
+                    "Registro concluído · voltando para a câmera"
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = PontoCafeSpacing.xl),
             )
             LinearProgressIndicator(
-                progress = { secondsLeft.toFloat() / RECEIPT_VISIBLE_SECONDS.toFloat() },
+                progress = { progress },
                 modifier = Modifier.fillMaxWidth().padding(top = PontoCafeSpacing.xs),
             )
 
