@@ -43,6 +43,12 @@ data class LocalFaceMatch(
     val segundoScore: Double?,
 )
 
+data class LocalFaceResolvedMatch(
+    val match: LocalFaceMatch,
+    val embedding: FloatArray,
+    val candidateIndex: Int,
+)
+
 class SecureFaceCatalogStore(context: Context) {
     private val prefs = context.getSharedPreferences("pontocafe_face_catalog_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_face_catalog_key"
@@ -127,7 +133,59 @@ object LocalFaceMatcher {
         val score: Double,
     )
 
+    /**
+     * Mantém o comportamento histórico para um único embedding.
+     */
     fun match(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
+        val result = evaluate(embedding, catalog) ?: return null
+        PontoAvatarRuntime.recognized(result.colaborador.avatarUrl)
+        return result
+    }
+
+    /**
+     * Identificação adaptativa sem baixar limiar nem margem.
+     *
+     * A tentativa canônica (índice 0) tem prioridade absoluta: quando ela passa,
+     * o comportamento é exatamente o mesmo das versões anteriores. Somente se
+     * ela falhar avaliamos os recortes alternativos da mesma captura. Cada um
+     * precisa passar, sozinho, pelo mesmo limiar e pela mesma margem entre
+     * pessoas. O embedding efetivamente vencedor é devolvido para que a API faça
+     * novamente a validação autoritativa com o mesmo vetor.
+     */
+    fun matchBest(
+        embeddings: List<FloatArray>,
+        catalog: CachedFaceCatalog,
+    ): LocalFaceResolvedMatch? {
+        if (embeddings.isEmpty()) return null
+
+        evaluate(embeddings[0], catalog)?.let { primary ->
+            PontoAvatarRuntime.recognized(primary.colaborador.avatarUrl)
+            return LocalFaceResolvedMatch(
+                match = primary,
+                embedding = embeddings[0],
+                candidateIndex = 0,
+            )
+        }
+
+        var bestFallback: LocalFaceResolvedMatch? = null
+        for (index in 1 until embeddings.size) {
+            val embedding = embeddings[index]
+            val match = evaluate(embedding, catalog) ?: continue
+            val current = bestFallback
+            if (current == null || match.score > current.match.score) {
+                bestFallback = LocalFaceResolvedMatch(
+                    match = match,
+                    embedding = embedding,
+                    candidateIndex = index,
+                )
+            }
+        }
+
+        bestFallback?.let { PontoAvatarRuntime.recognized(it.match.colaborador.avatarUrl) }
+        return bestFallback
+    }
+
+    private fun evaluate(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
         if (embedding.isEmpty() || catalog.templates.isEmpty()) return null
 
         var currentNormSquared = 0.0
@@ -138,11 +196,8 @@ object LocalFaceMatcher {
         if (currentNormSquared <= 0.0) return null
         val currentNorm = sqrt(currentNormSquared)
 
-        // Vários templates da mesma pessoa representam aparências diferentes
-        // (touca, óculos, sem acessórios, ângulos etc.). Eles não podem competir
-        // entre si como se fossem pessoas diferentes. Primeiro calculamos apenas
-        // o melhor score de cada colaborador. O norm do embedding atual também é
-        // calculado uma única vez, evitando repetir o mesmo trabalho para cada rosto.
+        // Templates da mesma pessoa não competem entre si pela margem. Primeiro
+        // obtemos o melhor score por colaborador e só então comparamos identidades.
         val bestByCollaborator = HashMap<String, BestTemplate>(catalog.templates.size.coerceAtMost(256))
         for (template in catalog.templates) {
             val stored = template.embedding
@@ -175,10 +230,6 @@ object LocalFaceMatcher {
         val secondScore = second?.score
         if (winner.score < catalog.limiar) return null
         if (secondScore != null && winner.score - secondScore < catalog.margem) return null
-
-        // O avatar é apenas um efeito visual do match já aprovado. Não participa
-        // do score, limiar, margem, liveness nem de qualquer decisão biométrica.
-        PontoAvatarRuntime.recognized(winner.template.colaborador.avatarUrl)
 
         return LocalFaceMatch(
             colaborador = winner.template.colaborador,
