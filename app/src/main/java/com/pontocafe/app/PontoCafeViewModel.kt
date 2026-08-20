@@ -479,6 +479,48 @@ class PontoCafeViewModel(
         embedding: FloatArray,
     ): IdentificarBiometriaResponse {
         val open = offlineStore.localOpenPause(colaborador.id)
+
+        // A disponibilidade diária é autoritativa e NÃO depende da hora atual.
+        // Se manhã e tarde já foram consumidas, nenhuma janela/horário pode
+        // mascarar esse estado como simples FORA_HORARIO.
+        if (open == null) {
+            val completedMorning = offlineStore.completedPauseToday(colaborador.id, "MANHA")
+            val completedAfternoon = offlineStore.completedPauseToday(colaborador.id, "TARDE")
+            if (completedMorning != null && completedAfternoon != null) {
+                // Preserva a auditoria offline quando houver regra em cache. A
+                // tentativa é associada à tarde apenas para reutilizar o mesmo
+                // mecanismo de fila; o bloqueio abaixo independe dessa gravação.
+                val auditRule = offlineStore.snapshot().regras.firstOrNull { it.periodo == "TARDE" }
+                    ?: offlineStore.snapshot().regras.firstOrNull { it.periodo == "MANHA" }
+                if (auditRule != null) {
+                    runCatching {
+                        offlineStore.queueOfflineStart(
+                            colaborador = colaborador,
+                            score = score,
+                            embedding = embedding,
+                            model = embeddingEngine.modelName,
+                            modelVersion = embeddingEngine.modelVersion,
+                            rule = auditRule,
+                        )
+                    }
+                }
+
+                return IdentificarBiometriaResponse(
+                    reconhecido = true,
+                    motivo = "PAUSAS_DO_DIA_JA_UTILIZADAS",
+                    mensagem = "Pausas de hoje já utilizadas (2/2). Manhã: ${completedMorning.inicioLocal}–${completedMorning.fimLocal} · Tarde: ${completedAfternoon.inicioLocal}–${completedAfternoon.fimLocal}. Não há mais pausa disponível para hoje.",
+                    score = score,
+                    verificacaoToken = OFFLINE_VERIFICATION_TOKEN,
+                    colaborador = colaborador,
+                    acaoSugerida = "BLOQUEADO",
+                    pausaAberta = null,
+                    dentroHorario = false,
+                    periodoAtual = null,
+                    limiteSegundos = null,
+                )
+            }
+        }
+
         val rule = offlineStore.currentRule()
         val completed = if (open == null && rule != null) {
             offlineStore.completedPauseToday(colaborador.id, rule.periodo)
