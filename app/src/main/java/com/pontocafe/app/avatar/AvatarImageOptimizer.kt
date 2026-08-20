@@ -15,8 +15,23 @@ object AvatarImageOptimizer {
     private const val FALLBACK_SIZE = 128
     const val MAX_BYTES = 28 * 1024
 
-    fun optimize(context: Context, uri: Uri): ByteArray {
-        val decoded = decode(context, uri)
+    fun optimize(context: Context, uri: Uri): ByteArray = optimizeDecoded(decode(context, uri))
+
+    /**
+     * Usa o mesmo pipeline da galeria para fotos tiradas diretamente pela câmera.
+     * Uma cópia software é criada para que o bitmap retornado pelo ActivityResult
+     * não seja reciclado ou alterado pelo otimizador.
+     */
+    fun optimize(bitmap: Bitmap): ByteArray {
+        require(!bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0) {
+            "A foto da câmera é inválida."
+        }
+        val decoded = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            ?: error("Não foi possível preparar a foto da câmera.")
+        return optimizeDecoded(decoded)
+    }
+
+    private fun optimizeDecoded(decoded: Bitmap): ByteArray {
         val square = centerCrop(decoded)
         if (square !== decoded) decoded.recycle()
 
