@@ -21,9 +21,15 @@ test('LiteRT oferece GPU gratuita mas mantém fallback CPU', () => {
   assert.match(gradle, /play-services-tflite-gpu:16\.5\.0/)
   assert.match(engine, /TfLiteGpu\.isGpuDelegateAvailable/)
   assert.match(engine, /setEnableGpuDelegateSupport\(true\)/)
-  assert.match(engine, /GpuDelegateFactory\(\)/)
+  assert.match(engine, /GpuDelegateFactory/)
   assert.match(engine, /createCpuInterpreter\(\)/)
   assert.match(engine, /switchToCpu/)
+})
+
+test('GPU preserva precisão e é configurada para uso repetido do Ponto', () => {
+  assert.match(engine, /setPrecisionLossAllowed\(false\)/)
+  assert.match(engine, /INFERENCE_PREFERENCE_SUSTAINED_SPEED/)
+  assert.match(engine, /GpuDelegateFactory\(delegateOptions\)/)
 })
 
 test('runtime escolhe CPU ou GPU medindo o FaceNet no próprio dispositivo', () => {
@@ -32,6 +38,7 @@ test('runtime escolhe CPU ou GPU medindo o FaceNet no próprio dispositivo', () 
   assert.match(engine, /val chooseGpu = gpuNs < cpuNs/)
   assert.match(engine, /rememberBackend\(Backend\.GPU\)/)
   assert.match(engine, /rememberBackend\(Backend\.CPU\)/)
+  assert.match(engine, /backend_\$\{MODEL_VERSION\}_v3/)
 })
 
 test('identificação adaptativa é progressiva e não calcula fallbacks sem necessidade', () => {
