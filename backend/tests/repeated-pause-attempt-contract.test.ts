@@ -8,6 +8,7 @@ const pontoRoutes = readFileSync(new URL('../src/routes/ponto-routes.ts', import
 const offlineRoutes = readFileSync(new URL('../src/routes/offline-routes.ts', import.meta.url), 'utf8')
 const offlineStore = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/data/SecurePontoOfflineStore.kt', import.meta.url), 'utf8')
 const viewModel = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/PontoCafeViewModel.kt', import.meta.url), 'utf8')
+const flowHost = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url), 'utf8')
 const kioskScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url), 'utf8')
 const auditScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminAuditScreen.kt', import.meta.url), 'utf8')
 
@@ -45,6 +46,21 @@ test('offline verifica manhã e tarde mesmo quando não existe janela ativa', ()
   assert.ok(currentRule > exhausted, 'o bloqueio 2/2 deve acontecer antes de depender da janela atual')
 })
 
+test('overlay do Ponto prioriza explicitamente o estado 2/2', () => {
+  assert.match(flowHost, /serverDayExhausted/)
+  assert.match(flowHost, /localDayExhausted/)
+  assert.match(flowHost, /PAUSAS_DO_DIA_JA_UTILIZADAS/)
+  assert.match(flowHost, /PAUSAS JÁ UTILIZADAS/)
+  assert.match(flowHost, /Pausas de hoje já utilizadas \(2\/2\)/)
+  assert.match(flowHost, /dailyExhausted = true/)
+  assert.match(flowHost, /USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L/)
+
+  const exhaustedOverlay = flowHost.indexOf('dayExhausted && identificacao != null')
+  const genericBlocked = flowHost.indexOf('identificacao?.acaoSugerida == "BLOQUEADO"')
+  assert.ok(exhaustedOverlay >= 0)
+  assert.ok(genericBlocked > exhaustedOverlay, 'overlay 2/2 deve vir antes do bloqueio genérico')
+})
+
 test('mantém proteção do mesmo período e auditoria em todos os caminhos', () => {
   assert.match(localBiometric, /PAUSA_PERIODO_JA_UTILIZADA/)
   assert.match(localBiometric, /TENTATIVA_PONTO_REPETIDA/)
@@ -58,6 +74,7 @@ test('kiosk mostra a mensagem operacional atual sem depender de tela legada', ()
   assert.match(kioskScreen, /error\?\.let \{ message/)
   assert.match(kioskScreen, /message/)
   assert.doesNotMatch(kioskScreen, /IdentityConfirmationScreen/)
+  assert.doesNotMatch(flowHost, /IdentityConfirmationScreen/)
 })
 
 test('auditoria administrativa continua identificando tentativa repetida', () => {
