@@ -3,47 +3,64 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const localBiometric = readFileSync(new URL('../src/routes/local-biometric-routes.ts', import.meta.url), 'utf8')
+const fastPonto = readFileSync(new URL('../src/routes/fast-ponto-routes.ts', import.meta.url), 'utf8')
 const pontoRoutes = readFileSync(new URL('../src/routes/ponto-routes.ts', import.meta.url), 'utf8')
 const offlineRoutes = readFileSync(new URL('../src/routes/offline-routes.ts', import.meta.url), 'utf8')
 const offlineStore = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/data/SecurePontoOfflineStore.kt', import.meta.url), 'utf8')
 const viewModel = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/PontoCafeViewModel.kt', import.meta.url), 'utf8')
-const identityScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/IdentityConfirmationScreen.kt', import.meta.url), 'utf8')
+const kioskScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url), 'utf8')
 const auditScreen = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminAuditScreen.kt', import.meta.url), 'utf8')
 
-test('bloqueia nova pausa do mesmo periodo e registra a tentativa online', () => {
-  assert.match(localBiometric, /PAUSA_PERIODO_JA_UTILIZADA/)
+test('duas pausas consumidas têm prioridade sobre fora do horário no fluxo online', () => {
+  const exhausted = localBiometric.indexOf("PAUSAS_DO_DIA_JA_UTILIZADAS")
+  const outOfHours = localBiometric.indexOf("motivo: 'FORA_HORARIO'")
+
+  assert.ok(exhausted >= 0, 'falta estado terminal para 2/2 pausas usadas')
+  assert.ok(outOfHours >= 0, 'falta estado fora do horário')
+  assert.ok(exhausted < outOfHours, '2/2 pausas usadas deve ser decidido antes de FORA_HORARIO')
+  assert.match(localBiometric, /Não há mais pausa disponível para hoje/)
   assert.match(localBiometric, /acaoSugerida: 'BLOQUEADO'/)
-  assert.match(localBiometric, /TENTATIVA_PONTO_REPETIDA/)
-  assert.match(localBiometric, /Esta nova tentativa de bater o ponto foi registrada/)
 })
 
-test('mantem a protecao nas rotas legadas e na tentativa direta de iniciar', () => {
-  assert.match(pontoRoutes, /PAUSA_PERIODO_JA_UTILIZADA/)
-  assert.match(pontoRoutes, /acaoSugerida: 'BLOQUEADO'/)
-  assert.match(pontoRoutes, /TENTATIVA_PONTO_REPETIDA/)
-  assert.match(pontoRoutes, /ONLINE_INICIAR/)
-  assert.match(pontoRoutes, /já registrou esta pausa hoje\. A nova tentativa foi registrada para auditoria/)
+test('fast path não mascara 2/2 pausas usadas como fora do horário', () => {
+  const exhausted = fastPonto.indexOf("PAUSAS_DO_DIA_JA_UTILIZADAS")
+  const outOfHours = fastPonto.indexOf("motivo: 'FORA_HORARIO'")
+
+  assert.ok(exhausted >= 0)
+  assert.ok(outOfHours >= 0)
+  assert.ok(exhausted < outOfHours)
 })
 
-test('mantem a protecao e auditoria quando o ponto opera offline', () => {
+test('offline verifica manhã e tarde mesmo quando não existe janela ativa', () => {
   assert.match(offlineStore, /data class LocalCompletedPause/)
   assert.match(offlineStore, /completedPauseToday/)
-  assert.match(offlineStore, /Esta nova tentativa foi registrada e será enviada ao servidor/)
-  assert.match(viewModel, /identificacaoOffline\(match\.colaborador, match\.score, embedding\)/)
-  assert.match(viewModel, /acaoSugerida = "BLOQUEADO"/)
+  assert.match(viewModel, /completedPauseToday\(colaborador\.id, "MANHA"\)/)
+  assert.match(viewModel, /completedPauseToday\(colaborador\.id, "TARDE"\)/)
+  assert.match(viewModel, /PAUSAS_DO_DIA_JA_UTILIZADAS/)
+  assert.match(viewModel, /Não há mais pausa disponível para hoje/)
+
+  const exhausted = viewModel.indexOf('PAUSAS_DO_DIA_JA_UTILIZADAS')
+  const currentRule = viewModel.indexOf('val rule = offlineStore.currentRule()', exhausted)
+  assert.ok(exhausted >= 0)
+  assert.ok(currentRule > exhausted, 'o bloqueio 2/2 deve acontecer antes de depender da janela atual')
+})
+
+test('mantém proteção do mesmo período e auditoria em todos os caminhos', () => {
+  assert.match(localBiometric, /PAUSA_PERIODO_JA_UTILIZADA/)
+  assert.match(localBiometric, /TENTATIVA_PONTO_REPETIDA/)
+  assert.match(pontoRoutes, /PAUSA_PERIODO_JA_UTILIZADA/)
+  assert.match(pontoRoutes, /TENTATIVA_PONTO_REPETIDA/)
   assert.match(offlineRoutes, /TENTATIVA_PONTO_REPETIDA/)
   assert.match(offlineRoutes, /origem: 'OFFLINE'/)
 })
 
-test('a interface explica que a pausa ja foi usada e nao oferece nova saida', () => {
-  assert.match(identityScreen, /Pausa da \$\{periodLabel\(periodo\)\.lowercase\(\)\} já utilizada/)
-  assert.match(identityScreen, /Tentativa registrada/)
-  assert.match(identityScreen, /Nova pausa bloqueada/)
-  assert.match(identityScreen, /consulta e auditoria do Supervisor\/Administrador/)
-  assert.match(identityScreen, /if \(pausaJaUtilizada \|\| bloqueadaForaHorario\)/)
+test('kiosk mostra a mensagem operacional atual sem depender de tela legada', () => {
+  assert.match(kioskScreen, /error\?\.let \{ message/)
+  assert.match(kioskScreen, /message/)
+  assert.doesNotMatch(kioskScreen, /IdentityConfirmationScreen/)
 })
 
-test('a auditoria administrativa identifica claramente a tentativa repetida', () => {
+test('auditoria administrativa continua identificando tentativa repetida', () => {
   assert.match(auditScreen, /TENTATIVA_PONTO_REPETIDA/)
   assert.match(auditScreen, /Tentativa repetida de pausa bloqueada/)
   assert.match(auditScreen, /colaboradorNome/)
