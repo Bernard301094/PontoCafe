@@ -1,18 +1,24 @@
 # Changelog
 
-## 0.10.7 — Reconhecimento facial adaptativo
+## 0.10.7 — Reconhecimento adaptativo + bloqueio diário + avatar por câmera
+
+### Ponto Café
+- Quando as pausas de **manhã e tarde já foram utilizadas no mesmo dia**, esse estado `2/2` passa a ter prioridade absoluta sobre `FORA_HORARIO`.
+- A proteção é aplicada no caminho rápido, na confirmação biométrica autoritativa, no fallback offline e na sobreposição final do Ponto.
+- O aviso informa claramente que não há mais pausa disponível no dia e permanece visível por 5 segundos.
+- A proteção já existente contra repetição de apenas um período permanece ativa.
+- Novos testes de contrato impedem que o estado `2/2` volte a ser mascarado por avisos genéricos de horário.
+
+### Avatares
+- Administrador e Supervisor podem definir/trocar o avatar usando **Câmera** ou **Galeria**.
+- Fotos tiradas pela câmera passam pelo mesmo recorte central, redimensionamento e compressão WebP já usados para imagens da galeria.
+- Avatar continua totalmente separado da biometria facial e nunca é usado no reconhecimento.
 
 ### Biometria
-- O Ponto passa a gerar até três embeddings a partir da mesma captura facial, sem pedir fotos adicionais ao colaborador.
-- A primeira tentativa continua usando exatamente o recorte canônico já utilizado nas versões anteriores, preservando compatibilidade com todas as biometrias existentes.
-- Somente quando a tentativa canônica falha são considerados recortes alternativos do mesmo frame: um recorte mais fechado e, quando os landmarks estão disponíveis, um recorte ancorado nos olhos.
-- FaceNet, modelo, normalização, liveness, limiar de reconhecimento e margem entre identidades permanecem inalterados.
-- O embedding efetivamente aprovado localmente é o mesmo enviado ao backend para revalidação autoritativa.
-- O fluxo de cadastro deixa de orientar o registro de aparências extras com touca/óculos; um único cadastro biométrico continua sendo a referência operacional.
-- Testes unitários cobrem prioridade da tentativa canônica, fallback adaptativo e preservação da margem de segurança.
-
-### Manutenção
-- Workflow de Release unsigned deixou de depender de branch e versão antigas; agora valida PRs para `main`, executa testes unitários e resolve versão/código diretamente do projeto.
+- Reconhecimento no Ponto passa a usar fallback adaptativo com recortes alternativos do mesmo frame quando o embedding canônico não é suficiente.
+- Nenhuma foto adicional é solicitada para reconhecer a mesma pessoa com pequenas variações de enquadramento/aparência.
+- O embedding canônico e todas as biometrias existentes permanecem compatíveis.
+- FaceNet, normalização, prova de vida, limiar e margem de identificação não foram reduzidos.
 
 ## 0.7.0 — Reliability + Operations
 
