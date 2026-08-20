@@ -70,15 +70,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
-import com.pontocafe.app.avatar.AvatarImageOptimizer
 import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.domain.CsvCollaboratorParser
 import com.pontocafe.app.domain.CsvImportPreview
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private enum class PeopleViewFilterV4 { TEAM, PENDING_FACE, ACCESS }
 
@@ -114,30 +111,30 @@ fun AdminPeopleScreenV4(
     var avatarMessage by remember { mutableStateOf<String?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
 
-    val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val target = avatarTarget
-        avatarTarget = null
-        if (uri != null && target != null) {
-            avatarBusyId = target.id
-            avatarError = null
-            avatarMessage = null
-            scope.launch {
-                runCatching {
-                    val optimized = withContext(Dispatchers.IO) {
-                        AvatarImageOptimizer.optimize(context.applicationContext, uri)
+    avatarTarget?.let { target ->
+        CollaboratorAvatarSourceDialog(
+            collaboratorName = target.nome,
+            onDismiss = { avatarTarget = null },
+            onImageReady = { optimized ->
+                avatarBusyId = target.id
+                avatarError = null
+                avatarMessage = null
+                scope.launch {
+                    runCatching {
+                        avatarRepository.uploadAvatar(target.id, optimized)
+                        optimized.size
+                    }.onSuccess { bytes ->
+                        avatarBusyId = null
+                        avatarMessage = "Avatar de ${target.nome} otimizado para ${(bytes / 1024.0).let { String.format("%.1f", it) }} KB."
+                        viewModel.abrirColaboradores()
+                    }.onFailure { error ->
+                        avatarBusyId = null
+                        avatarError = error.message ?: "Não foi possível salvar o avatar."
                     }
-                    avatarRepository.uploadAvatar(target.id, optimized)
-                    optimized.size
-                }.onSuccess { bytes ->
-                    avatarBusyId = null
-                    avatarMessage = "Avatar de ${target.nome} otimizado para ${(bytes / 1024.0).let { String.format("%.1f", it) }} KB."
-                    viewModel.abrirColaboradores()
-                }.onFailure { error ->
-                    avatarBusyId = null
-                    avatarError = error.message ?: "Não foi possível salvar o avatar."
                 }
-            }
-        }
+            },
+            onError = { message -> avatarError = message },
+        )
     }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -401,8 +398,8 @@ fun AdminPeopleScreenV4(
                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
                             onAvatar = {
                                 avatarError = null
+                                avatarMessage = null
                                 avatarTarget = collaborator
-                                avatarLauncher.launch("image/*")
                             },
                             onDeleteAvatar = {
                                 avatarBusyId = collaborator.id
@@ -564,7 +561,7 @@ private fun CollaboratorCardV4(
                     }
                     OutlinedButton(onAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
                         Icon(Icons.Default.Image, null, Modifier.size(18.dp))
-                        Text(if (collaborator.avatarUrl.isNullOrBlank()) "Escolher avatar" else "Trocar avatar", Modifier.padding(start = 7.dp))
+                        Text(if (collaborator.avatarUrl.isNullOrBlank()) "Definir avatar" else "Trocar avatar", Modifier.padding(start = 7.dp))
                     }
                     if (!collaborator.avatarUrl.isNullOrBlank()) {
                         OutlinedButton(onDeleteAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
@@ -572,7 +569,7 @@ private fun CollaboratorCardV4(
                         }
                     }
                     Text(
-                        "A imagem é recortada, reduzida e convertida para WebP antes do envio. Ela não é usada para reconhecimento facial e não é salva na base de dados.",
+                        "Você pode tirar uma foto ou escolher uma imagem da galeria. A imagem é recortada, reduzida e convertida para WebP antes do envio; ela não é usada no reconhecimento facial.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
