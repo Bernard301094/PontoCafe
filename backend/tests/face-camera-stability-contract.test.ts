@@ -11,33 +11,26 @@ const engine = readFileSync(
   'utf8',
 )
 
-test('analisador facial serializa ML Kit e sempre libera o ImageProxy', () => {
+test('analisador facial usa um único detector detalhado e sempre libera ImageProxy', () => {
   assert.match(camera, /Tasks\.await\(detector\.process\(image\)\)/)
-  assert.match(camera, /finally\s*\{[\s\S]*imageProxy\.close\(\)/)
-  assert.match(camera, /captureController\.retry\(\)/)
-  assert.match(camera, /executor\.shutdownNow\(\)/)
-  assert.match(camera, /cameraProvider\?\.unbindAll\(\)/)
-})
-
-test('camera usa detecção barata antes de landmarks e liveness', () => {
-  assert.match(camera, /val presenceDetector = remember/)
-  assert.match(camera, /LANDMARK_MODE_NONE/)
-  assert.match(camera, /CLASSIFICATION_MODE_NONE/)
-  assert.match(camera, /val detailedDetector = remember/)
   assert.match(camera, /LANDMARK_MODE_ALL/)
   assert.match(camera, /CLASSIFICATION_MODE_ALL/)
-  assert.match(camera, /PRESENCE_STABLE_FRAMES = 2/)
-  assert.match(camera, /detailedFeatures && isGeometryReady/)
-  assert.match(camera, /if \(!detailedThisFrame\)[\s\S]*captureController\.retry\(\)/)
+  assert.match(camera, /enableTracking\(\)/)
+  assert.doesNotMatch(camera, /presenceDetector/)
+  assert.doesNotMatch(camera, /detailedDetector/)
+  assert.match(camera, /finally\s*\{[\s\S]*imageProxy\.close\(\)/)
+  assert.match(camera, /captureController\.retry\(\)/)
   assert.match(camera, /STRATEGY_KEEP_ONLY_LATEST/)
+  assert.match(camera, /executor\.shutdownNow\(\)/)
 })
 
-test('embedding facial serializa inferência, mantém CPU seguro e libera bitmaps', () => {
+test('embedding canônico continua CPU e com duas threads', () => {
   assert.match(engine, /private val inferenceMutex = Mutex\(\)/)
   assert.match(engine, /inferenceMutex\.withLock/)
-  assert.match(engine, /PontoCafe-FaceNet/)
+  assert.match(engine, /TfLite\.initialize\(context\.applicationContext\)/)
+  assert.match(engine, /\.setRuntime\(TfLiteRuntime\.FROM_SYSTEM_ONLY\)/)
   assert.match(engine, /\.setNumThreads\(CPU_THREADS\)/)
-  assert.match(engine, /if \(!source\.isRecycled\)/)
-  assert.match(engine, /source\.recycle\(\)/)
-  assert.match(engine, /switchToCpu/)
+  assert.match(engine, /CPU_THREADS = 2/)
+  assert.doesNotMatch(engine, /GpuDelegateFactory/)
+  assert.doesNotMatch(engine, /TfLiteGpu/)
 })
