@@ -3,18 +3,21 @@
 ## 0.15.0 — Integridade operacional do Ponto
 
 ### Idempotência e exactly-once
-- Cada tentativa crítica do `registro-rapido` recebe um UUID persistido no Android antes da mutação de rede.
+- Cada mutação crítica do Ponto recebe um UUID persistido no Android antes da rede: `REGISTRO_RAPIDO`, `INICIAR` e `FINALIZAR`.
 - O Worker serializa retries concorrentes com `pg_advisory_xact_lock` e persiste o resultado idempotente na mesma transação PostgreSQL que inicia ou finaliza a pausa.
-- Se a resposta HTTP se perder depois do COMMIT, o mesmo UUID recebe exatamente o resultado original; um retry de início não pode ser interpretado como retorno.
-- A sincronização offline reaproveita o mesmo UUID de uma operação online incerta e reconcilia um COMMIT já existente sem executar uma segunda mutação.
+- Se a resposta HTTP se perder depois do COMMIT, o mesmo UUID pode recuperar exatamente o resultado original; uma saída já confirmada não pode ser reinterpretada como retorno, nem um retorno confirmado virar nova saída.
+- O endpoint `ponto/operacoes/reconciliar` espera qualquer transação concorrente com o mesmo UUID terminar antes de decidir se houve COMMIT ou rollback.
+- O caminho rápido consulta primeiro uma operação incerta e, quando existe resultado autoritativo, reconstrói o comprovante sem criar nova mutação.
+- Nos casos não elegíveis ao fast-path, uma operação incerta bloqueia nova leitura de estado e segue pelo fallback offline existente; a fila reutiliza o mesmo UUID e o Worker reconcilia o COMMIT original antes de qualquer nova ação.
+- A sincronização offline também reconhece operações previamente confirmadas por `REGISTRO_RAPIDO`, `INICIAR` ou `FINALIZAR` e retorna `RECONCILIADO` sem executar uma segunda mutação.
 - O journal Android é cifrado com AES-GCM protegido pelo Android Keystore e não persiste foto, embedding bruto, PIN, senha ou token de sessão.
-- O UUID crítico é escrito de forma síncrona antes da rede. Depois de `INICIO`/`RETORNO`, ele só é liberado após o snapshot local correspondente ser confirmado em armazenamento persistente.
+- O UUID crítico é escrito de forma síncrona antes da rede. Depois de uma resposta mutante, ele só é liberado após o snapshot local correspondente ser confirmado em armazenamento persistente.
 - Eventos offline de início/retorno também são persistidos de forma durável antes de liberar o journal curto de operação.
 
 ### Banco e implantação
-- Adiciona `database/007_ponto_operation_idempotency.sql`, com a tabela `operacoes_ponto_idempotentes` e o resultado autoritativo necessário para replay seguro.
+- Adiciona `database/007_ponto_operation_idempotency.sql`, com a tabela `operacoes_ponto_idempotentes` e suporte aos tipos `REGISTRO_RAPIDO`, `INICIAR` e `FINALIZAR`.
 - A migração `007` deve ser aplicada antes de implantar o Worker 0.15; o Android nunca acessa essa tabela diretamente.
-- Mantém compatibilidade transitória do endpoint rápido com APKs antigos que ainda não enviam `operacaoId`.
+- O Worker 0.15 deve estar ativo antes da instalação do APK 0.15 para que a reconciliação exactly-once esteja disponível em todos os caminhos protegidos.
 
 ### Compatibilidade
 - Não altera FaceNet, modelo, crop, prewhitening, normalização, thresholds, margem, CPU/XNNPACK, prova de vida, CameraX, horários, limite do café, regra 2/2 ou autorizações do Supervisor.
