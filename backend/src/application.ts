@@ -20,6 +20,7 @@ import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { deviceTelemetryRoutes } from './routes/device-telemetry-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
 import { fastPontoRoutes } from './routes/fast-ponto-routes.js'
+import { idempotentPontoMutationRoutes } from './routes/idempotent-ponto-mutation-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
 import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { offlineRoutes } from './routes/offline-routes.js'
@@ -180,6 +181,9 @@ app.route('/ponto', localBiometricRoutes)
 // O fast-path vem antes das rotas legadas e é opcional para o APK: clientes
 // novos voltam automaticamente ao fluxo anterior caso esta rota ainda não esteja implantada.
 app.route('/ponto', fastPontoRoutes)
+// INICIAR/FINALIZAR precisam interceptar as rotas equivalentes de pontoRoutes
+// para garantir replay exactly-once também quando o fast-path não é utilizado.
+app.route('/ponto', idempotentPontoMutationRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
 app.route('/ponto', offlineRoutes)
