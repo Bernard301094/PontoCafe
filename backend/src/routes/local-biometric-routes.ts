@@ -246,6 +246,75 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
   const aberta = pausaAberta.rows[0]
   const regra = regraAtual.rows[0]
 
+  // O estado diário é decidido antes de horário/autorização. Isso impede que
+  // alguém que já consumiu MANHA + TARDE receba apenas "fora do horário".
+  const pausasConcluidasHoje = !aberta
+    ? (await query<PausaUtilizadaRow>(
+        `select p.id,p.periodo,
+                to_char(p.inicio_em at time zone $2,'HH24:MI') as inicio_local,
+                to_char(p.fim_em at time zone $2,'HH24:MI') as fim_local,
+                floor(extract(epoch from (p.fim_em-p.inicio_em)))::int as duracao_segundos,
+                p.limite_segundos
+           from pausas_cafe p
+          where p.colaborador_id=$1
+            and p.fim_em is not null
+            and (p.inicio_em at time zone $2)::date=(now() at time zone $2)::date
+          order by p.inicio_em desc`,
+        [stored.colaborador_id, config.appTimezone],
+      )).rows
+    : []
+
+  const pausaManha = pausasConcluidasHoje.find((p) => p.periodo === 'MANHA')
+  const pausaTarde = pausasConcluidasHoje.find((p) => p.periodo === 'TARDE')
+
+  const verificacaoToken = newToken()
+  await query(
+    `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
+     values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,
+    [newId(), stored.colaborador_id, device.id, hashToken(verificacaoToken), score, config.verificationTtlSeconds],
+  )
+
+  if (!aberta && pausaManha && pausaTarde) {
+    await query(
+      `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+       values ('DISPOSITIVO','TENTATIVA_PONTO_REPETIDA','PAUSA',$1,$2::jsonb)`,
+      [pausaTarde.id, JSON.stringify({
+        colaboradorId: stored.colaborador_id,
+        colaboradorNome: stored.nome,
+        dispositivoId: device.id,
+        dispositivoNome: device.nome,
+        tentativaEm: new Date().toISOString(),
+        origem: 'ONLINE',
+        motivo: 'PAUSAS_DO_DIA_JA_UTILIZADAS',
+        pausasUtilizadas: ['MANHA', 'TARDE'],
+        manha: { inicioLocal: pausaManha.inicio_local, fimLocal: pausaManha.fim_local },
+        tarde: { inicioLocal: pausaTarde.inicio_local, fimLocal: pausaTarde.fim_local },
+        score: Number(score.toFixed(4)),
+      })],
+    )
+
+    return c.json({
+      reconhecido: true,
+      motivo: 'PAUSAS_DO_DIA_JA_UTILIZADAS',
+      mensagem: `Pausas de hoje já utilizadas (2/2). Manhã: ${pausaManha.inicio_local}–${pausaManha.fim_local} · Tarde: ${pausaTarde.inicio_local}–${pausaTarde.fim_local}. Não há mais pausa disponível para hoje.`,
+      score: Number(score.toFixed(4)),
+      verificacaoToken,
+      expiraEmSegundos: config.verificationTtlSeconds,
+      colaborador: {
+        id: stored.colaborador_id,
+        matricula: stored.matricula,
+        nome: stored.nome,
+        setor: stored.setor,
+        turno: stored.turno,
+      },
+      acaoSugerida: 'BLOQUEADO',
+      pausaAberta: null,
+      dentroHorario: false,
+      periodoAtual: null,
+      limiteSegundos: null,
+    })
+  }
+
   // O fluxo atual usa liberação prévia: o Supervisor seleciona a pessoa e o
   // motivo no próprio perfil. Nenhum código é exibido ou digitado no Ponto.
   const liberacao = !aberta && !regra
@@ -284,30 +353,9 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     : undefined
 
   const periodoPretendido = regra?.periodo ?? liberacao?.periodo ?? regraReferencia?.periodo
-  const pausaUtilizada = !aberta && periodoPretendido
-    ? (await query<PausaUtilizadaRow>(
-        `select p.id,p.periodo,
-                to_char(p.inicio_em at time zone $3,'HH24:MI') as inicio_local,
-                to_char(p.fim_em at time zone $3,'HH24:MI') as fim_local,
-                floor(extract(epoch from (p.fim_em-p.inicio_em)))::int as duracao_segundos,
-                p.limite_segundos
-           from pausas_cafe p
-          where p.colaborador_id=$1
-            and p.periodo=$2
-            and p.fim_em is not null
-            and (p.inicio_em at time zone $3)::date=(now() at time zone $3)::date
-          order by p.inicio_em desc
-          limit 1`,
-        [stored.colaborador_id, periodoPretendido, config.appTimezone],
-      )).rows[0]
+  const pausaUtilizada = periodoPretendido
+    ? pausasConcluidasHoje.find((p) => p.periodo === periodoPretendido)
     : undefined
-
-  const verificacaoToken = newToken()
-  await query(
-    `insert into verificacoes_faciais (id,colaborador_id,dispositivo_id,token_hash,score,expira_em)
-     values ($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,
-    [newId(), stored.colaborador_id, device.id, hashToken(verificacaoToken), score, config.verificationTtlSeconds],
-  )
 
   if (pausaUtilizada) {
     await query(
