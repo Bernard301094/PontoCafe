@@ -27,12 +27,21 @@ interface FaceEmbeddingEngine {
     suspend fun embed(frame: FaceFrame): FloatArray
 
     /**
-     * Embeddings candidatos para identificação no Ponto a partir de uma única
-     * captura. A primeira posição DEVE ser exatamente o embedding canônico de
-     * [embed]. Implementações podem acrescentar recortes alternativos do mesmo
-     * frame para aumentar robustez sem pedir novas fotos nem alterar limiares.
+     * Gera candidatos para identificação a partir de UMA única captura.
+     *
+     * A primeira posição é sempre o embedding canônico. Depois de cada candidato
+     * [shouldContinue] decide se ainda vale executar outra inferência. Assim o
+     * caminho normal encerra após uma única passagem pelo FaceNet e os recortes
+     * alternativos só custam CPU/GPU quando o canônico realmente não reconhece.
      */
-    suspend fun embedForIdentification(frame: FaceFrame): List<FloatArray> = listOf(embed(frame))
+    suspend fun embedForIdentification(
+        frame: FaceFrame,
+        shouldContinue: (embedding: FloatArray, candidateIndex: Int) -> Boolean = { _, _ -> true },
+    ): List<FloatArray> {
+        val canonical = embed(frame)
+        shouldContinue(canonical, 0)
+        return listOf(canonical)
+    }
 }
 
 class FaceModelUnavailableException : IllegalStateException(
