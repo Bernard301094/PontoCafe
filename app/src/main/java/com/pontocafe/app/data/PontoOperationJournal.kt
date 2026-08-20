@@ -33,6 +33,10 @@ private data class PontoOperationJournalPayload(
  * biométrico persistido é um SHA-256 dos bits do embedding já calculado em RAM.
  * Isso permite que a MESMA tentativa atravesse uma resposta de rede incerta e
  * vire evento offline sem receber outro UUID.
+ *
+ * As gravações usam commit() intencionalmente: o UUID precisa estar fisicamente
+ * persistido ANTES da mutação de rede. A frequência é baixa (uma escrita por
+ * batida), então preferimos durabilidade a uma economia irrelevante de I/O.
  */
 class PontoOperationJournal(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,14 +49,16 @@ class PontoOperationJournal(context: Context) {
 
         val now = System.currentTimeMillis()
         val fingerprint = fingerprint(embedding)
-        val active = read().operations.filter { now - it.createdAtMillis <= OPERATION_TTL_MILLIS }
+        val current = read()
+        val active = current.operations.filter { now - it.createdAtMillis <= OPERATION_TTL_MILLIS }
+        val pruned = active.size != current.operations.size
 
         // Uma resposta incerta tem prioridade mesmo se uma nova captura produzir
         // embedding ligeiramente diferente. Primeiro precisamos reconciliar a
         // mutação que pode já ter sido COMMITada pelo servidor.
         val uncertain = active.firstOrNull { it.collaboratorId == collaboratorId && it.uncertain }
         if (uncertain != null) {
-            if (active.size != read().operations.size) write(PontoOperationJournalPayload(active))
+            if (pruned) write(PontoOperationJournalPayload(active))
             return uncertain.operationId
         }
 
@@ -60,7 +66,7 @@ class PontoOperationJournal(context: Context) {
             it.collaboratorId == collaboratorId && it.embeddingFingerprint == fingerprint
         }
         if (sameAttempt != null) {
-            if (active.size != read().operations.size) write(PontoOperationJournalPayload(active))
+            if (pruned) write(PontoOperationJournalPayload(active))
             return sameAttempt.operationId
         }
 
@@ -118,7 +124,9 @@ class PontoOperationJournal(context: Context) {
 
     @Synchronized
     fun clear() {
-        prefs.edit().remove(PAYLOAD_KEY).apply()
+        check(prefs.edit().remove(PAYLOAD_KEY).commit()) {
+            "Não foi possível limpar o diário de operações do Ponto."
+        }
     }
 
     private fun fingerprint(embedding: FloatArray): String {
@@ -144,7 +152,7 @@ class PontoOperationJournal(context: Context) {
             val json = String(cipher.doFinal(ciphertext), Charsets.UTF_8)
             gson.fromJson(json, PontoOperationJournalPayload::class.java) ?: PontoOperationJournalPayload()
         }.getOrElse {
-            prefs.edit().remove(PAYLOAD_KEY).apply()
+            prefs.edit().remove(PAYLOAD_KEY).commit()
             PontoOperationJournalPayload()
         }
     }
@@ -155,7 +163,9 @@ class PontoOperationJournal(context: Context) {
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(plaintext)
         val encoded = Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
-        prefs.edit().putString(PAYLOAD_KEY, encoded).apply()
+        check(prefs.edit().putString(PAYLOAD_KEY, encoded).commit()) {
+            "Não foi possível persistir a identidade da operação do Ponto."
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
