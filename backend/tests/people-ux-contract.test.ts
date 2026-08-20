@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const screen = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPeopleScreenV3.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPeopleScreenV4.kt', import.meta.url),
+  'utf8',
+)
+const shared = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/PeopleExperienceComponents.kt', import.meta.url),
   'utf8',
 )
 const adminArea = readFileSync(
@@ -11,36 +15,42 @@ const adminArea = readFileSync(
   'utf8',
 )
 
-test('Pessoas usa a experiência V3 no shell administrativo', () => {
-  assert.match(adminArea, /AdminPrimaryDestination\.PEOPLE -> AdminPeopleScreenV3\(/)
+test('Pessoas usa a experiência V4 no shell administrativo', () => {
+  assert.match(adminArea, /AdminPrimaryDestination\.PEOPLE/)
+  assert.match(adminArea, /AdminPeopleScreenV4\(/)
 })
 
-test('Pessoas separa equipe, pendências biométricas e acessos', () => {
-  assert.match(screen, /TEAM\("Equipe"\)/)
-  assert.match(screen, /PENDING_FACE\("Rosto pendente"\)/)
-  assert.match(screen, /ACCESS\("Acessos"\)/)
+test('Pessoas separa colaboradores de acessos e mantém pendências como filtro', () => {
+  assert.match(screen, /AdminPeopleSection\.COLLABORATORS/)
+  assert.match(screen, /AdminPeopleSection\.ACCESS/)
+  assert.match(screen, /PeopleFaceFilter\.PENDING/)
   assert.match(screen, /pendingFaces/)
-  assert.match(screen, /readyFaces/)
+  assert.match(screen, /PeopleSectionSwitch/)
 })
 
-test('lista de colaboradores é compacta e revela ações sob demanda', () => {
-  assert.match(screen, /expandedId/)
-  assert.match(screen, /AnimatedVisibility\(visible = expanded && !selectionMode\)/)
-  assert.match(screen, /Cadastrar rosto/)
-  assert.match(screen, /Atualizar rosto/)
-  assert.match(screen, /Histórico/)
-  assert.match(screen, /Editar/)
+test('lista compacta abre ações fora do card no celular', () => {
+  assert.match(screen, /PeoplePersonCard/)
+  assert.match(screen, /PersonActionBottomSheet/)
+  assert.match(shared, /ModalBottomSheet/)
+  assert.doesNotMatch(screen, /AnimatedVisibility\(expanded/)
 })
 
 test('busca cobre dados operacionais e acessos', () => {
-  assert.match(screen, /collaborator\.setor\.orEmpty\(\)\.contains/)
-  assert.match(screen, /collaborator\.turno\.orEmpty\(\)\.contains/)
-  assert.match(screen, /user\.email\.contains/)
-  assert.match(screen, /user\.perfil\.contains/)
+  assert.match(screen, /it\.setor\.orEmpty\(\)\.contains/)
+  assert.match(screen, /it\.turno\.orEmpty\(\)\.contains/)
+  assert.match(screen, /it\.email\.contains/)
+  assert.match(screen, /it\.perfil\.contains/)
 })
 
-test('edição em lote mantém barra de ação persistente', () => {
-  assert.match(screen, /if \(selectionMode\) \{\s*Surface\(/)
+test('edição em lote mantém barra de ação persistente e seleção total', () => {
+  assert.match(screen, /if \(selectionMode\)/)
   assert.match(screen, /Alterar setor, turno ou status/)
   assert.match(screen, /showBulkDialog = true/)
+  assert.match(screen, /collaborators\.mapTo\(linkedSetOf\(\)\)/)
+})
+
+test('telas grandes usam master-detail', () => {
+  assert.match(screen, /expandedLayout/)
+  assert.match(screen, /PersonDetailPanel/)
+  assert.match(shared, /Selecione uma pessoa/)
 })
