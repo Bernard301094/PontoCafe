@@ -10,16 +10,19 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -50,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
@@ -109,7 +113,12 @@ fun FaceKioskScreen(
     }
     val state = viewModel.state
     var permissionGranted by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED,
+        )
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -140,63 +149,36 @@ fun FaceKioskScreen(
     }
 
     restrictedAreaRequest?.let { target ->
-        val instruction = when (target) {
-            RestrictedAreaRequest.ADMIN -> "Informe o PIN deste dispositivo para abrir o perfil Administrador já salvo."
-            RestrictedAreaRequest.SUPERVISOR -> "Informe o PIN deste dispositivo para abrir o perfil Supervisor já salvo."
-            RestrictedAreaRequest.LOGIN -> "Informe o PIN deste dispositivo para sair do modo Ponto e abrir o início de sessão."
-        }
-        AlertDialog(
-            onDismissRequest = { if (!unlockLoading) fecharSolicitacaoAcesso() },
-            icon = { Icon(Icons.Default.Lock, contentDescription = null) },
-            title = { Text("Desbloquear área restrita") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    Text(instruction)
-                    OutlinedTextField(
-                        value = exitPin,
-                        onValueChange = { value ->
-                            exitPin = value.filter(Char::isDigit).take(12)
-                            unlockError = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("PIN do dispositivo") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        isError = unlockError != null,
-                        supportingText = { Text(unlockError ?: "4 a 12 números") },
-                        enabled = !unlockLoading,
-                    )
-                }
+        RestrictedAccessDialog(
+            target = target,
+            pin = exitPin,
+            loading = unlockLoading,
+            error = unlockError,
+            onPinChange = { value ->
+                exitPin = value.filter(Char::isDigit).take(12)
+                unlockError = null
             },
-            confirmButton = {
-                Button(
-                    enabled = !unlockLoading && exitPin.length in 4..12,
-                    onClick = {
-                        val destination = target
-                        unlockLoading = true
-                        unlockError = null
-                        scope.launch {
-                            runCatching { unlockRepository.validarPinSaida(exitPin, destination.name) }
-                                .onSuccess {
-                                    fecharSolicitacaoAcesso()
-                                    when (destination) {
-                                        RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
-                                        RestrictedAreaRequest.ADMIN -> onAdminClick()
-                                        RestrictedAreaRequest.LOGIN -> onLoginModeClick()
-                                    }
-                                }
-                                .onFailure { error ->
-                                    unlockLoading = false
-                                    exitPin = ""
-                                    unlockError = PontoCafeRepository.mensagemErro(error)
-                                }
+            onDismiss = { if (!unlockLoading) fecharSolicitacaoAcesso() },
+            onConfirm = {
+                val destination = target
+                unlockLoading = true
+                unlockError = null
+                scope.launch {
+                    runCatching { unlockRepository.validarPinSaida(exitPin, destination.name) }
+                        .onSuccess {
+                            fecharSolicitacaoAcesso()
+                            when (destination) {
+                                RestrictedAreaRequest.SUPERVISOR -> onSupervisorClick()
+                                RestrictedAreaRequest.ADMIN -> onAdminClick()
+                                RestrictedAreaRequest.LOGIN -> onLoginModeClick()
+                            }
                         }
-                    },
-                ) { Text(if (unlockLoading) "Verificando..." else "Desbloquear") }
-            },
-            dismissButton = {
-                TextButton(onClick = { fecharSolicitacaoAcesso() }, enabled = !unlockLoading) { Text("Cancelar") }
+                        .onFailure { error ->
+                            unlockLoading = false
+                            exitPin = ""
+                            unlockError = PontoCafeRepository.mensagemErro(error)
+                        }
+                }
             },
         )
     }
@@ -214,7 +196,14 @@ fun FaceKioskScreen(
         livenessState = LivenessState.POSICIONE_ROSTO
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        val expanded = maxWidth >= 600.dp
+        val cameraPermissionWidth = if (expanded) 440.dp else 400.dp
+
         if (permissionGranted) {
             FaceCameraPreview(
                 modifier = Modifier.fillMaxSize(),
@@ -295,8 +284,9 @@ fun FaceKioskScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(24.dp),
-                shape = RoundedCornerShape(24.dp),
+                    .padding(24.dp)
+                    .widthIn(max = cameraPermissionWidth),
+                shape = RoundedCornerShape(28.dp),
                 color = Color(0xF21A1F1D),
                 contentColor = Color.White,
             ) {
@@ -305,27 +295,44 @@ fun FaceKioskScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
                 ) {
-                    Surface(modifier = Modifier.size(52.dp), shape = CircleShape, color = Color.White.copy(alpha = 0.10f)) {
+                    Surface(
+                        modifier = Modifier.size(58.dp),
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.10f),
+                    ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Face, contentDescription = null, tint = Color.White)
+                            Icon(
+                                Icons.Default.Face,
+                                contentDescription = null,
+                                tint = Color(0xFF72DCBC),
+                                modifier = Modifier.size(28.dp),
+                            )
                         }
                     }
                     Text(
-                        "Acesso à câmera",
+                        "Ative a câmera para bater o ponto",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
                     )
                     Text(
-                        "A câmera é necessária para registrar o Ponto Café com reconhecimento facial.",
+                        "O Ponto Café usa reconhecimento facial para registrar a saída e o retorno com segurança.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.74f),
                         textAlign = TextAlign.Center,
                     )
-                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                    Button(
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text("Permitir câmera")
                     }
                 }
             }
+        }
+
+        if (permissionGranted) {
+            KioskCameraScrims()
         }
 
         val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
@@ -337,6 +344,7 @@ fun FaceKioskScreen(
             active = permissionGranted && state.catalogoBiometricoPronto,
             warning = multipleFacesVisible,
             ready = recognitionReady,
+            expanded = expanded,
             modifier = Modifier.align(Alignment.Center),
         )
 
@@ -353,7 +361,8 @@ fun FaceKioskScreen(
 
         val challengeInstruction = when {
             challengeCompleted -> "Volte ao centro"
-            challenge == KioskLivenessChallenge.BLINK && livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
+            challenge == KioskLivenessChallenge.BLINK &&
+                livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
             livenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
             else -> challenge.instruction
         }
@@ -361,23 +370,23 @@ fun FaceKioskScreen(
             !viewModel.faceModelReady -> "Reconhecimento indisponível"
             state.sincronizandoBiometrias -> "Preparando reconhecimento"
             !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
-            state.carregando -> "Confirmando identidade"
+            state.carregando -> "Confirmando seu ponto"
             multipleFacesVisible -> "Apenas uma pessoa por vez"
-            noFaceVisible -> "Posicione seu rosto"
-            challengeCompleted -> "Olhe de frente"
+            noFaceVisible -> "Aproxime-se da câmera"
+            challengeCompleted -> "Identidade pronta"
             else -> challengeInstruction
         }
         val instructionDetail = when {
             !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
             state.sincronizandoBiometrias -> "Sincronizando o catálogo facial deste dispositivo."
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
-            state.carregando -> "Aguarde um instante."
-            multipleFacesVisible -> "Deixe somente uma pessoa visível na câmera."
-            noFaceVisible -> "Centralize o rosto dentro do guia."
-            challengeCompleted -> "Mantenha o rosto reto por um instante."
+            state.carregando -> "Aguarde enquanto validamos sua identidade e o registro."
+            multipleFacesVisible -> "Deixe somente uma pessoa dentro do enquadramento."
+            noFaceVisible -> "Centralize o rosto dentro do guia para começar."
+            challengeCompleted -> "Olhe de frente e mantenha o rosto estável por um instante."
             challengeAdjustedForEyes -> "Siga o movimento de cabeça indicado."
             state.modoOffline -> "O registro ficará protegido neste aparelho até a conexão voltar."
-            else -> "Siga a instrução mostrada acima."
+            else -> "Siga a instrução acima. O registro acontece automaticamente."
         }
 
         KioskInstructionSheet(
@@ -405,6 +414,119 @@ fun FaceKioskScreen(
 }
 
 @Composable
+private fun RestrictedAccessDialog(
+    target: RestrictedAreaRequest,
+    pin: String,
+    loading: Boolean,
+    error: String?,
+    onPinChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val destinationName = when (target) {
+        RestrictedAreaRequest.ADMIN -> "Administrador"
+        RestrictedAreaRequest.SUPERVISOR -> "Supervisor"
+        RestrictedAreaRequest.LOGIN -> "Início de sessão"
+    }
+    val instruction = when (target) {
+        RestrictedAreaRequest.ADMIN -> "Use o PIN deste dispositivo para abrir a sessão de Administrador já salva."
+        RestrictedAreaRequest.SUPERVISOR -> "Use o PIN deste dispositivo para abrir a sessão de Supervisor já salva."
+        RestrictedAreaRequest.LOGIN -> "Use o PIN deste dispositivo para sair do modo Ponto e abrir o início de sessão."
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Surface(
+                modifier = Modifier.size(46.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+        },
+        title = { Text("Acesso restrito · $destinationName") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Text(
+                    instruction,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = onPinChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("PIN do dispositivo") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    isError = error != null,
+                    supportingText = { Text(error ?: "4 a 12 números") },
+                    enabled = !loading,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !loading && pin.length in 4..12,
+                onClick = onConfirm,
+            ) {
+                Text(if (loading) "Verificando..." else "Desbloquear")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !loading,
+            ) {
+                Text("Cancelar")
+            }
+        },
+    )
+}
+
+@Composable
+private fun KioskCameraScrims() {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.68f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.78f),
+                        ),
+                    ),
+                ),
+        )
+    }
+}
+
+@Composable
 private fun KioskTopBar(
     offline: Boolean,
     pendingEvents: Int,
@@ -417,63 +539,111 @@ private fun KioskTopBar(
 ) {
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        color = Color(0xE8161B19),
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .widthIn(max = 720.dp)
+            .fillMaxWidth(),
+        color = Color(0xE7161B19),
         contentColor = Color.White,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Surface(
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(38.dp),
                 shape = CircleShape,
-                color = if (offline) Color(0xFFFFC867).copy(alpha = 0.14f) else Color(0xFF72DCBC).copy(alpha = 0.14f),
+                color = Color.White.copy(alpha = 0.08f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
-                        contentDescription = if (offline) "Offline" else "Online",
-                        tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
-                        modifier = Modifier.size(17.dp),
+                        imageVector = Icons.Default.Face,
+                        contentDescription = null,
+                        tint = Color(0xFF72DCBC),
+                        modifier = Modifier.size(21.dp),
                     )
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
                 Text(
                     "Ponto Café",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                 )
                 Text(
-                    if (offline) "Offline · $pendingEvents pendente(s)" else "Pronto para registrar",
-                    color = Color.White.copy(alpha = 0.64f),
+                    "Bater ponto por reconhecimento facial",
+                    color = Color.White.copy(alpha = 0.62f),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                 )
             }
 
+            Surface(
+                shape = CircleShape,
+                color = if (offline) {
+                    Color(0xFFFFC867).copy(alpha = 0.14f)
+                } else {
+                    Color(0xFF72DCBC).copy(alpha = 0.14f)
+                },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(
+                        imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Text(
+                        if (offline) {
+                            if (pendingEvents > 0) "Offline · $pendingEvents" else "Offline"
+                        } else {
+                            "Online"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                    )
+                }
+            }
+
             if (hasAdminSession) {
                 IconButton(onClick = onAdmin, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.AdminPanelSettings, contentDescription = "Abrir Administrador", modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.AdminPanelSettings,
+                        contentDescription = "Abrir Administrador",
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
             if (hasSupervisorSession) {
                 IconButton(onClick = onSupervisor, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.SupervisorAccount, contentDescription = "Abrir Supervisor", modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.SupervisorAccount,
+                        contentDescription = "Abrir Supervisor",
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
             if (!hasAdminSession && !hasSupervisorSession) {
                 IconButton(onClick = onAccess, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Lock, contentDescription = "Acesso restrito", modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Acesso restrito",
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
@@ -512,88 +682,126 @@ private fun KioskInstructionSheet(
 
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        color = Color(0xF5161B19),
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .widthIn(max = 620.dp)
+            .fillMaxWidth(),
+        color = Color(0xF3161B19),
         contentColor = Color.White,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(24.dp),
         tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        shadowElevation = 2.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = CircleShape,
-                color = accent.copy(alpha = 0.12f),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Face, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = CircleShape,
+                    color = accent.copy(alpha = 0.13f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Face,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
                 }
-            }
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                color = accent,
-            )
-            if (detail.isNotBlank()) {
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = Color.White.copy(alpha = 0.70f),
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                    )
+                    if (detail.isNotBlank()) {
+                        Text(
+                            detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.70f),
+                        )
+                    }
+                }
             }
 
             if (updateRequired) {
-                StatusPill("Atualização obrigatória · ${latestVersion ?: "nova versão"}", PontoCafeTone.DANGER)
+                StatusPill(
+                    "Atualização obrigatória · ${latestVersion ?: "nova versão"}",
+                    PontoCafeTone.DANGER,
+                )
             } else if (updateAvailable) {
                 StatusPill("Nova versão · $latestVersion", PontoCafeTone.INFO)
             }
-            if (offline) StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
+            if (offline) {
+                StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
+            }
 
             if (!catalogReady && !syncingCatalog && modelReady) {
-                Button(onClick = onSyncCatalog) { Text("Sincronizar rostos") }
+                Button(
+                    onClick = onSyncCatalog,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sincronizar rostos")
+                }
             }
+
             if (pendingEvents > 0 && !offline) {
-                OutlinedButton(onClick = onSyncPending) {
-                    Text(if (syncingPending) "Sincronizando..." else "Sincronizar $pendingEvents pendente(s)")
+                OutlinedButton(
+                    onClick = onSyncPending,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (syncingPending) {
+                            "Sincronizando..."
+                        } else {
+                            "Sincronizar $pendingEvents pendente(s)"
+                        },
+                    )
                 }
             }
 
             error?.let { message ->
-                val faceNotRecognized = message.startsWith("ROSTO NÃO RECONHECIDO", ignoreCase = true)
+                val faceNotRecognized = message.startsWith(
+                    "ROSTO NÃO RECONHECIDO",
+                    ignoreCase = true,
+                )
                 Surface(
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     color = Color(0xFF3A1D1A),
                     contentColor = Color(0xFFFFDAD6),
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(
-                            if (faceNotRecognized) "Rosto não reconhecido" else "Não foi possível continuar",
+                            if (faceNotRecognized) {
+                                "Rosto não reconhecido"
+                            } else {
+                                "Não foi possível registrar"
+                            },
                             style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold,
                         )
                         Text(
                             if (faceNotRecognized) {
-                                "Olhe de frente, mantenha o rosto no guia e tente novamente."
+                                "Olhe de frente, centralize o rosto e tente novamente."
                             } else {
                                 message
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center,
                             color = Color(0xFFFFDAD6).copy(alpha = 0.82f),
                         )
                     }
@@ -608,6 +816,7 @@ private fun KioskFaceGuide(
     active: Boolean,
     warning: Boolean,
     ready: Boolean,
+    expanded: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val targetColor = when {
@@ -618,13 +827,16 @@ private fun KioskFaceGuide(
     }
     val guideColor by animateColorAsState(
         targetValue = targetColor,
-        animationSpec = tween(PontoCafeMotion.Standard, easing = PontoCafeMotion.EmphasizedEasing),
+        animationSpec = tween(
+            PontoCafeMotion.Standard,
+            easing = PontoCafeMotion.EmphasizedEasing,
+        ),
         label = "kiosk-guide-color",
     )
 
     Canvas(
         modifier = modifier
-            .fillMaxWidth(0.70f)
+            .fillMaxWidth(if (expanded) 0.46f else 0.72f)
             .aspectRatio(0.80f),
     ) {
         val stroke = (if (ready || warning) 4.2.dp else 3.4.dp).toPx()
@@ -635,13 +847,61 @@ private fun KioskFaceGuide(
         val right = size.width - inset
         val bottom = size.height - inset
 
-        drawLine(guideColor, Offset(left, top + cornerLength), Offset(left, top), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(left, top), Offset(left + cornerLength, top), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(right - cornerLength, top), Offset(right, top), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(right, top), Offset(right, top + cornerLength), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(left, bottom - cornerLength), Offset(left, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(left, bottom), Offset(left + cornerLength, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(right - cornerLength, bottom), Offset(right, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(guideColor, Offset(right, bottom), Offset(right, bottom - cornerLength), stroke, cap = StrokeCap.Round)
+        drawLine(
+            guideColor,
+            Offset(left, top + cornerLength),
+            Offset(left, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, top),
+            Offset(left + cornerLength, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right - cornerLength, top),
+            Offset(right, top),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right, top),
+            Offset(right, top + cornerLength),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, bottom - cornerLength),
+            Offset(left, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(left, bottom),
+            Offset(left + cornerLength, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right - cornerLength, bottom),
+            Offset(right, bottom),
+            stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            guideColor,
+            Offset(right, bottom),
+            Offset(right, bottom - cornerLength),
+            stroke,
+            cap = StrokeCap.Round,
+        )
     }
 }
