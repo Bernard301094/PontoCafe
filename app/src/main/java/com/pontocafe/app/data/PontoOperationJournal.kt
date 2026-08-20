@@ -110,13 +110,19 @@ class PontoOperationJournal(context: Context) {
     }
 
     @Synchronized
-    fun isUncertain(collaboratorId: String): Boolean {
+    fun pendingUncertainOperationId(collaboratorId: String): String? {
         val now = System.currentTimeMillis()
         val current = read()
         val active = current.operations.filter { now - it.createdAtMillis <= OPERATION_TTL_MILLIS }
         if (active.size != current.operations.size) write(current.copy(operations = active))
-        return active.any { it.collaboratorId == collaboratorId && it.uncertain }
+        return active.firstOrNull {
+            it.collaboratorId == collaboratorId && it.uncertain
+        }?.operationId
     }
+
+    @Synchronized
+    fun isUncertain(collaboratorId: String): Boolean =
+        pendingUncertainOperationId(collaboratorId) != null
 
     @Synchronized
     fun complete(operationId: String) {
