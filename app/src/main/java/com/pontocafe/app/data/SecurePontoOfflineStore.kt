@@ -12,7 +12,6 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -89,13 +88,15 @@ data class PontoOfflineSnapshot(
 )
 
 class SecurePontoOfflineStore(context: Context) {
-    private val prefs = context.getSharedPreferences("pontocafe_offline_secure", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("pontocafe_offline_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_offline_key"
     private val payloadKey = "offline_snapshot"
     private val gson = Gson()
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val operationJournal = PontoOperationJournal(appContext)
 
     @Volatile
     private var cachedSnapshot: PontoOfflineSnapshot? = null
@@ -201,6 +202,7 @@ class SecurePontoOfflineStore(context: Context) {
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
         )
+        operationJournal.completeForCollaborator(collaboratorId)
     }
 
     @Synchronized
@@ -236,6 +238,7 @@ class SecurePontoOfflineStore(context: Context) {
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
         )
+        operationJournal.completeForCollaborator(collaboratorId)
     }
 
     @Synchronized
@@ -252,6 +255,7 @@ class SecurePontoOfflineStore(context: Context) {
         require(current.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
 
+        val operationId = operationJournal.prepare(colaborador.id, embedding)
         val now = ZonedDateTime.now(timezone)
         val today = now.format(dateFormatter)
         val completed = current.pausasConcluidas.orEmpty().firstOrNull {
@@ -259,7 +263,7 @@ class SecurePontoOfflineStore(context: Context) {
         }
         if (completed != null) {
             val repeatedAttempt = OfflinePontoEvent(
-                eventId = UUID.randomUUID().toString(),
+                eventId = operationId,
                 acao = "INICIAR",
                 colaboradorId = colaborador.id,
                 nome = colaborador.nome,
@@ -276,6 +280,7 @@ class SecurePontoOfflineStore(context: Context) {
                     pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
                 ),
             )
+            operationJournal.complete(operationId)
             val minutos = completed.duracaoSegundos / 60
             val segundos = completed.duracaoSegundos % 60
             val duracao = if (segundos > 0) "${minutos} min ${segundos} s" else "${minutos} min"
@@ -286,7 +291,7 @@ class SecurePontoOfflineStore(context: Context) {
         }
 
         val event = OfflinePontoEvent(
-            eventId = UUID.randomUUID().toString(),
+            eventId = operationId,
             acao = "INICIAR",
             colaboradorId = colaborador.id,
             nome = colaborador.nome,
@@ -313,6 +318,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
             ),
         )
+        operationJournal.complete(operationId)
         return localPause
     }
 
@@ -329,9 +335,10 @@ class SecurePontoOfflineStore(context: Context) {
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
         val open = current.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
             ?: error("Não existe pausa local aberta para este colaborador.")
+        val operationId = operationJournal.prepare(colaborador.id, embedding)
         val now = ZonedDateTime.now(timezone)
         val event = OfflinePontoEvent(
-            eventId = UUID.randomUUID().toString(),
+            eventId = operationId,
             acao = "FINALIZAR",
             colaboradorId = colaborador.id,
             nome = colaborador.nome,
@@ -367,6 +374,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasConcluidas = completedToday,
             ),
         )
+        operationJournal.complete(operationId)
         return open to duration
     }
 
@@ -408,6 +416,7 @@ class SecurePontoOfflineStore(context: Context) {
                 ultimoServidorOkEmMillis = now,
             ),
         )
+        processed.forEach(operationJournal::complete)
     }
 
     @Synchronized
@@ -421,12 +430,14 @@ class SecurePontoOfflineStore(context: Context) {
                 falhasSincronizacao = current.falhasSincronizacao.filterNot { it.eventId in ids },
             ),
         )
+        ids.forEach(operationJournal::complete)
     }
 
     @Synchronized
     fun clear() {
         cachedSnapshot = PontoOfflineSnapshot()
         prefs.edit().remove(payloadKey).apply()
+        operationJournal.clear()
     }
 
     private fun readInternal(): PontoOfflineSnapshot {
