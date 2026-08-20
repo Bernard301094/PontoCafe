@@ -3,15 +3,19 @@ package com.pontocafe.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChevronRight
@@ -28,6 +32,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,29 +70,69 @@ internal fun PeopleCompactSummary(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                "$total colaboradores",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                "$pending ${if (pending == 1) "rosto pendente" else "rostos pendentes"}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (pending > 0) LocalPontoCafeSemanticColors.current.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (accessCount != null) {
-                Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    "$accessCount acessos",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        BoxWithConstraints {
+            val narrowWithAccess = maxWidth < 420.dp && accessCount != null
+            if (narrowWithAccess) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text(
+                            "$total colaboradores",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "$pending pendente${if (pending == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (pending > 0) {
+                                LocalPontoCafeSemanticColors.current.warning
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    Text(
+                        "$accessCount acessos",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "$total colaboradores",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "$pending ${if (pending == 1) "rosto pendente" else "rostos pendentes"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (pending > 0) {
+                            LocalPontoCafeSemanticColors.current.warning
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    if (accessCount != null) {
+                        Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "$accessCount acessos",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -152,11 +197,15 @@ internal fun PeopleFaceFilterRow(
             FilterChip(
                 selected = activeExtraFilters > 0,
                 onClick = onOpenFilters,
-                leadingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(17.dp)) },
-                label = {
-                    Text(
-                        if (activeExtraFilters > 0) "Filtros $activeExtraFilters" else "Filtros",
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.FilterList,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
                     )
+                },
+                label = {
+                    Text(if (activeExtraFilters > 0) "Filtros $activeExtraFilters" else "Filtros")
                 },
             )
         }
@@ -398,7 +447,10 @@ private fun PersonActionContent(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.MoreHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(if (showMore) "Ocultar opções" else "Mais opções", modifier = Modifier.padding(start = 7.dp))
+                Text(
+                    if (showMore) "Ocultar opções" else "Mais opções",
+                    modifier = Modifier.padding(start = 7.dp),
+                )
             }
         }
 
@@ -445,6 +497,7 @@ private fun PersonActionContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PersonActionBottomSheet(
     person: Colaborador,
@@ -527,12 +580,14 @@ internal fun PersonDetailPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
             )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PeopleFilterSheet(
     sectors: List<String>,
@@ -552,7 +607,11 @@ internal fun PeopleFilterSheet(
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Text("Filtrar pessoas", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Filtrar pessoas",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
 
             Text("Setor", style = MaterialTheme.typography.titleSmall)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
