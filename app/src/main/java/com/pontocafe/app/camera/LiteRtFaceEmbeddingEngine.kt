@@ -304,9 +304,15 @@ class LiteRtFaceEmbeddingEngine(
     }
 
     private fun createGpuInterpreter(): InterpreterApi {
+        // Preservamos FP32 para reduzir deriva numérica entre embeddings gerados
+        // por CPU e GPU. Como o dispositivo mede a latência real, a GPU só fica
+        // ativa se ainda for mais rápida com essa configuração conservadora.
+        val delegateOptions = GpuDelegateFactory.Options()
+            .setPrecisionLossAllowed(false)
+            .setInferencePreference(GpuDelegateFactory.Options.INFERENCE_PREFERENCE_SUSTAINED_SPEED)
         val options = InterpreterApi.Options()
             .setRuntime(TfLiteRuntime.FROM_SYSTEM_ONLY)
-            .addDelegateFactory(GpuDelegateFactory())
+            .addDelegateFactory(GpuDelegateFactory(delegateOptions))
         return InterpreterApi.create(loadModelBuffer(), options)
     }
 
@@ -334,7 +340,7 @@ class LiteRtFaceEmbeddingEngine(
         prefs.edit().putString(runtimePreferenceKey(), backend.name).apply()
     }
 
-    private fun runtimePreferenceKey(): String = "backend_${MODEL_VERSION}_v2"
+    private fun runtimePreferenceKey(): String = "backend_${MODEL_VERSION}_v3"
 
     private fun loadModelBuffer(): ByteBuffer {
         val descriptor = context.assets.openFd(assetName)
