@@ -63,8 +63,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.14.0"
+        versionCode = 36
+        versionName = "0.15.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
