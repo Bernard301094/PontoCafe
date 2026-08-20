@@ -48,8 +48,6 @@ import kotlin.math.abs
 
 private const val FACE_CAMERA_TAG = "PontoCafeFaceCamera"
 private const val OBSERVATION_DELIVERY_INTERVAL_MS = 50L
-private const val PRESENCE_STABLE_FRAMES = 2
-private const val DETAILED_EXIT_FRAMES = 3
 
 /**
  * Sinal mínimo, em memória, da câmera ativa. O fluxo rápido usa apenas a
@@ -72,7 +70,6 @@ data class FaceObservation(
     val roll: Float = 0f,
     val imageWidth: Int = 0,
     val imageHeight: Int = 0,
-    val detailedFeatures: Boolean = true,
 ) {
     val faceWidthRatio: Float
         get() = if (imageWidth > 0 && bounds != null) bounds.width().toFloat() / imageWidth else 0f
@@ -87,22 +84,15 @@ data class FaceObservation(
                 abs(centerY - imageHeight / 2f) <= imageHeight * 0.25f
         }
 
-    /** Geometria barata suficiente para decidir quando ativar landmarks/liveness. */
-    val isGeometryReady: Boolean
-        get() = faceCount == 1 && bounds != null && isCentered && faceWidthRatio in 0.22f..0.68f
-
-    /**
-     * Poses e liveness só usam observações do detector detalhado. Assim os dois
-     * frames rápidos de presença nunca contam como validação biométrica.
-     */
     val isWellPositioned: Boolean
-        get() = detailedFeatures && isGeometryReady && abs(roll) <= 12f
+        get() = faceCount == 1 && bounds != null && isCentered &&
+            faceWidthRatio in 0.22f..0.68f && abs(roll) <= 12f
 
     val isFrontal: Boolean
         get() = isWellPositioned && abs(yaw) <= 15f && abs(pitch) <= 15f
 
     val eyeClassificationAvailable: Boolean
-        get() = detailedFeatures && leftEyeOpen != null && rightEyeOpen != null
+        get() = leftEyeOpen != null && rightEyeOpen != null
 
     val eyesClosed: Boolean
         get() = eyeClassificationAvailable && leftEyeOpen!! < 0.35f && rightEyeOpen!! < 0.35f
@@ -161,22 +151,16 @@ class BlinkLiveness {
     }
 }
 
-private fun Face.toObservation(
-    total: Int,
-    imageWidth: Int,
-    imageHeight: Int,
-    detailed: Boolean,
-) = FaceObservation(
+private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = FaceObservation(
     faceCount = total,
     bounds = boundingBox,
-    leftEyeOpen = if (detailed) leftEyeOpenProbability else null,
-    rightEyeOpen = if (detailed) rightEyeOpenProbability else null,
-    pitch = if (detailed) headEulerAngleX else 0f,
-    yaw = if (detailed) headEulerAngleY else 0f,
-    roll = if (detailed) headEulerAngleZ else 0f,
+    leftEyeOpen = leftEyeOpenProbability,
+    rightEyeOpen = rightEyeOpenProbability,
+    pitch = headEulerAngleX,
+    yaw = headEulerAngleY,
+    roll = headEulerAngleZ,
     imageWidth = imageWidth,
     imageHeight = imageHeight,
-    detailedFeatures = detailed,
 )
 
 private fun Face.landmarkPoint(type: Int): PointF? =
@@ -189,26 +173,20 @@ private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
 }
 
 /**
- * Pipeline ML Kit em duas etapas:
- * 1) presença/posição com FAST sem landmarks/classificação;
- * 2) detector detalhado somente quando existe um rosto estável no guia.
- *
- * Nenhum critério de liveness é reduzido: os estados biométricos só avançam
- * quando [FaceObservation.detailedFeatures] é verdadeiro.
+ * Pipeline comprovado do PontoCafe: um único detector ML Kit FAST fornece, no
+ * mesmo frame, caixa facial, pose, olhos e landmarks. Isso evita divergência de
+ * estado entre dois detectores e preserva o comportamento que já reconhecia os
+ * colaboradores corretamente.
  */
 @SuppressLint("UnsafeOptInUsageError")
 private fun analyzer(
-    presenceDetector: FaceDetector,
-    detailedDetector: FaceDetector,
+    detector: FaceDetector,
     captureController: FrameCaptureController,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
 ): ImageAnalysis.Analyzer {
     var lastObservationDeliveryAt = 0L
     var lastDeliveredFaceCount = -1
-    var detailedMode = false
-    var stablePresenceFrames = 0
-    var detailedMissFrames = 0
 
     return ImageAnalysis.Analyzer { imageProxy ->
         try {
@@ -217,45 +195,13 @@ private fun analyzer(
             val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
             val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
             val image = InputImage.fromMediaImage(mediaImage, rotation)
-            val detailedThisFrame = detailedMode
-            val detector = if (detailedThisFrame) detailedDetector else presenceDetector
 
             val faces = Tasks.await(detector.process(image))
             val observation = if (faces.size == 1) {
-                faces.first().toObservation(
-                    total = faces.size,
-                    imageWidth = uprightWidth,
-                    imageHeight = uprightHeight,
-                    detailed = detailedThisFrame,
-                )
+                faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
             } else {
-                FaceObservation(
-                    faceCount = faces.size,
-                    imageWidth = uprightWidth,
-                    imageHeight = uprightHeight,
-                    detailedFeatures = detailedThisFrame,
-                )
+                FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
             }
-
-            if (!detailedThisFrame) {
-                stablePresenceFrames = if (observation.isGeometryReady) stablePresenceFrames + 1 else 0
-                if (stablePresenceFrames >= PRESENCE_STABLE_FRAMES) {
-                    detailedMode = true
-                    detailedMissFrames = 0
-                }
-            } else {
-                if (faces.size == 1) {
-                    detailedMissFrames = 0
-                } else {
-                    detailedMissFrames += 1
-                    if (detailedMissFrames >= DETAILED_EXIT_FRAMES) {
-                        detailedMode = false
-                        stablePresenceFrames = 0
-                        detailedMissFrames = 0
-                    }
-                }
-            }
-
             FacePresenceMonitor.faceCount = observation.faceCount
 
             val now = SystemClock.uptimeMillis()
@@ -270,43 +216,37 @@ private fun analyzer(
             }
 
             if (faces.size == 1 && captureController.consume()) {
-                if (!detailedThisFrame) {
-                    // Uma captura nunca usa o detector barato; aguardamos o frame
-                    // detalhado seguinte para garantir landmarks e pose completos.
-                    captureController.retry()
-                } else {
-                    try {
-                        val face = faces.first()
-                        val sourceBitmap = imageProxy.toBitmap()
-                        val uprightBitmap = try {
-                            rotate(sourceBitmap, rotation)
-                        } catch (error: Throwable) {
-                            if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
-                            throw error
-                        }
-                        if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
-                            sourceBitmap.recycle()
-                        }
-
-                        try {
-                            onFrame(
-                                FaceFrame(
-                                    bitmap = uprightBitmap,
-                                    faceBounds = Rect(face.boundingBox),
-                                    leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
-                                    rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
-                                    noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
-                                    mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
-                                ),
-                            )
-                        } catch (error: Throwable) {
-                            if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
-                            throw error
-                        }
+                try {
+                    val face = faces.first()
+                    val sourceBitmap = imageProxy.toBitmap()
+                    val uprightBitmap = try {
+                        rotate(sourceBitmap, rotation)
                     } catch (error: Throwable) {
-                        captureController.retry()
-                        Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
+                        if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
+                        throw error
                     }
+                    if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
+                        sourceBitmap.recycle()
+                    }
+
+                    try {
+                        onFrame(
+                            FaceFrame(
+                                bitmap = uprightBitmap,
+                                faceBounds = Rect(face.boundingBox),
+                                leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
+                                rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
+                                noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
+                                mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
+                            ),
+                        )
+                    } catch (error: Throwable) {
+                        if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
+                        throw error
+                    }
+                } catch (error: Throwable) {
+                    captureController.retry()
+                    Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
                 }
             }
         } catch (error: InterruptedException) {
@@ -389,28 +329,17 @@ fun FaceCameraPreview(
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val cameraAlive = remember { AtomicBoolean(true) }
-
-    val presenceDetector = remember {
-        FaceDetection.getClient(
-            FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
-                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
-                .setMinFaceSize(0.20f)
-                .build(),
-        )
-    }
-    val detailedDetector = remember {
+    val detector = remember {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                 .setMinFaceSize(0.20f)
+                .enableTracking()
                 .build(),
         )
     }
-
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
@@ -463,8 +392,7 @@ fun FaceCameraPreview(
                         it.setAnalyzer(
                             executor,
                             analyzer(
-                                presenceDetector = presenceDetector,
-                                detailedDetector = detailedDetector,
+                                detector = detector,
                                 captureController = captureController,
                                 onObservation = { observation ->
                                     mainExecutor.execute {
@@ -515,8 +443,7 @@ fun FaceCameraPreview(
             cameraAlive.set(false)
             runCatching { cameraProvider?.unbindAll() }
             executor.shutdownNow()
-            runCatching { presenceDetector.close() }
-            runCatching { detailedDetector.close() }
+            runCatching { detector.close() }
         }
     }
 }
