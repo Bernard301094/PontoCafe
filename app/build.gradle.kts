@@ -63,8 +63,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
-        versionName = "0.10.7"
+        versionCode = 30
+        versionName = "0.10.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -124,8 +124,10 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraX")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
+    // CPU/XNNPACK intencional: preserva o mesmo espaço de embeddings dos
+    // templates faciais já cadastrados. Delegate GPU só volta após calibração
+    // explícita contra o catálogo existente.
     implementation("com.google.android.gms:play-services-tflite-java:16.5.0")
-    implementation("com.google.android.gms:play-services-tflite-gpu:16.5.0")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
