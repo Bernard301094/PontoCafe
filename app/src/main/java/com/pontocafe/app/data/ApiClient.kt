@@ -126,6 +126,7 @@ data class VerificarBiometriaResponse(
 )
 
 data class IniciarPausaRequest(
+    val operacaoId: String,
     val colaboradorId: String,
     val verificacaoToken: String,
     val periodo: String? = null,
@@ -142,7 +143,12 @@ data class IniciarPausaResponse(
     val retornoAteLocal: String,
 )
 
-data class FinalizarPausaRequest(val colaboradorId: String, val verificacaoToken: String)
+data class FinalizarPausaRequest(
+    val operacaoId: String,
+    val colaboradorId: String,
+    val verificacaoToken: String,
+)
+
 data class FinalizarPausaResponse(
     val id: String,
     val inicioLocal: String,
@@ -201,8 +207,8 @@ interface PontoCafeApi {
     @POST("ponto/biometria/identificar") suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
     @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
     @POST("ponto/registro-rapido") suspend fun registroRapido(@Body body: RegistroRapidoRequest): Response<RegistroRapidoResponse>
-    @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): IniciarPausaResponse
-    @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): FinalizarPausaResponse
+    @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): Response<IniciarPausaResponse>
+    @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): Response<FinalizarPausaResponse>
     @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
 }
 
@@ -258,10 +264,9 @@ class PontoCafeRepository(
         modelo: String,
         versaoModelo: String,
     ): IdentificarBiometriaResponse {
-        // Se o fast-path pode ter COMMITado mas a resposta se perdeu, NÃO
-        // consultamos o fluxo legado: ele poderia interpretar o início recém
-        // gravado como um retorno. O ViewModel já trata IOException como caminho
-        // offline e a fila reutilizará o mesmo operationId para reconciliação.
+        // Uma mutação anterior com resposta incerta precisa ser reconciliada
+        // antes de consultar o estado atual; caso contrário um INICIO já
+        // commitado poderia ser reinterpretado como FINALIZAR.
         if (operationJournal.isUncertain(colaboradorId)) {
             throw IOException("O resultado do registro anterior ainda precisa ser reconciliado com o servidor.")
         }
@@ -281,13 +286,6 @@ class PontoCafeRepository(
      * ANTES da mutação de rede. Isso cobre inclusive um encerramento abrupto do
      * processo depois de enviar a requisição, mas antes de receber/tratar a
      * resposta.
-     *
-     * Uma resposta INICIO/RETORNO permanece incerta até o
-     * SecurePontoOfflineStore persistir o novo estado local de forma durável.
-     * Assim um crash entre resposta HTTP e snapshot local não converte o retry
-     * seguinte em uma segunda mutação.
-     *
-     * 404/405/501 continuam significando apenas Worker antigo sem fast-path.
      */
     suspend fun registrarRapido(
         colaboradorId: String,
@@ -324,11 +322,7 @@ class PontoCafeRepository(
             throw HttpException(response)
         }
 
-        val result = response.body()
-        if (result == null) {
-            return null
-        }
-
+        val result = response.body() ?: return null
         when (result.status) {
             "INICIO", "RETORNO" -> Unit
             else -> operationJournal.complete(operationId)
@@ -341,16 +335,62 @@ class PontoCafeRepository(
         verificacaoToken: String,
         periodo: String? = null,
         codigoAutorizacao: String? = null,
-    ): IniciarPausaResponse = api.iniciarPausa(
-        IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao),
-    ).also {
-        operationJournal.completeForCollaborator(colaboradorId)
+    ): IniciarPausaResponse = executarMutacaoConfirmada(
+        colaboradorId = colaboradorId,
+        acao = "INICIAR",
+    ) { operationId ->
+        api.iniciarPausa(
+            IniciarPausaRequest(
+                operacaoId = operationId,
+                colaboradorId = colaboradorId,
+                verificacaoToken = verificacaoToken,
+                periodo = periodo,
+                codigoAutorizacao = codigoAutorizacao,
+            ),
+        )
     }
 
-    suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse =
-        api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken)).also {
-            operationJournal.completeForCollaborator(colaboradorId)
+    suspend fun finalizar(
+        colaboradorId: String,
+        verificacaoToken: String,
+    ): FinalizarPausaResponse = executarMutacaoConfirmada(
+        colaboradorId = colaboradorId,
+        acao = "FINALIZAR",
+    ) { operationId ->
+        api.finalizarPausa(
+            FinalizarPausaRequest(
+                operacaoId = operationId,
+                colaboradorId = colaboradorId,
+                verificacaoToken = verificacaoToken,
+            ),
+        )
+    }
+
+    /**
+     * INICIAR/FINALIZAR confirmados pelo usuário também participam do protocolo
+     * exactly-once. Em 4xx sabemos que a mutação não foi aceita e podemos liberar
+     * o UUID; em IOException/5xx/cancelamento ele permanece incerto. Em sucesso,
+     * quem libera é SecurePontoOfflineStore somente depois do snapshot durável.
+     */
+    private suspend fun <T> executarMutacaoConfirmada(
+        colaboradorId: String,
+        acao: String,
+        request: suspend (operationId: String) -> Response<T>,
+    ): T {
+        val operationId = operationJournal.prepareAction(colaboradorId, acao)
+        operationJournal.markUncertain(operationId)
+
+        val response = request(operationId)
+        if (!response.isSuccessful) {
+            if (response.code() < 500) {
+                operationJournal.complete(operationId)
+            }
+            throw HttpException(response)
         }
+
+        return response.body()
+            ?: throw IOException("O servidor confirmou a requisição sem retornar o resultado do Ponto.")
+    }
 
     suspend fun sincronizarOffline(eventos: List<OfflinePontoEvent>): OfflineSyncResponse =
         api.sincronizarOffline(OfflineSyncRequest(eventos))
