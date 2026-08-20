@@ -29,3 +29,10 @@ test('admin e supervisor usam o seletor único de fonte do avatar', () => {
   assert.doesNotMatch(adminPeople, /avatarLauncher\.launch\("image\/\*"\)/)
   assert.doesNotMatch(supervisorPeople, /avatarLauncher\.launch\("image\/\*"\)/)
 })
+
+test('avatar continua explicitamente separado da biometria facial', () => {
+  assert.match(dialog, /somente como avatar/)
+  assert.match(dialog, /separada da biometria facial/)
+  assert.match(adminPeople, /não é usada no reconhecimento facial/)
+  assert.match(supervisorPeople, /não é usado no reconhecimento/)
+})
