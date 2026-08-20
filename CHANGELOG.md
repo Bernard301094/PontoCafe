@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.9 — Pessoas com UX responsiva
+
+### Pessoas
+- Reduz o cabeçalho e remove a grade de métricas duplicadas, mantendo um resumo compacto de colaboradores, pendências e acessos.
+- Separa **Colaboradores** de **Acessos** como contextos diferentes em vez de tratá-los como filtros equivalentes.
+- Mantém busca e filtros fora da lista rolável para que permaneçam acessíveis durante a navegação.
+- Adiciona filtros por biometria, setor e turno, com contador de filtros ativos.
+- Substitui cards expansíveis por um painel de ações em `ModalBottomSheet` no celular, preservando a posição da lista.
+- Em telas grandes, usa experiência master-detail: lista à esquerda e detalhes/ações da pessoa à direita.
+- Compacta os cards de colaboradores e remove o selo redundante de avatar.
+- Move ações destrutivas para **Mais opções**, reduzindo competição visual com cadastro/atualização de biometria.
+- Troca os quatro botões permanentes do topo por CTA contextual flutuante e menu secundário de ferramentas.
+- Melhora seleção em lote com `Selecionar todos`, contador contextual e barra de ação persistente.
+- Compartilha os principais componentes de lista, filtros e ações entre Administrador e Supervisor para reduzir divergência de UX.
+- Preserva regras de negócio, biometria, FaceNet, liveness, permissões e backend; a alteração é restrita à experiência da tela Pessoas.
+
 ## 0.10.8 — Restauração do reconhecimento facial compatível
 
 ### Biometria
