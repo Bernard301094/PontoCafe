@@ -31,8 +31,7 @@ private data class PontoOperationJournalPayload(
  *
  * Não guarda foto, embedding, token de sessão, PIN ou senha. O único vínculo
  * biométrico persistido é um SHA-256 dos bits do embedding já calculado em RAM.
- * Isso permite que a MESMA tentativa atravesse uma resposta de rede incerta e
- * vire evento offline sem receber outro UUID.
+ * Operações legadas de INICIAR/FINALIZAR usam apenas uma etiqueta de ação.
  *
  * As gravações usam commit() intencionalmente: o UUID precisa estar fisicamente
  * persistido ANTES da mutação de rede. A frequência é baixa (uma escrita por
@@ -44,11 +43,22 @@ class PontoOperationJournal(context: Context) {
 
     @Synchronized
     fun prepare(collaboratorId: String, embedding: FloatArray): String {
-        require(collaboratorId.isNotBlank())
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() })
+        return prepareInternal(collaboratorId, fingerprint(embedding))
+    }
+
+    @Synchronized
+    fun prepareAction(collaboratorId: String, action: String): String {
+        val normalized = action.trim().uppercase()
+        require(normalized == "INICIAR" || normalized == "FINALIZAR")
+        return prepareInternal(collaboratorId, "action:$normalized")
+    }
+
+    private fun prepareInternal(collaboratorId: String, operationFingerprint: String): String {
+        require(collaboratorId.isNotBlank())
+        require(operationFingerprint.isNotBlank())
 
         val now = System.currentTimeMillis()
-        val fingerprint = fingerprint(embedding)
         val current = read()
         val active = current.operations.filter { now - it.createdAtMillis <= OPERATION_TTL_MILLIS }
         val pruned = active.size != current.operations.size
@@ -63,7 +73,7 @@ class PontoOperationJournal(context: Context) {
         }
 
         val sameAttempt = active.firstOrNull {
-            it.collaboratorId == collaboratorId && it.embeddingFingerprint == fingerprint
+            it.collaboratorId == collaboratorId && it.embeddingFingerprint == operationFingerprint
         }
         if (sameAttempt != null) {
             if (pruned) write(PontoOperationJournalPayload(active))
@@ -73,7 +83,7 @@ class PontoOperationJournal(context: Context) {
         val operation = PendingPontoOperation(
             operationId = UUID.randomUUID().toString(),
             collaboratorId = collaboratorId,
-            embeddingFingerprint = fingerprint,
+            embeddingFingerprint = operationFingerprint,
             createdAtMillis = now,
         )
         val next = active.filterNot { it.collaboratorId == collaboratorId } + operation
