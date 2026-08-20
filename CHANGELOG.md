@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0 — Área protegida + Ponto com UX responsiva
+
+### Área protegida
+- Reduz a altura e o excesso de espaço da tela de desbloqueio, mantendo o conteúdo centralizado e limitado a uma largura confortável em celulares e telas maiores.
+- Reorganiza a hierarquia para mostrar primeiro **Área protegida**, perfil ativo e estado da sessão, com texto mais curto e direto.
+- Destaca **Desbloquear agora** como ação principal e deixa **Voltar ao Ponto Café** como ação secundária.
+- Mantém desbloqueio automático por `BiometricPrompt` e o fallback seguro para credencial do dispositivo; nenhuma proteção foi reduzida.
+
+### Ponto Café
+- Reorganiza a tela de bater ponto em torno da câmera, com scrims para legibilidade, guia facial responsivo e painel de instruções mais compacto.
+- O topo passa a comunicar claramente **Bater ponto por reconhecimento facial** e o estado Online/Offline sem competir com a câmera.
+- Melhora os estados em tempo real: aproximação, múltiplos rostos, desafio de prova de vida, identidade pronta, confirmação do ponto e rosto não reconhecido.
+- A permissão de câmera ganha uma tela própria mais objetiva, explicando por que a câmera é necessária.
+- Redesenha os comprovantes de saída/retorno e os bloqueios para diferenciar visualmente sucesso, limite excedido, folga já utilizada, 2/2 consumidas e fora do horário.
+- Mantém os tempos atuais de feedback: 3 s para registro válido, 5 s para folga já utilizada e 2 s para bloqueios genéricos.
+- Preserva a precedência operacional existente: 2/2 continua acima de folga repetida e de fora do horário.
+- Não altera FaceNet, embeddings, thresholds, liveness, CameraX, backend, PINs ou regras de pausa.
+
 ## 0.11.0 — Gestão com UX responsiva
 
 ### Gestão
