@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.8 — Restauração do reconhecimento facial compatível
+
+### Biometria
+- Remove a aceleração GPU experimental do FaceNet para preservar compatibilidade com os templates faciais já cadastrados.
+- O embedding canônico volta a usar CPU/XNNPACK com 2 threads, o mesmo recorte, prewhitening e normalização utilizados na geração das biometrias existentes.
+- Restaura um único detector ML Kit FAST com landmarks e classificação no mesmo frame, evitando divergência entre presença, liveness e captura.
+- Mantém o reconhecimento adaptativo de forma progressiva: primeiro tenta o embedding canônico e só calcula recortes alternativos do mesmo frame se o canônico realmente falhar.
+- O cadastro facial continua usando somente o embedding canônico; nenhuma biometria existente precisa ser recadastrada.
+- Mantém CameraX 640×480 e `STRATEGY_KEEP_ONLY_LATEST`.
+
 ## 0.10.7 — Reconhecimento adaptativo + bloqueio diário + avatar por câmera
 
 ### Ponto Café
