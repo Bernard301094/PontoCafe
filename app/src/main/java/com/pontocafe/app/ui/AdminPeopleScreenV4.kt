@@ -2,10 +2,8 @@ package com.pontocafe.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,44 +13,32 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GroupWork
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -77,7 +63,13 @@ import com.pontocafe.app.domain.CsvCollaboratorParser
 import com.pontocafe.app.domain.CsvImportPreview
 import kotlinx.coroutines.launch
 
-private enum class PeopleViewFilterV4 { TEAM, PENDING_FACE, ACCESS }
+private enum class AdminPeopleSection { COLLABORATORS, ACCESS }
+
+private enum class AccessProfileFilter(val label: String) {
+    ALL("Todos"),
+    ADMIN("Admin"),
+    SUPERVISOR("Supervisor"),
+}
 
 @Composable
 fun AdminPeopleScreenV4(
@@ -96,8 +88,10 @@ fun AdminPeopleScreenV4(
     val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
 
     var search by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(PeopleViewFilterV4.TEAM) }
-    var expandedId by remember { mutableStateOf<String?>(null) }
+    var section by remember { mutableStateOf(AdminPeopleSection.COLLABORATORS) }
+    var faceFilter by remember { mutableStateOf(PeopleFaceFilter.ALL) }
+    var accessFilter by remember { mutableStateOf(AccessProfileFilter.ALL) }
+    var selectedPersonId by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Colaborador?>(null) }
     var deletingBiometric by remember { mutableStateOf<Colaborador?>(null) }
     var deletingCollaborator by remember { mutableStateOf<Colaborador?>(null) }
@@ -105,11 +99,15 @@ fun AdminPeopleScreenV4(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDialog by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var sectorFilter by remember { mutableStateOf<String?>(null) }
+    var shiftFilter by remember { mutableStateOf<String?>(null) }
     var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
     var avatarBusyId by remember { mutableStateOf<String?>(null) }
     var avatarError by remember { mutableStateOf<String?>(null) }
     var avatarMessage by remember { mutableStateOf<String?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
+    var showToolsMenu by remember { mutableStateOf(false) }
 
     avatarTarget?.let { target ->
         CollaboratorAvatarSourceDialog(
@@ -125,7 +123,8 @@ fun AdminPeopleScreenV4(
                         optimized.size
                     }.onSuccess { bytes ->
                         avatarBusyId = null
-                        avatarMessage = "Avatar de ${target.nome} otimizado para ${(bytes / 1024.0).let { String.format("%.1f", it) }} KB."
+                        avatarTarget = null
+                        avatarMessage = "Avatar de ${target.nome} otimizado para ${String.format("%.1f", bytes / 1024.0)} KB."
                         viewModel.abrirColaboradores()
                     }.onFailure { error ->
                         avatarBusyId = null
@@ -138,13 +137,19 @@ fun AdminPeopleScreenV4(
     }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                ?: error("Não foi possível abrir o arquivo.")
-        }.onSuccess { importPreview = CsvCollaboratorParser.parse(it) }
-            .onFailure { error ->
-                importPreview = CsvImportPreview(emptyList(), listOf(error.message ?: "Não foi possível ler o CSV."))
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: error("Não foi possível abrir o arquivo.")
+            }.onSuccess {
+                importPreview = CsvCollaboratorParser.parse(it)
+            }.onFailure { error ->
+                importPreview = CsvImportPreview(
+                    emptyList(),
+                    listOf(error.message ?: "Não foi possível ler o CSV."),
+                )
             }
+        }
     }
 
     if (showAccountSheet) {
@@ -161,11 +166,16 @@ fun AdminPeopleScreenV4(
     }
 
     editing?.let { collaborator ->
-        EditCollaboratorDialogV4(collaborator, state.carregando, { editing = null }) { name, sector, shift ->
+        EditCollaboratorDialogV4(
+            collaborator = collaborator,
+            loading = state.carregando,
+            onDismiss = { editing = null },
+        ) { name, sector, shift ->
             viewModel.editarColaborador(collaborator, name, sector, shift)
             editing = null
         }
     }
+
     deletingBiometric?.let { collaborator ->
         DeleteBiometricDialogV4(
             collaborator = collaborator,
@@ -174,10 +184,10 @@ fun AdminPeopleScreenV4(
             onConfirm = {
                 reliabilityViewModel.deleteBiometric(collaborator.id)
                 deletingBiometric = null
-                expandedId = null
             },
         )
     }
+
     deletingCollaborator?.let { collaborator ->
         DeleteCollaboratorDialogV4(
             collaborator = collaborator,
@@ -186,19 +196,35 @@ fun AdminPeopleScreenV4(
             onConfirm = {
                 reliabilityViewModel.deleteCollaborator(collaborator.id)
                 deletingCollaborator = null
-                expandedId = null
+                selectedPersonId = null
             },
         )
     }
+
     importPreview?.let { preview ->
-        ImportPreviewDialogV4(preview, reliabilityState.loading, { importPreview = null }) {
-            reliabilityViewModel.importCollaborators(preview.valid)
-            importPreview = null
-        }
+        ImportPreviewDialogV4(
+            preview = preview,
+            loading = reliabilityState.loading,
+            onDismiss = { importPreview = null },
+            onConfirm = {
+                reliabilityViewModel.importCollaborators(preview.valid)
+                importPreview = null
+            },
+        )
     }
+
     if (showBulkDialog) {
-        BulkEditDialogV4(selectedIds.size, reliabilityState.loading, { showBulkDialog = false }) { sector, shift, deactivate ->
-            reliabilityViewModel.updateBulk(selectedIds.toList(), sector, shift, if (deactivate) false else null)
+        BulkEditDialogV4(
+            selectedCount = selectedIds.size,
+            loading = reliabilityState.loading,
+            onDismiss = { showBulkDialog = false },
+        ) { sector, shift, deactivate ->
+            reliabilityViewModel.updateBulk(
+                selectedIds.toList(),
+                sector,
+                shift,
+                if (deactivate) false else null,
+            )
             selectedIds = emptySet()
             selectionMode = false
             showBulkDialog = false
@@ -207,39 +233,152 @@ fun AdminPeopleScreenV4(
 
     val allCollaborators = state.colaboradores.sortedBy { it.nome.lowercase() }
     val pendingFaces = allCollaborators.count { !it.rostoCadastrado }
-    val readyFaces = allCollaborators.size - pendingFaces
     val query = search.trim()
+
+    val sectors = allCollaborators
+        .mapNotNull { it.setor?.trim()?.takeIf(String::isNotBlank) }
+        .distinct()
+        .sortedBy { it.lowercase() }
+
+    val shifts = allCollaborators
+        .mapNotNull { it.turno?.trim()?.takeIf(String::isNotBlank) }
+        .distinct()
+        .sortedBy { it.lowercase() }
+
     val collaborators = allCollaborators.asSequence()
         .filter {
-            query.isBlank() || it.nome.contains(query, true) || it.setor.orEmpty().contains(query, true) || it.turno.orEmpty().contains(query, true)
+            query.isBlank() ||
+                it.nome.contains(query, true) ||
+                it.setor.orEmpty().contains(query, true) ||
+                it.turno.orEmpty().contains(query, true)
         }
-        .filter { filter != PeopleViewFilterV4.PENDING_FACE || !it.rostoCadastrado }
+        .filter { faceFilter != PeopleFaceFilter.PENDING || !it.rostoCadastrado }
+        .filter { sectorFilter == null || it.setor.orEmpty().equals(sectorFilter, ignoreCase = true) }
+        .filter { shiftFilter == null || it.turno.orEmpty().equals(shiftFilter, ignoreCase = true) }
         .sortedWith(compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }))
         .toList()
+
     val accounts = state.usuarios.asSequence()
-        .filter { query.isBlank() || it.nome.contains(query, true) || it.email.contains(query, true) || it.perfil.contains(query, true) }
+        .filter {
+            query.isBlank() ||
+                it.nome.contains(query, true) ||
+                it.email.contains(query, true) ||
+                it.perfil.contains(query, true)
+        }
+        .filter { user ->
+            when (accessFilter) {
+                AccessProfileFilter.ALL -> true
+                AccessProfileFilter.ADMIN -> user.perfil.contains("ADMIN", ignoreCase = true)
+                AccessProfileFilter.SUPERVISOR -> user.perfil.contains("SUPERVISOR", ignoreCase = true)
+            }
+        }
         .sortedBy { it.nome.lowercase() }
         .toList()
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val compact = maxWidth < 390.dp
-        val pagePadding = when (pontoCafeWindowSizeClass(maxWidth)) {
+    val selectedPerson = allCollaborators.firstOrNull { it.id == selectedPersonId }
+    val activeExtraFilters = listOfNotNull(sectorFilter, shiftFilter).size
+
+    if (showFilters) {
+        PeopleFilterSheet(
+            sectors = sectors,
+            shifts = shifts,
+            currentSector = sectorFilter,
+            currentShift = shiftFilter,
+            onDismiss = { showFilters = false },
+            onApply = { sector, shift ->
+                sectorFilter = sector
+                shiftFilter = shift
+                showFilters = false
+            },
+        )
+    }
+
+    fun openAvatar(person: Colaborador) {
+        avatarError = null
+        avatarMessage = null
+        avatarTarget = person
+    }
+
+    fun removeAvatar(person: Colaborador) {
+        avatarBusyId = person.id
+        avatarError = null
+        avatarMessage = null
+        scope.launch {
+            runCatching { avatarRepository.deleteAvatar(person.id) }
+                .onSuccess {
+                    avatarBusyId = null
+                    avatarMessage = "Avatar de ${person.nome} removido."
+                    viewModel.abrirColaboradores()
+                }
+                .onFailure { error ->
+                    avatarBusyId = null
+                    avatarError = error.message ?: "Não foi possível remover o avatar."
+                }
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding(),
+    ) {
+        val windowClass = pontoCafeWindowSizeClass(maxWidth)
+        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED
+        val pagePadding = when (windowClass) {
             PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
-            PontoCafeWindowSizeClass.MEDIUM, PontoCafeWindowSizeClass.EXPANDED -> 20.dp
+            PontoCafeWindowSizeClass.MEDIUM,
+            PontoCafeWindowSizeClass.EXPANDED -> 20.dp
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
-            contentPadding = PaddingValues(
-                start = pagePadding,
-                end = pagePadding,
-                top = PontoCafeSpacing.md,
-                bottom = if (selectionMode) 128.dp else 100.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
-            item("header") {
+        if (!expandedLayout && selectedPerson != null && !selectionMode && section == AdminPeopleSection.COLLABORATORS) {
+            PersonActionBottomSheet(
+                person = selectedPerson,
+                loading = state.carregando || reliabilityState.loading || avatarBusyId == selectedPerson.id,
+                onDismiss = { selectedPersonId = null },
+                onBiometric = {
+                    selectedPersonId = null
+                    viewModel.cadastrarOuAtualizarRosto(selectedPerson)
+                },
+                onAvatar = {
+                    selectedPersonId = null
+                    openAvatar(selectedPerson)
+                },
+                onHistory = {
+                    selectedPersonId = null
+                    reliabilityViewModel.openHistory(selectedPerson.id)
+                },
+                onEdit = {
+                    selectedPersonId = null
+                    editing = selectedPerson
+                },
+                onDeleteAvatar = if (selectedPerson.avatarUrl.isNullOrBlank()) null else {
+                    {
+                        selectedPersonId = null
+                        removeAvatar(selectedPerson)
+                    }
+                },
+                onDeleteFace = if (!selectedPerson.rostoCadastrado) null else {
+                    {
+                        selectedPersonId = null
+                        deletingBiometric = selectedPerson
+                    }
+                },
+                onDeleteCollaborator = {
+                    selectedPersonId = null
+                    deletingCollaborator = selectedPerson
+                },
+            )
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = pagePadding),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
                 PcAreaTopBar(
                     title = "Pessoas",
                     eyebrow = "Administrador",
@@ -248,9 +387,52 @@ fun AdminPeopleScreenV4(
                     onProfileClick = { showAccountSheet = true },
                     onBackToPonto = onClose,
                 )
-            }
-            item("summary") { PeopleSummaryV4(allCollaborators.size, readyFaces, pendingFaces, state.usuarios.size) }
-            item("feedback") {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    PeopleCompactSummary(
+                        total = allCollaborators.size,
+                        pending = pendingFaces,
+                        accessCount = state.usuarios.size,
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    if (section == AdminPeopleSection.COLLABORATORS) {
+                        Box {
+                            IconButton(onClick = { showToolsMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Mais ações")
+                            }
+                            DropdownMenu(
+                                expanded = showToolsMenu,
+                                onDismissRequest = { showToolsMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Importar CSV") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain"))
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas") },
+                                    onClick = {
+                                        showToolsMenu = false
+                                        selectionMode = !selectionMode
+                                        section = AdminPeopleSection.COLLABORATORS
+                                        selectedPersonId = null
+                                        if (!selectionMode) selectedIds = emptySet()
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.GroupWork, contentDescription = null) },
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
                     ReliabilityFeedback(reliabilityViewModel)
@@ -266,350 +448,363 @@ fun AdminPeopleScreenV4(
                         autoDismissMillis = 4_000L,
                     )
                 }
-            }
-            item("primary-actions") {
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        Button(viewModel::abrirNovoColaborador, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Text("Novo colaborador", Modifier.padding(start = 7.dp))
-                        }
-                        OutlinedButton(viewModel::abrirNovaConta, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.Badge, null, Modifier.size(18.dp)); Text("Novo acesso", Modifier.padding(start = 7.dp))
+
+                if (selectionMode) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${selectedIds.size} de ${collaborators.size} selecionado(s)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    "Selecione pessoas para edição em lote.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    selectedIds = if (selectedIds.size == collaborators.size && collaborators.isNotEmpty()) {
+                                        emptySet()
+                                    } else {
+                                        collaborators.mapTo(linkedSetOf()) { it.id }
+                                    }
+                                },
+                            ) {
+                                Text(if (selectedIds.size == collaborators.size && collaborators.isNotEmpty()) "Limpar" else "Todos")
+                            }
+                            TextButton(
+                                onClick = {
+                                    selectionMode = false
+                                    selectedIds = emptySet()
+                                },
+                            ) {
+                                Text("Cancelar")
+                            }
                         }
                     }
                 } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        Button(viewModel::abrirNovoColaborador, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Text("Colaborador", Modifier.padding(start = 7.dp))
-                        }
-                        OutlinedButton(viewModel::abrirNovaConta, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.Badge, null, Modifier.size(18.dp)); Text("Acesso", Modifier.padding(start = 7.dp))
-                        }
-                    }
+                    PeopleSectionSwitch(
+                        collaboratorSelected = section == AdminPeopleSection.COLLABORATORS,
+                        collaboratorCount = allCollaborators.size,
+                        accessCount = state.usuarios.size,
+                        onCollaborators = {
+                            section = AdminPeopleSection.COLLABORATORS
+                            search = ""
+                            selectedPersonId = null
+                        },
+                        onAccess = {
+                            section = AdminPeopleSection.ACCESS
+                            search = ""
+                            selectedPersonId = null
+                        },
+                    )
                 }
-            }
-            item("tools") {
-                val toggleSelection = {
-                    selectionMode = !selectionMode
-                    filter = PeopleViewFilterV4.TEAM
-                    expandedId = null
-                    if (!selectionMode) selectedIds = emptySet()
-                }
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        OutlinedButton(
-                            { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                            Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-                        ) { Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp)); Text("Importar CSV", Modifier.padding(start = 7.dp)) }
-                        OutlinedButton(toggleSelection, Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.GroupWork, null, Modifier.size(18.dp)); Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas", Modifier.padding(start = 7.dp))
-                        }
-                    }
-                } else {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        OutlinedButton(
-                            { fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
-                            Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                        ) { Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp)); Text("Importar", Modifier.padding(start = 7.dp)) }
-                        OutlinedButton(toggleSelection, Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
-                            Icon(Icons.Default.GroupWork, null, Modifier.size(18.dp)); Text(if (selectionMode) "Cancelar" else "Selecionar", Modifier.padding(start = 7.dp))
-                        }
-                    }
-                }
-            }
-            item("search") {
-                OutlinedTextField(
-                    search, { search = it }, Modifier.fillMaxWidth(),
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = { if (search.isNotBlank()) IconButton({ search = "" }) { Icon(Icons.Default.Close, "Limpar busca") } },
-                    label = { Text(if (filter == PeopleViewFilterV4.ACCESS) "Buscar acesso" else "Buscar colaborador") },
-                    placeholder = { Text(if (filter == PeopleViewFilterV4.ACCESS) "Nome, e-mail ou perfil" else "Nome, setor ou turno") },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.large,
+
+                PeopleSearchField(
+                    value = search,
+                    onValueChange = { search = it },
+                    accessMode = section == AdminPeopleSection.ACCESS,
                 )
-            }
-            item("filters") {
-                LazyRow(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
-                ) {
-                    items(PeopleViewFilterV4.entries, key = { it.name }) { item ->
-                        val label = when (item) {
-                            PeopleViewFilterV4.TEAM -> "Equipe ${allCollaborators.size}"
-                            PeopleViewFilterV4.PENDING_FACE -> "Pendentes $pendingFaces"
-                            PeopleViewFilterV4.ACCESS -> "Acessos ${state.usuarios.size}"
+
+                if (section == AdminPeopleSection.COLLABORATORS) {
+                    PeopleFaceFilterRow(
+                        selected = faceFilter,
+                        total = allCollaborators.size,
+                        pending = pendingFaces,
+                        activeExtraFilters = activeExtraFilters,
+                        onSelected = { faceFilter = it },
+                        onOpenFilters = { showFilters = true },
+                    )
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        items(AccessProfileFilter.entries, key = { it.name }) { item ->
+                            FilterChip(
+                                selected = accessFilter == item,
+                                onClick = { accessFilter = item },
+                                label = { Text(item.label) },
+                            )
                         }
-                        FilterChip(
-                            selected = filter == item,
-                            onClick = { if (!selectionMode || item != PeopleViewFilterV4.ACCESS) { filter = item; expandedId = null } },
-                            enabled = !selectionMode || item != PeopleViewFilterV4.ACCESS,
-                            label = { Text(label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ),
-                        )
+                    }
+                }
+
+                if (section == AdminPeopleSection.COLLABORATORS) {
+                    if (expandedLayout) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+                        ) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.weight(.48f),
+                                contentPadding = PaddingValues(bottom = 96.dp),
+                                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                            ) {
+                                if (collaborators.isEmpty()) {
+                                    item("empty") {
+                                        PcEmptyState(
+                                            title = if (query.isBlank()) "Nenhuma pessoa nesta visão" else "Nenhum resultado",
+                                            supportingText = if (query.isBlank()) {
+                                                "Não há colaboradores que correspondam aos filtros selecionados."
+                                            } else {
+                                                "Tente outro nome, setor ou turno."
+                                            },
+                                            icon = Icons.Default.People,
+                                        )
+                                    }
+                                } else {
+                                    items(collaborators, key = { "person-v5-${it.id}" }) { collaborator ->
+                                        val avatarLoading = avatarBusyId == collaborator.id
+                                        PeoplePersonCard(
+                                            person = collaborator,
+                                            selected = if (selectionMode) {
+                                                collaborator.id in selectedIds
+                                            } else {
+                                                collaborator.id == selectedPersonId
+                                            },
+                                            selectionMode = selectionMode,
+                                            loading = state.carregando || reliabilityState.loading || avatarLoading,
+                                            onClick = {
+                                                if (selectionMode) {
+                                                    selectedIds = if (collaborator.id in selectedIds) {
+                                                        selectedIds - collaborator.id
+                                                    } else {
+                                                        selectedIds + collaborator.id
+                                                    }
+                                                } else {
+                                                    selectedPersonId = collaborator.id
+                                                }
+                                            },
+                                            onSelected = { checked ->
+                                                selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
+                                            },
+                                            onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                        )
+                                    }
+                                }
+                            }
+
+                            PersonDetailPanel(
+                                person = selectedPerson,
+                                loading = state.carregando || reliabilityState.loading || (selectedPerson != null && avatarBusyId == selectedPerson.id),
+                                onBiometric = viewModel::cadastrarOuAtualizarRosto,
+                                onAvatar = ::openAvatar,
+                                onHistory = { reliabilityViewModel.openHistory(it.id) },
+                                onEdit = { editing = it },
+                                onDeleteAvatar = ::removeAvatar,
+                                onDeleteFace = { deletingBiometric = it },
+                                onDeleteCollaborator = { deletingCollaborator = it },
+                                modifier = Modifier.weight(.52f),
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = PaddingValues(bottom = if (selectionMode) 112.dp else 96.dp),
+                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                        ) {
+                            if (collaborators.isEmpty()) {
+                                item("empty") {
+                                    PcEmptyState(
+                                        title = if (query.isBlank()) "Nenhuma pessoa nesta visão" else "Nenhum resultado",
+                                        supportingText = if (query.isBlank()) {
+                                            "Não há colaboradores que correspondam aos filtros selecionados."
+                                        } else {
+                                            "Tente outro nome, setor ou turno."
+                                        },
+                                        icon = Icons.Default.People,
+                                    )
+                                }
+                            } else {
+                                items(collaborators, key = { "person-v5-${it.id}" }) { collaborator ->
+                                    val avatarLoading = avatarBusyId == collaborator.id
+                                    PeoplePersonCard(
+                                        person = collaborator,
+                                        selected = collaborator.id in selectedIds,
+                                        selectionMode = selectionMode,
+                                        loading = state.carregando || reliabilityState.loading || avatarLoading,
+                                        onClick = {
+                                            if (selectionMode) {
+                                                selectedIds = if (collaborator.id in selectedIds) {
+                                                    selectedIds - collaborator.id
+                                                } else {
+                                                    selectedIds + collaborator.id
+                                                }
+                                            } else {
+                                                selectedPersonId = collaborator.id
+                                            }
+                                        },
+                                        onSelected = { checked ->
+                                            selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
+                                        },
+                                        onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    ) {
+                        if (accounts.isEmpty()) {
+                            item("empty-access") {
+                                PcEmptyState(
+                                    "Nenhum acesso encontrado",
+                                    "Tente outro nome, e-mail ou perfil.",
+                                    Icons.Default.Badge,
+                                )
+                            }
+                        } else {
+                            items(accounts, key = { "access-v5-${it.id}" }) { user ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { viewModel.selecionarUsuario(user) },
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    ),
+                                    elevation = CardDefaults.cardElevation(0.dp),
+                                ) {
+                                    AccountSummaryRow(
+                                        user.nome,
+                                        user.email,
+                                        user.perfil,
+                                        user.ativo,
+                                        Modifier.padding(PontoCafeSpacing.md),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            if (filter != PeopleViewFilterV4.ACCESS) {
-                item("results-heading") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Text(if (filter == PeopleViewFilterV4.PENDING_FACE) "Biometrias pendentes" else "Equipe", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            if (selectionMode) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = pagePadding, vertical = PontoCafeSpacing.sm),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = 6.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                if (selectionMode) "Toque nas pessoas que deseja alterar em lote." else "Toque em uma pessoa para abrir rosto, avatar, histórico e edição.",
+                                "${selectedIds.size} selecionado(s)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Alterar setor, turno ou status",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                            Text(collaborators.size.toString(), Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.onPrimaryContainer, style = MaterialTheme.typography.labelLarge)
+                        Button(
+                            onClick = { showBulkDialog = true },
+                            enabled = selectedIds.isNotEmpty(),
+                        ) {
+                            Text("Editar ${selectedIds.size}")
                         }
-                    }
-                }
-                if (collaborators.isEmpty()) {
-                    item("empty") {
-                        PcEmptyState(
-                            if (query.isBlank()) "Nenhuma pessoa nesta visão" else "Nenhum resultado",
-                            if (query.isBlank()) "Não há colaboradores que correspondam ao filtro selecionado." else "Tente outro nome, setor ou turno.",
-                            Icons.Default.People,
-                        )
-                    }
-                } else {
-                    items(collaborators, key = { "person-v4-${it.id}" }) { collaborator ->
-                        val expanded = expandedId == collaborator.id
-                        val avatarLoading = avatarBusyId == collaborator.id
-                        CollaboratorCardV4(
-                            collaborator = collaborator,
-                            loading = state.carregando || reliabilityState.loading || avatarLoading,
-                            selectionMode = selectionMode,
-                            selected = collaborator.id in selectedIds,
-                            expanded = expanded,
-                            onClick = {
-                                if (selectionMode) selectedIds = if (collaborator.id in selectedIds) selectedIds - collaborator.id else selectedIds + collaborator.id
-                                else expandedId = if (expanded) null else collaborator.id
-                            },
-                            onSelected = { selected -> selectedIds = if (selected) selectedIds + collaborator.id else selectedIds - collaborator.id },
-                            onHistory = { reliabilityViewModel.openHistory(collaborator.id) },
-                            onEdit = { editing = collaborator },
-                            onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
-                            onAvatar = {
-                                avatarError = null
-                                avatarMessage = null
-                                avatarTarget = collaborator
-                            },
-                            onDeleteAvatar = {
-                                avatarBusyId = collaborator.id
-                                avatarError = null
-                                avatarMessage = null
-                                scope.launch {
-                                    runCatching { avatarRepository.deleteAvatar(collaborator.id) }
-                                        .onSuccess {
-                                            avatarBusyId = null
-                                            avatarMessage = "Avatar de ${collaborator.nome} removido."
-                                            viewModel.abrirColaboradores()
-                                        }
-                                        .onFailure { error ->
-                                            avatarBusyId = null
-                                            avatarError = error.message ?: "Não foi possível remover o avatar."
-                                        }
-                                }
-                            },
-                            onDeleteBiometric = { deletingBiometric = collaborator },
-                            onDeleteCollaborator = { deletingCollaborator = collaborator },
-                        )
                     }
                 }
             } else {
-                item("access-heading") { SectionTitle("Contas de acesso", "Administrador e Supervisor com acesso às áreas protegidas.") }
-                if (accounts.isEmpty()) {
-                    item("empty-access") { PcEmptyState("Nenhum acesso encontrado", "Tente outro nome, e-mail ou perfil.", Icons.Default.Badge) }
-                } else {
-                    items(accounts, key = { "access-v4-${it.id}" }) { user ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { viewModel.selecionarUsuario(user) },
-                            shape = MaterialTheme.shapes.large,
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            elevation = CardDefaults.cardElevation(0.dp),
-                        ) {
-                            AccountSummaryRow(user.nome, user.email, user.perfil, user.ativo, Modifier.padding(PontoCafeSpacing.md))
-                        }
-                    }
-                }
-            }
-        }
-
-        if (selectionMode) {
-            Surface(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = pagePadding, vertical = PontoCafeSpacing.sm),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-            ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${selectedIds.size} selecionado(s)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Alterar setor, turno ou status", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Button({ showBulkDialog = true }, enabled = selectedIds.isNotEmpty()) { Text("Alterar") }
-                }
-            }
-        } else {
-            PcScrollToTopFab(
-                listState,
-                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = pagePadding, bottom = PontoCafeSpacing.md),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PeopleSummaryV4(collaborators: Int, readyFaces: Int, pendingFaces: Int, accessAccounts: Int) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val stacked = pontoCafeWindowSizeClass(maxWidth) == PontoCafeWindowSizeClass.COMPACT
-        if (stacked) {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    PcMetricTile(collaborators.toString(), "Equipe", Icons.Default.People, Modifier.weight(1f))
-                    PcMetricTile(readyFaces.toString(), "Com rosto", Icons.Default.CheckCircle, Modifier.weight(1f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    PcMetricTile(pendingFaces.toString(), "Pendentes", if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle, Modifier.weight(1f), attention = pendingFaces > 0)
-                    PcMetricTile(accessAccounts.toString(), "Acessos", Icons.Default.Badge, Modifier.weight(1f))
-                }
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                PcMetricTile(collaborators.toString(), "Equipe", Icons.Default.People, Modifier.weight(1f))
-                PcMetricTile(readyFaces.toString(), "Com rosto", Icons.Default.CheckCircle, Modifier.weight(1f))
-                PcMetricTile(pendingFaces.toString(), "Pendentes", if (pendingFaces > 0) Icons.Default.Warning else Icons.Default.CheckCircle, Modifier.weight(1f), attention = pendingFaces > 0)
-                PcMetricTile(accessAccounts.toString(), "Acessos", Icons.Default.Badge, Modifier.weight(1f))
+                ExtendedFloatingActionButton(
+                    onClick = if (section == AdminPeopleSection.COLLABORATORS) {
+                        viewModel::abrirNovoColaborador
+                    } else {
+                        viewModel::abrirNovaConta
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = pagePadding, bottom = PontoCafeSpacing.md),
+                    icon = {
+                        Icon(
+                            if (section == AdminPeopleSection.COLLABORATORS) Icons.Default.Add else Icons.Default.Badge,
+                            contentDescription = null,
+                        )
+                    },
+                    text = {
+                        Text(if (section == AdminPeopleSection.COLLABORATORS) "Novo colaborador" else "Novo acesso")
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CollaboratorCardV4(
+private fun DeleteCollaboratorDialogV4(
     collaborator: Colaborador,
     loading: Boolean,
-    selectionMode: Boolean,
-    selected: Boolean,
-    expanded: Boolean,
-    onClick: () -> Unit,
-    onSelected: (Boolean) -> Unit,
-    onHistory: () -> Unit,
-    onEdit: () -> Unit,
-    onBiometric: () -> Unit,
-    onAvatar: () -> Unit,
-    onDeleteAvatar: () -> Unit,
-    onDeleteBiometric: () -> Unit,
-    onDeleteCollaborator: () -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
 ) {
-    val semantic = LocalPontoCafeSemanticColors.current
-    val borderColor = when {
-        selected || expanded -> MaterialTheme.colorScheme.primary.copy(alpha = 0.46f)
-        !collaborator.rostoCadastrado -> semantic.warning.copy(alpha = 0.24f)
-        else -> MaterialTheme.colorScheme.outlineVariant
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        onClick = onClick,
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(0.dp),
-    ) {
-        Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                if (selectionMode) Checkbox(selected, onSelected, Modifier.align(Alignment.CenterVertically))
-                CollaboratorAvatar(
-                    name = collaborator.nome,
-                    avatarUrl = collaborator.avatarUrl,
-                    modifier = Modifier.align(Alignment.Top),
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(collaborator.nome, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        listOfNotNull(collaborator.setor, collaborator.turno).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Sem setor/turno" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!selectionMode) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            StatusPill(if (collaborator.rostoCadastrado) "Rosto pronto" else "Rosto pendente", if (collaborator.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING)
-                            if (!collaborator.avatarUrl.isNullOrBlank()) StatusPill("Avatar", PontoCafeTone.INFO)
-                        }
-                    }
-                }
-                if (!selectionMode) Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Recolher ações" else "Ver ações", Modifier.size(24.dp).align(Alignment.CenterVertically), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (!selectionMode && !collaborator.rostoCadastrado) {
-                Button(onBiometric, Modifier.fillMaxWidth(), enabled = !loading, shape = MaterialTheme.shapes.medium) {
-                    Icon(Icons.Default.Face, null, Modifier.size(18.dp)); Text("Cadastrar rosto", Modifier.padding(start = 7.dp))
-                }
-            }
-            AnimatedVisibility(expanded && !selectionMode) {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                        OutlinedButton(onHistory, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.History, null, Modifier.size(17.dp)); Text("Histórico", Modifier.padding(start = 5.dp)) }
-                        OutlinedButton(onEdit, Modifier.weight(1f), enabled = !loading) { Icon(Icons.Default.Edit, null, Modifier.size(17.dp)); Text("Editar", Modifier.padding(start = 5.dp)) }
-                    }
-                    OutlinedButton(onAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
-                        Icon(Icons.Default.Image, null, Modifier.size(18.dp))
-                        Text(if (collaborator.avatarUrl.isNullOrBlank()) "Definir avatar" else "Trocar avatar", Modifier.padding(start = 7.dp))
-                    }
-                    if (!collaborator.avatarUrl.isNullOrBlank()) {
-                        OutlinedButton(onDeleteAvatar, Modifier.fillMaxWidth(), enabled = !loading) {
-                            Icon(Icons.Default.Close, null, Modifier.size(18.dp)); Text("Remover avatar", Modifier.padding(start = 7.dp))
-                        }
-                    }
-                    Text(
-                        "Você pode tirar uma foto ou escolher uma imagem da galeria. A imagem é recortada, reduzida e convertida para WebP antes do envio; ela não é usada no reconhecimento facial.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (collaborator.rostoCadastrado) {
-                        OutlinedButton(onBiometric, Modifier.fillMaxWidth(), enabled = !loading) { Icon(Icons.Default.Face, null, Modifier.size(18.dp)); Text("Atualizar rosto", Modifier.padding(start = 7.dp)) }
-                        OutlinedButton(
-                            onDeleteBiometric, Modifier.fillMaxWidth(), enabled = !loading,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.40f)),
-                        ) { Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp)); Text("Excluir rosto", Modifier.padding(start = 7.dp)) }
-                    }
-                    OutlinedButton(
-                        onDeleteCollaborator, Modifier.fillMaxWidth(), enabled = !loading,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.62f)),
-                    ) { Icon(Icons.Default.PersonRemove, null, Modifier.size(18.dp)); Text("Excluir colaborador", Modifier.padding(start = 7.dp)) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeleteCollaboratorDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir colaborador?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 Text("${collaborator.nome} será removido da equipe ativa e não poderá mais utilizar o Ponto Café.")
-                Text("Todos os registros faciais serão apagados definitivamente. Autorizações pendentes serão canceladas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                PcStateBanner("Histórico preservado", "Pausas concluídas e auditoria permanecem disponíveis para rastreabilidade.", PontoCafeTone.INFO)
-                Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer) {
-                    Text("Se houver uma pausa aberta, a exclusão será bloqueada até o retorno ser registrado.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Todos os registros faciais serão apagados definitivamente. Autorizações pendentes serão canceladas.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                PcStateBanner(
+                    "Histórico preservado",
+                    "Pausas concluídas e auditoria permanecem disponíveis para rastreabilidade.",
+                    PontoCafeTone.INFO,
+                )
+                Surface(
+                    Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        "Se houver uma pausa aberta, a exclusão será bloqueada até o retorno ser registrado.",
+                        Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         },
         confirmButton = {
-            Button(onConfirm, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
-                Icon(Icons.Default.PersonRemove, null, Modifier.size(18.dp)); Text(if (loading) "Excluindo..." else "Excluir colaborador", Modifier.padding(start = 7.dp))
+            Button(
+                onConfirm,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Text(if (loading) "Excluindo..." else "Excluir colaborador")
             }
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
@@ -617,19 +812,34 @@ private fun DeleteCollaboratorDialogV4(collaborator: Colaborador, loading: Boole
 }
 
 @Composable
-private fun DeleteBiometricDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun DeleteBiometricDialogV4(
+    collaborator: Colaborador,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir biometria facial?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 Text("Todos os registros de rosto de ${collaborator.nome} serão apagados definitivamente.")
-                Text("O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
-            Button(onConfirm, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
-                Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp)); Text(if (loading) "Excluindo..." else "Excluir rosto", Modifier.padding(start = 7.dp))
+            Button(
+                onConfirm,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Text(if (loading) "Excluindo..." else "Excluir rosto")
             }
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
@@ -637,7 +847,12 @@ private fun DeleteBiometricDialogV4(collaborator: Colaborador, loading: Boolean,
 }
 
 @Composable
-private fun ImportPreviewDialogV4(preview: CsvImportPreview, loading: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun ImportPreviewDialogV4(
+    preview: CsvImportPreview,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Importar colaboradores") },
@@ -652,56 +867,131 @@ private fun ImportPreviewDialogV4(preview: CsvImportPreview, loading: Boolean, o
                 Text("Formato recomendado: Nome;Setor;Turno", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = { Button(onConfirm, enabled = preview.valid.isNotEmpty() && !loading) { Text("Importar ${preview.valid.size}") } },
+        confirmButton = {
+            Button(onConfirm, enabled = preview.valid.isNotEmpty() && !loading) {
+                Text("Importar ${preview.valid.size}")
+            }
+        },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun BulkEditDialogV4(selectedCount: Int, loading: Boolean, onDismiss: () -> Unit, onApply: (String?, String?, Boolean) -> Unit) {
+private fun BulkEditDialogV4(
+    selectedCount: Int,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (String?, String?, Boolean) -> Unit,
+) {
     var sector by remember { mutableStateOf("") }
     var shift by remember { mutableStateOf("") }
     var changeSector by remember { mutableStateOf(false) }
     var changeShift by remember { mutableStateOf(false) }
     var deactivate by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar $selectedCount colaborador(es)") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(changeSector, { changeSector = it }); Text("Alterar setor") }
-                if (changeSector) OutlinedTextField(sector, { sector = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Novo setor") }, singleLine = true)
-                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(changeShift, { changeShift = it }); Text("Alterar turno") }
-                if (changeShift) OutlinedTextField(shift, { shift = it.take(40) }, Modifier.fillMaxWidth(), label = { Text("Novo turno") }, singleLine = true)
-                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(deactivate, { deactivate = it }); Text("Desativar colaboradores selecionados") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(changeSector, { changeSector = it })
+                    Text("Alterar setor")
+                }
+                if (changeSector) {
+                    OutlinedTextField(
+                        sector,
+                        { sector = it.take(80) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text("Novo setor") },
+                        singleLine = true,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(changeShift, { changeShift = it })
+                    Text("Alterar turno")
+                }
+                if (changeShift) {
+                    OutlinedTextField(
+                        shift,
+                        { shift = it.take(40) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text("Novo turno") },
+                        singleLine = true,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(deactivate, { deactivate = it })
+                    Text("Desativar colaboradores selecionados")
+                }
             }
         },
         confirmButton = {
             Button(
-                { onApply(sector.takeIf { changeSector }?.trim(), shift.takeIf { changeShift }?.trim(), deactivate) },
+                {
+                    onApply(
+                        sector.takeIf { changeSector }?.trim(),
+                        shift.takeIf { changeShift }?.trim(),
+                        deactivate,
+                    )
+                },
                 enabled = !loading && (changeSector || changeShift || deactivate),
-            ) { Text(if (loading) "Aplicando..." else "Aplicar alterações") }
+            ) {
+                Text(if (loading) "Aplicando..." else "Aplicar alterações")
+            }
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun EditCollaboratorDialogV4(collaborator: Colaborador, loading: Boolean, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+private fun EditCollaboratorDialogV4(
+    collaborator: Colaborador,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit,
+) {
     var name by remember(collaborator.id) { mutableStateOf(collaborator.nome) }
     var sector by remember(collaborator.id) { mutableStateOf(collaborator.setor.orEmpty()) }
     var shift by remember(collaborator.id) { mutableStateOf(collaborator.turno.orEmpty()) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar colaborador") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                OutlinedTextField(name, { name = it.take(160) }, Modifier.fillMaxWidth(), label = { Text("Nome") }, singleLine = false, maxLines = 3)
-                OutlinedTextField(sector, { sector = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("Setor") }, singleLine = true)
-                OutlinedTextField(shift, { shift = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Turno") }, singleLine = true)
+                OutlinedTextField(
+                    name,
+                    { name = it.take(160) },
+                    Modifier.fillMaxWidth(),
+                    label = { Text("Nome") },
+                    singleLine = false,
+                    maxLines = 3,
+                )
+                OutlinedTextField(
+                    sector,
+                    { sector = it.take(120) },
+                    Modifier.fillMaxWidth(),
+                    label = { Text("Setor") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    shift,
+                    { shift = it.take(80) },
+                    Modifier.fillMaxWidth(),
+                    label = { Text("Turno") },
+                    singleLine = true,
+                )
             }
         },
-        confirmButton = { Button({ onSave(name.trim(), sector.trim(), shift.trim()) }, enabled = !loading && name.trim().length >= 2) { Text(if (loading) "Salvando..." else "Salvar") } },
+        confirmButton = {
+            Button(
+                { onSave(name.trim(), sector.trim(), shift.trim()) },
+                enabled = !loading && name.trim().length >= 2,
+            ) {
+                Text(if (loading) "Salvando..." else "Salvar")
+            }
+        },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
 }
