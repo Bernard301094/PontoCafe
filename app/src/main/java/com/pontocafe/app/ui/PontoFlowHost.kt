@@ -4,21 +4,28 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -46,6 +54,13 @@ private const val POINT_RECEIPT_VISIBLE_MILLIS = 3_000L
 private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 private const val USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L
 private val PONTO_TIMEZONE: ZoneId = ZoneId.of("America/Fortaleza")
+
+private enum class PointBlockReason {
+    DAILY_EXHAUSTED,
+    PERIOD_USED,
+    OUTSIDE_WINDOW,
+    GENERIC,
+}
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
@@ -72,9 +87,6 @@ fun PontoFlowHost(
     val state = viewModel.state
     val identificacao = state.identificacao
 
-    // Uma nova instância é criada para cada ciclo/identificação relevante para
-    // evitar ler um cachedSnapshot anterior ao retorno que acabou de ser salvo
-    // pelo ViewModel em outra instância do SecurePontoOfflineStore.
     val localHistoryStore = remember(
         identificacao?.verificacaoToken,
         state.scanCycle,
@@ -143,9 +155,6 @@ fun PontoFlowHost(
         usedBreakDetected,
     ) {
         val atual = identificacao ?: return@LaunchedEffect
-        // Pausa concluída hoje é um estado terminal. Não deixamos o fluxo cair
-        // em confirmarIdentidade(), porque isso poderia transformar 2/2 ou uma
-        // pausa repetida em um aviso genérico de fora do horário.
         if (usedBreakDetected || state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
             return@LaunchedEffect
         }
@@ -168,31 +177,28 @@ fun PontoFlowHost(
                 comprovante = state.comprovante,
             )
 
-            // Prioridade máxima: 2/2 consumidas nunca vira FORA DO HORÁRIO,
-            // independentemente de estar online, offline ou fora das janelas.
             dayExhausted && identificacao != null -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = exhaustedDayMessage
                     ?: "Pausas de hoje já utilizadas (2/2). Não há mais pausa disponível para hoje.",
-                repeatedPause = true,
-                dailyExhausted = true,
+                reason = PointBlockReason.DAILY_EXHAUSTED,
             )
 
-            // Segunda prioridade: o período relevante já foi usado.
-            (serverSaysUsedBreak || localCompletedBreak != null) && identificacao != null -> FastPointBlockedOverlay(
-                viewModel = viewModel,
-                nome = identificacao.colaborador?.nome,
-                mensagem = resolvedUsedBreakMessage
-                    ?: "Você já utilizou sua folga deste período hoje.",
-                repeatedPause = true,
-            )
+            (serverSaysUsedBreak || localCompletedBreak != null) && identificacao != null ->
+                FastPointBlockedOverlay(
+                    viewModel = viewModel,
+                    nome = identificacao.colaborador?.nome,
+                    mensagem = resolvedUsedBreakMessage
+                        ?: "Você já utilizou sua folga deste período hoje.",
+                    reason = PointBlockReason.PERIOD_USED,
+                )
 
             identificacao?.acaoSugerida == "BLOQUEADO" -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = identificacao.mensagem ?: "Nenhum ponto foi registrado.",
-                repeatedPause = false,
+                reason = PointBlockReason.GENERIC,
             )
 
             state.needsAuthorization -> FastPointBlockedOverlay(
@@ -200,31 +206,34 @@ fun PontoFlowHost(
                 nome = identificacao?.colaborador?.nome,
                 mensagem = identificacao?.mensagem
                     ?: "Fora do horário permitido. Nenhum ponto foi registrado.",
-                repeatedPause = false,
+                reason = PointBlockReason.OUTSIDE_WINDOW,
             )
 
             identificacao != null && !state.erro.isNullOrBlank() -> {
                 val errorMessage = state.erro.orEmpty()
+                val reason = when {
+                    errorMessage.contains("2/2", ignoreCase = true) ->
+                        PointBlockReason.DAILY_EXHAUSTED
+                    errorMessage.contains("já registrou esta pausa", ignoreCase = true) ||
+                        errorMessage.contains("já utilizada", ignoreCase = true) ||
+                        errorMessage.contains("folga", ignoreCase = true) ->
+                        PointBlockReason.PERIOD_USED
+                    errorMessage.contains("fora do horário", ignoreCase = true) ->
+                        PointBlockReason.OUTSIDE_WINDOW
+                    else -> PointBlockReason.GENERIC
+                }
+
                 FastPointBlockedOverlay(
                     viewModel = viewModel,
                     nome = identificacao.colaborador?.nome,
                     mensagem = errorMessage,
-                    repeatedPause = errorMessage.contains("já registrou esta pausa", ignoreCase = true) ||
-                        errorMessage.contains("já utilizada", ignoreCase = true) ||
-                        errorMessage.contains("folga", ignoreCase = true) ||
-                        errorMessage.contains("2/2", ignoreCase = true),
-                    dailyExhausted = errorMessage.contains("2/2", ignoreCase = true),
+                    reason = reason,
                 )
             }
         }
     }
 }
 
-/**
- * Descobre qual período é relevante neste instante. Dentro da janela usa a
- * própria regra ativa. Fora dela usa a janela mais próxima. Este método só é
- * usado quando o dia ainda NÃO está esgotado (2/2).
- */
 private fun findRelevantCompletedBreak(
     store: SecurePontoOfflineStore,
     collaboratorId: String,
@@ -277,13 +286,31 @@ private fun FastPointBlockedOverlay(
     viewModel: PontoCafeViewModel,
     nome: String?,
     mensagem: String,
-    repeatedPause: Boolean,
-    dailyExhausted: Boolean = false,
+    reason: PointBlockReason,
 ) {
     val view = LocalView.current
-    val mensagemExibida = if (repeatedPause && !dailyExhausted) normalizeUsedBreakMessage(mensagem) else mensagem
+    val repeatedPause = reason == PointBlockReason.DAILY_EXHAUSTED ||
+        reason == PointBlockReason.PERIOD_USED
+    val mensagemExibida = if (reason == PointBlockReason.PERIOD_USED) {
+        normalizeUsedBreakMessage(mensagem)
+    } else {
+        mensagem
+    }
 
-    LaunchedEffect(nome, mensagemExibida, repeatedPause, dailyExhausted) {
+    val title = when (reason) {
+        PointBlockReason.DAILY_EXHAUSTED -> "Pausas do dia já utilizadas"
+        PointBlockReason.PERIOD_USED -> "Folga já utilizada"
+        PointBlockReason.OUTSIDE_WINDOW -> "Fora do horário permitido"
+        PointBlockReason.GENERIC -> "Registro não realizado"
+    }
+    val supporting = when (reason) {
+        PointBlockReason.DAILY_EXHAUSTED -> "Não há mais pausa disponível para hoje."
+        PointBlockReason.PERIOD_USED -> "Nenhum novo registro foi criado para este período."
+        PointBlockReason.OUTSIDE_WINDOW -> "Solicite uma liberação ao Supervisor quando aplicável."
+        PointBlockReason.GENERIC -> "Nenhum novo ponto foi registrado."
+    }
+
+    LaunchedEffect(nome, mensagemExibida, reason) {
         runCatching {
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
         }
@@ -294,71 +321,90 @@ private fun FastPointBlockedOverlay(
         viewModel.rejeitarIdentidade()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF160B08))
-            .systemBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
-        contentAlignment = Alignment.Center,
+    PointFeedbackBackdrop(
+        accent = Color(0xFFFFC867),
+        background = Color(0xFF160B08),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xF51D1714),
+            contentColor = Color.White,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+            shadowElevation = 10.dp,
         ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = null,
-                modifier = Modifier.size(88.dp),
-                tint = MaterialTheme.colorScheme.tertiary,
-            )
+            Column(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                    color = Color(0xFFFFC867).copy(alpha = 0.12f),
+                    border = BorderStroke(
+                        1.dp,
+                        Color(0xFFFFC867).copy(alpha = 0.24f),
+                    ),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (reason == PointBlockReason.OUTSIDE_WINDOW) {
+                                Icons.Default.Schedule
+                            } else {
+                                Icons.Default.Warning
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(34.dp),
+                            tint = Color(0xFFFFC867),
+                        )
+                    }
+                }
 
-            Text(
-                text = when {
-                    dailyExhausted -> "PAUSAS JÁ UTILIZADAS"
-                    repeatedPause -> "FOLGA JÁ UTILIZADA"
-                    else -> "REGISTRO NÃO REALIZADO"
-                },
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = Color.White,
-            )
-
-            if (!nome.isNullOrBlank()) {
                 Text(
-                    text = nome,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    color = Color.White,
+                )
+
+                if (!nome.isNullOrBlank()) {
+                    Text(
+                        text = nome,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White.copy(alpha = 0.055f),
+                ) {
+                    Text(
+                        text = mensagemExibida,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        color = Color.White.copy(alpha = 0.84f),
+                    )
+                }
+
+                Text(
+                    text = supporting,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.72f),
+                    textAlign = TextAlign.Center,
                 )
             }
-
-            Text(
-                text = mensagemExibida,
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                color = Color.White.copy(alpha = 0.84f),
-            )
-
-            Text(
-                text = "Nenhum novo ponto foi registrado",
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.94f),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
 
-/**
- * Normaliza qualquer resposta antiga do backend para a linguagem atual da UI.
- * Mantém os detalhes de saída/retorno/duração quando estiverem disponíveis.
- */
 private fun normalizeUsedBreakMessage(original: String): String {
     if (original.startsWith("Você já utilizou sua folga", ignoreCase = true)) {
         return original
@@ -400,94 +446,166 @@ private fun FastPointReceiptOverlay(
         viewModel.concluirComprovante()
     }
 
+    val accent = if (warning) Color(0xFFFFC867) else Color(0xFF72DCBC)
+    val title = if (start) "Pausa iniciada" else "Retorno registrado"
+    val detail = if (start) {
+        "${comprovante.horarioRegistrado} · retorne até ${comprovante.retornoAte ?: "--:--"}"
+    } else {
+        "${comprovante.horarioRegistrado} · duração ${viewModel.formatarTempo(comprovante.duracaoSegundos ?: 0)}"
+    }
+
+    PointFeedbackBackdrop(
+        accent = accent,
+        background = Color(0xFF04110E),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xF5121C19),
+            contentColor = Color.White,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+            shadowElevation = 10.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(72.dp),
+                    shape = CircleShape,
+                    color = accent.copy(alpha = 0.13f),
+                    border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (warning) Icons.Default.Warning else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                            tint = accent,
+                        )
+                    }
+                }
+
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+
+                Text(
+                    text = comprovante.nome,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White.copy(alpha = 0.055f),
+                ) {
+                    Text(
+                        text = detail,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                        color = Color.White.copy(alpha = 0.86f),
+                    )
+                }
+
+                when {
+                    comprovante.pendenteSincronizacao -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.CloudDone,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                "Salvo com segurança neste aparelho",
+                                color = Color.White.copy(alpha = 0.76f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+
+                    warning -> {
+                        Text(
+                            "Registro confirmado · limite excedido",
+                            color = accent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    comprovante.foraHorario -> {
+                        Text(
+                            "Registro validado pelo fluxo autorizado",
+                            color = accent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    else -> {
+                        Text(
+                            "Registro confirmado",
+                            color = accent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Text(
+                    "Próxima pessoa em instantes",
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.68f),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PointFeedbackBackdrop(
+    accent: Color,
+    background: Color,
+    content: @Composable () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF04110E))
+            .background(background)
             .systemBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
+            .padding(horizontal = 20.dp, vertical = 24.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(
-                imageVector = if (warning) Icons.Default.Warning else Icons.Default.CheckCircle,
-                contentDescription = null,
-                modifier = Modifier.size(88.dp),
-                tint = if (warning) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-            )
-
-            Text(
-                text = if (start) "SAÍDA REGISTRADA" else "RETORNO REGISTRADO",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = Color.White,
-            )
-
-            Text(
-                text = comprovante.nome,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                color = Color.White,
-            )
-
-            Text(
-                text = if (start) {
-                    "${comprovante.horarioRegistrado}  ·  retorne até ${comprovante.retornoAte ?: "--:--"}"
-                } else {
-                    "${comprovante.horarioRegistrado}  ·  duração ${viewModel.formatarTempo(comprovante.duracaoSegundos ?: 0)}"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                color = Color.White.copy(alpha = 0.82f),
-            )
-
-            if (comprovante.pendenteSincronizacao) {
-                androidx.compose.foundation.layout.Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        "Salvo com segurança neste aparelho",
-                        color = Color.White.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else if (comprovante.foraHorario) {
-                Text(
-                    "Registro validado",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            } else if (warning) {
-                Text(
-                    "Registro confirmado · limite excedido",
-                    color = MaterialTheme.colorScheme.tertiary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            Text(
-                "Próxima pessoa em instantes",
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.94f),
-                textAlign = TextAlign.Center,
-            )
-        }
+        Box(
+            modifier = Modifier
+                .size(320.dp)
+                .background(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accent.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                    shape = CircleShape,
+                ),
+        )
+        content()
     }
 }
 
