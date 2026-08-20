@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.0 — Integridade operacional do Ponto
+
+### Idempotência e exactly-once
+- Cada tentativa crítica do `registro-rapido` recebe um UUID persistido no Android antes da mutação de rede.
+- O Worker serializa retries concorrentes com `pg_advisory_xact_lock` e persiste o resultado idempotente na mesma transação PostgreSQL que inicia ou finaliza a pausa.
+- Se a resposta HTTP se perder depois do COMMIT, o mesmo UUID recebe exatamente o resultado original; um retry de início não pode ser interpretado como retorno.
+- A sincronização offline reaproveita o mesmo UUID de uma operação online incerta e reconcilia um COMMIT já existente sem executar uma segunda mutação.
+- O journal Android é cifrado com AES-GCM protegido pelo Android Keystore e não persiste foto, embedding bruto, PIN, senha ou token de sessão.
+- O UUID crítico é escrito de forma síncrona antes da rede. Depois de `INICIO`/`RETORNO`, ele só é liberado após o snapshot local correspondente ser confirmado em armazenamento persistente.
+- Eventos offline de início/retorno também são persistidos de forma durável antes de liberar o journal curto de operação.
+
+### Banco e implantação
+- Adiciona `database/007_ponto_operation_idempotency.sql`, com a tabela `operacoes_ponto_idempotentes` e o resultado autoritativo necessário para replay seguro.
+- A migração `007` deve ser aplicada antes de implantar o Worker 0.15; o Android nunca acessa essa tabela diretamente.
+- Mantém compatibilidade transitória do endpoint rápido com APKs antigos que ainda não enviam `operacaoId`.
+
+### Compatibilidade
+- Não altera FaceNet, modelo, crop, prewhitening, normalização, thresholds, margem, CPU/XNNPACK, prova de vida, CameraX, horários, limite do café, regra 2/2 ou autorizações do Supervisor.
+- Android `0.15.0` (`versionCode 36`) mantém R8/minify e resource shrinking de produção.
+
 ## 0.14.0 — Contas protegidas + Relatórios com UX responsiva
 
 ### Acesso restrito
