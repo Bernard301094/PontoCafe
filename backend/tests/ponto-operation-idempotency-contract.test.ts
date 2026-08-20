@@ -69,14 +69,25 @@ test('backend serializa operationId e persiste replay junto da mutação rápida
 test('INICIAR e FINALIZAR confirmados também são exactly-once', () => {
   assert.match(mutationRoute, /operacaoId: uuidSchema\.optional\(\)/)
   assert.match(mutationRoute, /type: 'INICIAR' \| 'FINALIZAR'/)
-  assert.match(mutationRoute, /findPontoOperation<StartResponse>/)
-  assert.match(mutationRoute, /findPontoOperation<FinishResponse>/)
+  assert.match(mutationRoute, /compatibleMutationReplay<StartResponse>/)
+  assert.match(mutationRoute, /compatibleMutationReplay<FinishResponse>/)
   assert.match(mutationRoute, /savePontoOperation\(client, operation, pauseId, result\)/)
   assert.match(mutationRoute, /savePontoOperation\(client, operation, open\.rows\[0\]\.id, result\)/)
 
   const protectedRoute = application.indexOf("app.route('/ponto', idempotentPontoMutationRoutes)")
   const legacyRoute = application.indexOf("app.route('/ponto', pontoRoutes)")
   assert.ok(protectedRoute >= 0 && legacyRoute > protectedRoute)
+})
+
+test('endpoint de reconciliação espera a mutação original e devolve o resultado autoritativo', () => {
+  assert.match(mutationRoute, /post\('\/operacoes\/reconciliar'/)
+  assert.match(mutationRoute, /lockPontoOperation\(client, body\.data\.operacaoId, device\.id\)/)
+  assert.match(mutationRoute, /findPontoOperationById<unknown>/)
+  assert.match(mutationRoute, /encontrada: false/)
+  assert.match(mutationRoute, /stored\.type === 'INICIAR'/)
+  assert.match(mutationRoute, /stored\.type === 'FINALIZAR'/)
+  assert.match(mutationRoute, /fast\.status === 'INICIO'/)
+  assert.match(mutationRoute, /fast\.status === 'RETORNO'/)
 })
 
 test('fila offline reconcilia primeiro qualquer operação online já commitada', () => {
@@ -96,6 +107,7 @@ test('Android mantém operationId cifrado e não persiste embedding bruto no di�
   assert.match(journal, /MessageDigest\.getInstance\("SHA-256"\)/)
   assert.match(journal, /embeddingFingerprint/)
   assert.match(journal, /fun prepareAction\(collaboratorId: String, action: String\)/)
+  assert.match(journal, /pendingUncertainOperationId/)
   assert.match(journal, /putString\(PAYLOAD_KEY, encoded\)\.commit\(\)/)
   assert.doesNotMatch(journal, /val embedding: List<Float>/)
   assert.doesNotMatch(journal, /val embedding: FloatArray/)
@@ -106,8 +118,20 @@ test('resposta incerta bloqueia nova leitura de estado e reaproveita UUID no off
   assert.match(apiClient, /operationJournal\.markUncertain\(operationId\)/)
   assert.match(apiClient, /operationJournal\.isUncertain\(colaboradorId\)/)
   assert.match(apiClient, /throw IOException\("O resultado do registro anterior ainda precisa ser reconciliado/)
+  assert.doesNotMatch(apiClient, /RECONCILIATION_REPLAY_TOKEN/)
+  assert.doesNotMatch(apiClient, /motivo = "OPERACAO_RECONCILIADA"/)
   assert.match(offlineStore, /val operationId = operationJournal\.prepare\(colaborador\.id, embedding\)/)
   assert.match(offlineStore, /eventId = operationId/)
+})
+
+test('caminho rápido reconcilia antes de criar uma nova operação', () => {
+  const registrarRapido = apiClient.indexOf('suspend fun registrarRapido')
+  const reconcile = apiClient.indexOf('reconciliarOperacaoPendente(colaboradorId)', registrarRapido)
+  const prepare = apiClient.indexOf('val operationId = operationJournal.prepare(colaboradorId, embedding)', registrarRapido)
+  assert.ok(registrarRapido >= 0)
+  assert.ok(reconcile > registrarRapido)
+  assert.ok(prepare > reconcile)
+  assert.match(apiClient, /@POST\("ponto\/operacoes\/reconciliar"\)/)
 })
 
 test('operationId fica incerto antes de qualquer mutação de rede', () => {
