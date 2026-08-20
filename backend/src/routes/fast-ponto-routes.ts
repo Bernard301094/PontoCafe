@@ -223,6 +223,28 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
       }
     }
 
+    // Antes de qualquer decisão de horário, detectamos o estado terminal 2/2.
+    // O fluxo completo devolverá os horários e registrará a auditoria.
+    const usedToday = await client.query<{ periodo: 'MANHA' | 'TARDE' }>(
+      `select distinct periodo
+         from pausas_cafe
+        where colaborador_id=$1
+          and fim_em is not null
+          and (inicio_em at time zone $2)::date=(now() at time zone $2)::date
+          and periodo in ('MANHA','TARDE')`,
+      [best.colaborador_id, config.appTimezone],
+    )
+    const usedPeriods = new Set(usedToday.rows.map((row) => row.periodo))
+    if (usedPeriods.has('MANHA') && usedPeriods.has('TARDE')) {
+      return {
+        status: 'INTERACAO_NECESSARIA' as const,
+        motivo: 'PAUSAS_DO_DIA_JA_UTILIZADAS',
+        mensagem: 'Pausas de hoje já utilizadas (2/2). Não há mais pausa disponível para hoje.',
+        score: Number(best.score.toFixed(4)),
+        colaborador: collaborator,
+      }
+    }
+
     const activeRule = await client.query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number }>(
       `select periodo,limite_segundos
          from regras_cafe
