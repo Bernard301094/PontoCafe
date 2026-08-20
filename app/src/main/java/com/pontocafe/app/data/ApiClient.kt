@@ -115,8 +115,6 @@ data class IdentificarBiometriaResponse(
     val dentroHorario: Boolean? = null,
     val periodoAtual: String? = null,
     val limiteSegundos: Int? = null,
-    val reconciliacaoInicio: IniciarPausaResponse? = null,
-    val reconciliacaoRetorno: FinalizarPausaResponse? = null,
 )
 
 data class VerificarBiometriaRequest(val colaboradorId: String, val embedding: List<Float>)
@@ -187,6 +185,7 @@ data class PontoOperationReconcileRequest(
 data class PontoOperationReconcileResponse(
     val encontrada: Boolean,
     val tipo: String? = null,
+    val colaborador: Colaborador? = null,
     val inicio: IniciarPausaResponse? = null,
     val retorno: FinalizarPausaResponse? = null,
 )
@@ -276,12 +275,21 @@ class PontoCafeRepository(
         versaoModelo: String,
     ): IdentificarBiometriaResponse {
         reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
+            val colaborador = reconciliada.colaborador
+                ?: throw IOException("O servidor não retornou o colaborador da operação reconciliada.")
+            val retorno = reconciliada.retorno
+            val inicio = reconciliada.inicio
             return IdentificarBiometriaResponse(
                 reconhecido = true,
                 motivo = "OPERACAO_RECONCILIADA",
-                mensagem = "O registro anterior foi confirmado pelo servidor.",
-                reconciliacaoInicio = reconciliada.inicio,
-                reconciliacaoRetorno = reconciliada.retorno,
+                mensagem = "O registro anterior foi confirmado pelo servidor e será concluído sem duplicar a operação.",
+                verificacaoToken = RECONCILIATION_REPLAY_TOKEN,
+                colaborador = colaborador,
+                acaoSugerida = if (retorno != null) "FINALIZAR" else "INICIAR",
+                pausaAberta = null,
+                dentroHorario = inicio != null,
+                periodoAtual = inicio?.periodo,
+                limiteSegundos = inicio?.limiteSegundos ?: retorno?.limiteSegundos,
             )
         }
 
@@ -302,18 +310,17 @@ class PontoCafeRepository(
         modelo: String,
         versaoModelo: String,
     ): RegistroRapidoResponse? {
-        // Antes de iniciar qualquer nova mutação, resolvemos um UUID incerto. O
-        // lock no Worker espera uma transação concorrente terminar e responde se
-        // houve COMMIT ou rollback, evitando transformar um início em retorno.
         try {
             reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
                 return when {
                     reconciliada.inicio != null -> RegistroRapidoResponse(
                         status = "INICIO",
+                        colaborador = reconciliada.colaborador,
                         inicio = reconciliada.inicio,
                     )
                     reconciliada.retorno != null -> RegistroRapidoResponse(
                         status = "RETORNO",
+                        colaborador = reconciliada.colaborador,
                         retorno = reconciliada.retorno,
                     )
                     else -> null
@@ -444,6 +451,7 @@ class PontoCafeRepository(
 
     companion object {
         private const val AVATAR_CATALOG_TIMEOUT_MS = 1_000L
+        private const val RECONCILIATION_REPLAY_TOKEN = "REPLAY_IDEMPOTENTE_015"
 
         fun isAuthFailure(error: Throwable): Boolean =
             error is HttpException && (error.code() == 401 || error.code() == 403)
