@@ -14,6 +14,7 @@ import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
 import com.pontocafe.app.data.LocalFaceMatch
 import com.pontocafe.app.data.LocalFaceMatcher
+import com.pontocafe.app.data.LocalFaceResolvedMatch
 import com.pontocafe.app.data.PausaAbertaResumo
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.RegraCafe
@@ -258,13 +259,45 @@ class PontoCafeViewModel(
             pendingOfflineEmbedding = null
             state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
             try {
-                val embeddings = embeddingEngine.embedForIdentification(frame)
+                // Começamos pelo catálogo local já descriptografado/cacheado. Isso
+                // permite decidir imediatamente depois do primeiro embedding, sem
+                // esperar uma sincronização de rede e sem calcular fallbacks à toa.
+                var catalogo = withContext(Dispatchers.IO) { faceCatalogStore.read() }
+                var resolvedDuringInference: LocalFaceResolvedMatch? = null
+
+                val embeddings = embeddingEngine.embedForIdentification(frame) { candidate, candidateIndex ->
+                    val currentCatalog = catalogo
+                    if (currentCatalog == null || currentCatalog.templates.isEmpty()) {
+                        true
+                    } else {
+                        val candidateMatch = LocalFaceMatcher.match(candidate, currentCatalog)
+                        if (candidateMatch != null) {
+                            resolvedDuringInference = LocalFaceResolvedMatch(
+                                match = candidateMatch,
+                                embedding = candidate,
+                                candidateIndex = candidateIndex,
+                            )
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                }
                 require(embeddings.isNotEmpty()) { "Nenhum embedding facial foi gerado." }
 
-                var catalogo = obterCatalogoAtual(force = false)
-                var resolvedMatch = catalogo?.let { currentCatalog ->
-                    withContext(Dispatchers.Default) {
-                        LocalFaceMatcher.matchBest(embeddings, currentCatalog)
+                var resolvedMatch = resolvedDuringInference
+
+                // Só consultamos a política de validade/sincronização depois de um
+                // miss local. Se o servidor trouxe catálogo diferente, reaplicamos
+                // os embeddings já calculados sem recapturar o rosto.
+                if (resolvedMatch == null) {
+                    val previousVersion = catalogo?.versao
+                    val refreshed = obterCatalogoAtual(force = false)
+                    catalogo = refreshed
+                    if (refreshed != null && (previousVersion == null || refreshed.versao != previousVersion)) {
+                        resolvedMatch = withContext(Dispatchers.Default) {
+                            LocalFaceMatcher.matchBest(embeddings, refreshed)
+                        }
                     }
                 }
 
