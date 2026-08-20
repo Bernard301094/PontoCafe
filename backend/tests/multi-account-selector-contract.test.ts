@@ -41,14 +41,27 @@ test('login associa a próxima sessão ao perfil correto sem salvar a senha', ()
   assert.match(supervisorLogin, /senha nunca é salva/)
 })
 
-test('seletor mostra contas salvas, permite esquecer e iniciar outra conta', () => {
-  assert.match(selector, /Escolha uma conta/)
+test('seletor prioriza sessão salva e esconde remoção atrás de mais opções', () => {
+  assert.match(selector, /Entrar com uma conta salva/)
+  assert.match(selector, /Sessões salvas/)
+  assert.match(selector, /Abrir conta/)
   assert.match(selector, /Sessão pronta/)
   assert.match(selector, /Senha necessária/)
+  assert.match(selector, /DropdownMenu/)
+  assert.match(selector, /Remover deste aparelho/)
   assert.match(selector, /forgetAccount\(entry\.account\.id\)/)
-  assert.match(selector, /Outra conta de Administrador/)
-  assert.match(selector, /Outra conta de Supervisor/)
+  assert.match(selector, /Entrar com outra conta/)
+  assert.match(selector, /Outro Administrador/)
+  assert.match(selector, /Outro Supervisor/)
+  assert.match(selector, /Voltar ao Ponto Café/)
+  assert.match(selector, /supportsTwoColumns/)
   assert.doesNotMatch(selector, /\.recreate\(\)/)
+})
+
+test('seletor comunica a proteção local sem prometer armazenamento de senha', () => {
+  assert.match(selector, /Android Keystore/)
+  assert.match(selector, /Sua senha não fica salva/)
+  assert.match(selector, /não armazena a senha/)
 })
 
 test('Ponto sempre roteia acesso protegido pelo seletor e isola ViewModel por conta', () => {
