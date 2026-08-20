@@ -6,6 +6,7 @@ import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import {
   findPontoOperation,
+  findPontoOperationById,
   lockPontoOperation,
   PontoOperationConflictError,
   savePontoOperation,
@@ -57,6 +58,12 @@ type FinishResponse = {
   excedeuLimite: boolean
 }
 
+type FastStoredResponse = {
+  status?: 'INICIO' | 'RETORNO'
+  inicio?: StartResponse
+  retorno?: FinishResponse
+}
+
 function identity(
   operationId: string | undefined,
   device: Device,
@@ -94,13 +101,62 @@ async function auditRepeatedAttempt(params: {
 }
 
 /**
- * Intercepta somente as duas mutações confirmadas do fluxo tradicional.
- * O restante de pontoRoutes continua sendo a implementação canônica de leitura,
- * identificação e compatibilidade. APKs antigos, sem operacaoId, mantêm o mesmo
- * comportamento; APKs 0.15+ ganham replay exactly-once.
+ * Intercepta somente as mutações confirmadas do fluxo tradicional e oferece
+ * consulta de reconciliação para um UUID que ficou incerto no Android.
+ * APKs antigos, sem operacaoId, mantêm o mesmo comportamento.
  */
 export const idempotentPontoMutationRoutes = new Hono<AppEnv>()
 idempotentPontoMutationRoutes.use('*', requireDevice)
+
+idempotentPontoMutationRoutes.post('/operacoes/reconciliar', async (c) => {
+  const body = await parseJson(c, z.object({
+    operacaoId: uuidSchema,
+    colaboradorId: uuidSchema,
+  }))
+  if (!body.ok) return body.response
+
+  const device = c.get('device')
+  const stored = await transaction(async (client) => {
+    await lockPontoOperation(client, body.data.operacaoId, device.id)
+    return findPontoOperationById<unknown>(client, body.data.operacaoId)
+  })
+
+  if (!stored) return c.json({ encontrada: false })
+  if (stored.deviceId !== device.id || stored.collaboratorId !== body.data.colaboradorId) {
+    return c.json({
+      erro: 'O identificador desta operação pertence a outro registro do Ponto.',
+      codigo: 'PONTO_OPERATION_ID_CONFLICT',
+    }, 409)
+  }
+
+  if (stored.type === 'INICIAR') {
+    return c.json({
+      encontrada: true,
+      tipo: stored.type,
+      inicio: stored.response as StartResponse,
+    })
+  }
+  if (stored.type === 'FINALIZAR') {
+    return c.json({
+      encontrada: true,
+      tipo: stored.type,
+      retorno: stored.response as FinishResponse,
+    })
+  }
+
+  const fast = stored.response as FastStoredResponse
+  if (fast.status === 'INICIO' && fast.inicio) {
+    return c.json({ encontrada: true, tipo: stored.type, inicio: fast.inicio })
+  }
+  if (fast.status === 'RETORNO' && fast.retorno) {
+    return c.json({ encontrada: true, tipo: stored.type, retorno: fast.retorno })
+  }
+
+  return c.json({
+    erro: 'O resultado persistido desta operação não pode ser reconciliado.',
+    codigo: 'PONTO_OPERATION_REPLAY_INVALID',
+  }, 409)
+})
 
 idempotentPontoMutationRoutes.post('/pausas/iniciar', async (c) => {
   const body = await parseJson(c, z.object({
