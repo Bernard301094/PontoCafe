@@ -277,11 +277,12 @@ class PontoCafeRepository(
         api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
 
     /**
-     * Cada captura recebe uma identidade durável. Em falha de rede/5xx o UUID é
-     * marcado como incerto e NÃO é descartado: caso o servidor tenha confirmado
-     * a transação, o evento offline subsequente usará o mesmo identificador.
+     * Cada captura recebe uma identidade durável e ela é marcada como incerta
+     * ANTES da mutação de rede. Isso cobre inclusive um encerramento abrupto do
+     * processo depois de enviar a requisição, mas antes de receber/tratar a
+     * resposta.
      *
-     * Uma resposta INICIO/RETORNO também permanece marcada como incerta até o
+     * Uma resposta INICIO/RETORNO permanece incerta até o
      * SecurePontoOfflineStore persistir o novo estado local de forma durável.
      * Assim um crash entre resposta HTTP e snapshot local não converte o retry
      * seguinte em uma segunda mutação.
@@ -295,6 +296,8 @@ class PontoCafeRepository(
         versaoModelo: String,
     ): RegistroRapidoResponse? {
         val operationId = operationJournal.prepare(colaboradorId, embedding)
+        operationJournal.markUncertain(operationId)
+
         val response = try {
             api.registroRapido(
                 RegistroRapidoRequest(
@@ -306,7 +309,6 @@ class PontoCafeRepository(
                 ),
             )
         } catch (_: IOException) {
-            operationJournal.markUncertain(operationId)
             return null
         }
 
@@ -315,7 +317,6 @@ class PontoCafeRepository(
             return null
         }
         if (response.code() >= 500) {
-            operationJournal.markUncertain(operationId)
             return null
         }
         if (!response.isSuccessful) {
@@ -325,12 +326,11 @@ class PontoCafeRepository(
 
         val result = response.body()
         if (result == null) {
-            operationJournal.markUncertain(operationId)
             return null
         }
 
         when (result.status) {
-            "INICIO", "RETORNO" -> operationJournal.markUncertain(operationId)
+            "INICIO", "RETORNO" -> Unit
             else -> operationJournal.complete(operationId)
         }
         return result
