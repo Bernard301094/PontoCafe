@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
+import type { PoolClient } from 'pg'
 import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import {
-  findPontoOperation,
   findPontoOperationById,
   lockPontoOperation,
   PontoOperationConflictError,
@@ -64,6 +64,14 @@ type FastStoredResponse = {
   retorno?: FinishResponse
 }
 
+type ReconcileCollaborator = {
+  id: string
+  matricula: string | null
+  nome: string
+  setor: string | null
+  turno: string | null
+}
+
 function identity(
   operationId: string | undefined,
   device: Device,
@@ -77,6 +85,33 @@ function identity(
     collaboratorId,
     type,
   }
+}
+
+async function compatibleMutationReplay<T extends StartResponse | FinishResponse>(
+  client: PoolClient,
+  operation: PontoOperationIdentity,
+  fastStatus: 'INICIO' | 'RETORNO',
+): Promise<T | null> {
+  const stored = await findPontoOperationById<unknown>(client, operation.operationId)
+  if (!stored) return null
+  if (
+    stored.deviceId !== operation.deviceId ||
+    stored.collaboratorId !== operation.collaboratorId
+  ) {
+    throw new PontoOperationConflictError()
+  }
+
+  if (stored.type === operation.type) return stored.response as T
+  if (stored.type !== 'REGISTRO_RAPIDO') throw new PontoOperationConflictError()
+
+  const fast = stored.response as FastStoredResponse
+  if (fastStatus === 'INICIO' && fast.status === 'INICIO' && fast.inicio) {
+    return fast.inicio as T
+  }
+  if (fastStatus === 'RETORNO' && fast.status === 'RETORNO' && fast.retorno) {
+    return fast.retorno as T
+  }
+  throw new PontoOperationConflictError()
 }
 
 async function auditRepeatedAttempt(params: {
@@ -129,10 +164,20 @@ idempotentPontoMutationRoutes.post('/operacoes/reconciliar', async (c) => {
     }, 409)
   }
 
+  const collaborator = (await query<ReconcileCollaborator>(
+    `select id,matricula,nome,setor,turno
+       from colaboradores
+      where id=$1
+      limit 1`,
+    [body.data.colaboradorId],
+  )).rows[0]
+  if (!collaborator) return c.json({ erro: 'Colaborador não encontrado para reconciliação.' }, 404)
+
   if (stored.type === 'INICIAR') {
     return c.json({
       encontrada: true,
       tipo: stored.type,
+      colaborador: collaborator,
       inicio: stored.response as StartResponse,
     })
   }
@@ -140,16 +185,27 @@ idempotentPontoMutationRoutes.post('/operacoes/reconciliar', async (c) => {
     return c.json({
       encontrada: true,
       tipo: stored.type,
+      colaborador: collaborator,
       retorno: stored.response as FinishResponse,
     })
   }
 
   const fast = stored.response as FastStoredResponse
   if (fast.status === 'INICIO' && fast.inicio) {
-    return c.json({ encontrada: true, tipo: stored.type, inicio: fast.inicio })
+    return c.json({
+      encontrada: true,
+      tipo: stored.type,
+      colaborador: collaborator,
+      inicio: fast.inicio,
+    })
   }
   if (fast.status === 'RETORNO' && fast.retorno) {
-    return c.json({ encontrada: true, tipo: stored.type, retorno: fast.retorno })
+    return c.json({
+      encontrada: true,
+      tipo: stored.type,
+      colaborador: collaborator,
+      retorno: fast.retorno,
+    })
   }
 
   return c.json({
@@ -175,8 +231,8 @@ idempotentPontoMutationRoutes.post('/pausas/iniciar', async (c) => {
     const pausa = await transaction(async (client): Promise<StartResponse> => {
       if (operation) {
         await lockPontoOperation(client, operation.operationId, device.id)
-        const replay = await findPontoOperation<StartResponse>(client, operation)
-        if (replay) return replay.response
+        const replay = await compatibleMutationReplay<StartResponse>(client, operation, 'INICIO')
+        if (replay) return replay
       }
 
       const verification = await client.query<{ id: string }>(
@@ -342,8 +398,8 @@ idempotentPontoMutationRoutes.post('/pausas/finalizar', async (c) => {
     const pausa = await transaction(async (client): Promise<FinishResponse> => {
       if (operation) {
         await lockPontoOperation(client, operation.operationId, device.id)
-        const replay = await findPontoOperation<FinishResponse>(client, operation)
-        if (replay) return replay.response
+        const replay = await compatibleMutationReplay<FinishResponse>(client, operation, 'RETORNO')
+        if (replay) return replay
       }
 
       const verification = await client.query<{ id: string }>(
