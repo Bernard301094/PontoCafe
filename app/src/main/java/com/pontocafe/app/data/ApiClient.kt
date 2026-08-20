@@ -274,25 +274,13 @@ class PontoCafeRepository(
         modelo: String,
         versaoModelo: String,
     ): IdentificarBiometriaResponse {
-        reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
-            val colaborador = reconciliada.colaborador
-                ?: throw IOException("O servidor não retornou o colaborador da operação reconciliada.")
-            val retorno = reconciliada.retorno
-            val inicio = reconciliada.inicio
-            return IdentificarBiometriaResponse(
-                reconhecido = true,
-                motivo = "OPERACAO_RECONCILIADA",
-                mensagem = "O registro anterior foi confirmado pelo servidor e será concluído sem duplicar a operação.",
-                verificacaoToken = RECONCILIATION_REPLAY_TOKEN,
-                colaborador = colaborador,
-                acaoSugerida = if (retorno != null) "FINALIZAR" else "INICIAR",
-                pausaAberta = null,
-                dentroHorario = inicio != null,
-                periodoAtual = inicio?.periodo,
-                limiteSegundos = inicio?.limiteSegundos ?: retorno?.limiteSegundos,
-            )
+        // Se uma mutação anterior ficou incerta, não podemos consultar o estado
+        // atual e reinterpretá-lo como uma nova ação. O ViewModel já trata
+        // IOException como caminho offline; a fila reutiliza o mesmo operationId
+        // e o Worker reconcilia o COMMIT original antes de qualquer nova mutação.
+        if (operationJournal.isUncertain(colaboradorId)) {
+            throw IOException("O resultado do registro anterior ainda precisa ser reconciliado com o servidor.")
         }
-
         return api.confirmarBiometriaLocal(
             ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo),
         )
@@ -311,6 +299,10 @@ class PontoCafeRepository(
         versaoModelo: String,
     ): RegistroRapidoResponse? {
         try {
+            // O caminho rápido consegue reconstruir exatamente o comprovante
+            // autoritativo. Por isso tenta reconciliação antes de criar uma nova
+            // operação. Casos não rápidos seguem para a fila offline, que usa o
+            // mesmo UUID e também reconcilia no servidor.
             reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
                 return when {
                     reconciliada.inicio != null -> RegistroRapidoResponse(
@@ -451,7 +443,6 @@ class PontoCafeRepository(
 
     companion object {
         private const val AVATAR_CATALOG_TIMEOUT_MS = 1_000L
-        private const val RECONCILIATION_REPLAY_TOKEN = "REPLAY_IDEMPOTENTE_015"
 
         fun isAuthFailure(error: Throwable): Boolean =
             error is HttpException && (error.code() == 401 || error.code() == 403)
