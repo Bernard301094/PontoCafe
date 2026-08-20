@@ -201,6 +201,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId } + localPause,
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
+            durable = true,
         )
         operationJournal.completeForCollaborator(collaboratorId)
     }
@@ -237,6 +238,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasConcluidas = completedToday,
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
+            durable = true,
         )
         operationJournal.completeForCollaborator(collaboratorId)
     }
@@ -279,6 +281,7 @@ class SecurePontoOfflineStore(context: Context) {
                     eventos = current.eventos + repeatedAttempt,
                     pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
                 ),
+                durable = true,
             )
             operationJournal.complete(operationId)
             val minutos = completed.duracaoSegundos / 60
@@ -317,6 +320,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasAbertas = current.pausasAbertas + localPause,
                 pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
             ),
+            durable = true,
         )
         operationJournal.complete(operationId)
         return localPause
@@ -373,6 +377,7 @@ class SecurePontoOfflineStore(context: Context) {
                 pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == colaborador.id },
                 pausasConcluidas = completedToday,
             ),
+            durable = true,
         )
         operationJournal.complete(operationId)
         return open to duration
@@ -460,14 +465,27 @@ class SecurePontoOfflineStore(context: Context) {
         return snapshot
     }
 
-    private fun saveInternal(snapshot: PontoOfflineSnapshot) {
-        cachedSnapshot = snapshot
+    /**
+     * Escritas que representam uma saída/retorno usam commit() porque só depois
+     * dessa confirmação em disco podemos apagar o operationId idempotente. As
+     * demais atualizações de cache/telemetria continuam usando apply().
+     */
+    private fun saveInternal(snapshot: PontoOfflineSnapshot, durable: Boolean = false) {
         val plaintext = gson.toJson(snapshot).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val encrypted = cipher.doFinal(plaintext)
         val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-        prefs.edit().putString(payloadKey, payload).apply()
+        val editor = prefs.edit().putString(payloadKey, payload)
+
+        if (durable) {
+            check(editor.commit()) {
+                "Não foi possível persistir o estado local do Ponto."
+            }
+        } else {
+            editor.apply()
+        }
+        cachedSnapshot = snapshot
     }
 
     private fun getOrCreateKey(): SecretKey {
