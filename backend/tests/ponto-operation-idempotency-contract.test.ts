@@ -6,8 +6,16 @@ const fastRoute = readFileSync(
   new URL('../src/routes/fast-ponto-routes.ts', import.meta.url),
   'utf8',
 )
+const mutationRoute = readFileSync(
+  new URL('../src/routes/idempotent-ponto-mutation-routes.ts', import.meta.url),
+  'utf8',
+)
 const offlineRoute = readFileSync(
   new URL('../src/routes/offline-routes.ts', import.meta.url),
+  'utf8',
+)
+const application = readFileSync(
+  new URL('../src/application.ts', import.meta.url),
   'utf8',
 )
 const idempotency = readFileSync(
@@ -35,18 +43,22 @@ const gradle = readFileSync(
   'utf8',
 )
 
-test('migração mantém identidade e resultado da operação no mesmo domínio transacional', () => {
+test('migração mantém identidade e resultado de todas as mutações do Ponto', () => {
   assert.match(migration, /create table if not exists operacoes_ponto_idempotentes/i)
   assert.match(migration, /operacao_id uuid primary key/i)
   assert.match(migration, /dispositivo_id uuid not null references dispositivos/i)
   assert.match(migration, /colaborador_id uuid not null references colaboradores/i)
+  assert.match(migration, /REGISTRO_RAPIDO/)
+  assert.match(migration, /INICIAR/)
+  assert.match(migration, /FINALIZAR/)
   assert.match(migration, /resposta jsonb not null/i)
   assert.match(migration, /pausa_id uuid null references pausas_cafe/i)
 })
 
-test('backend serializa operationId e só persiste replay junto da mutação rápida', () => {
+test('backend serializa operationId e persiste replay junto da mutação rápida', () => {
   assert.match(idempotency, /pg_advisory_xact_lock/)
   assert.match(idempotency, /PontoOperationConflictError/)
+  assert.match(idempotency, /findPontoOperationById/)
   assert.match(idempotency, /insert into operacoes_ponto_idempotentes/)
   assert.match(fastRoute, /operacaoId: uuidSchema\.optional\(\)/)
   assert.match(fastRoute, /findPontoOperation<FastSuccessResponse>/)
@@ -54,12 +66,27 @@ test('backend serializa operationId e só persiste replay junto da mutação rá
   assert.match(fastRoute, /savePontoOperation\(client, idempotencyIdentity, pauseId, success\)/)
 })
 
-test('fila offline reconcilia primeiro uma operação online já commitada', () => {
-  const operationLookup = offlineRoute.indexOf('findPontoOperation<StoredFastResponse>')
+test('INICIAR e FINALIZAR confirmados também são exactly-once', () => {
+  assert.match(mutationRoute, /operacaoId: uuidSchema\.optional\(\)/)
+  assert.match(mutationRoute, /type: 'INICIAR' \| 'FINALIZAR'/)
+  assert.match(mutationRoute, /findPontoOperation<StartResponse>/)
+  assert.match(mutationRoute, /findPontoOperation<FinishResponse>/)
+  assert.match(mutationRoute, /savePontoOperation\(client, operation, pauseId, result\)/)
+  assert.match(mutationRoute, /savePontoOperation\(client, operation, open\.rows\[0\]\.id, result\)/)
+
+  const protectedRoute = application.indexOf("app.route('/ponto', idempotentPontoMutationRoutes)")
+  const legacyRoute = application.indexOf("app.route('/ponto', pontoRoutes)")
+  assert.ok(protectedRoute >= 0 && legacyRoute > protectedRoute)
+})
+
+test('fila offline reconcilia primeiro qualquer operação online já commitada', () => {
+  const operationLookup = offlineRoute.indexOf('findPontoOperationById<StoredOnlineResponse>')
   const biometricLookup = offlineRoute.indexOf('from templates_faciais')
   assert.ok(operationLookup >= 0)
   assert.ok(biometricLookup >= 0)
   assert.ok(operationLookup < biometricLookup)
+  assert.match(offlineRoute, /committedOnline\.type !== 'REGISTRO_RAPIDO'/)
+  assert.match(offlineRoute, /expectedLegacyType/)
   assert.match(offlineRoute, /O servidor já havia confirmado esta mesma operação online/)
 })
 
@@ -68,12 +95,13 @@ test('Android mantém operationId cifrado e não persiste embedding bruto no di�
   assert.match(journal, /AES\/GCM\/NoPadding/)
   assert.match(journal, /MessageDigest\.getInstance\("SHA-256"\)/)
   assert.match(journal, /embeddingFingerprint/)
+  assert.match(journal, /fun prepareAction\(collaboratorId: String, action: String\)/)
   assert.match(journal, /putString\(PAYLOAD_KEY, encoded\)\.commit\(\)/)
   assert.doesNotMatch(journal, /val embedding: List<Float>/)
   assert.doesNotMatch(journal, /val embedding: FloatArray/)
 })
 
-test('resposta incerta bloqueia fallback legado e reaproveita o UUID na fila offline', () => {
+test('resposta incerta bloqueia nova leitura de estado e reaproveita UUID no offline', () => {
   assert.match(apiClient, /val operacaoId: String/)
   assert.match(apiClient, /operationJournal\.markUncertain\(operationId\)/)
   assert.match(apiClient, /operationJournal\.isUncertain\(colaboradorId\)/)
@@ -83,17 +111,26 @@ test('resposta incerta bloqueia fallback legado e reaproveita o UUID na fila off
 })
 
 test('operationId fica incerto antes de qualquer mutação de rede', () => {
-  const prepare = apiClient.indexOf('val operationId = operationJournal.prepare(colaboradorId, embedding)')
-  const uncertain = apiClient.indexOf('operationJournal.markUncertain(operationId)', prepare)
-  const request = apiClient.indexOf('api.registroRapido(', prepare)
-  assert.ok(prepare >= 0)
-  assert.ok(uncertain > prepare)
-  assert.ok(request > uncertain)
+  const fastPrepare = apiClient.indexOf('val operationId = operationJournal.prepare(colaboradorId, embedding)')
+  const fastUncertain = apiClient.indexOf('operationJournal.markUncertain(operationId)', fastPrepare)
+  const fastRequest = apiClient.indexOf('api.registroRapido(', fastPrepare)
+  assert.ok(fastPrepare >= 0 && fastUncertain > fastPrepare && fastRequest > fastUncertain)
+
+  const confirmedPrepare = apiClient.indexOf('val operationId = operationJournal.prepareAction(colaboradorId, acao)')
+  const confirmedUncertain = apiClient.indexOf('operationJournal.markUncertain(operationId)', confirmedPrepare)
+  const confirmedRequest = apiClient.indexOf('val response = request(operationId)', confirmedPrepare)
+  assert.ok(
+    confirmedPrepare >= 0 &&
+    confirmedUncertain > confirmedPrepare &&
+    confirmedRequest > confirmedUncertain,
+  )
 })
 
 test('resposta mutante só libera operationId depois de snapshot local durável', () => {
   assert.match(apiClient, /"INICIO", "RETORNO" -> Unit/)
   assert.doesNotMatch(apiClient, /"INICIO", "RETORNO" -> operationJournal\.complete\(operationId\)/)
+  assert.match(apiClient, /private suspend fun <T> executarMutacaoConfirmada/)
+  assert.doesNotMatch(apiClient, /executarMutacaoConfirmada[\s\S]*?completeForCollaborator/)
   assert.match(
     offlineStore,
     /private fun saveInternal\(snapshot: PontoOfflineSnapshot, durable: Boolean = false\)/,
