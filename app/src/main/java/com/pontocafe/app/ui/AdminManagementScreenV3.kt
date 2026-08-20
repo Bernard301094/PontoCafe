@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -389,7 +390,7 @@ private fun ManagementOverviewCard(
                 )
             }
 
-            val statusCells: @Composable () -> Unit = {
+            val statusCells: @Composable RowScope.() -> Unit = {
                 ManagementStatusCell(
                     value = if (totalRules == 0) "—" else "$activeRules/$totalRules",
                     label = "Períodos ativos",
