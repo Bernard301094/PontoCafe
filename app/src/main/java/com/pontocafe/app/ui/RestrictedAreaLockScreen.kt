@@ -10,7 +10,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,11 +21,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -185,14 +192,20 @@ fun RestrictedAreaLockScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding(),
     ) {
+        val compactHeight = maxHeight < 720.dp
+        val horizontalPadding = if (maxWidth < 360.dp) 14.dp else 20.dp
+        val cardPadding = if (compactHeight) 20.dp else 24.dp
+        val iconBoxSize = if (compactHeight) 50.dp else 58.dp
+        val iconSize = if (compactHeight) 23.dp else 26.dp
+
         Box(
             modifier = Modifier
-                .size(300.dp)
+                .size(if (compactHeight) 220.dp else 300.dp)
                 .align(Alignment.TopEnd)
                 .background(
                     brush = Brush.radialGradient(
@@ -206,146 +219,180 @@ fun RestrictedAreaLockScreen(
             visible = contentVisible,
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(horizontal = 22.dp),
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 10 }),
+                .padding(horizontal = horizontalPadding),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 12 }),
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(32.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 520.dp),
+                shape = RoundedCornerShape(if (compactHeight) 26.dp else 30.dp),
                 color = PontoCafePremium.glassStrong,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 border = BorderStroke(1.dp, PontoCafePremium.border),
-                shadowElevation = 18.dp,
+                shadowElevation = if (compactHeight) 10.dp else 16.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(cardPadding),
+                    verticalArrangement = Arrangement.spacedBy(if (compactHeight) 14.dp else 18.dp),
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = PontoCafePremium.glowSoft,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Box(
-                            modifier = Modifier.size(76.dp),
-                            contentAlignment = Alignment.Center,
+                        Surface(
+                            modifier = Modifier.size(iconBoxSize),
+                            shape = RoundedCornerShape(18.dp),
+                            color = PontoCafePremium.glowSoft,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                            ),
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                modifier = Modifier.size(34.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(iconSize),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
-                    }
 
-                    Spacer(Modifier.height(18.dp))
-
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-                    ) {
-                        Text(
-                            text = "ÁREA PROTEGIDA",
-                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-
-                    Spacer(Modifier.height(18.dp))
-
-                    Text(
-                        text = "Ponto Café",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        text = "Acesso seguro ao painel administrativo",
-                        modifier = Modifier.padding(top = 5.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    Spacer(Modifier.height(24.dp))
-
-                    Text(
-                        text = profileLabel,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    Surface(
-                        modifier = Modifier.padding(top = 9.dp),
-                        shape = CircleShape,
-                        color = LocalPontoCafeSemanticColors.current.successContainer,
-                        border = BorderStroke(
-                            1.dp,
-                            LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.16f),
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .background(
-                                        LocalPontoCafeSemanticColors.current.success,
-                                        CircleShape,
-                                    ),
+                            Text(
+                                text = "ÁREA PROTEGIDA",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                             Text(
-                                "Sessão protegida",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = LocalPontoCafeSemanticColors.current.onSuccessContainer,
+                                text = "Ponto Café",
+                                style = if (compactHeight) {
+                                    MaterialTheme.typography.titleLarge
+                                } else {
+                                    MaterialTheme.typography.headlineSmall
+                                },
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Acesso administrativo seguro",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
 
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
+                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(42.dp),
+                                shape = CircleShape,
+                                color = LocalPontoCafeSemanticColors.current.successContainer,
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Shield,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = LocalPontoCafeSemanticColors.current.onSuccessContainer,
+                                    )
+                                }
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = profileLabel,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Sessão ativa neste dispositivo",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = LocalPontoCafeSemanticColors.current.successContainer,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .background(
+                                                LocalPontoCafeSemanticColors.current.success,
+                                                CircleShape,
+                                            ),
+                                    )
+                                    Text(
+                                        "Protegida",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LocalPontoCafeSemanticColors.current.onSuccessContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Text(
-                        text = "Sua sessão continua ativa neste dispositivo. Confirme sua identidade para voltar exatamente de onde parou.",
-                        modifier = Modifier.padding(top = 20.dp),
-                        style = MaterialTheme.typography.bodyLarge,
+                        text = "Desbloqueie para voltar ao painel exatamente de onde parou.",
+                        style = if (compactHeight) {
+                            MaterialTheme.typography.bodyMedium
+                        } else {
+                            MaterialTheme.typography.bodyLarge
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
                     )
 
                     erro?.let { message ->
                         Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 18.dp),
-                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.errorContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.18f)),
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
+                            ),
                         ) {
                             Text(
-                                message,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = message,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
-                                textAlign = TextAlign.Center,
                             )
                         }
                     }
 
-                    Spacer(Modifier.height(26.dp))
-
                     Button(
                         onClick = ::forceRequestUnlock,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(22.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 17.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        contentPadding = PaddingValues(vertical = if (compactHeight) 14.dp else 16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -357,7 +404,7 @@ fun RestrictedAreaLockScreen(
                             modifier = Modifier.size(21.dp),
                         )
                         Text(
-                            text = if (promptRequested) "Abrir autenticação novamente" else "Desbloquear",
+                            text = if (promptRequested) "Abrir autenticação novamente" else "Desbloquear agora",
                             modifier = Modifier.padding(start = 9.dp),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
@@ -366,24 +413,31 @@ fun RestrictedAreaLockScreen(
 
                     OutlinedButton(
                         onClick = onBackToPonto,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        shape = RoundedCornerShape(22.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        contentPadding = PaddingValues(vertical = if (compactHeight) 13.dp else 15.dp),
                         border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
                         Text(
-                            "Continuar no Ponto Café",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Voltar ao Ponto Café",
+                            modifier = Modifier.padding(start = 8.dp),
+                            style = MaterialTheme.typography.titleSmall,
                         )
                     }
 
+                    if (!compactHeight) {
+                        Spacer(Modifier.height(1.dp))
+                    }
                     Text(
-                        text = "Protegido localmente neste aparelho",
-                        modifier = Modifier.padding(top = 18.dp),
+                        text = "Proteção local do aparelho · biometria ou credencial do sistema",
+                        modifier = Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
                         textAlign = TextAlign.Center,
                     )
                 }
