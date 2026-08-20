@@ -9,7 +9,7 @@ create table if not exists operacoes_ponto_idempotentes (
   operacao_id uuid primary key,
   dispositivo_id uuid not null references dispositivos(id) on delete cascade,
   colaborador_id uuid not null references colaboradores(id),
-  tipo varchar(32) not null check (tipo in ('REGISTRO_RAPIDO')),
+  tipo varchar(32) not null check (tipo in ('REGISTRO_RAPIDO','INICIAR','FINALIZAR')),
   pausa_id uuid null references pausas_cafe(id) on delete set null,
   resposta jsonb not null,
   criado_em timestamptz not null default now(),
