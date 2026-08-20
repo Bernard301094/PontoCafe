@@ -154,6 +154,7 @@ data class FinalizarPausaResponse(
 )
 
 data class RegistroRapidoRequest(
+    val operacaoId: String,
     val colaboradorId: String,
     val embedding: List<Float>,
     val modelo: String,
@@ -205,7 +206,10 @@ interface PontoCafeApi {
     @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
 }
 
-class PontoCafeRepository(private val api: PontoCafeApi) {
+class PontoCafeRepository(
+    private val api: PontoCafeApi,
+    private val operationJournal: PontoOperationJournal,
+) {
     suspend fun activateDevice(token: String): String = api.activateDevice(DeviceActivationRequest(token)).token
     suspend fun validarPinSaida(pin: String, area: String): DeviceUnlockResponse =
         api.unlockDevice(DeviceUnlockRequest(pin.trim(), area))
@@ -248,14 +252,36 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
         )
     }
 
-    suspend fun confirmarIdentidadeLocal(colaboradorId: String, embedding: FloatArray, modelo: String, versaoModelo: String): IdentificarBiometriaResponse = api.confirmarBiometriaLocal(ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo))
-    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse = api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
-    suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse = api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
+    suspend fun confirmarIdentidadeLocal(
+        colaboradorId: String,
+        embedding: FloatArray,
+        modelo: String,
+        versaoModelo: String,
+    ): IdentificarBiometriaResponse {
+        // Se o fast-path pode ter COMMITado mas a resposta se perdeu, NÃO
+        // consultamos o fluxo legado: ele poderia interpretar o início recém
+        // gravado como um retorno. O ViewModel já trata IOException como caminho
+        // offline e a fila reutilizará o mesmo operationId para reconciliação.
+        if (operationJournal.isUncertain(colaboradorId)) {
+            throw IOException("O resultado do registro anterior ainda precisa ser reconciliado com o servidor.")
+        }
+        return api.confirmarBiometriaLocal(
+            ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo),
+        )
+    }
+
+    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse =
+        api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
+
+    suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
+        api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
 
     /**
-     * Retorna null quando o Worker ainda não oferece o fast-path, quando essa
-     * rota responde 5xx ou quando a conexão falha. O chamador então usa o fluxo
-     * legado, que também preserva o modo offline já existente.
+     * Cada captura recebe uma identidade durável. Em falha de rede/5xx o UUID é
+     * marcado como incerto e NÃO é descartado: caso o servidor tenha confirmado
+     * a transação, o evento offline subsequente usará o mesmo identificador.
+     *
+     * 404/405/501 continuam significando apenas Worker antigo sem fast-path.
      */
     suspend fun registrarRapido(
         colaboradorId: String,
@@ -263,9 +289,11 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
         modelo: String,
         versaoModelo: String,
     ): RegistroRapidoResponse? {
+        val operationId = operationJournal.prepare(colaboradorId, embedding)
         val response = try {
             api.registroRapido(
                 RegistroRapidoRequest(
+                    operacaoId = operationId,
                     colaboradorId = colaboradorId,
                     embedding = embedding.toList(),
                     modelo = modelo,
@@ -273,17 +301,52 @@ class PontoCafeRepository(private val api: PontoCafeApi) {
                 ),
             )
         } catch (_: IOException) {
+            operationJournal.markUncertain(operationId)
             return null
         }
-        if (response.code() == 404 || response.code() == 405 || response.code() == 501 || response.code() >= 500) {
+
+        if (response.code() == 404 || response.code() == 405 || response.code() == 501) {
+            operationJournal.clearUncertain(operationId)
             return null
         }
-        if (!response.isSuccessful) throw HttpException(response)
-        return response.body() ?: error("O servidor não retornou o resultado do registro rápido.")
+        if (response.code() >= 500) {
+            operationJournal.markUncertain(operationId)
+            return null
+        }
+        if (!response.isSuccessful) {
+            operationJournal.clearUncertain(operationId)
+            throw HttpException(response)
+        }
+
+        val result = response.body()
+        if (result == null) {
+            operationJournal.markUncertain(operationId)
+            return null
+        }
+
+        operationJournal.clearUncertain(operationId)
+        if (result.status == "INICIO" || result.status == "RETORNO") {
+            operationJournal.complete(operationId)
+        }
+        return result
     }
 
-    suspend fun iniciar(colaboradorId: String, verificacaoToken: String, periodo: String? = null, codigoAutorizacao: String? = null): IniciarPausaResponse = api.iniciarPausa(IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao))
-    suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse = api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken))
+    suspend fun iniciar(
+        colaboradorId: String,
+        verificacaoToken: String,
+        periodo: String? = null,
+        codigoAutorizacao: String? = null,
+    ): IniciarPausaResponse = api.iniciarPausa(
+        IniciarPausaRequest(colaboradorId, verificacaoToken, periodo, codigoAutorizacao),
+    ).also {
+        operationJournal.completeForCollaborator(colaboradorId)
+    }
+
+    suspend fun finalizar(colaboradorId: String, verificacaoToken: String): FinalizarPausaResponse =
+        api.finalizarPausa(FinalizarPausaRequest(colaboradorId, verificacaoToken)).also {
+            operationJournal.completeForCollaborator(colaboradorId)
+        }
+
     suspend fun sincronizarOffline(eventos: List<OfflinePontoEvent>): OfflineSyncResponse =
         api.sincronizarOffline(OfflineSyncRequest(eventos))
 
@@ -320,7 +383,14 @@ object ApiClient {
             chain.proceed(request)
         }
         val okHttp = OkHttpClient.Builder().addInterceptor(tokenInterceptor).build()
-        val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(okHttp).addConverterFactory(GsonConverterFactory.create()).build()
-        return PontoCafeRepository(retrofit.create(PontoCafeApi::class.java))
+        val retrofit = Retrofit.Builder()
+            .baseUrl(BuildConfig.API_BASE_URL)
+            .client(okHttp)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+        return PontoCafeRepository(
+            api = retrofit.create(PontoCafeApi::class.java),
+            operationJournal = PontoOperationJournal(context.applicationContext),
+        )
     }
 }
