@@ -82,8 +82,17 @@ test('resposta incerta bloqueia fallback legado e reaproveita o UUID na fila off
   assert.match(offlineStore, /eventId = operationId/)
 })
 
+test('operationId fica incerto antes de qualquer mutação de rede', () => {
+  const prepare = apiClient.indexOf('val operationId = operationJournal.prepare(colaboradorId, embedding)')
+  const uncertain = apiClient.indexOf('operationJournal.markUncertain(operationId)', prepare)
+  const request = apiClient.indexOf('api.registroRapido(', prepare)
+  assert.ok(prepare >= 0)
+  assert.ok(uncertain > prepare)
+  assert.ok(request > uncertain)
+})
+
 test('resposta mutante só libera operationId depois de snapshot local durável', () => {
-  assert.match(apiClient, /"INICIO", "RETORNO" -> operationJournal\.markUncertain\(operationId\)/)
+  assert.match(apiClient, /"INICIO", "RETORNO" -> Unit/)
   assert.doesNotMatch(apiClient, /"INICIO", "RETORNO" -> operationJournal\.complete\(operationId\)/)
   assert.match(
     offlineStore,
