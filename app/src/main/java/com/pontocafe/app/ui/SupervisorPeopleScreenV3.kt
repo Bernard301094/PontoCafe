@@ -1,7 +1,5 @@
 package com.pontocafe.app.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -55,13 +53,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
-import com.pontocafe.app.avatar.AvatarImageOptimizer
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SupervisorApiClient
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private enum class SupervisorPeopleFilterV3 { ALL, PENDING }
 
@@ -96,30 +91,30 @@ fun SupervisorPeopleScreenV3(
     var avatarMessage by remember { mutableStateOf<String?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
 
-    val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val target = avatarTarget
-        avatarTarget = null
-        if (uri != null && target != null) {
-            avatarBusyId = target.id
-            avatarError = null
-            avatarMessage = null
-            scope.launch {
-                runCatching {
-                    val optimized = withContext(Dispatchers.IO) {
-                        AvatarImageOptimizer.optimize(context.applicationContext, uri)
+    avatarTarget?.let { target ->
+        CollaboratorAvatarSourceDialog(
+            collaboratorName = target.nome,
+            onDismiss = { avatarTarget = null },
+            onImageReady = { optimized ->
+                avatarBusyId = target.id
+                avatarError = null
+                avatarMessage = null
+                scope.launch {
+                    runCatching {
+                        avatarRepository.uploadAvatar(target.id, optimized)
+                        optimized.size
+                    }.onSuccess { bytes ->
+                        avatarBusyId = null
+                        avatarMessage = "Avatar de ${target.nome} otimizado para ${String.format("%.1f", bytes / 1024.0)} KB."
+                        viewModel.abrirColaboradores()
+                    }.onFailure { error ->
+                        avatarBusyId = null
+                        avatarError = error.message ?: "Não foi possível salvar o avatar."
                     }
-                    avatarRepository.uploadAvatar(target.id, optimized)
-                    optimized.size
-                }.onSuccess { bytes ->
-                    avatarBusyId = null
-                    avatarMessage = "Avatar de ${target.nome} otimizado para ${String.format("%.1f", bytes / 1024.0)} KB."
-                    viewModel.abrirColaboradores()
-                }.onFailure { error ->
-                    avatarBusyId = null
-                    avatarError = error.message ?: "Não foi possível salvar o avatar."
                 }
-            }
-        }
+            },
+            onError = { message -> avatarError = message },
+        )
     }
 
     if (showAccountSheet) {
@@ -372,8 +367,8 @@ fun SupervisorPeopleScreenV3(
                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
                             onAvatar = {
                                 avatarError = null
+                                avatarMessage = null
                                 avatarTarget = person
-                                avatarLauncher.launch("image/*")
                             },
                             onDeleteAvatar = {
                                 avatarBusyId = person.id
@@ -488,7 +483,7 @@ private fun SupervisorPersonCardV3(
                 ) {
                     Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(
-                        if (person.avatarUrl.isNullOrBlank()) "Escolher avatar" else "Trocar avatar",
+                        if (person.avatarUrl.isNullOrBlank()) "Definir avatar" else "Trocar avatar",
                         modifier = Modifier.padding(start = 7.dp),
                     )
                 }
@@ -503,7 +498,7 @@ private fun SupervisorPersonCardV3(
                     }
                 }
                 Text(
-                    "O avatar é WebP otimizado e separado da biometria facial; a imagem não é salva no banco de dados.",
+                    "Você pode tirar uma foto ou escolher uma imagem da galeria. O avatar permanece separado da biometria facial e não é usado no reconhecimento.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
