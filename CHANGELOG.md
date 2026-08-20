@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.0 — Contas protegidas + Relatórios com UX responsiva
+
+### Acesso restrito
+- Substitui o hero alto do seletor por uma faixa compacta de segurança, priorizando a conta que o usuário realmente quer abrir.
+- Renomeia a área principal para **Entrar com uma conta salva** e separa claramente **Sessões salvas** de **Entrar com outra conta**.
+- Cada sessão salva passa a ter CTA explícito **Abrir conta**; a remoção deixa de ficar exposta e vai para o menu **Mais opções** com confirmação.
+- Em telas médias e expandidas, sessões salvas e novo login usam duas colunas; em celular permanecem em fluxo vertical confortável.
+- Mantém múltiplas contas, sessões legadas, ativação por conta e armazenamento cifrado pelo Android Keystore sem persistir senhas.
+
+### Relatórios do Supervisor
+- Reorganiza a tela em **Período do relatório**, resumo, indicadores, tendência, registros por data e excessos que pedem atenção.
+- Torna **Emitir relatório** uma ação principal próxima ao resumo do período, em vez de esconder a exportação no fim da tela.
+- A emissão abre um `ModalBottomSheet` com **Gerar e compartilhar PDF** e **Exportar e compartilhar CSV**, sempre usando o período atualmente selecionado.
+- Mantém os atalhos Hoje, 7 dias, 30 dias e seleção por calendário, além de comparação com período anterior, tendência e abertura do histórico diário.
+- Em telas expandidas, resumo e emissão ficam lado a lado e as quatro métricas usam uma única linha; no celular permanecem em grade 2×2.
+- Preserva `FileProvider`, geração PDF local, CSV do backend, compartilhamento Android e todas as regras/dados já existentes.
+- Não altera FaceNet, embeddings, thresholds, liveness, CameraX, backend, PINs, autenticação ou regras de pausa.
+
 ## 0.13.0 — Área protegida + Ponto com UX responsiva
 
 ### Área protegida
