@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg'
 
-export type PontoOperationType = 'REGISTRO_RAPIDO'
+export type PontoOperationType = 'REGISTRO_RAPIDO' | 'INICIAR' | 'FINALIZAR'
 
 export type PontoOperationIdentity = {
   operationId: string
@@ -20,6 +20,9 @@ type PontoOperationRow = {
 
 export type StoredPontoOperation<T> = {
   operationId: string
+  deviceId: string
+  collaboratorId: string
+  type: PontoOperationType
   pauseId: string | null
   response: T
 }
@@ -46,33 +49,46 @@ export async function lockPontoOperation(
   )
 }
 
-export async function findPontoOperation<T>(
+export async function findPontoOperationById<T>(
   client: PoolClient,
-  identity: PontoOperationIdentity,
+  operationId: string,
 ): Promise<StoredPontoOperation<T> | null> {
   const result = await client.query<PontoOperationRow>(
     `select operacao_id,dispositivo_id,colaborador_id,tipo,pausa_id,resposta
        from operacoes_ponto_idempotentes
       where operacao_id=$1
       limit 1`,
-    [identity.operationId],
+    [operationId],
   )
   const row = result.rows[0]
   if (!row) return null
 
+  return {
+    operationId: row.operacao_id,
+    deviceId: row.dispositivo_id,
+    collaboratorId: row.colaborador_id,
+    type: row.tipo,
+    pauseId: row.pausa_id,
+    response: row.resposta as T,
+  }
+}
+
+export async function findPontoOperation<T>(
+  client: PoolClient,
+  identity: PontoOperationIdentity,
+): Promise<StoredPontoOperation<T> | null> {
+  const stored = await findPontoOperationById<T>(client, identity.operationId)
+  if (!stored) return null
+
   if (
-    row.dispositivo_id !== identity.deviceId ||
-    row.colaborador_id !== identity.collaboratorId ||
-    row.tipo !== identity.type
+    stored.deviceId !== identity.deviceId ||
+    stored.collaboratorId !== identity.collaboratorId ||
+    stored.type !== identity.type
   ) {
     throw new PontoOperationConflictError()
   }
 
-  return {
-    operationId: row.operacao_id,
-    pauseId: row.pausa_id,
-    response: row.resposta as T,
-  }
+  return stored
 }
 
 export async function savePontoOperation<T extends object>(
