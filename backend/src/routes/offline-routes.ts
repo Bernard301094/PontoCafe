@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
+import { findPontoOperation, lockPontoOperation } from '../ponto-operation-idempotency.js'
 import { cosineSimilarity, decryptEmbedding, hashToken, newId } from '../security.js'
 import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 
@@ -35,6 +36,10 @@ const offlineEventSchema = z.object({
 
 type OfflineEvent = z.infer<typeof offlineEventSchema>
 type SyncStatus = 'SINCRONIZADO' | 'RECONCILIADO' | 'ERRO'
+type StoredFastResponse = {
+  status: 'INICIO' | 'RETORNO'
+  score?: number
+}
 
 class OfflineSyncError extends Error {}
 
@@ -104,6 +109,35 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
   }
 
   return transaction(async (client) => {
+    // 0.15+: se o mesmo UUID já alterou o Ponto pelo caminho online, a fila
+    // offline não tenta executar uma segunda ação. Ela apenas reconcilia o
+    // COMMIT original. O lock também serializa duas sincronizações simultâneas.
+    await lockPontoOperation(client, event.eventId, device.id)
+    const committedOnline = await findPontoOperation<StoredFastResponse>(client, {
+      operationId: event.eventId,
+      deviceId: device.id,
+      collaboratorId: event.colaboradorId,
+      type: 'REGISTRO_RAPIDO',
+    })
+    if (committedOnline) {
+      const authoritativeScore = Number.isFinite(committedOnline.response.score)
+        ? Number(committedOnline.response.score)
+        : event.score
+      await auditOffline(
+        client,
+        device,
+        event,
+        committedOnline.pauseId,
+        true,
+        authoritativeScore,
+      )
+      return {
+        status: 'RECONCILIADO' as const,
+        pausaId: committedOnline.pauseId ?? undefined,
+        mensagem: 'O servidor já havia confirmado esta mesma operação online.',
+      }
+    }
+
     const markerHash = hashToken(`offline:${event.eventId}`)
     const alreadyProcessed = await client.query<{ id: string }>(
       'select id from verificacoes_faciais where token_hash=$1 limit 1',
