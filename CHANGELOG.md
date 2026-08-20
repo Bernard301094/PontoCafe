@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.0 — Gestão com UX responsiva
+
+### Gestão
+- Reorganiza o menu em uma **Central de gestão** com resumo operacional e hierarquia visual mais clara.
+- Agrupa as ferramentas em **Operação** e **Confiabilidade e controle**, reduzindo a sensação de grade de atalhos sem prioridade.
+- Adapta os atalhos aos breakpoints compartilhados do app: 1 coluna em telas compactas, 2 em médias e 3 em expandidas.
+- Mantém Dispositivos, Sincronização, Autorizações, Modo terminal, Biometria, Diagnóstico e Auditoria, com cards compactos e affordance explícita de navegação.
+- Reorganiza as regras de café em uma área própria; em telas expandidas os períodos podem ser exibidos em duas colunas.
+- O editor mostra estado ativo/desativado e destaca **Alterações não salvas**, oferecendo **Descartar** e **Salvar** sem mudar as validações de negócio.
+- Preserva os presets de 10, 12 e 15 minutos, duração personalizada, seleção de horário e validação pelo domínio `PontoCafeRules`.
+- Move o **Teste operacional** para uma seção avançada recolhível para não competir com tarefas administrativas frequentes.
+- `AdminManagementScreenV2` permanece apenas como entrypoint compatível e encaminha para a nova experiência V3.
+- Não altera backend, autenticação, FaceNet, liveness, permissões ou regras operacionais.
+
 ## 0.10.9 — Pessoas com UX responsiva
 
 ### Pessoas
