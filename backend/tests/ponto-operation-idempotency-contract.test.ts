@@ -68,6 +68,7 @@ test('Android mantém operationId cifrado e não persiste embedding bruto no di�
   assert.match(journal, /AES\/GCM\/NoPadding/)
   assert.match(journal, /MessageDigest\.getInstance\("SHA-256"\)/)
   assert.match(journal, /embeddingFingerprint/)
+  assert.match(journal, /putString\(PAYLOAD_KEY, encoded\)\.commit\(\)/)
   assert.doesNotMatch(journal, /val embedding: List<Float>/)
   assert.doesNotMatch(journal, /val embedding: FloatArray/)
 })
@@ -79,6 +80,27 @@ test('resposta incerta bloqueia fallback legado e reaproveita o UUID na fila off
   assert.match(apiClient, /throw IOException\("O resultado do registro anterior ainda precisa ser reconciliado/)
   assert.match(offlineStore, /val operationId = operationJournal\.prepare\(colaborador\.id, embedding\)/)
   assert.match(offlineStore, /eventId = operationId/)
+})
+
+test('resposta mutante só libera operationId depois de snapshot local durável', () => {
+  assert.match(apiClient, /"INICIO", "RETORNO" -> operationJournal\.markUncertain\(operationId\)/)
+  assert.doesNotMatch(apiClient, /"INICIO", "RETORNO" -> operationJournal\.complete\(operationId\)/)
+  assert.match(
+    offlineStore,
+    /private fun saveInternal\(snapshot: PontoOfflineSnapshot, durable: Boolean = false\)/,
+  )
+  assert.match(offlineStore, /if \(durable\) \{\s*check\(editor\.commit\(\)\)/)
+  assert.ok((offlineStore.match(/durable = true/g) ?? []).length >= 5)
+
+  const onlineStart = offlineStore.indexOf('fun recordOnlineStart')
+  const startDurable = offlineStore.indexOf('durable = true', onlineStart)
+  const startRelease = offlineStore.indexOf('operationJournal.completeForCollaborator', onlineStart)
+  assert.ok(onlineStart >= 0 && startDurable > onlineStart && startRelease > startDurable)
+
+  const onlineFinish = offlineStore.indexOf('fun recordOnlineFinish')
+  const finishDurable = offlineStore.indexOf('durable = true', onlineFinish)
+  const finishRelease = offlineStore.indexOf('operationJournal.completeForCollaborator', onlineFinish)
+  assert.ok(onlineFinish >= 0 && finishDurable > onlineFinish && finishRelease > finishDurable)
 })
 
 test('release 0.15 mantém otimizações de produção', () => {
