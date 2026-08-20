@@ -115,6 +115,8 @@ data class IdentificarBiometriaResponse(
     val dentroHorario: Boolean? = null,
     val periodoAtual: String? = null,
     val limiteSegundos: Int? = null,
+    val reconciliacaoInicio: IniciarPausaResponse? = null,
+    val reconciliacaoRetorno: FinalizarPausaResponse? = null,
 )
 
 data class VerificarBiometriaRequest(val colaboradorId: String, val embedding: List<Float>)
@@ -177,6 +179,18 @@ data class RegistroRapidoResponse(
     val mensagem: String? = null,
 )
 
+data class PontoOperationReconcileRequest(
+    val operacaoId: String,
+    val colaboradorId: String,
+)
+
+data class PontoOperationReconcileResponse(
+    val encontrada: Boolean,
+    val tipo: String? = null,
+    val inicio: IniciarPausaResponse? = null,
+    val retorno: FinalizarPausaResponse? = null,
+)
+
 data class OfflineSyncRequest(val eventos: List<OfflinePontoEvent>)
 data class OfflineSyncResult(
     val eventId: String,
@@ -207,6 +221,7 @@ interface PontoCafeApi {
     @POST("ponto/biometria/identificar") suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
     @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
     @POST("ponto/registro-rapido") suspend fun registroRapido(@Body body: RegistroRapidoRequest): Response<RegistroRapidoResponse>
+    @POST("ponto/operacoes/reconciliar") suspend fun reconciliarOperacao(@Body body: PontoOperationReconcileRequest): PontoOperationReconcileResponse
     @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): Response<IniciarPausaResponse>
     @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): Response<FinalizarPausaResponse>
     @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
@@ -234,10 +249,6 @@ class PontoCafeRepository(
         val response = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
         if (!response.atualizado || response.templates.isEmpty()) return response
 
-        // Avatar é enriquecimento visual, nunca requisito biométrico. Uma rota de
-        // avatar lenta ou indisponível não pode manter o Ponto bloqueado em
-        // "sincronizando biometrias". O timeout cancela apenas essa chamada
-        // auxiliar e preserva integralmente o catálogo facial já recebido.
         val avatars = try {
             withTimeoutOrNull(AVATAR_CATALOG_TIMEOUT_MS) { avatarCatalog() }.orEmpty()
         } catch (error: CancellationException) {
@@ -264,12 +275,16 @@ class PontoCafeRepository(
         modelo: String,
         versaoModelo: String,
     ): IdentificarBiometriaResponse {
-        // Uma mutação anterior com resposta incerta precisa ser reconciliada
-        // antes de consultar o estado atual; caso contrário um INICIO já
-        // commitado poderia ser reinterpretado como FINALIZAR.
-        if (operationJournal.isUncertain(colaboradorId)) {
-            throw IOException("O resultado do registro anterior ainda precisa ser reconciliado com o servidor.")
+        reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
+            return IdentificarBiometriaResponse(
+                reconhecido = true,
+                motivo = "OPERACAO_RECONCILIADA",
+                mensagem = "O registro anterior foi confirmado pelo servidor.",
+                reconciliacaoInicio = reconciliada.inicio,
+                reconciliacaoRetorno = reconciliada.retorno,
+            )
         }
+
         return api.confirmarBiometriaLocal(
             ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo),
         )
@@ -281,18 +296,34 @@ class PontoCafeRepository(
     suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
         api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
 
-    /**
-     * Cada captura recebe uma identidade durável e ela é marcada como incerta
-     * ANTES da mutação de rede. Isso cobre inclusive um encerramento abrupto do
-     * processo depois de enviar a requisição, mas antes de receber/tratar a
-     * resposta.
-     */
     suspend fun registrarRapido(
         colaboradorId: String,
         embedding: FloatArray,
         modelo: String,
         versaoModelo: String,
     ): RegistroRapidoResponse? {
+        // Antes de iniciar qualquer nova mutação, resolvemos um UUID incerto. O
+        // lock no Worker espera uma transação concorrente terminar e responde se
+        // houve COMMIT ou rollback, evitando transformar um início em retorno.
+        try {
+            reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
+                return when {
+                    reconciliada.inicio != null -> RegistroRapidoResponse(
+                        status = "INICIO",
+                        inicio = reconciliada.inicio,
+                    )
+                    reconciliada.retorno != null -> RegistroRapidoResponse(
+                        status = "RETORNO",
+                        retorno = reconciliada.retorno,
+                    )
+                    else -> null
+                }
+            }
+        } catch (error: Throwable) {
+            if (isTemporaryFailure(error)) return null
+            throw error
+        }
+
         val operationId = operationJournal.prepare(colaboradorId, embedding)
         operationJournal.markUncertain(operationId)
 
@@ -328,6 +359,28 @@ class PontoCafeRepository(
             else -> operationJournal.complete(operationId)
         }
         return result
+    }
+
+    private suspend fun reconciliarOperacaoPendente(
+        colaboradorId: String,
+    ): PontoOperationReconcileResponse? {
+        val operationId = operationJournal.pendingUncertainOperationId(colaboradorId) ?: return null
+        val response = api.reconciliarOperacao(
+            PontoOperationReconcileRequest(
+                operacaoId = operationId,
+                colaboradorId = colaboradorId,
+            ),
+        )
+        if (!response.encontrada) {
+            // O advisory lock no servidor garante que já não existe transação
+            // concorrente com este UUID. Sem linha idempotente, não houve COMMIT.
+            operationJournal.complete(operationId)
+            return null
+        }
+        if (response.inicio == null && response.retorno == null) {
+            throw IOException("O servidor encontrou a operação, mas não retornou um resultado reconciliável.")
+        }
+        return response
     }
 
     suspend fun iniciar(
@@ -366,12 +419,6 @@ class PontoCafeRepository(
         )
     }
 
-    /**
-     * INICIAR/FINALIZAR confirmados pelo usuário também participam do protocolo
-     * exactly-once. Em 4xx sabemos que a mutação não foi aceita e podemos liberar
-     * o UUID; em IOException/5xx/cancelamento ele permanece incerto. Em sucesso,
-     * quem libera é SecurePontoOfflineStore somente depois do snapshot durável.
-     */
     private suspend fun <T> executarMutacaoConfirmada(
         colaboradorId: String,
         acao: String,
