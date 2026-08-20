@@ -281,6 +281,11 @@ class PontoCafeRepository(
      * marcado como incerto e NÃO é descartado: caso o servidor tenha confirmado
      * a transação, o evento offline subsequente usará o mesmo identificador.
      *
+     * Uma resposta INICIO/RETORNO também permanece marcada como incerta até o
+     * SecurePontoOfflineStore persistir o novo estado local de forma durável.
+     * Assim um crash entre resposta HTTP e snapshot local não converte o retry
+     * seguinte em uma segunda mutação.
+     *
      * 404/405/501 continuam significando apenas Worker antigo sem fast-path.
      */
     suspend fun registrarRapido(
@@ -306,7 +311,7 @@ class PontoCafeRepository(
         }
 
         if (response.code() == 404 || response.code() == 405 || response.code() == 501) {
-            operationJournal.clearUncertain(operationId)
+            operationJournal.complete(operationId)
             return null
         }
         if (response.code() >= 500) {
@@ -314,7 +319,7 @@ class PontoCafeRepository(
             return null
         }
         if (!response.isSuccessful) {
-            operationJournal.clearUncertain(operationId)
+            operationJournal.complete(operationId)
             throw HttpException(response)
         }
 
@@ -324,9 +329,9 @@ class PontoCafeRepository(
             return null
         }
 
-        operationJournal.clearUncertain(operationId)
-        if (result.status == "INICIO" || result.status == "RETORNO") {
-            operationJournal.complete(operationId)
+        when (result.status) {
+            "INICIO", "RETORNO" -> operationJournal.markUncertain(operationId)
+            else -> operationJournal.complete(operationId)
         }
         return result
     }
