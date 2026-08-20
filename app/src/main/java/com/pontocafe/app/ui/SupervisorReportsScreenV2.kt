@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -102,9 +103,7 @@ fun SupervisorReportsScreenV2(
             fallbackName = accountFallbackName,
             profileLabel = accountProfileLabel,
             onDismiss = { showAccountSheet = false },
-            onLogout = if (state.sessaoAdministrativa) {
-                null
-            } else {
+            onLogout = if (state.sessaoAdministrativa) null else {
                 {
                     showAccountSheet = false
                     viewModel.sair()
@@ -114,7 +113,9 @@ fun SupervisorReportsScreenV2(
     }
 
     if (showCalendar) {
-        val initial = state.relatorioFim?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
+        val initial = state.relatorioFim
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: LocalDate.now()
         val pickerState = androidx.compose.material3.rememberDatePickerState(
             initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
         )
@@ -137,7 +138,12 @@ fun SupervisorReportsScreenV2(
         ) {
             DatePicker(
                 state = pickerState,
-                title = { Text("Escolha uma data", modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) },
+                title = {
+                    Text(
+                        "Escolha uma data",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    )
+                },
                 headline = null,
                 showModeToggle = false,
             )
@@ -186,13 +192,11 @@ fun SupervisorReportsScreenV2(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-
                 PcStateBanner(
                     title = formatReportPeriod(exportReport),
                     supportingText = "${exportReport.resumo.totalPausas} pausa(s) · ${exportReport.resumo.colaboradores} pessoa(s)",
                     tone = if (exportReport.resumo.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
                 )
-
                 PcPrimaryButton(
                     text = "Gerar e compartilhar PDF",
                     icon = Icons.Default.Download,
@@ -209,7 +213,6 @@ fun SupervisorReportsScreenV2(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
-
                 PcSecondaryButton(
                     text = "Exportar e compartilhar CSV",
                     icon = Icons.Default.Download,
@@ -233,7 +236,6 @@ fun SupervisorReportsScreenV2(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
-
                 Text(
                     "PDF é ideal para leitura e envio. CSV é indicado para análise em planilhas.",
                     style = MaterialTheme.typography.bodySmall,
@@ -274,10 +276,9 @@ fun SupervisorReportsScreenV2(
                 item("period-title") {
                     SectionTitle(
                         title = "Período do relatório",
-                        subtitle = "Altere o período para atualizar todos os indicadores e a exportação.",
+                        subtitle = "Altere o período para atualizar indicadores e exportação.",
                     )
                 }
-
                 item("periods") {
                     ReportPeriodSelector(
                         selectedDays = selectedDays,
@@ -298,7 +299,6 @@ fun SupervisorReportsScreenV2(
                         )
                     }
                 }
-
                 localError?.let { error ->
                     item("local-error") {
                         PcStateBanner(
@@ -312,7 +312,6 @@ fun SupervisorReportsScreenV2(
                 if (state.carregando && report == null) {
                     item("loading") { PontoCafeLoadingSkeleton(rows = 5) }
                 }
-
                 if (!state.carregando && report == null && state.erro.isNullOrBlank()) {
                     item("empty") {
                         PcEmptyState(
@@ -329,7 +328,7 @@ fun SupervisorReportsScreenV2(
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-                                verticalAlignment = Alignment.Stretch,
+                                verticalAlignment = Alignment.Top,
                             ) {
                                 PcHeroCard(
                                     title = formatReportPeriod(report),
@@ -386,7 +385,6 @@ fun SupervisorReportsScreenV2(
                             previous = previousReport?.resumo,
                         )
                     }
-
                     if (report.porDia.isNotEmpty()) {
                         item("trend") { PcReportTrendChart(report.porDia) }
                     }
@@ -397,7 +395,6 @@ fun SupervisorReportsScreenV2(
                             "Abra um dia para consultar as pausas individuais.",
                         )
                     }
-
                     if (report.porDia.isEmpty()) {
                         item("days-empty") {
                             PcEmptyState(
@@ -421,7 +418,6 @@ fun SupervisorReportsScreenV2(
                             "Pessoas com maior excesso acumulado no período.",
                         )
                     }
-
                     if (report.maioresAtrasos.isEmpty()) {
                         item("ranking-empty") {
                             PcEmptyState(
@@ -492,25 +488,29 @@ private fun ReportPeriodSelector(
     onDays: (Int) -> Unit,
     onCalendar: () -> Unit,
 ) {
+    val chips: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        ) {
+            listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (days, label) ->
+                FilterChip(
+                    selected = selectedDays == days,
+                    onClick = { onDays(days) },
+                    label = { Text(label) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+
     if (wide) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (days, label) ->
-                    FilterChip(
-                        selected = selectedDays == days,
-                        onClick = { onDays(days) },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
+            Box(modifier = Modifier.weight(1f)) { chips() }
             PcSecondaryButton(
                 text = "Escolher data",
                 icon = Icons.Default.CalendarMonth,
@@ -519,19 +519,7 @@ private fun ReportPeriodSelector(
         }
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (days, label) ->
-                    FilterChip(
-                        selected = selectedDays == days,
-                        onClick = { onDays(days) },
-                        label = { Text(label) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
+            chips()
             PcSecondaryButton(
                 text = "Escolher data no calendário",
                 icon = Icons.Default.CalendarMonth,
@@ -561,7 +549,7 @@ private fun ReportExportActionCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Gere PDF para leitura ou CSV para análise em planilhas.",
+                "PDF para leitura ou CSV para análise em planilhas.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -586,31 +574,7 @@ private fun ReportMetricsGrid(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            PcMetricTile(
-                report.resumo.totalPausas.toString(),
-                "Pausas",
-                Icons.Default.Coffee,
-                Modifier.weight(1f),
-            )
-            PcMetricTile(
-                report.resumo.colaboradores.toString(),
-                "Pessoas",
-                Icons.Default.Groups,
-                Modifier.weight(1f),
-            )
-            PcMetricTile(
-                viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
-                "Tempo médio",
-                Icons.Default.Timer,
-                Modifier.weight(1f),
-            )
-            PcMetricTile(
-                report.resumo.acimaLimite.toString(),
-                "Acima do limite",
-                Icons.Default.Timer,
-                Modifier.weight(1f),
-                attention = report.resumo.acimaLimite > 0,
-            )
+            ReportMetricTiles(report, viewModel, singleRow = true)
         }
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
@@ -618,18 +582,8 @@ private fun ReportMetricsGrid(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                PcMetricTile(
-                    report.resumo.totalPausas.toString(),
-                    "Pausas",
-                    Icons.Default.Coffee,
-                    Modifier.weight(1f),
-                )
-                PcMetricTile(
-                    report.resumo.colaboradores.toString(),
-                    "Pessoas",
-                    Icons.Default.Groups,
-                    Modifier.weight(1f),
-                )
+                PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.weight(1f))
+                PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.weight(1f))
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -651,6 +605,30 @@ private fun ReportMetricsGrid(
             }
         }
     }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.ReportMetricTiles(
+    report: SupervisorReportResponse,
+    viewModel: SupervisorViewModel,
+    singleRow: Boolean,
+) {
+    if (!singleRow) return
+    PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.weight(1f))
+    PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.weight(1f))
+    PcMetricTile(
+        viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
+        "Tempo médio",
+        Icons.Default.Timer,
+        Modifier.weight(1f),
+    )
+    PcMetricTile(
+        report.resumo.acimaLimite.toString(),
+        "Acima do limite",
+        Icons.Default.Timer,
+        Modifier.weight(1f),
+        attention = report.resumo.acimaLimite > 0,
+    )
 }
 
 @Composable
