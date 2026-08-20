@@ -125,6 +125,7 @@ dependencies {
     implementation("com.google.mlkit:face-detection:16.1.7")
 
     implementation("com.google.android.gms:play-services-tflite-java:16.5.0")
+    implementation("com.google.android.gms:play-services-tflite-gpu:16.5.0")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
