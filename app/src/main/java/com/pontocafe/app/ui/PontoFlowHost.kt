@@ -54,9 +54,9 @@ private val PONTO_TIMEZONE: ZoneId = ZoneId.of("America/Fortaleza")
  * decide se registra ou bloqueia a tentativa.
  *
  * A UI também consulta o histórico local cifrado de pausas concluídas. Essa
- * segunda barreira é somente de bloqueio: ela nunca autoriza um registro. Isso
- * garante que um Worker antigo não transforme uma folga já usada em um aviso
- * genérico de "fora do horário".
+ * segunda barreira é somente de bloqueio: ela nunca autoriza um registro.
+ * Quando MANHA e TARDE já terminaram hoje, esse estado 2/2 é terminal e tem
+ * prioridade absoluta sobre qualquer aviso de horário.
  */
 @Composable
 fun PontoFlowHost(
@@ -83,14 +83,35 @@ fun PontoFlowHost(
         SecurePontoOfflineStore(context.applicationContext)
     }
 
-    val localCompletedBreak = identificacao?.colaborador?.id?.let { colaboradorId ->
+    val collaboratorId = identificacao?.colaborador?.id
+    val localMorningBreak = collaboratorId?.let {
+        localHistoryStore.completedPauseToday(it, "MANHA")
+    }
+    val localAfternoonBreak = collaboratorId?.let {
+        localHistoryStore.completedPauseToday(it, "TARDE")
+    }
+    val localDayExhausted = localMorningBreak != null && localAfternoonBreak != null
+
+    val localCompletedBreak = if (collaboratorId != null && !localDayExhausted) {
         findRelevantCompletedBreak(
             store = localHistoryStore,
-            collaboratorId = colaboradorId,
+            collaboratorId = collaboratorId,
         )
+    } else {
+        null
     }
+
+    val serverDayExhausted = identificacao?.motivo == "PAUSAS_DO_DIA_JA_UTILIZADAS"
     val serverSaysUsedBreak = identificacao?.motivo == "PAUSA_PERIODO_JA_UTILIZADA"
-    val usedBreakDetected = serverSaysUsedBreak || localCompletedBreak != null
+    val dayExhausted = serverDayExhausted || localDayExhausted
+    val usedBreakDetected = dayExhausted || serverSaysUsedBreak || localCompletedBreak != null
+
+    val exhaustedDayMessage = when {
+        serverDayExhausted && !identificacao?.mensagem.isNullOrBlank() -> identificacao?.mensagem
+        localDayExhausted -> localDailyExhaustedMessage(localMorningBreak!!, localAfternoonBreak!!)
+        else -> null
+    }
+
     val resolvedUsedBreakMessage = when {
         localCompletedBreak != null -> localUsedBreakMessage(localCompletedBreak)
         serverSaysUsedBreak -> normalizeUsedBreakMessage(
@@ -122,9 +143,9 @@ fun PontoFlowHost(
         usedBreakDetected,
     ) {
         val atual = identificacao ?: return@LaunchedEffect
-        // Folga concluída hoje é um estado terminal. Não deixamos o fluxo cair
-        // em confirmarIdentidade(), porque Workers antigos transformavam isso em
-        // needsAuthorization/fora do horário e encurtavam o aviso para 2 s.
+        // Pausa concluída hoje é um estado terminal. Não deixamos o fluxo cair
+        // em confirmarIdentidade(), porque isso poderia transformar 2/2 ou uma
+        // pausa repetida em um aviso genérico de fora do horário.
         if (usedBreakDetected || state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
             return@LaunchedEffect
         }
@@ -147,9 +168,19 @@ fun PontoFlowHost(
                 comprovante = state.comprovante,
             )
 
-            // Prioridade máxima: se o servidor OU o histórico local seguro sabe
-            // que esta folga já terminou hoje, nunca mostramos FORA DO HORÁRIO.
-            usedBreakDetected && identificacao != null -> FastPointBlockedOverlay(
+            // Prioridade máxima: 2/2 consumidas nunca vira FORA DO HORÁRIO,
+            // independentemente de estar online, offline ou fora das janelas.
+            dayExhausted && identificacao != null -> FastPointBlockedOverlay(
+                viewModel = viewModel,
+                nome = identificacao.colaborador?.nome,
+                mensagem = exhaustedDayMessage
+                    ?: "Pausas de hoje já utilizadas (2/2). Não há mais pausa disponível para hoje.",
+                repeatedPause = true,
+                dailyExhausted = true,
+            )
+
+            // Segunda prioridade: o período relevante já foi usado.
+            (serverSaysUsedBreak || localCompletedBreak != null) && identificacao != null -> FastPointBlockedOverlay(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = resolvedUsedBreakMessage
@@ -180,7 +211,9 @@ fun PontoFlowHost(
                     mensagem = errorMessage,
                     repeatedPause = errorMessage.contains("já registrou esta pausa", ignoreCase = true) ||
                         errorMessage.contains("já utilizada", ignoreCase = true) ||
-                        errorMessage.contains("folga", ignoreCase = true),
+                        errorMessage.contains("folga", ignoreCase = true) ||
+                        errorMessage.contains("2/2", ignoreCase = true),
+                    dailyExhausted = errorMessage.contains("2/2", ignoreCase = true),
                 )
             }
         }
@@ -189,9 +222,8 @@ fun PontoFlowHost(
 
 /**
  * Descobre qual período é relevante neste instante. Dentro da janela usa a
- * própria regra ativa. Fora dela usa a janela mais próxima. Exemplo: depois
- * do fim da janela da tarde, TARDE continua sendo a referência e uma folga de
- * tarde concluída hoje tem prioridade sobre o aviso genérico de fora do horário.
+ * própria regra ativa. Fora dela usa a janela mais próxima. Este método só é
+ * usado quando o dia ainda NÃO está esgotado (2/2).
  */
 private fun findRelevantCompletedBreak(
     store: SecurePontoOfflineStore,
@@ -219,6 +251,14 @@ private fun findRelevantCompletedBreak(
     return store.completedPauseToday(collaboratorId, referencePeriod)
 }
 
+private fun localDailyExhaustedMessage(
+    morning: LocalCompletedPause,
+    afternoon: LocalCompletedPause,
+): String = "Pausas de hoje já utilizadas (2/2). " +
+    "Manhã: ${morning.inicioLocal}–${morning.fimLocal} · " +
+    "Tarde: ${afternoon.inicioLocal}–${afternoon.fimLocal}. " +
+    "Não há mais pausa disponível para hoje."
+
 private fun localUsedBreakMessage(completed: LocalCompletedPause): String {
     val periodo = if (completed.periodo == "MANHA") "manhã" else "tarde"
     val minutos = completed.duracaoSegundos / 60
@@ -238,11 +278,12 @@ private fun FastPointBlockedOverlay(
     nome: String?,
     mensagem: String,
     repeatedPause: Boolean,
+    dailyExhausted: Boolean = false,
 ) {
     val view = LocalView.current
-    val mensagemExibida = if (repeatedPause) normalizeUsedBreakMessage(mensagem) else mensagem
+    val mensagemExibida = if (repeatedPause && !dailyExhausted) normalizeUsedBreakMessage(mensagem) else mensagem
 
-    LaunchedEffect(nome, mensagemExibida, repeatedPause) {
+    LaunchedEffect(nome, mensagemExibida, repeatedPause, dailyExhausted) {
         runCatching {
             view.performHapticFeedback(HapticFeedbackConstants.REJECT)
         }
@@ -274,7 +315,11 @@ private fun FastPointBlockedOverlay(
             )
 
             Text(
-                text = if (repeatedPause) "FOLGA JÁ UTILIZADA" else "REGISTRO NÃO REALIZADO",
+                text = when {
+                    dailyExhausted -> "PAUSAS JÁ UTILIZADAS"
+                    repeatedPause -> "FOLGA JÁ UTILIZADA"
+                    else -> "REGISTRO NÃO REALIZADO"
+                },
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
