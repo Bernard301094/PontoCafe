@@ -44,6 +44,8 @@ export const config = {
   verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180, 30, 900),
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
   biometricRetentionDays: numberEnv('BIOMETRIC_RETENTION_DAYS', 90, 1, 3650),
+  pontoOperationRetentionDays: numberEnv('PONTO_OPERATION_RETENTION_DAYS', 30, 1, 3650),
+  deviceHealthRetentionDays: numberEnv('DEVICE_HEALTH_RETENTION_DAYS', 30, 1, 3650),
   deviceRegistrationIdempotencyTtlSeconds: numberEnv('DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS', 600, 60, 900),
   latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '1.0.0'),
   minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.15.0'),
