@@ -61,6 +61,8 @@ assert.match(migration, /INICIAR/)
 assert.match(migration, /FINALIZAR/)
 assert.match(readinessIndexes, /idx_operacoes_ponto_concluido_em/)
 assert.match(readinessIndexes, /idx_auditoria_app_health_dispositivo_criado/)
+assert.match(readinessIndexes, /idx_auditoria_app_health_criado/)
+assert.match(readinessIndexes, /on auditoria \(criado_em\)/)
 assert.match(readinessIndexes, /where acao='APP_HEALTH' and entidade='DISPOSITIVO'/)
 
 assert.match(validateWorkflow, /npm --workspace backend run validate/)
