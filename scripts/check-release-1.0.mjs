@@ -9,6 +9,8 @@ function read(path) {
 const gradle = read('app/build.gradle.kts')
 const backendPackage = read('backend/package.json')
 const backendConfig = read('backend/src/config.ts')
+const backendApplication = read('backend/src/application.ts')
+const deployProduction = read('backend/scripts/deploy-production.mjs')
 const wrangler = read('backend/wrangler.jsonc')
 const migration = read('database/007_ponto_operation_idempotency.sql')
 const readinessIndexes = read('database/008_release_readiness_indexes.sql')
@@ -40,7 +42,14 @@ assert.match(gradle, /faceModelCommit = "289bc10420aad15fed99094eee364eb24f908ec
 assert.match(gradle, /faceModelBlobSha = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"/)
 assert.match(gradle, /play-services-tflite-java:16\.5\.0/)
 assert.doesNotMatch(gradle, /play-services-tflite-gpu/)
+
 assert.match(backendPackage, /"version"\s*:\s*"1\.0\.0"/)
+assert.match(backendApplication, /const API_VERSION = '1\.0\.0'/)
+assert.match(backendApplication, /apiVersion: API_VERSION/)
+assert.doesNotMatch(backendApplication, /apiVersion:\s*'0\.7\.0'/)
+assert.match(deployProduction, /const expectedApiVersion = String\(backendPackage\.version/)
+assert.match(deployProduction, /status\.apiVersion !== expectedApiVersion/)
+assert.doesNotMatch(deployProduction, /status\.apiVersion !== '0\.7\.0'/)
 
 assert.match(backendConfig, /FACE_MATCH_THRESHOLD', 0\.72/)
 assert.match(backendConfig, /FACE_IDENTIFICATION_MARGIN', 0\.06/)
