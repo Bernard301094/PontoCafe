@@ -58,7 +58,7 @@ class SecureAdminDeviceActivationTokenStore(context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             cipher.updateAAD(cleanDeviceId.toByteArray(Charsets.UTF_8))
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-        }.getOrNull()?.takeIf(TOKEN_PATTERN::matches)
+        }.getOrNull()?.takeIf { TOKEN_PATTERN.matches(it) }
 
         if (token == null) remove(cleanDeviceId)
         return token
@@ -79,13 +79,17 @@ class SecureAdminDeviceActivationTokenStore(context: Context) {
      * deve passar apenas IDs que continuam aguardando ativação no servidor.
      */
     fun reconcile(pendingDeviceIds: Set<String>) {
-        val normalized = pendingDeviceIds.map(String::trim).filter(String::isNotBlank).toSet()
-        val stale = storedIds() - normalized
+        val normalized = pendingDeviceIds
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        val currentIds = storedIds()
+        val stale = currentIds - normalized
         if (stale.isEmpty()) return
 
         val editor = prefs.edit()
         stale.forEach { editor.remove(tokenKey(it)) }
-        editor.putStringSet(indexKey, storedIds() - stale)
+        editor.putStringSet(indexKey, currentIds - stale)
         editor.apply()
     }
 
