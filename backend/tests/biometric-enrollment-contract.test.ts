@@ -39,6 +39,7 @@ test('unicidade biométrica entre pessoas mantém o limiar do reconhecimento', (
 test('nova aparência valida continuidade com qualquer template anterior da mesma pessoa', () => {
   assert.match(route, /const currentBiometrics = await client\.query/)
   assert.match(route, /compatiblePrevious/)
+  assert.match(route, /validateBiometricVector\(storedCurrent\)\.valid/)
   assert.match(route, /continuityThreshold = Math\.max\(0\.60, config\.faceThreshold - CONTINUITY_THRESHOLD_DELTA\)/)
   assert.match(route, /evaluateDuplicateBiometric\(consolidatedScore, sampleScores, continuityThreshold\)/)
   assert.match(route, /BIOMETRIC_IDENTITY_CHANGED/)
@@ -47,6 +48,9 @@ test('nova aparência valida continuidade com qualquer template anterior da mesm
 
 test('cadastro passa a acumular múltiplas aparências sem substituir o rosto anterior', () => {
   assert.match(migration, /drop constraint if exists templates_faciais_colaborador_id_key/)
+  assert.match(route, /z\.array\(embeddingSchema\)\.length\(5\)\.optional\(\)/)
+  assert.match(route, /evaluateEnrollmentConsistency\(body\.data\.embedding, samples\)/)
+  assert.match(route, /validateBiometricVector\(stored\)\.valid/)
   assert.match(migration, /add column if not exists tipo/)
   assert.match(migration, /add column if not exists lote_id/)
   assert.match(route, /MAX_TEMPLATES_PER_COLLABORATOR = 24/)
@@ -65,10 +69,12 @@ test('matching local compara pessoas, não variantes da mesma pessoa', () => {
 })
 
 test('servidor confirma identidade usando o melhor template da pessoa', () => {
-  assert.match(localBiometricRoute, /let score = -1/)
-  assert.match(localBiometricRoute, /score = Math\.max\(score, cosineSimilarity/)
+  assert.match(localBiometricRoute, /evaluateBiometricIdentification/)
+  assert.match(localBiometricRoute, /stored\.colaborador_id !== body\.data\.colaboradorId/)
+  assert.match(localBiometricRoute, /config\.faceIdentificationMargin/)
   assert.match(pontoRoute, /bestByCollaborator = new Map<string, Candidato>/)
   assert.match(pontoRoute, /bestByCollaborator\.set\(template\.colaborador_id, candidate\)/)
+  assert.match(pontoRoute, /evaluateBiometricIdentification/)
 })
 
 test('landmarks faciais ficam disponíveis sem quebrar embeddings já cadastrados', () => {

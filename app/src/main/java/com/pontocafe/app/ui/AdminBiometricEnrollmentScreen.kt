@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceCapturePurpose
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
@@ -137,7 +138,7 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                                 }
                                 if (next == LivenessState.CONCLUIDO) {
                                     captureRequested = true
-                                    captureController.request()
+                                    captureController.request(observation, FaceCapturePurpose.ENROLLMENT)
                                 }
                             } else {
                                 if (currentPose.accepts(observation)) {
@@ -145,7 +146,7 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                                     if (stableFrames >= 4) {
                                         captureRequested = true
                                         cameraHint = "Posição confirmada. Capturando..."
-                                        captureController.request()
+                                        captureController.request(observation, FaceCapturePurpose.ENROLLMENT)
                                     }
                                 } else {
                                     stableFrames = 0
@@ -154,6 +155,11 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                         }
                     },
                     onFrame = viewModel::processarAmostraBiometrica,
+                    onCaptureRejected = {
+                        captureRequested = false
+                        stableFrames = 0
+                        liveness.reset()
+                    },
                 )
             } else {
                 CameraPermissionCard(

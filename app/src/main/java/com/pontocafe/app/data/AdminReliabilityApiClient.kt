@@ -152,6 +152,20 @@ data class BiometricModelSummary(
     val versaoModelo: String,
     val total: Int,
 )
+data class BiometricCatalogCollisionPair(
+    val colaboradorAId: String,
+    val colaboradorANome: String,
+    val colaboradorBId: String,
+    val colaboradorBNome: String,
+    val score: Double,
+)
+data class BiometricCatalogCollisionSummary(
+    val limiteRisco: Double,
+    val paresEmRisco: Int,
+    val paresCriticos: Int,
+    val maiorSimilaridade: Double?,
+    val pares: List<BiometricCatalogCollisionPair>,
+)
 data class BiometricSummaryResponse(
     val colaboradoresAtivos: Int,
     val biometriaCadastrada: Int,
@@ -161,6 +175,7 @@ data class BiometricSummaryResponse(
     val limiar: Double,
     val margemMinima: Double,
     val limiarDuplicidade: Double,
+    val colisoesCatalogo: BiometricCatalogCollisionSummary? = null,
     val retencaoDias: Int,
 )
 data class RetentionCleanupResponse(

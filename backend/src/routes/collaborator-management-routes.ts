@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { evaluateDuplicateBiometric } from '../biometric-duplicate-policy.js'
+import { evaluateEnrollmentConsistency, validateBiometricVector } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { cosineSimilarity, decryptEmbedding, encryptEmbedding, newId } from '../security.js'
@@ -138,7 +139,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
 
   const body = await parseJson(c, z.object({
     embedding: embeddingSchema,
-    amostras: z.array(embeddingSchema).min(1).max(5).optional(),
+    amostras: z.array(embeddingSchema).length(5).optional(),
     modelo: z.string().trim().min(2).max(100),
     versaoModelo: z.string().trim().min(1).max(50),
   }))
@@ -151,6 +152,18 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       erro: 'As amostras faciais possuem dimensões incompatíveis.',
       codigo: 'BIOMETRIC_SAMPLE_DIMENSION_MISMATCH',
     }, 400)
+  }
+
+  const enrollmentConsistency = evaluateEnrollmentConsistency(body.data.embedding, samples)
+  if (!enrollmentConsistency.valid) {
+    return c.json({
+      erro: enrollmentConsistency.reason === 'INCONSISTENT_SAMPLES'
+        ? 'As amostras não parecem pertencer com segurança à mesma pessoa. Reinicie o cadastro.'
+        : 'As amostras faciais recebidas são inválidas ou não correspondem ao template consolidado.',
+      codigo: `BIOMETRIC_${enrollmentConsistency.reason}`,
+      similaridadeMinima: Number(enrollmentConsistency.minimumSimilarity.toFixed(4)),
+      similaridadeConsolidada: Number(enrollmentConsistency.consolidatedSimilarity.toFixed(4)),
+    }, 422)
   }
 
   const duplicateThreshold = Math.min(config.faceThreshold, config.faceEnrollmentDuplicateThreshold)
@@ -202,7 +215,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       for (const previousFace of compatiblePrevious) {
         try {
           const storedCurrent = decryptEmbedding(previousFace.template_cifrado, previousFace.iv, previousFace.auth_tag)
-          if (storedCurrent.length !== previousFace.dimensao) continue
+          if (storedCurrent.length !== previousFace.dimensao || !validateBiometricVector(storedCurrent).valid) continue
           validPreviousTemplates += 1
 
           const consolidatedScore = cosineSimilarity(storedCurrent, body.data.embedding)
@@ -265,7 +278,7 @@ collaboratorManagementRoutes.put('/colaboradores/:id/biometria', async (c) => {
       if (row.dimensao !== expectedDimension) continue
       try {
         const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
-        if (stored.length !== row.dimensao) continue
+        if (stored.length !== row.dimensao || !validateBiometricVector(stored).valid) continue
 
         const consolidatedScore = cosineSimilarity(stored, body.data.embedding)
         const sampleScores = samples.map((sample) => cosineSimilarity(stored, sample))

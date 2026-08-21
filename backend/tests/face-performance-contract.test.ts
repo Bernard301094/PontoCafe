@@ -35,8 +35,10 @@ test('identificação adaptativa continua progressiva', () => {
   assert.match(engine, /if \(!shouldContinue\(primary, 0\)\) return@withContext candidates/)
   assert.match(engine, /if \(!shouldContinue\(tight, candidates\.lastIndex\)\) return@withContext candidates/)
   assert.match(viewModel, /embedForIdentification\(frame\) \{ candidate, candidateIndex ->/)
-  assert.match(viewModel, /LocalFaceMatcher\.match\(candidate, currentCatalog\)/)
+  assert.match(viewModel, /LocalFaceMatcher\.evaluateDetailed\(candidate, currentCatalog\)/)
   assert.match(viewModel, /resolvedDuringInference = LocalFaceResolvedMatch/)
+  assert.match(viewModel, /temporalConsensus\.submit/)
+  assert.match(viewModel, /TemporalConsensusDecision\.Confirmed/)
 })
 
 test('cadastro e primeiro match mantêm embedding canônico histórico', () => {
@@ -70,7 +72,8 @@ test('catálogo prepara o índice vetorial fora do match e invalida dados removi
   assert.match(catalog, /data class PreparedCatalog/)
   assert.match(catalog, /sourceTemplates === catalog\.templates/)
   assert.match(catalog, /template\.embedding\.toFloatArray\(\)/)
-  assert.match(catalog, /norm = sqrt\(normSquared\)/)
+  assert.match(catalog, /FaceEmbeddingIntegrity\.inspect\(stored, FACE_EMBEDDING_DIMENSION\)/)
+  assert.match(catalog, /norm = requireNotNull\(integrity\.norm\)/)
   assert.match(catalog, /return dot \/ \(stored\.norm \* currentNorm\)/)
   assert.match(catalog, /LocalFaceMatcher\.prepareCatalog\(catalog\.templates\)/)
   assert.match(catalog, /cachedCatalog\?\.also \{ LocalFaceMatcher\.prepareCatalog\(it\.templates\) \}/)

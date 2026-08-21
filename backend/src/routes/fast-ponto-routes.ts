@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
+import { validateBiometricVector } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import {
@@ -133,6 +134,9 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
     versaoModelo: z.string().trim().min(1).max(50),
   }))
   if (!body.ok) return body.response
+  if (!validateBiometricVector(body.data.embedding).valid) {
+    return c.json({ erro: 'Embedding facial inválido ou incompatível com o modelo.' }, 400)
+  }
 
   const device = c.get('device')
   const idempotencyIdentity = body.data.operacaoId
@@ -171,7 +175,7 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
     if (template.dimensao !== body.data.embedding.length) continue
     try {
       const stored = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
-      if (stored.length !== template.dimensao) continue
+      if (stored.length !== template.dimensao || !validateBiometricVector(stored).valid) continue
       const candidate = { ...template, score: cosineSimilarity(stored, body.data.embedding) }
       const current = bestByCollaborator.get(template.colaborador_id)
       if (!current || candidate.score > current.score) {

@@ -61,10 +61,12 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceCapturePurpose
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.data.BiometricCalibrationMetrics
 import com.pontocafe.app.data.BiometricCalibrationMetricsApiClient
+import com.pontocafe.app.data.BiometricRuntimeDiagnostics
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.SecureAdminSessionStore
 import kotlin.math.roundToInt
@@ -78,6 +80,9 @@ fun BiometricDiagnosticsScreen(
     val context = LocalContext.current
     val state = viewModel.state
     val summary = state.biometricSummary
+    val localRuntime = remember(state.loading, state.calibration) {
+        BiometricRuntimeDiagnostics.snapshot()
+    }
     val metricsRepository = remember(context) {
         BiometricCalibrationMetricsApiClient.create(
             SecureAdminSessionStore(context.applicationContext, "admin"),
@@ -219,6 +224,56 @@ fun BiometricDiagnosticsScreen(
                                 }
                             }
                         }
+                    }
+
+                    item("catalog-collisions") {
+                        val collisions = summary.colisoesCatalogo
+                        if (collisions == null) PcStateBanner(
+                            title = "Diagnóstico de colisões indisponível",
+                            supportingText = "Atualize o backend para consultar pares faciais próximos no catálogo ativo.",
+                            tone = PontoCafeTone.NEUTRAL,
+                        ) else PcStateBanner(
+                            title = if (collisions.paresEmRisco == 0) {
+                                "Nenhuma colisão perigosa detectada"
+                            } else {
+                                "${collisions.paresEmRisco} par(es) facialmente próximo(s)"
+                            },
+                            supportingText = if (collisions.pares.isEmpty()) {
+                                "O catálogo ativo não contém pares acima do limite preventivo ${collisions.limiteRisco}."
+                            } else {
+                                collisions.pares.joinToString(" · ") {
+                                    "${it.colaboradorANome} / ${it.colaboradorBNome}: ${it.score}"
+                                }
+                            },
+                            tone = if (collisions.paresEmRisco == 0) {
+                                PontoCafeTone.SUCCESS
+                            } else {
+                                PontoCafeTone.WARNING
+                            },
+                        )
+                    }
+
+                    item("local-runtime") {
+                        PcKeyValueCard(
+                            title = "Diagnóstico local não sensível",
+                            rows = listOf(
+                                "Melhor score / segundo" to
+                                    "${localRuntime.bestScore ?: "—"} / ${localRuntime.secondScore ?: "—"}",
+                                "Margem observada" to (localRuntime.margin?.toString() ?: "—"),
+                                "Candidatos / templates válidos" to
+                                    "${localRuntime.candidateCount} / ${localRuntime.validTemplateCount}",
+                                "Consenso temporal" to "${localRuntime.temporalConsensusCount} de 2",
+                                "Latência / inferências" to
+                                    "${localRuntime.recognitionLatencyMillis ?: 0} ms / ${localRuntime.inferenceCount}",
+                                "Frames rejeitados" to localRuntime.rejectedFrameCount.toString(),
+                                "Última rejeição de qualidade" to
+                                    (localRuntime.lastQualityRejection ?: "—"),
+                                "Modelo / catálogo" to
+                                    "${localRuntime.modelVersion ?: "—"} / ${localRuntime.catalogVersion ?: "—"}",
+                                "Templates em quarentena" to
+                                    localRuntime.quarantinedTemplateCount.toString(),
+                            ),
+                        )
                     }
                 }
 
@@ -424,6 +479,7 @@ private fun CalibrationCamera(
                 captureController = captureController,
                 onObservation = { observation = it },
                 onFrame = { frame -> viewModel.calibrate(collaborator.id, frame) },
+                onCaptureRejected = { capturePending = false },
             )
         } else {
             CameraPermissionCard(
@@ -500,7 +556,7 @@ private fun CalibrationCamera(
                     text = "Capturar amostra e medir",
                     onClick = {
                         capturePending = true
-                        captureController.request()
+                        captureController.request(observation, FaceCapturePurpose.DIAGNOSTIC)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = observation.isFrontal && viewModel.faceModelReady,

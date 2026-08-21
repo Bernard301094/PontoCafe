@@ -2,10 +2,11 @@ import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
+import { evaluateBiometricIdentification } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { findPontoOperationById, lockPontoOperation } from '../ponto-operation-idempotency.js'
-import { cosineSimilarity, decryptEmbedding, hashToken, newId } from '../security.js'
+import { decryptEmbedding, hashToken, newId } from '../security.js'
 import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
@@ -171,21 +172,36 @@ async function processOfflineEvent(device: Device, event: OfflineEvent): Promise
       `select t.colaborador_id,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
          from templates_faciais t
          join colaboradores c on c.id=t.colaborador_id
-        where t.colaborador_id=$1
-          and c.ativo=true
-          and t.modelo=$2
-          and t.versao_modelo=$3
-        limit 1`,
-      [event.colaboradorId, event.modelo, event.versaoModelo],
+        where c.ativo=true
+          and t.modelo=$1
+          and t.versao_modelo=$2`,
+      [event.modelo, event.versaoModelo],
     )
-    const stored = biometric.rows[0]
-    if (!stored) throw new OfflineSyncError('Biometria inexistente, inativa ou incompatível com o modelo usado offline.')
-    if (stored.dimensao !== event.embedding.length) throw new OfflineSyncError('Dimensão biométrica incompatível.')
-
-    const template = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
-    const verifiedScore = cosineSimilarity(template, event.embedding)
-    if (verifiedScore < config.faceThreshold) {
-      throw new OfflineSyncError('A biometria do registro offline não foi confirmada pelo servidor.')
+    if (!biometric.rows.some((row) => row.colaborador_id === event.colaboradorId)) {
+      throw new OfflineSyncError('Biometria inexistente, inativa ou incompatível com o modelo usado offline.')
+    }
+    const decrypted = biometric.rows.flatMap((stored) => {
+      if (stored.dimensao !== event.embedding.length) return []
+      try {
+        const embedding = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
+        return [{ collaboratorId: stored.colaborador_id, embedding, payload: stored }]
+      } catch {
+        return []
+      }
+    })
+    const identification = evaluateBiometricIdentification(
+      event.embedding,
+      decrypted,
+      config.faceThreshold,
+      config.faceIdentificationMargin,
+    )
+    const verifiedScore = identification.best?.score ?? -1
+    if (!identification.accepted || identification.best?.collaboratorId !== event.colaboradorId) {
+      throw new OfflineSyncError(
+        identification.reason === 'AMBIGUOUS'
+          ? 'A biometria offline ficou ambígua entre colaboradores e foi recusada.'
+          : 'A biometria do registro offline não foi confirmada pelo servidor.',
+      )
     }
 
     const verificationId = newId()

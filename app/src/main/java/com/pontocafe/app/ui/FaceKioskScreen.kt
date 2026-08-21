@@ -75,7 +75,9 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceCapturePurpose
 import com.pontocafe.app.camera.FaceObservation
+import com.pontocafe.app.camera.FaceTrackContinuity
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
 import com.pontocafe.app.data.ApiClient
@@ -126,6 +128,7 @@ fun FaceKioskScreen(
 
     val captureController = remember { FrameCaptureController() }
     val liveness = remember { BlinkLiveness() }
+    val turnChallengeContinuity = remember { FaceTrackContinuity() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
     val stableChallengeFrames = remember { intArrayOf(0) }
@@ -185,6 +188,7 @@ fun FaceKioskScreen(
 
     LaunchedEffect(state.scanCycle) {
         liveness.reset()
+        turnChallengeContinuity.reset()
         challenge = KioskLivenessChallenge.entries.random()
         stableChallengeFrames[0] = 0
         stableRecognitionFrames[0] = 0
@@ -263,7 +267,15 @@ fun FaceKioskScreen(
                                     livenessState = nextState
                                 }
                                 if (challenge.accepts(observation)) {
-                                    stableChallengeFrames[0] += 1
+                                    if (stableChallengeFrames[0] == 0) {
+                                        turnChallengeContinuity.bind(observation)
+                                        stableChallengeFrames[0] = 1
+                                    } else if (turnChallengeContinuity.matches(observation)) {
+                                        stableChallengeFrames[0] += 1
+                                    } else {
+                                        turnChallengeContinuity.bind(observation)
+                                        stableChallengeFrames[0] = 1
+                                    }
                                     if (stableChallengeFrames[0] >= CHALLENGE_STABLE_FRAMES) {
                                         challengeCompleted = true
                                         stableRecognitionFrames[0] = 0
@@ -274,11 +286,24 @@ fun FaceKioskScreen(
                                 }
                             }
                         } else {
-                            if (observation.isFrontal) {
+                            val sameLivenessFace = if (challenge == KioskLivenessChallenge.BLINK) {
+                                liveness.matchesChallengeFace(observation)
+                            } else {
+                                turnChallengeContinuity.matches(observation)
+                            }
+                            if (!sameLivenessFace) {
+                                challengeCompleted = false
+                                stableChallengeFrames[0] = 0
+                                stableRecognitionFrames[0] = 0
+                                blinkPendingFrames[0] = 0
+                                liveness.reset()
+                                turnChallengeContinuity.reset()
+                                livenessState = LivenessState.POSICIONE_ROSTO
+                            } else if (observation.isFrontal) {
                                 stableRecognitionFrames[0] += 1
                                 if (stableRecognitionFrames[0] >= RECOGNITION_STABLE_FRAMES) {
                                     captureRequested = true
-                                    captureController.request()
+                                    captureController.request(observation, FaceCapturePurpose.IDENTIFICATION)
                                 }
                             } else {
                                 stableRecognitionFrames[0] = 0
@@ -286,7 +311,20 @@ fun FaceKioskScreen(
                         }
                     }
                 },
-                onFrame = viewModel::processarFrame,
+                onFrame = { frame ->
+                    viewModel.processarFrame(frame)
+                    captureRequested = false
+                },
+                onCaptureRejected = {
+                    captureRequested = false
+                    challengeCompleted = false
+                    stableChallengeFrames[0] = 0
+                    stableRecognitionFrames[0] = 0
+                    blinkPendingFrames[0] = 0
+                    liveness.reset()
+                    turnChallengeContinuity.reset()
+                    livenessState = LivenessState.POSICIONE_ROSTO
+                },
                 onError = { cameraError = it },
             )
         } else {
@@ -347,6 +385,7 @@ fun FaceKioskScreen(
             state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto -> "Nenhum rosto disponível"
             !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
             state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO -> "Identificando rosto"
+            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA -> "Confirmando o mesmo rosto"
             state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE -> "Confirmando identidade"
             state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO -> "Confirmando seu ponto"
             captureRequested -> "Capturando rosto"
@@ -368,6 +407,8 @@ fun FaceKioskScreen(
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
             state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO ->
                 "Comparando a captura com o catálogo seguro deste dispositivo."
+            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA ->
+                "Mantenha o rosto centralizado por mais um instante."
             state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE ->
                 "Validando a correspondência facial de forma autoritativa."
             state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO ->

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
+import { evaluateBiometricIdentification, validateBiometricVector } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { cosineSimilarity, decryptEmbedding, hashToken, newId, newToken } from '../security.js'
@@ -104,6 +105,9 @@ pontoRoutes.get('/colaboradores', async (c) => {
 pontoRoutes.post('/biometria/identificar', async (c) => {
   const body = await parseJson(c, z.object({ embedding: embeddingSchema }))
   if (!body.ok) return body.response
+  if (!validateBiometricVector(body.data.embedding).valid) {
+    return c.json({ erro: 'Embedding facial inválido ou incompatível com o modelo.' }, 400)
+  }
   const device = c.get('device')
 
   const templates = await query<TemplateFacial>(
@@ -122,6 +126,7 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
     if (template.dimensao !== body.data.embedding.length) continue
     try {
       const cadastrado = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
+      if (!validateBiometricVector(cadastrado).valid) continue
       const candidate = { ...template, score: cosineSimilarity(cadastrado, body.data.embedding) }
       const current = bestByCollaborator.get(template.colaborador_id)
       if (!current || candidate.score > current.score) {
@@ -296,30 +301,41 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
 pontoRoutes.post('/biometria/verificar', async (c) => {
   const body = await parseJson(c, z.object({ colaboradorId: uuidSchema, embedding: embeddingSchema }))
   if (!body.ok) return body.response
+  if (!validateBiometricVector(body.data.embedding).valid) {
+    return c.json({ erro: 'Embedding facial inválido ou incompatível com o modelo.' }, 400)
+  }
   const device = c.get('device')
-  const result = await query<{ template_cifrado: Buffer; iv: Buffer; auth_tag: Buffer; dimensao: number }>(
-    `select t.template_cifrado,t.iv,t.auth_tag,t.dimensao
+  const result = await query<{ colaborador_id: string; template_cifrado: Buffer; iv: Buffer; auth_tag: Buffer; dimensao: number }>(
+    `select t.colaborador_id,t.template_cifrado,t.iv,t.auth_tag,t.dimensao
      from templates_faciais t join colaboradores col on col.id=t.colaborador_id
-     where t.colaborador_id=$1 and col.ativo=true`,
-    [body.data.colaboradorId],
+     where col.ativo=true`,
   )
-  if (result.rows.length === 0) return c.json({ erro: 'Biometria não cadastrada.' }, 404)
+  if (!result.rows.some((row) => row.colaborador_id === body.data.colaboradorId)) {
+    return c.json({ erro: 'Biometria não cadastrada.' }, 404)
+  }
 
-  let score = -1
-  let compatible = 0
+  const decrypted: Array<{ collaboratorId: string; embedding: number[]; payload: { colaborador_id: string } }> = []
   for (const stored of result.rows) {
     if (stored.dimensao !== body.data.embedding.length) continue
     try {
       const embedding = decryptEmbedding(stored.template_cifrado, stored.iv, stored.auth_tag)
       if (embedding.length !== stored.dimensao) continue
-      compatible += 1
-      score = Math.max(score, cosineSimilarity(embedding, body.data.embedding))
+      decrypted.push({ collaboratorId: stored.colaborador_id, embedding, payload: stored })
     } catch (error) {
       console.error('Falha ao ler uma variante facial durante verificação.', error)
     }
   }
-  if (compatible === 0) return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
-  if (score < config.faceThreshold) return c.json({ reconhecido: false, score: Number(score.toFixed(4)) }, 401)
+  if (decrypted.length === 0) return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
+  const identification = evaluateBiometricIdentification(
+    body.data.embedding,
+    decrypted,
+    config.faceThreshold,
+    config.faceIdentificationMargin,
+  )
+  const score = identification.best?.score ?? -1
+  if (!identification.accepted || identification.best?.collaboratorId !== body.data.colaboradorId) {
+    return c.json({ reconhecido: false, score: Number(score.toFixed(4)) }, 401)
+  }
 
   const verificacaoToken = newToken()
   await query(

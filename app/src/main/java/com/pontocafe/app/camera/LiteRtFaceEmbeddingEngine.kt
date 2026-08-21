@@ -2,13 +2,16 @@ package com.pontocafe.app.camera
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.Rect
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.tflite.java.TfLite
+import com.pontocafe.app.data.FaceEmbeddingIntegrity
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.hypot
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -73,10 +76,11 @@ class LiteRtFaceEmbeddingEngine(
      * anterior, incluindo CPU/XNNPACK com 2 threads.
      */
     override suspend fun embed(frame: FaceFrame): FloatArray = withContext(Dispatchers.Default) {
-        validateFrame(frame)
         val source = frame.bitmap
         var cropped: Bitmap? = null
         try {
+            validateFrame(frame, FaceCapturePurpose.ENROLLMENT)
+            FaceImageQualityAnalyzer.requireAcceptableFrame(source, frame.faceBounds)
             val currentCrop = crop(source, canonicalRect(source, frame.faceBounds))
             cropped = currentCrop
             embedBitmap(currentCrop)
@@ -99,12 +103,13 @@ class LiteRtFaceEmbeddingEngine(
         frame: FaceFrame,
         shouldContinue: (embedding: FloatArray, candidateIndex: Int) -> Boolean,
     ): List<FloatArray> = withContext(Dispatchers.Default) {
-        validateFrame(frame)
         val source = frame.bitmap
         val candidates = ArrayList<FloatArray>(MAX_IDENTIFICATION_CANDIDATES)
         val usedRects = LinkedHashSet<Rect>(MAX_IDENTIFICATION_CANDIDATES)
 
         try {
+            validateFrame(frame, FaceCapturePurpose.IDENTIFICATION)
+            FaceImageQualityAnalyzer.requireAcceptableFrame(source, frame.faceBounds)
             val primaryRect = canonicalRect(source, frame.faceBounds)
             usedRects += primaryRect
             val primary = requireNotNull(embedRect(source, primaryRect, required = true))
@@ -127,7 +132,7 @@ class LiteRtFaceEmbeddingEngine(
 
             landmarkAnchoredRect(source, frame)?.let { landmarkRect ->
                 if (candidates.size < MAX_IDENTIFICATION_CANDIDATES && usedRects.add(landmarkRect)) {
-                    embedRect(source, landmarkRect, required = false)?.let { anchored ->
+                    embedAlignedLandmarkRect(source, landmarkRect, frame)?.let { anchored ->
                         candidates += anchored
                         if (!shouldContinue(anchored, candidates.lastIndex)) return@withContext candidates
                     }
@@ -140,9 +145,13 @@ class LiteRtFaceEmbeddingEngine(
         }
     }
 
-    private fun validateFrame(frame: FaceFrame) {
+    private fun validateFrame(frame: FaceFrame, purpose: FaceCapturePurpose) {
         if (!isReady) throw FaceModelUnavailableException()
         check(!frame.bitmap.isRecycled) { "O frame facial já foi liberado." }
+        require(FaceCapturePolicy.evaluate(frame.observation.toCaptureFacts(), purpose) == null) {
+            "O frame nao contem um unico rosto integro e bem posicionado."
+        }
+        require(frame.faceBounds.width() > 0 && frame.faceBounds.height() > 0) { "Area facial invalida." }
     }
 
     private suspend fun embedRect(source: Bitmap, rect: Rect, required: Boolean): FloatArray? {
@@ -157,6 +166,48 @@ class LiteRtFaceEmbeddingEngine(
             }
         } finally {
             cropped?.takeIf { it !== source && !it.isRecycled }?.recycle()
+        }
+    }
+
+    /**
+     * Optional identification fallback: the eye line is made horizontal after
+     * landmark-anchored cropping. The canonical enrollment/identification crop
+     * above is intentionally untouched for compatibility with existing faces.
+     */
+    private suspend fun embedAlignedLandmarkRect(
+        source: Bitmap,
+        rect: Rect,
+        frame: FaceFrame,
+    ): FloatArray? {
+        val leftEye = frame.leftEye ?: return null
+        val rightEye = frame.rightEye ?: return null
+        val angleDegrees = Math.toDegrees(
+            atan2(
+                (rightEye.y - leftEye.y).toDouble(),
+                (rightEye.x - leftEye.x).toDouble(),
+            ),
+        ).toFloat()
+        if (!angleDegrees.isFinite() || kotlin.math.abs(angleDegrees) > 12f) return null
+
+        var cropped: Bitmap? = null
+        var aligned: Bitmap? = null
+        return try {
+            cropped = crop(source, rect)
+            val matrix = Matrix().apply { postRotate(-angleDegrees) }
+            val currentCrop = requireNotNull(cropped)
+            aligned = Bitmap.createBitmap(
+                currentCrop,
+                0,
+                0,
+                currentCrop.width,
+                currentCrop.height,
+                matrix,
+                true,
+            )
+            runCatching { embedBitmap(requireNotNull(aligned)) }.getOrNull()
+        } finally {
+            aligned?.takeIf { it !== cropped && !it.isRecycled }?.recycle()
+            cropped?.takeIf { !it.isRecycled }?.recycle()
         }
     }
 
@@ -307,12 +358,15 @@ class LiteRtFaceEmbeddingEngine(
     }
 
     private fun l2Normalize(values: FloatArray): FloatArray {
+        require(values.size == EMBEDDING_SIZE && values.all { it.isFinite() }) {
+            "A saida do modelo facial e invalida."
+        }
         var sumSquares = 0.0
         for (value in values) sumSquares += value * value
         val norm = sqrt(sumSquares).toFloat()
-        if (norm <= 1e-12f) return values
+        require(norm.isFinite() && norm > 1e-12f) { "A saida do modelo facial possui norma zero." }
         for (index in values.indices) values[index] /= norm
-        return values
+        return FaceEmbeddingIntegrity.requireValid(values, EMBEDDING_SIZE)
     }
 
     private class InferenceWorkspace {

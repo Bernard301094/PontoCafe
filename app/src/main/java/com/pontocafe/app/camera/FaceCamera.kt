@@ -44,9 +44,12 @@ import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.face.FaceLandmark
+import com.pontocafe.app.data.BiometricRuntimeDiagnostics
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.hypot
 
 private const val FACE_CAMERA_TAG = "PontoCafeFaceCamera"
 private const val OBSERVATION_DELIVERY_INTERVAL_MS = 50L
@@ -72,9 +75,17 @@ data class FaceObservation(
     val roll: Float = 0f,
     val imageWidth: Int = 0,
     val imageHeight: Int = 0,
+    val trackingId: Int? = null,
+    val leftEye: PointF? = null,
+    val rightEye: PointF? = null,
+    val noseBase: PointF? = null,
+    val mouthBottom: PointF? = null,
 ) {
     val faceWidthRatio: Float
         get() = if (imageWidth > 0 && bounds != null) bounds.width().toFloat() / imageWidth else 0f
+
+    val faceHeightRatio: Float
+        get() = if (imageHeight > 0 && bounds != null) bounds.height().toFloat() / imageHeight else 0f
 
     val isCentered: Boolean
         get() {
@@ -87,8 +98,7 @@ data class FaceObservation(
         }
 
     val isWellPositioned: Boolean
-        get() = faceCount == 1 && bounds != null && isCentered &&
-            faceWidthRatio in 0.22f..0.68f && abs(roll) <= 12f
+        get() = FaceCapturePolicy.evaluate(toCaptureFacts(), FaceCapturePurpose.ENROLLMENT) == null
 
     val isFrontal: Boolean
         get() = isWellPositioned && abs(yaw) <= 15f && abs(pitch) <= 15f
@@ -101,6 +111,50 @@ data class FaceObservation(
 
     val eyesOpen: Boolean
         get() = eyeClassificationAvailable && leftEyeOpen!! > 0.70f && rightEyeOpen!! > 0.70f
+
+    val isFullyVisible: Boolean
+        get() {
+            val box = bounds ?: return false
+            if (imageWidth <= 0 || imageHeight <= 0) return false
+            val marginX = imageWidth * 0.02f
+            val marginY = imageHeight * 0.02f
+            return box.left >= marginX && box.top >= marginY &&
+                box.right <= imageWidth - marginX && box.bottom <= imageHeight - marginY
+        }
+
+    val hasReliableLandmarks: Boolean
+        get() {
+            val box = bounds ?: return false
+            val left = leftEye ?: return false
+            val right = rightEye ?: return false
+            val nose = noseBase ?: return false
+            val mouth = mouthBottom ?: return false
+            val points = listOf(left, right, nose, mouth)
+            if (points.any { !box.contains(it.x.toInt(), it.y.toInt()) }) return false
+            val eyeDistance = hypot((right.x - left.x).toDouble(), (right.y - left.y).toDouble()).toFloat()
+            val eyeMidY = (left.y + right.y) / 2f
+            return eyeDistance in box.width() * 0.18f..box.width() * 0.72f &&
+                nose.y > eyeMidY && mouth.y > nose.y
+        }
+
+    val eyesAcceptableForIdentification: Boolean
+        get() = !eyeClassificationAvailable || (leftEyeOpen!! >= 0.45f && rightEyeOpen!! >= 0.45f)
+
+    val isIdentificationReady: Boolean
+        get() = FaceCapturePolicy.evaluate(toCaptureFacts(), FaceCapturePurpose.IDENTIFICATION) == null
+
+    fun toCaptureFacts() = FaceCaptureFacts(
+        faceCount = faceCount,
+        centered = isCentered,
+        faceWidthRatio = faceWidthRatio,
+        faceHeightRatio = faceHeightRatio,
+        fullyVisible = isFullyVisible,
+        yaw = yaw,
+        pitch = pitch,
+        roll = roll,
+        reliableLandmarks = hasReliableLandmarks,
+        eyesAcceptable = eyesAcceptableForIdentification,
+    )
 }
 
 data class FaceFrame(
@@ -110,19 +164,70 @@ data class FaceFrame(
     val rightEye: PointF? = null,
     val noseBase: PointF? = null,
     val mouthBottom: PointF? = null,
+    val observation: FaceObservation,
+    val capturedAtMillis: Long,
 )
 
 class FrameCaptureController {
-    private val captureNext = AtomicBoolean(false)
+    internal data class Request(
+        val reference: FaceObservation?,
+        val purpose: FaceCapturePurpose,
+        val requestedAtMillis: Long,
+    )
 
-    fun request() {
-        captureNext.set(true)
+    internal sealed interface ClaimResult {
+        data object None : ClaimResult
+        data class Claimed(val request: Request) : ClaimResult
+        data class Rejected(val reason: FaceCaptureRejectionReason) : ClaimResult
     }
 
-    internal fun consume(): Boolean = captureNext.compareAndSet(true, false)
+    private val pending = AtomicReference<Request?>(null)
 
-    internal fun retry() {
-        captureNext.set(true)
+    fun request() {
+        setRequest(reference = null, purpose = FaceCapturePurpose.DIAGNOSTIC)
+    }
+
+    fun request(reference: FaceObservation, purpose: FaceCapturePurpose) {
+        setRequest(reference, purpose)
+    }
+
+    private fun setRequest(reference: FaceObservation?, purpose: FaceCapturePurpose) {
+        pending.set(Request(reference, purpose, SystemClock.elapsedRealtime()))
+    }
+
+    internal fun claim(observation: FaceObservation): ClaimResult {
+        val request = pending.get() ?: return ClaimResult.None
+        val now = SystemClock.elapsedRealtime()
+        val policyRejection = FaceCapturePolicy.evaluate(observation.toCaptureFacts(), request.purpose)
+        val reason = when {
+            now - request.requestedAtMillis > CAPTURE_REQUEST_TTL_MILLIS ->
+                FaceCaptureRejectionReason.REQUEST_EXPIRED
+            policyRejection != null -> policyRejection
+            request.reference?.trackingId != null && observation.trackingId != null &&
+                request.reference.trackingId != observation.trackingId -> FaceCaptureRejectionReason.TRACK_CHANGED
+            request.reference != null &&
+                (abs(request.reference.yaw - observation.yaw) > MAX_CAPTURE_POSE_DRIFT ||
+                    abs(request.reference.pitch - observation.pitch) > MAX_CAPTURE_POSE_DRIFT ||
+                    abs(request.reference.roll - observation.roll) > MAX_CAPTURE_POSE_DRIFT) ->
+                FaceCaptureRejectionReason.POSE_CHANGED
+            else -> null
+        }
+        if (reason != null) {
+            pending.compareAndSet(request, null)
+            return ClaimResult.Rejected(reason)
+        }
+        return if (pending.compareAndSet(request, null)) ClaimResult.Claimed(request) else ClaimResult.None
+    }
+
+    internal fun retry(request: Request) {
+        if (SystemClock.elapsedRealtime() - request.requestedAtMillis <= CAPTURE_REQUEST_TTL_MILLIS) {
+            pending.compareAndSet(null, request)
+        }
+    }
+
+    companion object {
+        private const val CAPTURE_REQUEST_TTL_MILLIS = 1_500L
+        private const val MAX_CAPTURE_POSE_DRIFT = 8f
     }
 }
 
@@ -133,25 +238,77 @@ enum class LivenessState {
     CONCLUIDO,
 }
 
+/** Binds a liveness sequence to one ML Kit track, with an IoU fallback. */
+class FaceTrackContinuity(
+    private val minimumIntersectionOverUnion: Float = 0.35f,
+) {
+    private var trackingId: Int? = null
+    private var bounds: Rect? = null
+
+    init {
+        require(minimumIntersectionOverUnion in 0f..1f)
+    }
+
+    fun bind(observation: FaceObservation) {
+        trackingId = observation.trackingId
+        bounds = observation.bounds?.let(::Rect)
+    }
+
+    fun reset() {
+        trackingId = null
+        bounds = null
+    }
+
+    fun matches(observation: FaceObservation): Boolean {
+        if (trackingId != null || observation.trackingId != null) {
+            return trackingId != null && trackingId == observation.trackingId
+        }
+        val original = bounds ?: return false
+        val current = observation.bounds ?: return false
+        val intersectionLeft = maxOf(original.left, current.left)
+        val intersectionTop = maxOf(original.top, current.top)
+        val intersectionRight = minOf(original.right, current.right)
+        val intersectionBottom = minOf(original.bottom, current.bottom)
+        val intersection = maxOf(0, intersectionRight - intersectionLeft) *
+            maxOf(0, intersectionBottom - intersectionTop)
+        val union = original.width() * original.height() + current.width() * current.height() - intersection
+        return union > 0 && intersection.toFloat() / union >= minimumIntersectionOverUnion
+    }
+}
+
 class BlinkLiveness {
     private var sawClosedEyes = false
+    private val continuity = FaceTrackContinuity()
 
     fun reset() {
         sawClosedEyes = false
+        continuity.reset()
     }
+
+    fun matchesChallengeFace(observation: FaceObservation): Boolean =
+        sawClosedEyes && continuity.matches(observation)
 
     fun update(observation: FaceObservation): LivenessState {
         if (!observation.isFrontal || !observation.eyeClassificationAvailable) {
-            sawClosedEyes = false
+            reset()
             return LivenessState.POSICIONE_ROSTO
         }
+        if (sawClosedEyes && !sameChallengeFace(observation)) reset()
         if (!sawClosedEyes) {
-            if (observation.eyesClosed) sawClosedEyes = true
+            if (observation.eyesClosed) {
+                sawClosedEyes = true
+                continuity.bind(observation)
+            }
             return if (sawClosedEyes) LivenessState.ABRA_OS_OLHOS else LivenessState.PISQUE
         }
         return if (observation.eyesOpen) LivenessState.CONCLUIDO else LivenessState.ABRA_OS_OLHOS
     }
+
+    private fun sameChallengeFace(observation: FaceObservation): Boolean = continuity.matches(observation)
 }
+
+private fun Face.landmarkPoint(type: Int): PointF? =
+    getLandmark(type)?.position?.let { PointF(it.x, it.y) }
 
 private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = FaceObservation(
     faceCount = total,
@@ -163,10 +320,12 @@ private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = 
     roll = headEulerAngleZ,
     imageWidth = imageWidth,
     imageHeight = imageHeight,
+    trackingId = trackingId,
+    leftEye = landmarkPoint(FaceLandmark.LEFT_EYE),
+    rightEye = landmarkPoint(FaceLandmark.RIGHT_EYE),
+    noseBase = landmarkPoint(FaceLandmark.NOSE_BASE),
+    mouthBottom = landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
 )
-
-private fun Face.landmarkPoint(type: Int): PointF? =
-    getLandmark(type)?.position?.let { PointF(it.x, it.y) }
 
 private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
     if (degrees == 0) return bitmap
@@ -187,6 +346,7 @@ private fun analyzer(
     analysisEnabled: () -> Boolean,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
+    onCaptureRejected: (FaceCaptureRejectionReason) -> Unit,
 ): ImageAnalysis.Analyzer {
     var lastObservationDeliveryAt = 0L
     var lastDeliveredFaceCount = -1
@@ -222,39 +382,54 @@ private fun analyzer(
                     .onFailure { Log.w(FACE_CAMERA_TAG, "Falha ao entregar observação facial.", it) }
             }
 
-            if (faces.size == 1 && captureController.consume()) {
-                try {
-                    val face = faces.first()
-                    val sourceBitmap = imageProxy.toBitmap()
-                    val uprightBitmap = try {
-                        rotate(sourceBitmap, rotation)
-                    } catch (error: Throwable) {
-                        if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
-                        throw error
-                    }
-                    if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
-                        sourceBitmap.recycle()
-                    }
-
-                    try {
-                        onFrame(
-                            FaceFrame(
-                                bitmap = uprightBitmap,
-                                faceBounds = Rect(face.boundingBox),
-                                leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
-                                rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
-                                noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
-                                mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
-                            ),
-                        )
-                    } catch (error: Throwable) {
-                        if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
-                        throw error
-                    }
-                } catch (error: Throwable) {
-                    captureController.retry()
-                    Log.w(FACE_CAMERA_TAG, "Falha ao capturar frame facial; uma nova tentativa será feita.", error)
+            when (val claim = captureController.claim(observation)) {
+                is FrameCaptureController.ClaimResult.Rejected -> {
+                    BiometricRuntimeDiagnostics.recordQualityRejection("CAPTURE_${claim.reason.name}")
+                    runCatching { onCaptureRejected(claim.reason) }
                 }
+                is FrameCaptureController.ClaimResult.Claimed -> {
+                    if (faces.size == 1) {
+                        try {
+                            val face = faces.first()
+                            val sourceBitmap = imageProxy.toBitmap()
+                            val uprightBitmap = try {
+                                rotate(sourceBitmap, rotation)
+                            } catch (error: Throwable) {
+                                if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
+                                throw error
+                            }
+                            if (uprightBitmap !== sourceBitmap && !sourceBitmap.isRecycled) {
+                                sourceBitmap.recycle()
+                            }
+
+                            try {
+                                onFrame(
+                                    FaceFrame(
+                                        bitmap = uprightBitmap,
+                                        faceBounds = Rect(face.boundingBox),
+                                        leftEye = face.landmarkPoint(FaceLandmark.LEFT_EYE),
+                                        rightEye = face.landmarkPoint(FaceLandmark.RIGHT_EYE),
+                                        noseBase = face.landmarkPoint(FaceLandmark.NOSE_BASE),
+                                        mouthBottom = face.landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
+                                        observation = observation,
+                                        capturedAtMillis = System.currentTimeMillis(),
+                                    ),
+                                )
+                            } catch (error: Throwable) {
+                                if (!uprightBitmap.isRecycled) uprightBitmap.recycle()
+                                throw error
+                            }
+                        } catch (error: Throwable) {
+                            captureController.retry(claim.request)
+                            Log.w(
+                                FACE_CAMERA_TAG,
+                                "Falha ao capturar frame facial; uma nova tentativa será feita.",
+                                error,
+                            )
+                        }
+                    }
+                }
+                FrameCaptureController.ClaimResult.None -> Unit
             }
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -328,6 +503,7 @@ fun FaceCameraPreview(
     showPositionGuide: Boolean = true,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
+    onCaptureRejected: (FaceCaptureRejectionReason) -> Unit = {},
     onError: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -335,6 +511,7 @@ fun FaceCameraPreview(
     val rootView = LocalView.current
     val currentOnObservation = rememberUpdatedState(onObservation)
     val currentOnFrame = rememberUpdatedState(onFrame)
+    val currentOnCaptureRejected = rememberUpdatedState(onCaptureRejected)
     val currentOnError = rememberUpdatedState(onError)
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
@@ -346,7 +523,7 @@ fun FaceCameraPreview(
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-                .setMinFaceSize(0.20f)
+                .setMinFaceSize(0.15f)
                 .enableTracking()
                 .build(),
         )
@@ -433,6 +610,11 @@ fun FaceCameraPreview(
                                             if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
                                             Log.e(FACE_CAMERA_TAG, "Falha ao entregar frame para reconhecimento.", error)
                                         }
+                                    }
+                                },
+                                onCaptureRejected = { reason ->
+                                    mainExecutor.execute {
+                                        if (cameraAlive.get()) currentOnCaptureRejected.value(reason)
                                     }
                                 },
                             ),

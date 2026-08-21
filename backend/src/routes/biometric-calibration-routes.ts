@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { validateBiometricVector } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query } from '../db.js'
 import { errorPayload, logServerError } from '../observability.js'
@@ -27,6 +28,9 @@ biometricCalibrationRoutes.post('/colaboradores/:id/biometria/calibrar', async (
     versaoModelo: z.string().trim().min(1).max(50),
   }))
   if (!body.ok) return body.response
+  if (!validateBiometricVector(body.data.embedding).valid) {
+    return c.json(errorPayload(c, 'A amostra facial é inválida ou incompatível com o modelo.', 'BIOMETRIC_VECTOR_INVALID'), 400)
+  }
 
   try {
     const targetResult = await query<{
@@ -41,19 +45,35 @@ biometricCalibrationRoutes.post('/colaboradores/:id/biometria/calibrar', async (
          join colaboradores c on c.id=t.colaborador_id
         where t.colaborador_id=$1 and c.ativo=true
           and t.modelo=$2 and t.versao_modelo=$3
-        limit 1`,
+        order by t.atualizado_em desc,t.criado_em desc`,
       [collaboratorId, body.data.modelo, body.data.versaoModelo],
     )
     const target = targetResult.rows[0]
     if (!target) {
       return c.json(errorPayload(c, 'O colaborador não possui biometria compatível com este modelo.', 'BIOMETRIC_TEMPLATE_NOT_FOUND'), 404)
     }
-    if (target.dimensao !== body.data.embedding.length) {
-      return c.json(errorPayload(c, 'A dimensão da amostra não corresponde ao cadastro.', 'BIOMETRIC_DIMENSION_MISMATCH'), 409)
+    let targetScore = -1
+    let validTargetTemplates = 0
+    for (const targetTemplate of targetResult.rows) {
+      if (targetTemplate.dimensao !== body.data.embedding.length) continue
+      try {
+        const targetEmbedding = decryptEmbedding(
+          targetTemplate.template_cifrado,
+          targetTemplate.iv,
+          targetTemplate.auth_tag,
+        )
+        if (!validateBiometricVector(targetEmbedding).valid) continue
+        const score = cosineSimilarity(targetEmbedding, body.data.embedding)
+        if (!Number.isFinite(score)) continue
+        validTargetTemplates += 1
+        targetScore = Math.max(targetScore, score)
+      } catch {
+        // A calibração continua com outras aparências válidas da mesma pessoa.
+      }
     }
-
-    const targetEmbedding = decryptEmbedding(target.template_cifrado, target.iv, target.auth_tag)
-    const targetScore = cosineSimilarity(targetEmbedding, body.data.embedding)
+    if (validTargetTemplates === 0) {
+      return c.json(errorPayload(c, 'Os templates do colaborador estão inválidos ou incompatíveis.', 'BIOMETRIC_TEMPLATE_INVALID'), 409)
+    }
 
     const others = await query<{
       colaborador_id: string
@@ -79,7 +99,9 @@ biometricCalibrationRoutes.post('/colaboradores/:id/biometria/calibrar', async (
       if (row.dimensao !== body.data.embedding.length) continue
       try {
         const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
+        if (!validateBiometricVector(stored).valid) continue
         const score = cosineSimilarity(stored, body.data.embedding)
+        if (!Number.isFinite(score)) continue
         impostorComparisons += 1
         if (score >= config.faceThreshold) impostorAccepts += 1
         if (!nearestOther || score > nearestOther.score) {

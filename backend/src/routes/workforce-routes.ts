@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { validateBiometricVector } from '../biometric-matching.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { cosineSimilarity, decryptEmbedding, newId } from '../security.js'
@@ -313,6 +314,9 @@ workforceRoutes.post('/colaboradores/:id/biometria/calibrar', async (c) => {
     versaoModelo: z.string().trim().min(1).max(50),
   }))
   if (!body.ok) return body.response
+  if (!validateBiometricVector(body.data.embedding).valid) {
+    return c.json(errorPayload(c, 'A amostra facial é inválida ou incompatível com o modelo.', 'BIOMETRIC_VECTOR_INVALID'), 400)
+  }
 
   const targetResult = await query<{
     nome: string
@@ -326,20 +330,36 @@ workforceRoutes.post('/colaboradores/:id/biometria/calibrar', async (c) => {
        join colaboradores c on c.id=t.colaborador_id
       where t.colaborador_id=$1 and c.ativo=true
         and t.modelo=$2 and t.versao_modelo=$3
-      limit 1`,
+      order by t.atualizado_em desc,t.criado_em desc`,
     [collaboratorId, body.data.modelo, body.data.versaoModelo],
   )
   const target = targetResult.rows[0]
   if (!target) {
     return c.json(errorPayload(c, 'O colaborador não possui biometria compatível com este modelo.', 'BIOMETRIC_TEMPLATE_NOT_FOUND'), 404)
   }
-  if (target.dimensao !== body.data.embedding.length) {
-    return c.json(errorPayload(c, 'A dimensão da amostra não corresponde ao cadastro.', 'BIOMETRIC_DIMENSION_MISMATCH'), 409)
-  }
-
   try {
-    const storedTarget = decryptEmbedding(target.template_cifrado, target.iv, target.auth_tag)
-    const targetScore = cosineSimilarity(storedTarget, body.data.embedding)
+    let targetScore = -1
+    let validTargetTemplates = 0
+    for (const targetTemplate of targetResult.rows) {
+      if (targetTemplate.dimensao !== body.data.embedding.length) continue
+      try {
+        const storedTarget = decryptEmbedding(
+          targetTemplate.template_cifrado,
+          targetTemplate.iv,
+          targetTemplate.auth_tag,
+        )
+        if (!validateBiometricVector(storedTarget).valid) continue
+        const score = cosineSimilarity(storedTarget, body.data.embedding)
+        if (!Number.isFinite(score)) continue
+        validTargetTemplates += 1
+        targetScore = Math.max(targetScore, score)
+      } catch {
+        // A calibração continua com outras aparências válidas da mesma pessoa.
+      }
+    }
+    if (validTargetTemplates === 0) {
+      return c.json(errorPayload(c, 'Os templates do colaborador estão inválidos ou incompatíveis.', 'BIOMETRIC_TEMPLATE_INVALID'), 409)
+    }
 
     const others = await query<{
       colaborador_id: string
@@ -362,7 +382,9 @@ workforceRoutes.post('/colaboradores/:id/biometria/calibrar', async (c) => {
       if (row.dimensao !== body.data.embedding.length) continue
       try {
         const stored = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
+        if (!validateBiometricVector(stored).valid) continue
         const score = cosineSimilarity(stored, body.data.embedding)
+        if (!Number.isFinite(score)) continue
         if (!nearestOther || score > nearestOther.score) {
           nearestOther = { id: row.colaborador_id, nome: row.nome, score }
         }
@@ -416,9 +438,9 @@ workforceRoutes.get('/biometria/resumo', async (c) => {
     sem_rosto: string
     mais_antigo: string | null
   }>(
-    `select count(*) filter (where c.ativo)::text as ativos,
-            count(*) filter (where c.ativo and t.colaborador_id is not null)::text as cadastrados,
-            count(*) filter (where c.ativo and t.colaborador_id is null)::text as sem_rosto,
+    `select count(distinct c.id) filter (where c.ativo)::text as ativos,
+            count(distinct c.id) filter (where c.ativo and t.colaborador_id is not null)::text as cadastrados,
+            count(distinct c.id) filter (where c.ativo and t.colaborador_id is null)::text as sem_rosto,
             min(t.atualizado_em)::text as mais_antigo
        from colaboradores c
        left join templates_faciais t on t.colaborador_id=c.id`,
@@ -429,6 +451,66 @@ workforceRoutes.get('/biometria/resumo', async (c) => {
       group by modelo,versao_modelo
       order by count(*) desc`,
   )
+  const collisionRows = await query<{
+    colaborador_id: string
+    nome: string
+    modelo: string
+    versao_modelo: string
+    dimensao: number
+    template_cifrado: Buffer
+    iv: Buffer
+    auth_tag: Buffer
+  }>(
+    `select t.colaborador_id,c.nome,t.modelo,t.versao_modelo,t.dimensao,
+            t.template_cifrado,t.iv,t.auth_tag
+       from templates_faciais t
+       join colaboradores c on c.id=t.colaborador_id
+      where c.ativo=true`,
+  )
+  const collisionVectors = collisionRows.rows.flatMap((template) => {
+    try {
+      const embedding = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
+      if (embedding.length !== template.dimensao || !validateBiometricVector(embedding).valid) return []
+      return [{ ...template, embedding }]
+    } catch {
+      return []
+    }
+  })
+  const riskyPairThreshold = Math.max(0, config.faceThreshold - config.faceIdentificationMargin)
+  const pairScores = new Map<string, {
+    colaboradorAId: string
+    colaboradorANome: string
+    colaboradorBId: string
+    colaboradorBNome: string
+    score: number
+  }>()
+  for (let left = 0; left < collisionVectors.length; left++) {
+    for (let right = left + 1; right < collisionVectors.length; right++) {
+      const a = collisionVectors[left]
+      const b = collisionVectors[right]
+      if (
+        a.colaborador_id === b.colaborador_id ||
+        a.modelo !== b.modelo ||
+        a.versao_modelo !== b.versao_modelo ||
+        a.dimensao !== b.dimensao
+      ) continue
+      const score = cosineSimilarity(a.embedding, b.embedding)
+      if (!Number.isFinite(score) || score < riskyPairThreshold) continue
+      const ordered = a.colaborador_id < b.colaborador_id ? [a, b] : [b, a]
+      const key = `${ordered[0].colaborador_id}:${ordered[1].colaborador_id}:${a.modelo}:${a.versao_modelo}`
+      const current = pairScores.get(key)
+      if (!current || score > current.score) {
+        pairScores.set(key, {
+          colaboradorAId: ordered[0].colaborador_id,
+          colaboradorANome: ordered[0].nome,
+          colaboradorBId: ordered[1].colaborador_id,
+          colaboradorBNome: ordered[1].nome,
+          score,
+        })
+      }
+    }
+  }
+  const riskyPairs = [...pairScores.values()].sort((a, b) => b.score - a.score)
   const row = totals.rows[0]
   return c.json({
     colaboradoresAtivos: Number(row?.ativos ?? 0),
@@ -443,6 +525,16 @@ workforceRoutes.get('/biometria/resumo', async (c) => {
     limiar: config.faceThreshold,
     margemMinima: config.faceIdentificationMargin,
     limiarDuplicidade: config.faceEnrollmentDuplicateThreshold,
+    colisoesCatalogo: {
+      limiteRisco: Number(riskyPairThreshold.toFixed(4)),
+      paresEmRisco: riskyPairs.length,
+      paresCriticos: riskyPairs.filter((pair) => pair.score >= config.faceThreshold).length,
+      maiorSimilaridade: riskyPairs[0] ? Number(riskyPairs[0].score.toFixed(4)) : null,
+      pares: riskyPairs.slice(0, 10).map((pair) => ({
+        ...pair,
+        score: Number(pair.score.toFixed(4)),
+      })),
+    },
     retencaoDias: config.biometricRetentionDays,
   })
 })

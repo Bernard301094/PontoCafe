@@ -35,8 +35,9 @@ test('Ponto preserva exatamente o contrato de liveness existente', () => {
   assert.match(kiosk, /RECOGNITION_STABLE_FRAMES = 4/)
   assert.match(kiosk, /BLINK_FALLBACK_FRAMES = 36/)
   assert.match(kiosk, /BlinkLiveness/)
+  assert.match(kiosk, /FaceTrackContinuity/)
   assert.match(kiosk, /FaceCameraPreview/)
-  assert.match(kiosk, /captureController\.request\(\)/)
+  assert.match(kiosk, /captureController\.request\(observation, FaceCapturePurpose\.IDENTIFICATION\)/)
 })
 
 test('Ponto comunica o fluxo facial com layout responsivo', () => {

@@ -41,6 +41,7 @@ import androidx.core.content.ContextCompat
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceCapturePurpose
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
@@ -312,7 +313,7 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                             }
                             if (next == LivenessState.CONCLUIDO) {
                                 captureRequested = true
-                                captureController.request()
+                                captureController.request(observation, FaceCapturePurpose.ENROLLMENT)
                             }
                         } else {
                             if (currentPose.accepts(observation)) {
@@ -320,13 +321,18 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                                 if (stableFrames >= 4) {
                                     captureRequested = true
                                     cameraHint = "Posição confirmada. Capturando..."
-                                    captureController.request()
+                                    captureController.request(observation, FaceCapturePurpose.ENROLLMENT)
                                 }
                             } else stableFrames = 0
                         }
                     }
                 },
                 onFrame = viewModel::processarAmostraBiometrica,
+                onCaptureRejected = {
+                    captureRequested = false
+                    stableFrames = 0
+                    liveness.reset()
+                },
             )
         } else {
             Column(

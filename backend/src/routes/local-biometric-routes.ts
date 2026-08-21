@@ -3,8 +3,9 @@ import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
+import { evaluateBiometricIdentification, validateBiometricVector } from '../biometric-matching.js'
 import { query } from '../db.js'
-import { cosineSimilarity, decryptEmbedding, hashToken, newId, newToken } from '../security.js'
+import { decryptEmbedding, hashToken, newId, newToken } from '../security.js'
 import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
@@ -112,6 +113,7 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
       limiar: config.faceThreshold,
       margem: config.faceIdentificationMargin,
       templates: [],
+      templatesRejeitados: 0,
     })
   }
 
@@ -130,7 +132,11 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
   const templates = result.rows.flatMap((row) => {
     try {
       const embedding = decryptEmbedding(row.template_cifrado, row.iv, row.auth_tag)
-      if (embedding.length !== row.dimensao) return []
+      if (
+        embedding.length !== row.dimensao ||
+        !validateBiometricVector(embedding).valid ||
+        !['LEGADO', 'CONSOLIDADO', 'AMOSTRA'].includes(row.tipo.toUpperCase())
+      ) return []
       return [{
         templateId: row.id,
         tipo: row.tipo,
@@ -156,6 +162,7 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
       return []
     }
   })
+  const templatesRejeitados = result.rows.length - templates.length
 
   return c.json({
     atualizado: true,
@@ -165,6 +172,7 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
     limiar: config.faceThreshold,
     margem: config.faceIdentificationMargin,
     templates,
+    templatesRejeitados,
   })
 })
 
@@ -183,23 +191,25 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
             t.template_cifrado,t.iv,t.auth_tag,t.dimensao
      from templates_faciais t
      join colaboradores col on col.id=t.colaborador_id
-     where t.colaborador_id=$1 and col.ativo=true and t.modelo=$2 and t.versao_modelo=$3
+      where col.ativo=true and t.modelo=$1 and t.versao_modelo=$2
      order by t.atualizado_em desc,t.criado_em desc`,
-    [body.data.colaboradorId, body.data.modelo, body.data.versaoModelo],
+    [body.data.modelo, body.data.versaoModelo],
   )
 
-  const stored = result.rows[0]
-  if (!stored) return c.json({ erro: 'Biometria não cadastrada ou modelo incompatível.' }, 404)
+  const claimedTemplate = result.rows.find((template) => template.colaborador_id === body.data.colaboradorId)
+  if (!claimedTemplate) return c.json({ erro: 'Biometria não cadastrada ou modelo incompatível.' }, 404)
 
-  let score = -1
-  let compatibleTemplates = 0
+  const decryptedTemplates: Array<{
+    collaboratorId: string
+    embedding: number[]
+    payload: ConfirmationTemplateRow
+  }> = []
   for (const template of result.rows) {
     if (template.dimensao !== body.data.embedding.length) continue
     try {
       const cadastrado = decryptEmbedding(template.template_cifrado, template.iv, template.auth_tag)
       if (cadastrado.length !== template.dimensao) continue
-      compatibleTemplates += 1
-      score = Math.max(score, cosineSimilarity(cadastrado, body.data.embedding))
+      decryptedTemplates.push({ collaboratorId: template.colaborador_id, embedding: cadastrado, payload: template })
     } catch (error) {
       console.error(JSON.stringify({
         evento: 'template_ignorado_na_confirmacao_local',
@@ -209,14 +219,26 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
     }
   }
 
-  if (compatibleTemplates === 0) {
+  if (decryptedTemplates.length === 0) {
     return c.json({ erro: 'Modelo biométrico incompatível.' }, 409)
   }
-  if (score < config.faceThreshold) {
+  const identification = evaluateBiometricIdentification(
+    body.data.embedding,
+    decryptedTemplates,
+    config.faceThreshold,
+    config.faceIdentificationMargin,
+  )
+  const stored = identification.best?.payload
+  const score = identification.best?.score ?? -1
+  if (!identification.accepted || !stored || stored.colaborador_id !== body.data.colaboradorId) {
     return c.json({
       reconhecido: false,
-      motivo: 'CONFIRMACAO_REPROVADA',
-      mensagem: 'Não foi possível confirmar sua identidade. Tente novamente.',
+      motivo: identification.reason === 'AMBIGUOUS'
+        ? 'CORRESPONDENCIA_AMBIGUA'
+        : 'CONFIRMACAO_REPROVADA',
+      mensagem: identification.reason === 'AMBIGUOUS'
+        ? 'Rosto muito semelhante a outro cadastro. Tente novamente em outra posição.'
+        : 'Não foi possível confirmar sua identidade. Tente novamente.',
       score: Number(score.toFixed(4)),
     }, 401)
   }

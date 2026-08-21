@@ -82,6 +82,7 @@ data class FaceCatalogResponse(
     val limiar: Double,
     val margem: Double,
     val templates: List<CachedFaceTemplate>,
+    val templatesRejeitados: Int = 0,
 )
 
 data class ConfirmarBiometriaLocalRequest(

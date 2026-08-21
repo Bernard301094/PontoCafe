@@ -8,11 +8,13 @@ import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AppStatusResponse
+import com.pontocafe.app.data.BiometricRuntimeDiagnostics
 import com.pontocafe.app.data.CachedFaceCatalog
 import com.pontocafe.app.data.FinalizarPausaResponse
 import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
 import com.pontocafe.app.data.LocalFaceMatch
+import com.pontocafe.app.data.LocalFaceEvaluation
 import com.pontocafe.app.data.LocalFaceMatcher
 import com.pontocafe.app.data.LocalFaceResolvedMatch
 import com.pontocafe.app.data.PausaAbertaResumo
@@ -20,6 +22,12 @@ import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
+import com.pontocafe.app.data.RecognitionTransactionCoordinator
+import com.pontocafe.app.data.RegistrationLease
+import com.pontocafe.app.data.TemporalConsensusDecision
+import com.pontocafe.app.data.TemporalFaceConsensus
+import com.pontocafe.app.data.TemporalFaceEvidence
+import com.pontocafe.app.avatar.PontoAvatarRuntime
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -37,6 +45,7 @@ enum class TipoComprovantePonto { INICIO, RETORNO }
 
 enum class PontoRecognitionStage {
     IDENTIFICANDO,
+    VALIDANDO_CONSISTENCIA,
     CONFIRMANDO_IDENTIDADE,
     REGISTRANDO_PONTO,
 }
@@ -58,6 +67,7 @@ data class PontoCafeUiState(
     val carregando: Boolean = false,
     val scanning: Boolean = false,
     val recognitionStage: PontoRecognitionStage? = null,
+    val temporalConsensusCount: Int = 0,
     val scanCycle: Int = 0,
     val identificacao: IdentificarBiometriaResponse? = null,
     val comprovante: ComprovantePonto? = null,
@@ -95,6 +105,10 @@ class PontoCafeViewModel(
     private var lastRegisteredCollaboratorId: String? = null
     private var lastRegisteredAtMillis: Long = 0L
     private val recognitionInFlight = AtomicBoolean(false)
+    private val temporalConsensus = TemporalFaceConsensus()
+    private val transactionCoordinator = RecognitionTransactionCoordinator()
+    private var temporalInferenceCount: Int = 0
+    private var temporalRecognitionStartedAtNanos: Long = 0L
     private val catalogSyncMutex = Mutex()
 
     var state by mutableStateOf(
@@ -107,6 +121,13 @@ class PontoCafeViewModel(
 
     val faceModelReady: Boolean get() = embeddingEngine.isReady
     val faceModelName: String get() = embeddingEngine.modelName
+
+    private fun invalidateRecognitionSession(): Long {
+        temporalConsensus.reset()
+        temporalInferenceCount = 0
+        temporalRecognitionStartedAtNanos = 0L
+        return transactionCoordinator.newRecognitionSession()
+    }
 
     init {
         if (tokenStore.hasToken() && embeddingEngine.isReady) {
@@ -132,6 +153,7 @@ class PontoCafeViewModel(
             state = state.copy(carregando = true, mensagem = null, erro = null)
             runCatching { repository.activateDevice(normalizedToken) }
                 .onSuccess { deviceToken ->
+                    invalidateRecognitionSession()
                     tokenStore.save(deviceToken)
                     faceCatalogStore.clear()
                     offlineStore.clear()
@@ -158,6 +180,7 @@ class PontoCafeViewModel(
     }
 
     fun removerConfiguracao() {
+        invalidateRecognitionSession()
         tokenStore.clear()
         faceCatalogStore.clear()
         offlineStore.clear()
@@ -268,10 +291,12 @@ class PontoCafeViewModel(
     }
 
     fun ativarCamera() {
+        invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
             scanning = true,
             recognitionStage = null,
+            temporalConsensusCount = 0,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
             comprovante = null,
@@ -289,10 +314,12 @@ class PontoCafeViewModel(
      * sincronizadas em background depois dos registros.
      */
     fun concluirComprovante() {
+        invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
             scanning = true,
             recognitionStage = null,
+            temporalConsensusCount = 0,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
             comprovante = null,
@@ -321,29 +348,40 @@ class PontoCafeViewModel(
             return
         }
 
+        val recognitionEpoch = transactionCoordinator.currentEpoch()
+        if (temporalRecognitionStartedAtNanos == 0L) {
+            temporalRecognitionStartedAtNanos = System.nanoTime()
+        }
+        val recognitionStartedAtNanos = temporalRecognitionStartedAtNanos
+        pendingOfflineEmbedding = null
+        state = state.copy(
+            carregando = true,
+            scanning = false,
+            recognitionStage = PontoRecognitionStage.IDENTIFICANDO,
+            erro = null,
+            mensagem = null,
+        )
         viewModelScope.launch {
-            pendingOfflineEmbedding = null
-            state = state.copy(
-                carregando = true,
-                scanning = false,
-                recognitionStage = PontoRecognitionStage.IDENTIFICANDO,
-                erro = null,
-                mensagem = null,
-            )
             try {
                 // Começamos pelo catálogo local já descriptografado/cacheado. Isso
                 // permite decidir imediatamente depois do primeiro embedding, sem
                 // esperar uma sincronização de rede e sem calcular fallbacks à toa.
                 var catalogo = withContext(Dispatchers.IO) { faceCatalogStore.read() }
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                 var resolvedDuringInference: LocalFaceResolvedMatch? = null
+                var strongestEvaluation: LocalFaceEvaluation? = null
 
                 val embeddings = embeddingEngine.embedForIdentification(frame) { candidate, candidateIndex ->
                     val currentCatalog = catalogo
                     if (currentCatalog == null || currentCatalog.templates.isEmpty()) {
                         true
                     } else {
-                        val candidateMatch = LocalFaceMatcher.match(candidate, currentCatalog)
-                        if (candidateMatch != null) {
+                        val evaluation = LocalFaceMatcher.evaluateDetailed(candidate, currentCatalog)
+                        if ((evaluation.bestScore ?: -1.0) > (strongestEvaluation?.bestScore ?: -1.0)) {
+                            strongestEvaluation = evaluation
+                        }
+                        val candidateMatch = evaluation.match
+                        if (candidateIndex == 0 && candidateMatch != null) {
                             resolvedDuringInference = LocalFaceResolvedMatch(
                                 match = candidateMatch,
                                 embedding = candidate,
@@ -356,8 +394,12 @@ class PontoCafeViewModel(
                     }
                 }
                 require(embeddings.isNotEmpty()) { "Nenhum embedding facial foi gerado." }
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
+                temporalInferenceCount += embeddings.size
 
-                var resolvedMatch = resolvedDuringInference
+                var resolvedMatch = resolvedDuringInference ?: catalogo?.let { currentCatalog ->
+                    LocalFaceMatcher.matchBest(embeddings, currentCatalog, announce = false)
+                }
 
                 // Só consultamos a rede depois de um miss local. Um catálogo já
                 // vencido é revalidado aqui; se estava fresco, o refresh por miss
@@ -368,10 +410,11 @@ class PontoCafeViewModel(
                     catalogRefreshAttempted = true
                     val previousCatalog = catalogo
                     val refreshed = obterCatalogoAtual(force = false)
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     catalogo = refreshed
                     if (refreshed != null && matchingCatalogChanged(previousCatalog, refreshed)) {
                         resolvedMatch = withContext(Dispatchers.Default) {
-                            LocalFaceMatcher.matchBest(embeddings, refreshed)
+                            LocalFaceMatcher.matchBest(embeddings, refreshed, announce = false)
                         }
                     }
                 }
@@ -384,25 +427,46 @@ class PontoCafeViewModel(
                         lastCatalogMissRefreshMillis = now
                         val previousCatalog = catalogo
                         val refreshed = obterCatalogoAtual(force = true, fullRefresh = false)
+                        if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                         catalogo = refreshed
                         if (refreshed != null && matchingCatalogChanged(previousCatalog, refreshed)) {
                             withContext(Dispatchers.Default) {
-                                resolvedMatch = LocalFaceMatcher.matchBest(embeddings, refreshed)
+                                resolvedMatch = LocalFaceMatcher.matchBest(embeddings, refreshed, announce = false)
                             }
                         }
                     }
                 }
 
+                val diagnosticEvaluation = catalogo?.let { currentCatalog ->
+                    embeddings.asSequence()
+                        .map { LocalFaceMatcher.evaluateDetailed(it, currentCatalog) }
+                        .maxByOrNull { it.bestScore ?: -1.0 }
+                } ?: strongestEvaluation
                 val resolved = resolvedMatch
                 if (resolved == null) {
+                    BiometricRuntimeDiagnostics.recordRecognition(
+                        bestScore = diagnosticEvaluation?.bestScore,
+                        secondScore = diagnosticEvaluation?.secondScore,
+                        candidateCount = diagnosticEvaluation?.candidateCount ?: 0,
+                        validTemplateCount = diagnosticEvaluation?.validTemplateCount ?: 0,
+                        consensusCount = 0,
+                        latencyMillis = (System.nanoTime() - recognitionStartedAtNanos) / 1_000_000L,
+                        inferenceCount = temporalInferenceCount,
+                        modelVersion = embeddingEngine.modelVersion,
+                        catalogVersion = catalogo?.versao,
+                    )
+                    invalidateRecognitionSession()
                     state = state.copy(
                         carregando = false,
                         scanning = true,
                         recognitionStage = null,
+                        temporalConsensusCount = 0,
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         erro = if (catalogo?.templates?.isEmpty() != false) {
                             "Nenhum rosto está cadastrado neste dispositivo. Peça ao administrador para cadastrar e sincronizar os colaboradores."
+                        } else if (diagnosticEvaluation?.rejectionReason == com.pontocafe.app.data.LocalFaceRejectionReason.AMBIGUOUS) {
+                            "Rosto muito semelhante a outro cadastro. Olhe diretamente para a câmera e tente novamente."
                         } else {
                             "ROSTO NÃO RECONHECIDO. Não foi possível identificar você com segurança. Posicione o rosto dentro do contorno e tente novamente."
                         },
@@ -410,8 +474,100 @@ class PontoCafeViewModel(
                     return@launch
                 }
 
-                val match = resolved.match
-                val embedding = resolved.embedding
+                val consensusCatalog = requireNotNull(catalogo)
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
+                val consensusDecision = temporalConsensus.submit(
+                    TemporalFaceEvidence(
+                        collaboratorId = resolved.match.colaborador.id,
+                        embedding = resolved.embedding,
+                        score = resolved.match.score,
+                        secondScore = resolved.match.segundoScore,
+                        catalogVersion = consensusCatalog.versao,
+                        model = consensusCatalog.modelo,
+                        modelVersion = consensusCatalog.versaoModelo,
+                        trackingId = frame.observation.trackingId,
+                        capturedAtMillis = frame.capturedAtMillis,
+                    ),
+                )
+
+                if (consensusDecision is TemporalConsensusDecision.Pending) {
+                    BiometricRuntimeDiagnostics.recordRecognition(
+                        bestScore = resolved.match.score,
+                        secondScore = resolved.match.segundoScore,
+                        candidateCount = diagnosticEvaluation?.candidateCount ?: 0,
+                        validTemplateCount = diagnosticEvaluation?.validTemplateCount ?: consensusCatalog.templates.size,
+                        consensusCount = consensusDecision.count,
+                        latencyMillis = (System.nanoTime() - recognitionStartedAtNanos) / 1_000_000L,
+                        inferenceCount = temporalInferenceCount,
+                        modelVersion = embeddingEngine.modelVersion,
+                        catalogVersion = consensusCatalog.versao,
+                    )
+                    state = state.copy(
+                        carregando = false,
+                        scanning = true,
+                        recognitionStage = PontoRecognitionStage.VALIDANDO_CONSISTENCIA,
+                        temporalConsensusCount = consensusDecision.count,
+                        identificacao = null,
+                        mensagem = null,
+                        erro = null,
+                    )
+                    return@launch
+                }
+
+                if (consensusDecision is TemporalConsensusDecision.Rejected) {
+                    invalidateRecognitionSession()
+                    state = state.copy(
+                        carregando = false,
+                        scanning = true,
+                        recognitionStage = null,
+                        temporalConsensusCount = 0,
+                        scanCycle = state.scanCycle + 1,
+                        identificacao = null,
+                        erro = "Não foi possível confirmar sua identidade. Olhe diretamente para a câmera e tente novamente.",
+                    )
+                    return@launch
+                }
+
+                consensusDecision as TemporalConsensusDecision.Confirmed
+                val aggregateEvaluation = LocalFaceMatcher.evaluateDetailed(
+                    consensusDecision.embedding,
+                    consensusCatalog,
+                )
+                val aggregateMatch = aggregateEvaluation.match
+                if (
+                    aggregateMatch == null ||
+                    aggregateMatch.colaborador.id != consensusDecision.collaboratorId
+                ) {
+                    invalidateRecognitionSession()
+                    state = state.copy(
+                        carregando = false,
+                        scanning = true,
+                        recognitionStage = null,
+                        temporalConsensusCount = 0,
+                        scanCycle = state.scanCycle + 1,
+                        identificacao = null,
+                        erro = "Rosto muito semelhante a outro cadastro. Tente novamente em outra posição.",
+                    )
+                    return@launch
+                }
+
+                BiometricRuntimeDiagnostics.recordRecognition(
+                    bestScore = aggregateEvaluation.bestScore,
+                    secondScore = aggregateEvaluation.secondScore,
+                    candidateCount = aggregateEvaluation.candidateCount,
+                    validTemplateCount = aggregateEvaluation.validTemplateCount,
+                    consensusCount = consensusDecision.count,
+                    latencyMillis = (System.nanoTime() - recognitionStartedAtNanos) / 1_000_000L,
+                    inferenceCount = temporalInferenceCount,
+                    modelVersion = embeddingEngine.modelVersion,
+                    catalogVersion = consensusCatalog.versao,
+                )
+                temporalInferenceCount = 0
+                temporalRecognitionStartedAtNanos = 0L
+                PontoAvatarRuntime.recognized(aggregateMatch.colaborador.avatarUrl)
+                state = state.copy(temporalConsensusCount = 0)
+                val match = aggregateMatch
+                val embedding = consensusDecision.embedding
 
                 if (samePersonCooldownActive(match.colaborador.id)) {
                     state = state.copy(
@@ -430,6 +586,7 @@ class PontoCafeViewModel(
                 var fastRouteUnavailable = false
 
                 if (fastEligible) {
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     state = state.copy(recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO)
                     val fastResult = withContext(Dispatchers.IO) {
                         repository.registrarRapido(
@@ -439,6 +596,7 @@ class PontoCafeViewModel(
                             versaoModelo = embeddingEngine.modelVersion,
                         )
                     }
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
 
                     if (fastResult == null) {
                         fastRouteUnavailable = true
@@ -448,7 +606,7 @@ class PontoCafeViewModel(
                                 val pausa = fastResult.inicio
                                 if (pausa != null) {
                                     val colaborador = fastResult.colaborador ?: match.colaborador
-                                    aplicarInicioOnline(colaborador.id, colaborador.nome, pausa)
+                                    aplicarInicioOnline(colaborador.id, colaborador.nome, pausa, recognitionEpoch)
                                     return@launch
                                 }
                             }
@@ -456,7 +614,7 @@ class PontoCafeViewModel(
                                 val pausa = fastResult.retorno
                                 if (pausa != null) {
                                     val colaborador = fastResult.colaborador ?: match.colaborador
-                                    aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa)
+                                    aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa, recognitionEpoch)
                                     return@launch
                                 }
                             }
@@ -473,6 +631,7 @@ class PontoCafeViewModel(
 
                 state = state.copy(recognitionStage = PontoRecognitionStage.CONFIRMANDO_IDENTIDADE)
                 val identificacao = try {
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     val confirmed = withContext(Dispatchers.IO) {
                         repository.confirmarIdentidadeLocal(
                             colaboradorId = match.colaborador.id,
@@ -481,11 +640,13 @@ class PontoCafeViewModel(
                             versaoModelo = embeddingEngine.modelVersion,
                         )
                     }
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     pendingOfflineEmbedding = null
                     val lastServerOk = withContext(Dispatchers.IO) {
                         offlineStore.markServerOk()
                         offlineStore.lastServerOkMillis()
                     }
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     state = state.copy(
                         modoOffline = false,
                         ultimaConexaoEmMillis = lastServerOk,
@@ -495,15 +656,19 @@ class PontoCafeViewModel(
                     val offlineAllowed = withContext(Dispatchers.IO) {
                         offlineStore.canOperateOffline(offlineGraceMillis)
                     }
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     if (!PontoCafeRepository.isTemporaryFailure(error) || !offlineAllowed) {
                         throw error
                     }
                     pendingOfflineEmbedding = embedding.copyOf()
-                    withContext(Dispatchers.IO) {
+                    val offlineIdentification = withContext(Dispatchers.IO) {
                         identificacaoOffline(match.colaborador, match.score, embedding)
                     }
+                    if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
+                    offlineIdentification
                 }
 
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                 if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
                     pendingOfflineEmbedding = null
                     state = state.copy(
@@ -528,10 +693,11 @@ class PontoCafeViewModel(
                     identificacao.acaoSugerida != "BLOQUEADO" &&
                     (identificacao.acaoSugerida == "FINALIZAR" || identificacao.dentroHorario == true)
                 ) {
-                    if (registrarIdentificacaoLegadoRapido(identificacao)) return@launch
+                    if (registrarIdentificacaoLegadoRapido(identificacao, recognitionEpoch)) return@launch
                 }
 
                 val pendingEvents = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                 state = state.copy(
                     carregando = false,
                     identificacao = identificacao,
@@ -544,11 +710,14 @@ class PontoCafeViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
+                invalidateRecognitionSession()
                 pendingOfflineEmbedding = null
                 state = state.copy(
                     carregando = false,
                     scanning = true,
                     recognitionStage = null,
+                    temporalConsensusCount = 0,
                     scanCycle = state.scanCycle + 1,
                     identificacao = null,
                     erro = PontoCafeRepository.mensagemErro(error),
@@ -582,6 +751,7 @@ class PontoCafeViewModel(
 
     private suspend fun registrarIdentificacaoLegadoRapido(
         identificacao: IdentificarBiometriaResponse,
+        recognitionEpoch: Long,
     ): Boolean {
         val colaborador = identificacao.colaborador ?: return false
         val token = identificacao.verificacaoToken ?: return false
@@ -591,7 +761,7 @@ class PontoCafeViewModel(
                 val pausa = withContext(Dispatchers.IO) {
                     repository.finalizar(colaborador.id, token)
                 }
-                aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa)
+                aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa, recognitionEpoch)
             } else {
                 val pausa = withContext(Dispatchers.IO) {
                     repository.iniciar(
@@ -599,12 +769,13 @@ class PontoCafeViewModel(
                         verificacaoToken = token,
                     )
                 }
-                aplicarInicioOnline(colaborador.id, colaborador.nome, pausa)
+                aplicarInicioOnline(colaborador.id, colaborador.nome, pausa, recognitionEpoch)
             }
             true
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            if (!transactionCoordinator.isCurrent(recognitionEpoch)) return false
             state = state.copy(
                 carregando = false,
                 scanning = false,
@@ -740,6 +911,7 @@ class PontoCafeViewModel(
         nowMillis: Long = System.currentTimeMillis(),
     ): Boolean {
         if (catalog == null || !catalogCompatible(catalog)) return true
+        if (catalog.templatesRejeitados > 0) return true
         val ageMillis = nowMillis - catalog.sincronizadoEmMillis
         return catalog.sincronizadoEmMillis <= 0L || ageMillis < 0L || ageMillis >= catalogRefreshMillis
     }
@@ -774,7 +946,7 @@ class PontoCafeViewModel(
             // integral para recuperar caches antigos que tenham sido gravados sem
             // templates por uma falha transitória de leitura/descriptografia.
             val conditionalVersion = compatibleCache
-                ?.takeIf { it.templates.isNotEmpty() }
+                ?.takeIf { it.templates.isNotEmpty() && it.templatesRejeitados == 0 }
                 ?.versao
             withContext(Dispatchers.IO) {
                 repository.sincronizarCatalogo(
@@ -819,6 +991,7 @@ class PontoCafeViewModel(
             margem = response.margem,
             templates = response.templates,
             sincronizadoEmMillis = agora,
+            templatesRejeitados = response.templatesRejeitados,
         )
         withContext(Dispatchers.IO) { faceCatalogStore.save(novo) }
         return novo
@@ -828,29 +1001,36 @@ class PontoCafeViewModel(
         val identificacao = state.identificacao ?: return
         val colaborador = identificacao.colaborador ?: return
         val token = identificacao.verificacaoToken ?: return
+        if (state.carregando) return
 
         if (identificacao.acaoSugerida == "BLOQUEADO") {
             rejeitarIdentidade()
             return
         }
 
+        val registrationLease = transactionCoordinator.tryAcquireRegistration(
+            transactionCoordinator.currentEpoch(),
+            colaborador.id,
+        ) ?: return
+
         if (state.modoOffline || token == OFFLINE_VERIFICATION_TOKEN) {
             val embedding = pendingOfflineEmbedding
             if (embedding == null) {
                 state = state.copy(erro = "A amostra biométrica offline expirou. Faça o reconhecimento novamente.")
+                transactionCoordinator.releaseRegistration(registrationLease)
                 return
             }
             if (identificacao.acaoSugerida == "FINALIZAR") {
-                finalizarPausaOffline(colaborador, embedding)
+                finalizarPausaOffline(colaborador, embedding, registrationLease)
             } else {
-                iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, embedding)
+                iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, embedding, registrationLease)
             }
             return
         }
 
         pendingOfflineEmbedding = null
         if (identificacao.acaoSugerida == "FINALIZAR") {
-            finalizarPausa(colaborador.id, colaborador.nome, token)
+            finalizarPausa(colaborador.id, colaborador.nome, token, registrationLease)
             return
         }
 
@@ -859,8 +1039,10 @@ class PontoCafeViewModel(
                 colaboradorId = colaborador.id,
                 nome = colaborador.nome,
                 verificacaoToken = token,
+                registrationLease = registrationLease,
             )
         } else {
+            transactionCoordinator.releaseRegistration(registrationLease)
             state = state.copy(
                 mensagem = null,
                 erro = identificacao.mensagem
@@ -870,11 +1052,13 @@ class PontoCafeViewModel(
     }
 
     fun rejeitarIdentidade() {
+        invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
             identificacao = null,
             scanning = true,
             recognitionStage = null,
+            temporalConsensusCount = 0,
             scanCycle = state.scanCycle + 1,
             mensagem = "Tudo bem. Vamos tentar identificar novamente.",
             erro = null,
@@ -889,6 +1073,7 @@ class PontoCafeViewModel(
         colaboradorId: String,
         nome: String,
         verificacaoToken: String,
+        registrationLease: RegistrationLease,
     ) {
         viewModelScope.launch {
             state = state.copy(
@@ -904,19 +1089,26 @@ class PontoCafeViewModel(
                     )
                 }
             }.onSuccess { pausa ->
-                aplicarInicioOnline(colaboradorId, nome, pausa)
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onSuccess
+                aplicarInicioOnline(colaboradorId, nome, pausa, registrationLease.epoch)
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onFailure
                 state = state.copy(
                     carregando = false,
                     recognitionStage = null,
                     erro = PontoCafeRepository.mensagemErro(error),
                 )
             }
-        }
+        }.invokeOnCompletion { transactionCoordinator.releaseRegistration(registrationLease) }
     }
 
-    private fun finalizarPausa(colaboradorId: String, nome: String, verificacaoToken: String) {
+    private fun finalizarPausa(
+        colaboradorId: String,
+        nome: String,
+        verificacaoToken: String,
+        registrationLease: RegistrationLease,
+    ) {
         viewModelScope.launch {
             state = state.copy(
                 carregando = true,
@@ -929,29 +1121,34 @@ class PontoCafeViewModel(
                 }
             }
                 .onSuccess { pausa ->
-                    aplicarRetornoOnline(colaboradorId, nome, pausa)
+                    if (!transactionCoordinator.isCurrent(registrationLease)) return@onSuccess
+                    aplicarRetornoOnline(colaboradorId, nome, pausa, registrationLease.epoch)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
+                    if (!transactionCoordinator.isCurrent(registrationLease)) return@onFailure
                     state = state.copy(
                         carregando = false,
                         recognitionStage = null,
                         erro = PontoCafeRepository.mensagemErro(error),
                     )
                 }
-        }
+        }.invokeOnCompletion { transactionCoordinator.releaseRegistration(registrationLease) }
     }
 
     private suspend fun aplicarInicioOnline(
         colaboradorId: String,
         nome: String,
         pausa: IniciarPausaResponse,
+        expectedEpoch: Long,
     ) {
+        if (!transactionCoordinator.isCurrent(expectedEpoch)) return
         pendingOfflineEmbedding = null
         val offlineStatus = withContext(Dispatchers.IO) {
             offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
             offlineStore.pendingCount() to offlineStore.lastServerOkMillis()
         }
+        if (!transactionCoordinator.isCurrent(expectedEpoch)) return
         markRegistered(colaboradorId)
         state = state.copy(
             carregando = false,
@@ -972,12 +1169,15 @@ class PontoCafeViewModel(
         colaboradorId: String,
         nome: String,
         pausa: FinalizarPausaResponse,
+        expectedEpoch: Long,
     ) {
+        if (!transactionCoordinator.isCurrent(expectedEpoch)) return
         pendingOfflineEmbedding = null
         val offlineStatus = withContext(Dispatchers.IO) {
             offlineStore.recordOnlineFinish(colaboradorId)
             offlineStore.pendingCount() to offlineStore.lastServerOkMillis()
         }
+        if (!transactionCoordinator.isCurrent(expectedEpoch)) return
         markRegistered(colaboradorId)
         state = state.copy(
             carregando = false,
@@ -998,6 +1198,7 @@ class PontoCafeViewModel(
         colaborador: com.pontocafe.app.data.Colaborador,
         score: Double,
         embedding: FloatArray,
+        registrationLease: RegistrationLease,
     ) {
         state = state.copy(
             carregando = true,
@@ -1019,6 +1220,7 @@ class PontoCafeViewModel(
                     local to offlineStore.pendingCount()
                 }
             }.onSuccess { persisted ->
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onSuccess
                 if (persisted == null) {
                     state = state.copy(
                         carregando = false,
@@ -1050,18 +1252,20 @@ class PontoCafeViewModel(
                 }
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onFailure
                 state = state.copy(
                     carregando = false,
                     recognitionStage = null,
                     erro = error.message ?: "Não foi possível salvar o registro offline.",
                 )
             }
-        }
+        }.invokeOnCompletion { transactionCoordinator.releaseRegistration(registrationLease) }
     }
 
     private fun finalizarPausaOffline(
         colaborador: com.pontocafe.app.data.Colaborador,
         embedding: FloatArray,
+        registrationLease: RegistrationLease,
     ) {
         val score = state.identificacao?.score ?: 0.0
         state = state.copy(
@@ -1082,6 +1286,7 @@ class PontoCafeViewModel(
                     Triple(open, duration, offlineStore.pendingCount())
                 }
             }.onSuccess { (open, duration, pendingCount) ->
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onSuccess
                 pendingOfflineEmbedding = null
                 markRegistered(colaborador.id)
                 state = state.copy(
@@ -1105,13 +1310,14 @@ class PontoCafeViewModel(
                 )
             }.onFailure { error ->
                 if (error is CancellationException) throw error
+                if (!transactionCoordinator.isCurrent(registrationLease)) return@onFailure
                 state = state.copy(
                     carregando = false,
                     recognitionStage = null,
                     erro = error.message ?: "Não foi possível salvar o retorno offline.",
                 )
             }
-        }
+        }.invokeOnCompletion { transactionCoordinator.releaseRegistration(registrationLease) }
     }
 
     fun sincronizarPendenciasOffline() {

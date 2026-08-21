@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalFaceMatcherTest {
@@ -16,13 +17,13 @@ class LocalFaceMatcherTest {
             limiar = 0.80,
             margem = 0.05,
             templates = listOf(
-                template(bernard, listOf(1f, 0f), "BASE_A"),
-                template(bernard, listOf(0.999f, 0.001f), "BASE_B"),
-                template(outro, listOf(0f, 1f), "BASE"),
+                template(bernard, vectorList(1f, 0f), "BASE_A"),
+                template(bernard, vectorList(0.999f, 0.001f), "BASE_B"),
+                template(outro, vectorList(0f, 1f), "BASE"),
             ),
         )
 
-        val match = LocalFaceMatcher.match(floatArrayOf(1f, 0f), catalog)
+        val match = LocalFaceMatcher.match(vector(1f, 0f), catalog)
 
         assertNotNull(match)
         assertEquals(bernard.id, match!!.colaborador.id)
@@ -36,12 +37,12 @@ class LocalFaceMatcherTest {
             limiar = 0.80,
             margem = 0.05,
             templates = listOf(
-                template(primeira, listOf(1f, 0f), "BASE"),
-                template(segunda, listOf(0.995f, 0.10f), "BASE"),
+                template(primeira, vectorList(1f, 0f), "BASE"),
+                template(segunda, vectorList(0.995f, 0.10f), "BASE"),
             ),
         )
 
-        val match = LocalFaceMatcher.match(floatArrayOf(1f, 0f), catalog)
+        val match = LocalFaceMatcher.match(vector(1f, 0f), catalog)
 
         assertNull(match)
     }
@@ -54,12 +55,12 @@ class LocalFaceMatcherTest {
             limiar = 0.80,
             margem = 0.05,
             templates = listOf(
-                template(primeira, listOf(1f, 0f), "BASE"),
-                template(segunda, listOf(0f, 1f), "BASE"),
+                template(primeira, vectorList(1f, 0f), "BASE"),
+                template(segunda, vectorList(0f, 1f), "BASE"),
             ),
         )
-        val primary = floatArrayOf(1f, 0f)
-        val fallback = floatArrayOf(0f, 1f)
+        val primary = vector(1f, 0f)
+        val fallback = vector(0f, 1f)
 
         val resolved = LocalFaceMatcher.matchBest(listOf(primary, fallback), catalog)
 
@@ -77,12 +78,12 @@ class LocalFaceMatcherTest {
             limiar = 0.80,
             margem = 0.08,
             templates = listOf(
-                template(pessoa, listOf(1f, 0f), "BASE"),
-                template(outra, listOf(0f, 1f), "BASE"),
+                template(pessoa, vectorList(1f, 0f), "BASE"),
+                template(outra, vectorList(0f, 1f), "BASE"),
             ),
         )
-        val primary = floatArrayOf(0.70f, 0.70f)
-        val fallback = floatArrayOf(0.99f, 0.01f)
+        val primary = vector(0.70f, 0.70f)
+        val fallback = vector(0.99f, 0.01f)
 
         val resolved = LocalFaceMatcher.matchBest(listOf(primary, fallback), catalog)
 
@@ -100,15 +101,15 @@ class LocalFaceMatcherTest {
             limiar = 0.80,
             margem = 0.08,
             templates = listOf(
-                template(primeira, listOf(1f, 0f), "BASE"),
-                template(segunda, listOf(0.995f, 0.10f), "BASE"),
+                template(primeira, vectorList(1f, 0f), "BASE"),
+                template(segunda, vectorList(0.995f, 0.10f), "BASE"),
             ),
         )
 
         val resolved = LocalFaceMatcher.matchBest(
             listOf(
-                floatArrayOf(0.7f, 0.7f),
-                floatArrayOf(1f, 0f),
+                vector(0.7f, 0.7f),
+                vector(1f, 0f),
             ),
             catalog,
         )
@@ -123,22 +124,101 @@ class LocalFaceMatcherTest {
         val primeiroCatalogo = catalog(
             limiar = 0.80,
             margem = 0.05,
-            templates = listOf(template(primeira, listOf(1f, 0f), "BASE")),
+            templates = listOf(template(primeira, vectorList(1f, 0f), "BASE")),
         )
         val catalogoAtualizado = catalog(
             limiar = 0.80,
             margem = 0.05,
-            templates = listOf(template(segunda, listOf(0f, 1f), "BASE")),
+            templates = listOf(template(segunda, vectorList(0f, 1f), "BASE")),
         )
 
-        assertEquals(primeira.id, LocalFaceMatcher.match(floatArrayOf(1f, 0f), primeiroCatalogo)?.colaborador?.id)
-        assertNull(LocalFaceMatcher.match(floatArrayOf(0f, 1f), primeiroCatalogo))
+        assertEquals(primeira.id, LocalFaceMatcher.match(vector(1f, 0f), primeiroCatalogo)?.colaborador?.id)
+        assertNull(LocalFaceMatcher.match(vector(0f, 1f), primeiroCatalogo))
 
-        val atualizado = LocalFaceMatcher.match(floatArrayOf(0f, 1f), catalogoAtualizado)
+        val atualizado = LocalFaceMatcher.match(vector(0f, 1f), catalogoAtualizado)
 
         assertNotNull(atualizado)
         assertEquals(segunda.id, atualizado!!.colaborador.id)
-        assertNull(LocalFaceMatcher.match(floatArrayOf(1f, 0f), catalogoAtualizado))
+        assertNull(LocalFaceMatcher.match(vector(1f, 0f), catalogoAtualizado))
+    }
+
+    @Test
+    fun `embedding corrompido ou com dimensao errada e recusado`() {
+        val pessoa = collaborator("a", "Pessoa A")
+        val currentCatalog = catalog(
+            limiar = 0.72,
+            margem = 0.06,
+            templates = listOf(template(pessoa, vectorList(1f, 0f), "BASE")),
+        )
+
+        val nonFinite = vector(1f, 0f).also { it[4] = Float.NaN }
+        val invalidNonFinite = LocalFaceMatcher.evaluateDetailed(nonFinite, currentCatalog)
+        val invalidDimension = LocalFaceMatcher.evaluateDetailed(floatArrayOf(1f, 0f), currentCatalog)
+
+        assertNull(invalidNonFinite.match)
+        assertEquals(LocalFaceRejectionReason.INVALID_EMBEDDING, invalidNonFinite.rejectionReason)
+        assertNull(invalidDimension.match)
+        assertEquals(LocalFaceRejectionReason.INVALID_EMBEDDING, invalidDimension.rejectionReason)
+    }
+
+    @Test
+    fun `template de outra versao de modelo nao participa`() {
+        val pessoa = collaborator("a", "Pessoa A")
+        val incompatible = template(pessoa, vectorList(1f, 0f), "BASE")
+            .copy(versaoModelo = "facenet-incompativel")
+        val evaluation = LocalFaceMatcher.evaluateDetailed(
+            vector(1f, 0f),
+            catalog(0.72, 0.06, listOf(incompatible)),
+        )
+
+        assertNull(evaluation.match)
+        assertEquals(LocalFaceRejectionReason.NO_COMPATIBLE_TEMPLATE, evaluation.rejectionReason)
+        assertEquals(0, evaluation.validTemplateCount)
+    }
+
+    @Test
+    fun `fallbacks contraditorios entre pessoas sao recusados`() {
+        val primeira = collaborator("a", "Pessoa A")
+        val segunda = collaborator("b", "Pessoa B")
+        val currentCatalog = catalog(
+            limiar = 0.72,
+            margem = 0.06,
+            templates = listOf(
+                template(primeira, vectorList(1f, 0f), "BASE"),
+                template(segunda, vectorList(0f, 1f), "BASE"),
+            ),
+        )
+
+        val result = LocalFaceMatcher.matchBest(
+            listOf(vector(0.70f, 0.70f), vector(1f, 0f), vector(0f, 1f)),
+            currentCatalog,
+            announce = false,
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `avaliacao detalhada informa top1 top2 e margem`() {
+        val primeira = collaborator("a", "Pessoa A")
+        val segunda = collaborator("b", "Pessoa B")
+        val evaluation = LocalFaceMatcher.evaluateDetailed(
+            vector(1f, 0f),
+            catalog(
+                limiar = 0.72,
+                margem = 0.06,
+                templates = listOf(
+                    template(primeira, vectorList(0.90f, 0.4358899f), "BASE"),
+                    template(segunda, vectorList(0.82f, 0.5723635f), "BASE"),
+                ),
+            ),
+        )
+
+        assertNotNull(evaluation.match)
+        assertEquals(0.90, evaluation.bestScore!!, 0.0001)
+        assertEquals(0.82, evaluation.secondScore!!, 0.0001)
+        assertEquals(0.08, evaluation.margin!!, 0.0001)
+        assertTrue(evaluation.validTemplateCount == 2)
     }
 
     private fun collaborator(id: String, name: String) = Colaborador(
@@ -176,4 +256,13 @@ class LocalFaceMatcherTest {
         templates = templates,
         sincronizadoEmMillis = 0L,
     )
+
+    private fun vector(first: Float, second: Float): FloatArray =
+        FloatArray(FACE_EMBEDDING_DIMENSION).also {
+            it[0] = first
+            it[1] = second
+        }
+
+    private fun vectorList(first: Float, second: Float): List<Float> =
+        vector(first, second).toList()
 }

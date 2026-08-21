@@ -13,9 +13,10 @@ import com.pontocafe.app.data.AdminOperationalSummary
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
 import com.pontocafe.app.data.AuditEvent
+import com.pontocafe.app.data.BiometricTemplateAggregator
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.FaceEmbeddingIntegrity
 import kotlinx.coroutines.launch
-import kotlin.math.sqrt
 
 
 enum class AdminDestination {
@@ -313,9 +314,13 @@ class AdminViewModel(
     }
 
     fun processarAmostraBiometrica(frame: FaceFrame) {
-        val colaborador = state.colaboradorSelecionado ?: return
-        if (state.carregando) return
+        val colaborador = state.colaboradorSelecionado
+        if (colaborador == null || state.carregando) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+            return
+        }
         if (!embeddingEngine.isReady) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             state = state.copy(erro = "O modelo de reconhecimento facial ainda não está instalado neste APK.")
             return
         }
@@ -324,9 +329,7 @@ class AdminViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = "Processando amostra facial...")
             try {
                 val embedding = embeddingEngine.embed(frame)
-                require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) {
-                    "A amostra facial gerada é inválida."
-                }
+                FaceEmbeddingIntegrity.requireValid(embedding)
                 biometricSamples += embedding.copyOf()
 
                 val captured = biometricSamples.size
@@ -544,21 +547,7 @@ class AdminViewModel(
 
         fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
             require(samples.isNotEmpty()) { "Nenhuma amostra biométrica foi capturada." }
-            val dimension = samples.first().size
-            require(dimension > 0 && samples.all { it.size == dimension }) { "As amostras biométricas possuem dimensões incompatíveis." }
-
-            val average = FloatArray(dimension)
-            samples.forEach { sample ->
-                for (index in sample.indices) average[index] += sample[index]
-            }
-            for (index in average.indices) average[index] /= samples.size.toFloat()
-
-            var normSquared = 0.0
-            average.forEach { value -> normSquared += value.toDouble() * value.toDouble() }
-            val norm = sqrt(normSquared).toFloat()
-            require(norm > 0f && norm.isFinite()) { "Não foi possível normalizar as amostras biométricas." }
-            for (index in average.indices) average[index] /= norm
-            return average
+            return BiometricTemplateAggregator.aggregate(samples).embedding
         }
     }
 }

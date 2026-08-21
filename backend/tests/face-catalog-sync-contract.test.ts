@@ -85,16 +85,20 @@ test('cache de outro modelo não é aceito nem usado como versão condicional', 
 
 test('cache compatível vazio solicita payload completo na próxima atualização', () => {
   assert.match(viewModel, /val conditionalVersion = compatibleCache/)
-  assert.match(viewModel, /takeIf \{ it\.templates\.isNotEmpty\(\) \}/)
+  assert.match(viewModel, /it\.templates\.isNotEmpty\(\) && it\.templatesRejeitados == 0/)
   assert.match(viewModel, /versaoAtual = if \(fullRefresh\) null else conditionalVersion/)
 })
 
-test('catálogo local corrompido é rejeitado e removido com segurança', () => {
-  assert.match(catalogStore, /validateCatalog\(gson\.fromJson/)
-  assert.match(catalogStore, /require\(embedding\.size in MIN_EMBEDDING_SIZE\.\.MAX_EMBEDDING_SIZE\)/)
-  assert.match(catalogStore, /require\(value\.isFinite\(\)\)/)
+test('catálogo local põe templates corrompidos em quarentena e remove payload ilegível', () => {
+  assert.match(catalogRoute, /const templatesRejeitados = result\.rows\.length - templates\.length/)
+  assert.match(catalogRoute, /templatesRejeitados,/)
+  assert.match(catalogStore, /sanitizeCatalog\(gson\.fromJson/)
+  assert.match(catalogStore, /FaceEmbeddingIntegrity\.requireValid/)
+  assert.match(catalogStore, /templatesRejeitados/)
+  assert.match(catalogStore, /unsafeIndexes/)
   assert.match(catalogStore, /if \(catalog == null\) \{[\s\S]*clear\(\)/)
   assert.match(catalogStore, /LocalFaceMatcher\.clearPreparedCatalog\(\)/)
+  assert.match(catalogStore, /putString\(catalogKey, payload\)\.commit\(\)/)
 })
 
 test('falha temporária preserva disponibilidade local sem fingir sincronização', () => {

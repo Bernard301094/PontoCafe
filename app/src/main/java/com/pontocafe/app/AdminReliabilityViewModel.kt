@@ -175,7 +175,10 @@ class AdminReliabilityViewModel(
     }
 
     fun calibrate(collaboratorId: String, frame: FaceFrame) {
-        if (state.loading || !embeddingEngine.isReady) return
+        if (state.loading || !embeddingEngine.isReady) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+            return
+        }
         viewModelScope.launch {
             state = state.copy(loading = true, calibration = null, error = null, message = "Processando amostra de calibração...")
             runCatching {

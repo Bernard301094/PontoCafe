@@ -8,14 +8,15 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
+import com.pontocafe.app.data.BiometricTemplateAggregator
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.FaceEmbeddingIntegrity
 import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SupervisorReportResponse
 import com.pontocafe.app.data.SupervisorRepository
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
-import kotlin.math.sqrt
 
 
 enum class SupervisorDestination {
@@ -449,9 +450,13 @@ class SupervisorViewModel(
     }
 
     fun processarAmostraBiometrica(frame: FaceFrame) {
-        val colaborador = state.colaboradorSelecionado ?: return
-        if (state.carregando) return
+        val colaborador = state.colaboradorSelecionado
+        if (colaborador == null || state.carregando) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+            return
+        }
         if (!embeddingEngine.isReady) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             state = state.copy(erro = "O modelo de reconhecimento facial ainda não está instalado neste APK.")
             return
         }
@@ -460,9 +465,7 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = "Processando amostra facial...")
             try {
                 val embedding = embeddingEngine.embed(frame)
-                require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) {
-                    "A amostra facial gerada é inválida."
-                }
+                FaceEmbeddingIntegrity.requireValid(embedding)
                 biometricSamples += embedding.copyOf()
 
                 val captured = biometricSamples.size
@@ -611,21 +614,7 @@ class SupervisorViewModel(
 
     private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
         require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
-        val dimension = samples.first().size
-        require(dimension > 0 && samples.all { it.size == dimension }) { "Amostras faciais incompatíveis." }
-
-        val combined = FloatArray(dimension)
-        samples.forEach { sample ->
-            for (index in 0 until dimension) combined[index] += sample[index]
-        }
-        for (index in combined.indices) combined[index] /= samples.size.toFloat()
-
-        var sumSquares = 0.0
-        combined.forEach { value -> sumSquares += value * value }
-        val norm = sqrt(sumSquares).toFloat()
-        require(norm > 1e-12f) { "Não foi possível consolidar as amostras faciais." }
-        for (index in combined.indices) combined[index] /= norm
-        return combined
+        return BiometricTemplateAggregator.aggregate(samples).embedding
     }
 
     companion object {

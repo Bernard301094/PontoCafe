@@ -7,11 +7,11 @@ import android.util.Base64
 import com.google.gson.Gson
 import com.pontocafe.app.avatar.PontoAvatarRuntime
 import java.security.KeyStore
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import kotlin.math.sqrt
 
 
 data class CachedFaceTemplate(
@@ -32,6 +32,7 @@ data class CachedFaceCatalog(
     val margem: Double,
     val templates: List<CachedFaceTemplate>,
     val sincronizadoEmMillis: Long,
+    val templatesRejeitados: Int = 0,
 ) {
     val totalColaboradores: Int
         get() = templates.asSequence().map { it.colaborador.id }.distinct().count()
@@ -49,6 +50,25 @@ data class LocalFaceResolvedMatch(
     val candidateIndex: Int,
 )
 
+enum class LocalFaceRejectionReason {
+    EMPTY_CATALOG,
+    INVALID_EMBEDDING,
+    NO_COMPATIBLE_TEMPLATE,
+    BELOW_THRESHOLD,
+    AMBIGUOUS,
+}
+
+data class LocalFaceEvaluation(
+    val match: LocalFaceMatch?,
+    val bestCandidate: Colaborador?,
+    val bestScore: Double?,
+    val secondScore: Double?,
+    val margin: Double?,
+    val candidateCount: Int,
+    val validTemplateCount: Int,
+    val rejectionReason: LocalFaceRejectionReason?,
+)
+
 class SecureFaceCatalogStore(context: Context) {
     private val prefs = context.getSharedPreferences("pontocafe_face_catalog_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_face_catalog_key"
@@ -63,16 +83,27 @@ class SecureFaceCatalogStore(context: Context) {
 
     @Synchronized
     fun save(catalog: CachedFaceCatalog) {
-        validateCatalog(catalog)
+        val sanitized = sanitizeCatalog(catalog)
+        writeEncrypted(sanitized)
+        cachedCatalog = sanitized
+        cacheLoaded = true
+        LocalFaceMatcher.prepareCatalog(sanitized.templates)
+        BiometricRuntimeDiagnostics.recordCatalog(
+            sanitized.versao,
+            sanitized.versaoModelo,
+            sanitized.templatesRejeitados,
+        )
+    }
+
+    private fun writeEncrypted(catalog: CachedFaceCatalog) {
         val plaintext = gson.toJson(catalog).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val encrypted = cipher.doFinal(plaintext)
         val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-        prefs.edit().putString(catalogKey, payload).apply()
-        cachedCatalog = catalog
-        cacheLoaded = true
-        LocalFaceMatcher.prepareCatalog(catalog.templates)
+        check(prefs.edit().putString(catalogKey, payload).commit()) {
+            "Nao foi possivel persistir o catalogo facial atomico."
+        }
     }
 
     @Synchronized
@@ -95,7 +126,7 @@ class SecureFaceCatalogStore(context: Context) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
-            validateCatalog(gson.fromJson(json, CachedFaceCatalog::class.java))
+            sanitizeCatalog(gson.fromJson(json, CachedFaceCatalog::class.java))
         }.getOrNull()
 
         if (catalog == null) {
@@ -103,9 +134,18 @@ class SecureFaceCatalogStore(context: Context) {
             return null
         }
 
+        // Cura a cópia cifrada depois de colocar entradas ruins em quarentena,
+        // evitando recontar os mesmos templates a cada reinício do processo.
+        runCatching { writeEncrypted(catalog) }
+
         cachedCatalog = catalog
         cacheLoaded = true
         LocalFaceMatcher.prepareCatalog(catalog.templates)
+        BiometricRuntimeDiagnostics.recordCatalog(
+            catalog.versao,
+            catalog.versaoModelo,
+            catalog.templatesRejeitados,
+        )
         return catalog
     }
 
@@ -114,43 +154,74 @@ class SecureFaceCatalogStore(context: Context) {
         cachedCatalog = null
         cacheLoaded = true
         LocalFaceMatcher.clearPreparedCatalog()
-        prefs.edit().remove(catalogKey).apply()
+        check(prefs.edit().remove(catalogKey).commit()) {
+            "Nao foi possivel remover o catalogo facial cifrado."
+        }
     }
 
-    private fun validateCatalog(catalog: CachedFaceCatalog?): CachedFaceCatalog {
-        val current = requireNotNull(catalog) { "Catálogo facial ausente." }
-        require(current.versao.isNotBlank()) { "Versão do catálogo facial ausente." }
-        require(current.modelo.isNotBlank() && current.versaoModelo.isNotBlank()) {
-            "Modelo do catálogo facial ausente."
-        }
-        require(current.limiar.isFinite() && current.limiar in 0.0..1.0) {
-            "Limiar facial inválido."
-        }
-        require(current.margem.isFinite() && current.margem in 0.0..1.0) {
-            "Margem facial inválida."
-        }
-        require(current.sincronizadoEmMillis > 0L) { "Data de sincronização facial inválida." }
+    /** Quarantines bad entries without discarding unrelated valid identities. */
+    private fun sanitizeCatalog(catalog: CachedFaceCatalog?): CachedFaceCatalog {
+        val current = requireNotNull(catalog) { "Catalogo facial ausente." }
+        require(current.versao.isNotBlank()) { "Versao do catalogo facial ausente." }
+        require(current.modelo.isNotBlank() && current.versaoModelo.isNotBlank())
+        require(current.limiar.isFinite() && current.limiar in 0.0..1.0)
+        require(current.margem.isFinite() && current.margem in 0.0..1.0)
+        require(current.sincronizadoEmMillis > 0L)
 
-        for (template in requireNotNull(current.templates) { "Templates faciais ausentes." }) {
-            val collaborator = requireNotNull(template.colaborador) { "Colaborador facial ausente." }
-            require(collaborator.id.isNotBlank() && collaborator.nome.isNotBlank()) {
-                "Identidade do template facial inválida."
+        val sourceTemplates = requireNotNull(current.templates)
+        val accepted = ArrayList<CachedFaceTemplate>(sourceTemplates.size)
+        val seenTemplateIds = HashSet<String>()
+        val collaboratorIdentity = HashMap<String, Triple<String, String?, String?>>()
+        var newlyRejected = 0
+
+        for (template in sourceTemplates) {
+            val sanitized = runCatching {
+                val collaborator = requireNotNull(template.colaborador)
+                require(runCatching { UUID.fromString(collaborator.id) }.isSuccess)
+                require(collaborator.nome.isNotBlank())
+                require(template.modelo == current.modelo && template.versaoModelo == current.versaoModelo)
+                require(template.atualizadoEm.isNotBlank())
+
+                val normalizedType = template.tipo?.uppercase() ?: "LEGADO"
+                require(normalizedType in VALID_TEMPLATE_TYPES)
+                val templateId = template.templateId?.trim()?.takeIf(String::isNotEmpty)
+                require(templateId == null || templateId !in seenTemplateIds)
+
+                FaceEmbeddingIntegrity.requireValid(
+                    requireNotNull(template.embedding).toFloatArray(),
+                    FACE_EMBEDDING_DIMENSION,
+                )
+                template.copy(tipo = normalizedType, templateId = templateId)
+            }.getOrNull()
+            val identity = sanitized?.colaborador?.let { Triple(it.nome, it.setor, it.turno) }
+            val identityConflict = sanitized != null &&
+                collaboratorIdentity[sanitized.colaborador.id]?.let { it != identity } == true
+            if (sanitized == null || identityConflict) {
+                newlyRejected += 1
+            } else {
+                collaboratorIdentity.putIfAbsent(sanitized.colaborador.id, requireNotNull(identity))
+                sanitized.templateId?.let(seenTemplateIds::add)
+                accepted += sanitized
             }
-            require(template.modelo.isNotBlank() && template.versaoModelo.isNotBlank()) {
-                "Modelo do template facial ausente."
-            }
-            val embedding = requireNotNull(template.embedding) { "Embedding facial ausente." }
-            require(embedding.size in MIN_EMBEDDING_SIZE..MAX_EMBEDDING_SIZE) {
-                "Dimensão do embedding facial inválida."
-            }
-            var normSquared = 0.0
-            for (value in embedding) {
-                require(value.isFinite()) { "Embedding facial não finito." }
-                normSquared += value.toDouble() * value.toDouble()
-            }
-            require(normSquared.isFinite() && normSquared > 0.0) { "Embedding facial vazio." }
         }
-        return current
+
+        val unsafeIndexes = HashSet<Int>()
+        for (left in accepted.indices) {
+            for (right in left + 1 until accepted.size) {
+                if (accepted[left].embedding != accepted[right].embedding) continue
+                unsafeIndexes += right
+                if (accepted[left].colaborador.id != accepted[right].colaborador.id) unsafeIndexes += left
+            }
+        }
+        val valid = accepted.filterIndexed { index, _ -> index !in unsafeIndexes }
+        newlyRejected += unsafeIndexes.size
+        require(sourceTemplates.isEmpty() || valid.isNotEmpty()) {
+            "O catalogo facial recebido nao contem nenhum template integro."
+        }
+        return current.copy(
+            templates = valid,
+            templatesRejeitados = current.templatesRejeitados.coerceAtLeast(0) + newlyRejected,
+        )
     }
 
     private fun getOrCreateKey(): SecretKey {
@@ -172,8 +243,7 @@ class SecureFaceCatalogStore(context: Context) {
     }
 
     companion object {
-        private const val MIN_EMBEDDING_SIZE = 64
-        private const val MAX_EMBEDDING_SIZE = 2_048
+        private val VALID_TEMPLATE_TYPES = setOf("LEGADO", "CONSOLIDADO", "AMOSTRA")
     }
 }
 
@@ -220,7 +290,7 @@ object LocalFaceMatcher {
      * Mantém o comportamento histórico para um único embedding.
      */
     fun match(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
-        val result = evaluate(embedding, catalog) ?: return null
+        val result = evaluateDetailed(embedding, catalog).match ?: return null
         PontoAvatarRuntime.recognized(result.colaborador.avatarUrl)
         return result
     }
@@ -238,11 +308,12 @@ object LocalFaceMatcher {
     fun matchBest(
         embeddings: List<FloatArray>,
         catalog: CachedFaceCatalog,
+        announce: Boolean = true,
     ): LocalFaceResolvedMatch? {
         if (embeddings.isEmpty()) return null
 
-        evaluate(embeddings[0], catalog)?.let { primary ->
-            PontoAvatarRuntime.recognized(primary.colaborador.avatarUrl)
+        evaluateDetailed(embeddings[0], catalog).match?.let { primary ->
+            if (announce) PontoAvatarRuntime.recognized(primary.colaborador.avatarUrl)
             return LocalFaceResolvedMatch(
                 match = primary,
                 embedding = embeddings[0],
@@ -250,34 +321,45 @@ object LocalFaceMatcher {
             )
         }
 
-        var bestFallback: LocalFaceResolvedMatch? = null
+        val accepted = ArrayList<LocalFaceResolvedMatch>()
+        val evaluations = ArrayList<LocalFaceEvaluation>()
         for (index in 1 until embeddings.size) {
             val embedding = embeddings[index]
-            val match = evaluate(embedding, catalog) ?: continue
-            val current = bestFallback
-            if (current == null || match.score > current.match.score) {
-                bestFallback = LocalFaceResolvedMatch(
-                    match = match,
-                    embedding = embedding,
-                    candidateIndex = index,
-                )
-            }
+            val evaluation = evaluateDetailed(embedding, catalog)
+            evaluations += evaluation
+            val match = evaluation.match ?: continue
+            accepted += LocalFaceResolvedMatch(
+                match = match,
+                embedding = embedding,
+                candidateIndex = index,
+            )
         }
 
-        bestFallback?.let { PontoAvatarRuntime.recognized(it.match.colaborador.avatarUrl) }
+        if (accepted.isEmpty()) return null
+        if (accepted.asSequence().map { it.match.colaborador.id }.distinct().count() != 1) return null
+        val acceptedId = accepted.first().match.colaborador.id
+        val contradictoryHighCandidate = evaluations.any { evaluation ->
+            val bestCandidateId = evaluation.bestCandidate?.id
+            bestCandidateId != null &&
+                bestCandidateId != acceptedId &&
+                (evaluation.bestScore ?: -1.0) >= catalog.limiar
+        }
+        if (contradictoryHighCandidate) return null
+
+        val bestFallback = accepted.maxBy { it.match.score }
+        if (announce) PontoAvatarRuntime.recognized(bestFallback.match.colaborador.avatarUrl)
         return bestFallback
     }
 
-    private fun evaluate(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
-        if (embedding.isEmpty() || catalog.templates.isEmpty()) return null
-
-        var currentNormSquared = 0.0
-        for (value in embedding) {
-            val doubleValue = value.toDouble()
-            currentNormSquared += doubleValue * doubleValue
+    fun evaluateDetailed(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceEvaluation {
+        if (catalog.templates.isEmpty()) {
+            return rejected(LocalFaceRejectionReason.EMPTY_CATALOG)
         }
-        if (currentNormSquared <= 0.0) return null
-        val currentNorm = sqrt(currentNormSquared)
+        val currentIntegrity = FaceEmbeddingIntegrity.inspect(embedding, FACE_EMBEDDING_DIMENSION)
+        if (!currentIntegrity.valid) {
+            return rejected(LocalFaceRejectionReason.INVALID_EMBEDDING)
+        }
+        val currentNorm = requireNotNull(currentIntegrity.norm)
 
         // O catálogo descriptografado já vive em RAM. Preparamos, uma única vez
         // por lista de templates, os FloatArrays, normas e grupos por pessoa. O
@@ -285,10 +367,17 @@ object LocalFaceMatcher {
         val index = preparedIndex(catalog)
         var best: BestTemplate? = null
         var second: BestTemplate? = null
+        var candidateCount = 0
+        var compatibleTemplateCount = 0
         for (collaborator in index.collaborators) {
             var collaboratorBest: BestTemplate? = null
             for (prepared in collaborator.templates) {
+                if (
+                    prepared.template.modelo != catalog.modelo ||
+                    prepared.template.versaoModelo != catalog.versaoModelo
+                ) continue
                 if (prepared.embedding.size != embedding.size) continue
+                compatibleTemplateCount += 1
                 val score = cosine(prepared, embedding, currentNorm)
                 if (!score.isFinite()) continue
 
@@ -298,6 +387,7 @@ object LocalFaceMatcher {
                 }
             }
             val candidate = collaboratorBest ?: continue
+            candidateCount += 1
             when {
                 best == null || candidate.score > best!!.score -> {
                     second = best
@@ -309,17 +399,50 @@ object LocalFaceMatcher {
             }
         }
 
-        val winner = best ?: return null
+        val winner = best ?: return rejected(
+            reason = LocalFaceRejectionReason.NO_COMPATIBLE_TEMPLATE,
+            candidateCount = candidateCount,
+            validTemplateCount = compatibleTemplateCount,
+        )
         val secondScore = second?.score
-        if (winner.score < catalog.limiar) return null
-        if (secondScore != null && winner.score - secondScore < catalog.margem) return null
-
-        return LocalFaceMatch(
+        val margin = secondScore?.let { winner.score - it }
+        val match = LocalFaceMatch(
             colaborador = winner.template.colaborador,
             score = winner.score,
             segundoScore = secondScore,
         )
+        val reason = when {
+            winner.score < catalog.limiar -> LocalFaceRejectionReason.BELOW_THRESHOLD
+            secondScore != null && winner.score - secondScore < catalog.margem ->
+                LocalFaceRejectionReason.AMBIGUOUS
+            else -> null
+        }
+        return LocalFaceEvaluation(
+            match = match.takeIf { reason == null },
+            bestCandidate = winner.template.colaborador,
+            bestScore = winner.score,
+            secondScore = secondScore,
+            margin = margin,
+            candidateCount = candidateCount,
+            validTemplateCount = compatibleTemplateCount,
+            rejectionReason = reason,
+        )
     }
+
+    private fun rejected(
+        reason: LocalFaceRejectionReason,
+        candidateCount: Int = 0,
+        validTemplateCount: Int = 0,
+    ) = LocalFaceEvaluation(
+        match = null,
+        bestCandidate = null,
+        bestScore = null,
+        secondScore = null,
+        margin = null,
+        candidateCount = candidateCount,
+        validTemplateCount = validTemplateCount,
+        rejectionReason = reason,
+    )
 
     private fun preparedIndex(catalog: CachedFaceCatalog): PreparedCatalog {
         preparedCatalog?.takeIf { it.sourceTemplates === catalog.templates }?.let { return it }
@@ -334,19 +457,15 @@ object LocalFaceMatcher {
         for (template in templates) {
             if (template.embedding.isEmpty()) continue
             val stored = template.embedding.toFloatArray()
-            var normSquared = 0.0
-            for (value in stored) {
-                val doubleValue = value.toDouble()
-                normSquared += doubleValue * doubleValue
-            }
-            if (!normSquared.isFinite() || normSquared <= 0.0) continue
+            val integrity = FaceEmbeddingIntegrity.inspect(stored, FACE_EMBEDDING_DIMENSION)
+            if (!integrity.valid) continue
 
             grouped.getOrPut(template.colaborador.id) { ArrayList() }
                 .add(
                     PreparedTemplate(
                         template = template,
                         embedding = stored,
-                        norm = sqrt(normSquared),
+                        norm = requireNotNull(integrity.norm),
                     ),
                 )
         }
