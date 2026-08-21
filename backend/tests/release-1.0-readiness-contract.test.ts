@@ -46,6 +46,13 @@ test('backend e os dois caminhos de deploy publicam a mesma versão 1.0.0', () =
   assert.doesNotMatch(deployProduction, /status\.apiVersion !== '0\.7\.0'/)
 })
 
+test('deploy Cloudflare exige validação, release contract e dry-run antes de publicar', () => {
+  assert.match(deployCloudflare, /\['--workspace', 'backend', 'run', 'validate'\]/)
+  assert.match(deployCloudflare, /\['run', 'release:check'\]/)
+  assert.match(deployCloudflare, /\['deploy', '--dry-run'\]/)
+  assert.match(deployCloudflare, /cwd: backendDir/)
+})
+
 test('thresholds biométricos não são relaxados para a 1.0', () => {
   assert.match(config, /FACE_MATCH_THRESHOLD', 0\.72/)
   assert.match(config, /FACE_IDENTIFICATION_MARGIN', 0\.06/)
