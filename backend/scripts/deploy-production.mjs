@@ -9,6 +9,11 @@ const repoRoot = path.resolve(backendDir, '..')
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
 const avatarBucketName = 'pontocafe-avatars'
 const require = createRequire(import.meta.url)
+const backendPackage = require('../package.json')
+const expectedApiVersion = String(backendPackage.version || '').trim()
+if (!/^\d+\.\d+\.\d+$/.test(expectedApiVersion)) {
+  throw new Error(`Versão inválida em backend/package.json: ${expectedApiVersion || '(vazia)'}.`)
+}
 const wranglerPackageJson = require.resolve('wrangler/package.json')
 const wranglerCli = path.join(path.dirname(wranglerPackageJson), 'bin', 'wrangler.js')
 
@@ -104,19 +109,19 @@ const revision = output('git', ['rev-parse', '--short=12', 'HEAD'], repoRoot)
 console.log(`\n[1/5] Garantindo armazenamento privado de avatar...`)
 ensureAvatarBucket()
 
-console.log(`\n[2/5] Validando backend ${revision}...`)
+console.log(`\n[2/5] Validando backend ${expectedApiVersion} · ${revision}...`)
 run(npmCommand, ['run', 'validate'])
 
 console.log(`\n[3/5] Validando bundle do Worker...`)
 runWrangler(['deploy', '--dry-run'])
 
-console.log(`\n[4/5] Publicando Worker com tag ${revision}...`)
+console.log(`\n[4/5] Publicando Worker ${expectedApiVersion} com tag ${revision}...`)
 runWrangler([
   'deploy',
   '--tag',
   revision,
   '--message',
-  `PontoCafe ${revision}`,
+  `PontoCafe ${expectedApiVersion} · ${revision}`,
 ])
 
 console.log(`\n[5/5] Verificando Worker publicado em ${productionUrl}...`)
@@ -129,8 +134,10 @@ if (status.workerVersionTag !== revision) {
   )
 }
 
-if (status.apiVersion !== '0.7.0') {
-  throw new Error(`Versão inesperada da API: ${String(status.apiVersion)}.`)
+if (status.apiVersion !== expectedApiVersion) {
+  throw new Error(
+    `Versão inesperada da API: ${String(status.apiVersion)}; esperado=${expectedApiVersion}.`,
+  )
 }
 
 if (health.status !== 'ok' || health.banco !== 'ok') {
@@ -140,6 +147,7 @@ if (health.status !== 'ok' || health.banco !== 'ok') {
 console.log('\nDeploy confirmado com sucesso.')
 console.log(JSON.stringify({
   revision,
+  expectedApiVersion,
   avatarBucket: avatarBucketName,
   workerVersionId: status.workerVersionId,
   workerVersionTag: status.workerVersionTag,
