@@ -24,6 +24,7 @@ data class AdminDeviceUiState(
     val health: SystemHealthResponse? = null,
     val appStatus: AppStatusResponse? = null,
     val tokenGerado: String? = null,
+    val tokenDeviceId: String? = null,
     val tokenDeviceName: String? = null,
     val tokenRotacionado: Boolean = false,
     val pinAtualizadoDeviceId: String? = null,
@@ -113,7 +114,13 @@ class AdminDeviceViewModel(
 
         val idempotencyKey = idempotencyKeyFor(cleanName, cleanPin)
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                tokenGerado = null,
+                tokenDeviceId = null,
+            )
             runCatching { repository.createDevice(cleanName, cleanPin, idempotencyKey) }
                 .onSuccess { created ->
                     clearPendingRegistration()
@@ -122,10 +129,11 @@ class AdminDeviceViewModel(
                         carregando = false,
                         dispositivos = devices,
                         tokenGerado = created.token,
+                        tokenDeviceId = created.id,
                         tokenDeviceName = created.nome,
                         tokenRotacionado = false,
                         mensagem = mensagemComRefresh(
-                            "Dispositivo criado com PIN próprio. Copie o token de ativação agora.",
+                            "Dispositivo criado com PIN próprio. O token ficará disponível no cartão enquanto aguarda ativação.",
                             refreshed,
                         ),
                         erro = null,
@@ -221,7 +229,7 @@ class AdminDeviceViewModel(
                         carregando = false,
                         dispositivos = devices,
                         mensagem = mensagemComRefresh(
-                            "${dispositivo.nome} foi desativado. O token atual não poderá mais registrar pontos.",
+                            "Acesso de ${dispositivo.nome} bloqueado. Este aparelho não poderá registrar pontos até receber um novo token de ativação.",
                             refreshed,
                         ),
                         erro = null,
@@ -242,7 +250,7 @@ class AdminDeviceViewModel(
                         carregando = false,
                         dispositivos = devices,
                         mensagem = mensagemComRefresh(
-                            "${dispositivo.nome} foi excluído definitivamente.",
+                            "${dispositivo.nome} foi excluído da gestão de dispositivos. O histórico de ponto, quando existente, foi preservado para auditoria.",
                             refreshed,
                         ),
                         erro = null,
@@ -259,7 +267,13 @@ class AdminDeviceViewModel(
 
     fun rotacionarToken(dispositivo: AdminDevice) {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, tokenGerado = null)
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                tokenGerado = null,
+                tokenDeviceId = null,
+            )
             runCatching { repository.rotateDeviceToken(dispositivo.id) }
                 .onSuccess { rotated ->
                     val local = state.dispositivos.map { item ->
@@ -278,10 +292,11 @@ class AdminDeviceViewModel(
                         carregando = false,
                         dispositivos = devices,
                         tokenGerado = rotated.token,
+                        tokenDeviceId = rotated.dispositivoId,
                         tokenDeviceName = rotated.nome,
                         tokenRotacionado = true,
                         mensagem = mensagemComRefresh(
-                            "Token anterior revogado. Use o novo token para ativar novamente este aparelho.",
+                            "Token anterior revogado. O novo token ficará disponível no cartão até a ativação.",
                             refreshed,
                         ),
                         erro = null,
@@ -292,7 +307,13 @@ class AdminDeviceViewModel(
     }
 
     fun limparToken() {
-        state = state.copy(tokenGerado = null, tokenDeviceName = null, tokenRotacionado = false, mensagem = null)
+        state = state.copy(
+            tokenGerado = null,
+            tokenDeviceId = null,
+            tokenDeviceName = null,
+            tokenRotacionado = false,
+            mensagem = null,
+        )
     }
 
     fun limparAviso() {
