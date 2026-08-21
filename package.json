@@ -6,6 +6,8 @@
   ],
   "scripts": {
     "typecheck": "npm --workspace backend run typecheck",
+    "validate": "npm --workspace backend run validate",
+    "release:check": "node scripts/check-release-1.0.mjs",
     "deploy": "npm --workspace backend run deploy",
     "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs",
     "preview": "npm --workspace backend run preview"
