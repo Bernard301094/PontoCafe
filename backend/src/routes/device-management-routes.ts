@@ -51,6 +51,7 @@ deviceManagementRoutes.get('/devices', async (c) => {
     ultimaAtivacaoEm: string | null
     ultimaRotacaoEm: string | null
     aguardandoAtivacao: boolean
+    registrosHistoricos: number
   }>(
     `select d.id,d.nome,d.ativo,
             d.criado_em::text as "criadoEm",
@@ -70,7 +71,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
             (
               activation.ultima_ativacao_em is null or
               rotation.ultima_rotacao_em>activation.ultima_ativacao_em
-            ) as "aguardandoAtivacao"
+            ) as "aguardandoAtivacao",
+            history.total as "registrosHistoricos"
        from dispositivos d
        left join lateral (
          select a.criado_em,a.detalhes
@@ -95,6 +97,18 @@ deviceManagementRoutes.get('/devices', async (c) => {
             and a.entidade='DISPOSITIVO'
             and a.entidade_id::text=d.id::text
        ) rotation on true
+       left join lateral (
+         select count(*)::int as total
+           from pausas_cafe p
+          where p.dispositivo_inicio_id=d.id or p.dispositivo_fim_id=d.id
+       ) history on true
+      where not exists (
+        select 1
+          from auditoria archived
+         where archived.acao='ARQUIVAR_DISPOSITIVO'
+           and archived.entidade='DISPOSITIVO'
+           and archived.entidade_id::text=d.id::text
+      )
       order by d.ativo desc,d.nome`,
   )
   return c.json({
@@ -118,6 +132,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
         crashCount: telemetryCounter(details.crashCount),
         stallCount: telemetryCounter(details.stallCount),
         alertaSaude: hasRecentHealthAlert(device.telemetriaDetalhes),
+        registrosHistoricos: device.registrosHistoricos,
+        exclusaoPermanentePermitida: device.registrosHistoricos === 0,
       }
     }),
   })
@@ -132,14 +148,21 @@ deviceManagementRoutes.put('/devices/:id/unlock-pin', async (c) => {
 
   const result = await query<{ id: string; nome: string }>(
     `with dispositivo_atualizado as (
-       update dispositivos
+       update dispositivos d
           set unlock_pin_hash=$2,
               unlock_pin_updated_at=now(),
               unlock_fail_count=0,
               unlock_locked_until=null,
               atualizado_em=now()
-        where id=$1 and ativo=true
-        returning id,nome
+        where d.id=$1
+          and not exists (
+            select 1
+              from auditoria archived
+             where archived.acao='ARQUIVAR_DISPOSITIVO'
+               and archived.entidade='DISPOSITIVO'
+               and archived.entidade_id::text=d.id::text
+          )
+        returning d.id,d.nome
      ),
      auditoria_pin as (
        insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
@@ -154,7 +177,7 @@ deviceManagementRoutes.put('/devices/:id/unlock-pin', async (c) => {
     [deviceId, hashDeviceUnlockPin(deviceId, body.data.pin), c.get('user').id],
   )
   const device = result.rows[0]
-  if (!device) return c.json({ erro: 'Dispositivo não encontrado ou inativo.' }, 404)
+  if (!device) return c.json({ erro: 'Dispositivo não encontrado.' }, 404)
 
   return c.json({ ok: true, dispositivoId: device.id, nome: device.nome, pinConfigurado: true })
 })
@@ -167,14 +190,24 @@ deviceManagementRoutes.put('/devices/:id/nome', async (c) => {
 
   const result = await transaction(async (client) => {
     const previous = await client.query<{ nome: string }>(
-      'select nome from dispositivos where id=$1 for update',
+      `select d.nome
+         from dispositivos d
+        where d.id=$1
+          and not exists (
+            select 1
+              from auditoria archived
+             where archived.acao='ARQUIVAR_DISPOSITIVO'
+               and archived.entidade='DISPOSITIVO'
+               and archived.entidade_id::text=d.id::text
+          )
+        for update`,
       [deviceId],
     )
     const currentName = previous.rows[0]?.nome
     if (!currentName) return null
 
     const updated = await client.query<{ id: string; nome: string; ativo: boolean }>(
-      `update dispositivos set nome=$2,atualizado_em=now() where id=$1 returning id,nome,ativo`,
+      'update dispositivos set nome=$2,atualizado_em=now() where id=$1 returning id,nome,ativo',
       [deviceId, body.data.nome],
     )
     const device = updated.rows[0]
@@ -196,24 +229,50 @@ deviceManagementRoutes.post('/devices/:id/desativar', async (c) => {
   if (!uuidSchema.safeParse(deviceId).success) return c.json({ erro: 'Dispositivo inválido.' }, 400)
 
   const device = await transaction(async (client) => {
-    const updated = await client.query<{ id: string; nome: string }>(
-      `update dispositivos
-          set ativo=false,
-              unlock_fail_count=0,
-              unlock_locked_until=null,
-              atualizado_em=now()
-        where id=$1 and ativo=true
-        returning id,nome`,
+    const found = await client.query<{ id: string; nome: string; ativo: boolean }>(
+      `select d.id,d.nome,d.ativo
+         from dispositivos d
+        where d.id=$1
+          and not exists (
+            select 1
+              from auditoria archived
+             where archived.acao='ARQUIVAR_DISPOSITIVO'
+               and archived.entidade='DISPOSITIVO'
+               and archived.entidade_id::text=d.id::text
+          )
+        for update`,
       [deviceId],
     )
-    const row = updated.rows[0]
-    if (!row) return null
-    await auditDevice(client, c.get('user').id, 'DESATIVAR_DISPOSITIVO', deviceId, { nome: row.nome })
-    return row
-  })
-  if (!device) return c.json({ erro: 'Dispositivo não encontrado ou já está inativo.' }, 404)
+    const current = found.rows[0]
+    if (!current) return null
 
-  return c.json({ ok: true, dispositivoId: device.id, nome: device.nome, ativo: false })
+    if (current.ativo) {
+      await client.query(
+        `update dispositivos
+            set ativo=false,
+                unlock_fail_count=0,
+                unlock_locked_until=null,
+                atualizado_em=now()
+          where id=$1`,
+        [deviceId],
+      )
+      await auditDevice(client, c.get('user').id, 'DESATIVAR_DISPOSITIVO', deviceId, {
+        nome: current.nome,
+        acessoBloqueado: true,
+      })
+    }
+
+    return current
+  })
+  if (!device) return c.json({ erro: 'Dispositivo não encontrado.' }, 404)
+
+  return c.json({
+    ok: true,
+    dispositivoId: device.id,
+    nome: device.nome,
+    ativo: false,
+    jaEstavaInativo: !device.ativo,
+  })
 })
 
 deviceManagementRoutes.post('/devices/:id/novo-token', async (c) => {
@@ -223,14 +282,21 @@ deviceManagementRoutes.post('/devices/:id/novo-token', async (c) => {
   const activationToken = newDeviceToken(10)
   const device = await transaction(async (client) => {
     const updated = await client.query<{ id: string; nome: string }>(
-      `update dispositivos
+      `update dispositivos d
           set token_hash=$2,
               ativo=true,
               unlock_fail_count=0,
               unlock_locked_until=null,
               atualizado_em=now()
-        where id=$1
-        returning id,nome`,
+        where d.id=$1
+          and not exists (
+            select 1
+              from auditoria archived
+             where archived.acao='ARQUIVAR_DISPOSITIVO'
+               and archived.entidade='DISPOSITIVO'
+               and archived.entidade_id::text=d.id::text
+          )
+        returning d.id,d.nome`,
       [deviceId, hashToken(activationToken)],
     )
     const row = updated.rows[0]
@@ -260,7 +326,17 @@ deviceManagementRoutes.post('/devices/:id/excluir', async (c) => {
 
   const result = await transaction(async (client) => {
     const found = await client.query<{ id: string; nome: string }>(
-      'select id,nome from dispositivos where id=$1 for update',
+      `select d.id,d.nome
+         from dispositivos d
+        where d.id=$1
+          and not exists (
+            select 1
+              from auditoria archived
+             where archived.acao='ARQUIVAR_DISPOSITIVO'
+               and archived.entidade='DISPOSITIVO'
+               and archived.entidade_id::text=d.id::text
+          )
+        for update`,
       [deviceId],
     )
     const device = found.rows[0]
@@ -273,30 +349,62 @@ deviceManagementRoutes.post('/devices/:id/excluir', async (c) => {
       [deviceId],
     )
     const totalHistory = history.rows[0]?.total ?? 0
+
     if (totalHistory > 0) {
-      return { status: 'HAS_HISTORY' as const, totalHistory }
+      // A exclusão administrativa não pode quebrar as FKs do histórico de ponto.
+      // O aparelho é removido da gestão ativa e bloqueado, enquanto os registros
+      // históricos permanecem íntegros e auditáveis.
+      await client.query(
+        `update dispositivos
+            set ativo=false,
+                unlock_fail_count=0,
+                unlock_locked_until=null,
+                atualizado_em=now()
+          where id=$1`,
+        [deviceId],
+      )
+      await client.query(
+        'delete from verificacoes_faciais where dispositivo_id=$1 and usado_em is null',
+        [deviceId],
+      )
+      await auditDevice(client, c.get('user').id, 'ARQUIVAR_DISPOSITIVO', deviceId, {
+        nome: device.nome,
+        registrosHistoricos: totalHistory,
+        removidoDaGestao: true,
+        historicoPreservado: true,
+      })
+      return { status: 'ARCHIVED' as const, nome: device.nome, totalHistory }
     }
 
-    // Verificações faciais são temporárias e podem ser removidas junto com um
-    // aparelho nunca usado em pausas. O histórico de ponto, quando existe,
-    // bloqueia a exclusão física para preservar rastreabilidade.
+    // Sem histórico de pausa, a exclusão física é segura.
     await client.query('delete from verificacoes_faciais where dispositivo_id=$1', [deviceId])
     await auditDevice(client, c.get('user').id, 'EXCLUIR_DISPOSITIVO', deviceId, {
       nome: device.nome,
       exclusaoPermanente: true,
     })
     await client.query('delete from dispositivos where id=$1', [deviceId])
-    return { status: 'OK' as const, nome: device.nome }
+    return { status: 'DELETED' as const, nome: device.nome, totalHistory: 0 }
   })
 
   if (result.status === 'NOT_FOUND') return c.json({ erro: 'Dispositivo não encontrado.' }, 404)
-  if (result.status === 'HAS_HISTORY') {
+  if (result.status === 'ARCHIVED') {
     return c.json({
-      erro: `Este dispositivo possui ${result.totalHistory} registro(s) histórico(s) de pausa. Para preservar a auditoria, desative-o em vez de excluí-lo.`,
-      codigo: 'DISPOSITIVO_COM_HISTORICO',
+      ok: true,
+      dispositivoId: deviceId,
+      nome: result.nome,
+      excluido: true,
+      arquivado: true,
       registrosHistoricos: result.totalHistory,
-    }, 409)
+      aviso: 'Dispositivo removido da gestão. O histórico de ponto foi preservado para auditoria.',
+    })
   }
 
-  return c.json({ ok: true, dispositivoId: deviceId, nome: result.nome, excluido: true })
+  return c.json({
+    ok: true,
+    dispositivoId: deviceId,
+    nome: result.nome,
+    excluido: true,
+    arquivado: false,
+    registrosHistoricos: 0,
+  })
 })
