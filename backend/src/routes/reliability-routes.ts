@@ -26,7 +26,8 @@ type FleetRow = {
   ativo: boolean
   ultimoAcessoEm: string | null
   telemetriaEm: string | null
-  detalhes: Record<string, unknown> | null
+  healthDetalhes: Record<string, unknown> | null
+  heartbeatDetalhes: Record<string, unknown> | null
 }
 
 function parseCounter(value: unknown): number {
@@ -63,6 +64,18 @@ function recentHealthAlert(details: Record<string, unknown> | null): boolean {
   return lastCrash >= cutoff || lastStall >= cutoff
 }
 
+function metadataString(
+  heartbeat: Record<string, unknown> | null,
+  health: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const heartbeatValue = heartbeat?.[key]
+  if (typeof heartbeatValue === 'string' && heartbeatValue.trim()) return heartbeatValue.trim()
+  const healthValue = health?.[key]
+  if (typeof healthValue === 'string' && healthValue.trim()) return healthValue.trim()
+  return null
+}
+
 reliabilityRoutes.get('/diagnostico', async (c) => {
   const startedAt = Date.now()
   try {
@@ -85,12 +98,15 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
               d.nome,
               d.ativo,
               greatest(
-                d.atualizado_em,
-                coalesce((select max(p.inicio_em) from pausas_cafe p where p.dispositivo_inicio_id=d.id),d.criado_em),
-                coalesce((select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id),d.criado_em)
+                (select max(p.inicio_em) from pausas_cafe p where p.dispositivo_inicio_id=d.id),
+                (select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id),
+                h.criado_em,
+                heartbeat.criado_em,
+                activation.ultima_ativacao_em
               )::text as "ultimoAcessoEm",
-              h.criado_em::text as "telemetriaEm",
-              h.detalhes
+              greatest(h.criado_em,heartbeat.criado_em)::text as "telemetriaEm",
+              h.detalhes as "healthDetalhes",
+              heartbeat.detalhes as "heartbeatDetalhes"
          from dispositivos d
          left join lateral (
            select a.criado_em,a.detalhes
@@ -101,15 +117,32 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
             order by a.criado_em desc
             limit 1
          ) h on true
+         left join lateral (
+           select a.criado_em,a.detalhes
+             from auditoria a
+            where a.acao='DEVICE_HEARTBEAT'
+              and a.entidade='DISPOSITIVO'
+              and a.entidade_id::text=d.id::text
+            order by a.criado_em desc
+            limit 1
+         ) heartbeat on true
+         left join lateral (
+           select max(a.criado_em) as ultima_ativacao_em
+             from auditoria a
+            where a.acao='ATIVAR_DISPOSITIVO'
+              and a.entidade='DISPOSITIVO'
+              and a.entidade_id::text=d.id::text
+         ) activation on true
         where d.ativo=true
         order by d.nome`,
     )
 
     const activeDevices = fleet.rows.map((device) => {
-      const details = device.detalhes ?? {}
-      const appVersion = typeof details.appVersion === 'string' ? details.appVersion : null
+      const healthDetails = device.healthDetalhes ?? {}
+      const heartbeatDetails = device.heartbeatDetalhes ?? {}
+      const appVersion = metadataString(heartbeatDetails, healthDetails, 'appVersion')
       const outdated = appVersion != null && compareVersions(appVersion, config.latestAndroidVersion) < 0
-      const healthAlert = recentHealthAlert(device.detalhes)
+      const healthAlert = recentHealthAlert(device.healthDetalhes)
       return {
         id: device.id,
         nome: device.nome,
@@ -117,10 +150,10 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
         ultimoAcessoEm: device.ultimoAcessoEm,
         telemetriaEm: device.telemetriaEm,
         appVersion,
-        deviceModel: typeof details.deviceModel === 'string' ? details.deviceModel : null,
-        androidVersion: typeof details.androidVersion === 'string' ? details.androidVersion : null,
-        crashCount: parseTelemetryNumber(details.crashCount),
-        stallCount: parseTelemetryNumber(details.stallCount),
+        deviceModel: metadataString(heartbeatDetails, healthDetails, 'deviceModel'),
+        androidVersion: metadataString(heartbeatDetails, healthDetails, 'androidVersion'),
+        crashCount: parseTelemetryNumber(healthDetails.crashCount),
+        stallCount: parseTelemetryNumber(healthDetails.stallCount),
         alertaSaude: healthAlert,
         desatualizado: outdated,
       }
