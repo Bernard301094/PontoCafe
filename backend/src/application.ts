@@ -32,6 +32,7 @@ import { setupRoutes } from './routes/setup-routes.js'
 import { userManagementRoutes } from './routes/user-management-routes.js'
 import { workforceRoutes } from './routes/workforce-routes.js'
 
+const API_VERSION = '1.0.0'
 const app = new Hono<AppEnv>()
 
 app.use('*', requestIdMiddleware())
@@ -123,11 +124,11 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 })
 
-app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: '0.7.0', requestId: c.get('requestId') }))
+app.get('/', (c) => c.json({ app: 'Ponto Café API', status: 'ok', versao: API_VERSION, requestId: c.get('requestId') }))
 app.get('/app-status', (c) => {
   const workerVersion = c.env.CF_VERSION_METADATA
   return c.json({
-    apiVersion: '0.7.0',
+    apiVersion: API_VERSION,
     backendRevision: config.backendRevision,
     workerVersionId: workerVersion?.id ?? null,
     workerVersionTag: workerVersion?.tag ?? null,
