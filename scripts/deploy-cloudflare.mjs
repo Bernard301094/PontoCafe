@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const requiredSecrets = [
   'BETTER_AUTH_SECRET',
@@ -11,6 +12,8 @@ const requiredSecrets = [
   'FIRST_ADMIN_SETUP_KEY',
 ]
 
+const repoRoot = fileURLToPath(new URL('../', import.meta.url))
+const backendDir = fileURLToPath(new URL('../backend/', import.meta.url))
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
 const avatarBucketName = 'pontocafe-avatars'
 
@@ -47,25 +50,13 @@ const setupKeyFingerprint = createHash('sha256')
   .digest('hex')
   .slice(0, 16)
 
-const gitRevisionResult = spawnSync('git', ['rev-parse', 'HEAD'], {
-  encoding: 'utf8',
-  shell: false,
-})
-if (gitRevisionResult.error || gitRevisionResult.status !== 0) {
-  console.error('Could not determine Git revision for Cloudflare deployment.')
-  process.exit(1)
-}
-const backendRevision = gitRevisionResult.stdout.trim()
-if (!/^[0-9a-f]{40}$/i.test(backendRevision)) {
-  console.error('Invalid Git revision returned by git rev-parse HEAD.')
-  process.exit(1)
-}
-
-function runWrangler(args, options = {}) {
-  const result = spawnSync('npx', ['wrangler', ...args], {
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd || repoRoot,
     encoding: options.inherit ? undefined : 'utf8',
     stdio: options.inherit ? 'inherit' : undefined,
     shell: false,
+    env: process.env,
   })
   if (result.error) throw result.error
   if (result.status !== 0) {
@@ -73,9 +64,20 @@ function runWrangler(args, options = {}) {
       if (result.stdout) process.stdout.write(result.stdout)
       if (result.stderr) process.stderr.write(result.stderr)
     }
-    throw new Error(`Wrangler failed (${args.join(' ')}) with exit code ${result.status}.`)
+    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}.`)
   }
   return typeof result.stdout === 'string' ? result.stdout : ''
+}
+
+const gitRevisionResult = run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })
+const backendRevision = gitRevisionResult.trim()
+if (!/^[0-9a-f]{40}$/i.test(backendRevision)) {
+  console.error('Invalid Git revision returned by git rev-parse HEAD.')
+  process.exit(1)
+}
+
+function runWrangler(args, options = {}) {
+  return run('npx', ['wrangler', ...args], { ...options, cwd: backendDir })
 }
 
 function ensureAvatarBucket() {
@@ -119,12 +121,22 @@ async function fetchJson(url, attempts = 10) {
 }
 
 console.log(`FIRST_ADMIN_SETUP_KEY fingerprint: ${setupKeyFingerprint}`)
-console.log(`Deploying backend ${expectedApiVersion} revision: ${backendRevision}`)
+console.log(`Preparing backend ${expectedApiVersion} revision: ${backendRevision}`)
+
+console.log('\n[1/6] Running backend tests and typecheck...')
+run('npm', ['--workspace', 'backend', 'run', 'validate'], { cwd: repoRoot, inherit: true })
+
+console.log('\n[2/6] Running PontoCafe 1.0 release contract...')
+run('npm', ['run', 'release:check'], { cwd: repoRoot, inherit: true })
+
+console.log('\n[3/6] Validating Cloudflare Worker bundle...')
+runWrangler(['deploy', '--dry-run'], { inherit: true })
 
 const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
 
 try {
+  console.log('\n[4/6] Ensuring private avatar storage...')
   ensureAvatarBucket()
 
   const secrets = Object.fromEntries(
@@ -133,7 +145,7 @@ try {
 
   await writeFile(secretsFile, JSON.stringify(secrets), { mode: 0o600 })
 
-  console.log('Deploying Ponto Cafe Worker with encrypted runtime secrets...')
+  console.log('\n[5/6] Deploying Ponto Cafe Worker with encrypted runtime secrets...')
   runWrangler([
     'deploy',
     '--secrets-file',
@@ -142,7 +154,7 @@ try {
     `BACKEND_REVISION:${backendRevision}`,
   ], { inherit: true })
 
-  console.log(`Verifying deployed Worker at ${productionUrl}...`)
+  console.log(`\n[6/6] Verifying deployed Worker at ${productionUrl}...`)
   const status = await fetchJson(`${productionUrl}/app-status`)
   const health = await fetchJson(`${productionUrl}/health`)
 
