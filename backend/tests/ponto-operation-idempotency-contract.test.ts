@@ -173,9 +173,9 @@ test('resposta mutante só libera operationId depois de snapshot local durável'
   assert.ok(onlineFinish >= 0 && finishDurable > onlineFinish && finishRelease > finishDurable)
 })
 
-test('release 0.15 mantém otimizações de produção', () => {
-  assert.match(gradle, /versionCode = 36/)
-  assert.match(gradle, /versionName = "0\.15\.0"/)
+test('release 1.0 preserva a integridade e as otimizações de produção', () => {
+  assert.match(gradle, /versionCode = 100/)
+  assert.match(gradle, /versionName = "1\.0\.0"/)
   assert.match(gradle, /isMinifyEnabled = true/)
   assert.match(gradle, /isShrinkResources = true/)
   assert.match(gradle, /play-services-tflite-java:16\.5\.0/)
