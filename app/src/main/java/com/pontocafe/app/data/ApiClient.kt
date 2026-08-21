@@ -1,6 +1,7 @@
 package com.pontocafe.app.data
 
 import android.content.Context
+import android.os.Build
 import com.pontocafe.app.BuildConfig
 import java.io.IOException
 import okhttp3.Interceptor
@@ -434,11 +435,26 @@ class PontoCafeRepository(
 
 object ApiClient {
     fun create(context: Context, tokenStore: SecureDeviceTokenStore): PontoCafeRepository {
+        val deviceModel = listOf(Build.MANUFACTURER, Build.MODEL)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" ")
+            .take(120)
+        val androidVersion = buildString {
+            val release = Build.VERSION.RELEASE?.trim().orEmpty()
+            if (release.isNotBlank()) append(release)
+            if (isNotEmpty()) append(" · ")
+            append("API ${Build.VERSION.SDK_INT}")
+        }.take(40)
+
         val tokenInterceptor = Interceptor { chain ->
             val token = tokenStore.read()
             val request = chain.request().newBuilder().apply {
                 if (!token.isNullOrBlank()) header("X-Device-Token", token)
                 header("X-App-Version", BuildConfig.VERSION_NAME)
+                if (deviceModel.isNotBlank()) header("X-Device-Model", deviceModel)
+                if (androidVersion.isNotBlank()) header("X-Android-Version", androidVersion)
             }.build()
             chain.proceed(request)
         }
