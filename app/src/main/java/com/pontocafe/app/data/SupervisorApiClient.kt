@@ -218,7 +218,28 @@ class SupervisorRepository(
     }
 
     companion object {
-        fun isAuthFailure(error: Throwable): Boolean = AdminRepository.isAuthFailure(error)
+        fun isSessionExpired(error: Throwable): Boolean =
+            error is HttpException && error.code() == 401
+
+        fun isAccessDenied(error: Throwable): Boolean =
+            error is HttpException && error.code() == 403
+
+        fun isAuthFailure(error: Throwable): Boolean =
+            isSessionExpired(error) || isAccessDenied(error)
+
+        /**
+         * Mensagem usada somente quando uma sessão que já estava salva falha ao
+         * acessar uma rota protegida. Não use este texto no POST de login: um 401
+         * nessa rota continua significando e-mail ou senha inválidos.
+         */
+        fun sessionRecoveryMessage(error: Throwable): String = when {
+            isSessionExpired(error) ->
+                "Sua sessão terminou. Digite sua senha novamente para continuar."
+            isAccessDenied(error) ->
+                "Esta conta não possui mais acesso de Supervisor. Entre com uma conta autorizada ou fale com um administrador."
+            else ->
+                "Não foi possível validar o acesso de Supervisor. Entre novamente."
+        }
 
         fun isTlsTrustFailure(error: Throwable): Boolean {
             var current: Throwable? = error
