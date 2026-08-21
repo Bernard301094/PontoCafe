@@ -17,6 +17,8 @@ type WorkerEnv = {
   FACE_VERIFICATION_TTL_SECONDS?: string
   OFFLINE_MAX_EVENT_AGE_HOURS?: string
   BIOMETRIC_RETENTION_DAYS?: string
+  PONTO_OPERATION_RETENTION_DAYS?: string
+  DEVICE_HEALTH_RETENTION_DAYS?: string
   DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS?: string
   APP_LATEST_ANDROID_VERSION?: string
   APP_MIN_ANDROID_VERSION?: string
@@ -56,6 +58,8 @@ const textBindingNames = [
   'FACE_VERIFICATION_TTL_SECONDS',
   'OFFLINE_MAX_EVENT_AGE_HOURS',
   'BIOMETRIC_RETENTION_DAYS',
+  'PONTO_OPERATION_RETENTION_DAYS',
+  'DEVICE_HEALTH_RETENTION_DAYS',
   'DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS',
   'APP_LATEST_ANDROID_VERSION',
   'APP_MIN_ANDROID_VERSION',
@@ -119,10 +123,23 @@ async function runScheduledMaintenance(env: WorkerEnv): Promise<void> {
   bootStage = 'db'
   const { withRequestDatabase } = await import('./db.js')
   await withRequestDatabase(connectionString, async () => {
-    const { cleanupExpiredBiometrics, cleanupExpiredDeviceRegistrations } = await import('./maintenance.js')
+    const {
+      cleanupExpiredBiometrics,
+      cleanupExpiredDeviceHealthTelemetry,
+      cleanupExpiredDeviceRegistrations,
+      cleanupExpiredPontoOperations,
+    } = await import('./maintenance.js')
     const deviceRegistrations = await cleanupExpiredDeviceRegistrations()
+    const pontoOperations = await cleanupExpiredPontoOperations()
+    const deviceHealth = await cleanupExpiredDeviceHealthTelemetry()
     const biometrics = await cleanupExpiredBiometrics()
-    console.log(JSON.stringify({ evento: 'scheduled_maintenance', deviceRegistrations, biometrics }))
+    console.log(JSON.stringify({
+      evento: 'scheduled_maintenance',
+      deviceRegistrations,
+      pontoOperations,
+      deviceHealth,
+      biometrics,
+    }))
   })
 }
 
