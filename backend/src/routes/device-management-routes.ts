@@ -23,6 +23,18 @@ function hasRecentHealthAlert(details: Record<string, unknown> | null): boolean 
   return telemetryCounter(details.lastCrashMillis) >= cutoff || telemetryCounter(details.lastStallMillis) >= cutoff
 }
 
+function metadataString(
+  heartbeat: Record<string, unknown> | null,
+  health: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const heartbeatValue = heartbeat?.[key]
+  if (typeof heartbeatValue === 'string' && heartbeatValue.trim()) return heartbeatValue.trim()
+  const healthValue = health?.[key]
+  if (typeof healthValue === 'string' && healthValue.trim()) return healthValue.trim()
+  return null
+}
+
 async function auditDevice(
   client: PoolClient,
   actorId: string,
@@ -48,6 +60,7 @@ deviceManagementRoutes.get('/devices', async (c) => {
     pinConfigurado: boolean
     telemetriaEm: string | null
     telemetriaDetalhes: Record<string, unknown> | null
+    heartbeatDetalhes: Record<string, unknown> | null
     ultimaAtivacaoEm: string | null
     ultimaRotacaoEm: string | null
     aguardandoAtivacao: boolean
@@ -57,23 +70,42 @@ deviceManagementRoutes.get('/devices', async (c) => {
             d.criado_em::text as "criadoEm",
             d.atualizado_em::text as "atualizadoEm",
             greatest(
-              d.criado_em,
-              coalesce((select max(p.inicio_em) from pausas_cafe p where p.dispositivo_inicio_id=d.id),d.criado_em),
-              coalesce((select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id),d.criado_em),
-              coalesce(h.criado_em,d.criado_em),
-              coalesce(activation.ultima_ativacao_em,d.criado_em)
+              pause_activity.ultima_pausa_em,
+              h.criado_em,
+              heartbeat.criado_em,
+              activation.ultima_ativacao_em
             )::text as "ultimoAcessoEm",
             (d.unlock_pin_hash is not null) as "pinConfigurado",
-            h.criado_em::text as "telemetriaEm",
+            greatest(h.criado_em,heartbeat.criado_em)::text as "telemetriaEm",
             h.detalhes as "telemetriaDetalhes",
+            heartbeat.detalhes as "heartbeatDetalhes",
             activation.ultima_ativacao_em::text as "ultimaAtivacaoEm",
             rotation.ultima_rotacao_em::text as "ultimaRotacaoEm",
             (
-              activation.ultima_ativacao_em is null or
-              rotation.ultima_rotacao_em>activation.ultima_ativacao_em
+              greatest(
+                pause_activity.ultima_pausa_em,
+                h.criado_em,
+                heartbeat.criado_em,
+                activation.ultima_ativacao_em
+              ) is null
+              or (
+                rotation.ultima_rotacao_em is not null
+                and rotation.ultima_rotacao_em>greatest(
+                  pause_activity.ultima_pausa_em,
+                  h.criado_em,
+                  heartbeat.criado_em,
+                  activation.ultima_ativacao_em
+                )
+              )
             ) as "aguardandoAtivacao",
             history.total as "registrosHistoricos"
        from dispositivos d
+       left join lateral (
+         select greatest(
+           (select max(p.inicio_em) from pausas_cafe p where p.dispositivo_inicio_id=d.id),
+           (select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id)
+         ) as ultima_pausa_em
+       ) pause_activity on true
        left join lateral (
          select a.criado_em,a.detalhes
            from auditoria a
@@ -83,6 +115,15 @@ deviceManagementRoutes.get('/devices', async (c) => {
           order by a.criado_em desc
           limit 1
        ) h on true
+       left join lateral (
+         select a.criado_em,a.detalhes
+           from auditoria a
+          where a.acao='DEVICE_HEARTBEAT'
+            and a.entidade='DISPOSITIVO'
+            and a.entidade_id::text=d.id::text
+          order by a.criado_em desc
+          limit 1
+       ) heartbeat on true
        left join lateral (
          select max(a.criado_em) as ultima_ativacao_em
            from auditoria a
@@ -113,7 +154,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
   )
   return c.json({
     dispositivos: result.rows.map((device) => {
-      const details = device.telemetriaDetalhes ?? {}
+      const healthDetails = device.telemetriaDetalhes ?? {}
+      const heartbeatDetails = device.heartbeatDetalhes ?? {}
 
       return {
         id: device.id,
@@ -126,11 +168,11 @@ deviceManagementRoutes.get('/devices', async (c) => {
         statusAtivacao: !device.ativo ? 'INATIVO' : device.aguardandoAtivacao ? 'AGUARDANDO_ATIVACAO' : 'ATIVADO',
         ativadoEm: device.ultimaAtivacaoEm,
         telemetriaEm: device.telemetriaEm,
-        appVersion: typeof details.appVersion === 'string' ? details.appVersion : null,
-        deviceModel: typeof details.deviceModel === 'string' ? details.deviceModel : null,
-        androidVersion: typeof details.androidVersion === 'string' ? details.androidVersion : null,
-        crashCount: telemetryCounter(details.crashCount),
-        stallCount: telemetryCounter(details.stallCount),
+        appVersion: metadataString(heartbeatDetails, healthDetails, 'appVersion'),
+        deviceModel: metadataString(heartbeatDetails, healthDetails, 'deviceModel'),
+        androidVersion: metadataString(heartbeatDetails, healthDetails, 'androidVersion'),
+        crashCount: telemetryCounter(healthDetails.crashCount),
+        stallCount: telemetryCounter(healthDetails.stallCount),
         alertaSaude: hasRecentHealthAlert(device.telemetriaDetalhes),
         registrosHistoricos: device.registrosHistoricos,
         exclusaoPermanentePermitida: device.registrosHistoricos === 0,
