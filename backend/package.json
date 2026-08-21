@@ -1,6 +1,6 @@
 {
   "name": "pontocafe-api",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
