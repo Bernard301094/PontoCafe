@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.0.0 — Release Candidate · observabilidade, hardening e gate de produção
+
+### Saúde do sistema e frota
+- Expande o diagnóstico administrativo com métricas das últimas 24 horas para pausas e operações protegidas pela camada exactly-once.
+- Adiciona visão de frota baseada na telemetria técnica já enviada pelos dispositivos: versão do app, modelo do aparelho, Android, atividade, crashes e travamentos prolongados.
+- Sinaliza dispositivos desatualizados, sem telemetria recente ou com crash/travamento nas últimas 24 horas sem bloquear o registro do Ponto.
+- A tela **Saúde do sistema** passa a separar operação atual, integridade do Ponto, frota, banco, política de produção e saúde local.
+- Contadores idempotentes são apresentados como **operações protegidas**, sem inferir ou rotular incorretamente cada operação como duplicidade evitada.
+
+### Release e compatibilidade
+- Promove a candidata Android para `1.0.0` (`versionCode 100`) mantendo compile/target SDK 36, Java 17, R8/minify e resource shrinking.
+- Mantém FaceNet fixado no mesmo commit/blob, CPU/XNNPACK e a mesma compatibilidade dos templates já cadastrados.
+- Mantém threshold de reconhecimento `0.72`, margem `0.06` e não adiciona delegate GPU.
+- Política padrão de atualização passa a anunciar `1.0.0` como versão mais recente e `0.15.0` como versão mínima compatível, podendo ser sobrescrita pelas variáveis do ambiente de produção.
+
+### CI e governança
+- Substitui o antigo workflow canary por um gate real que executa testes e typecheck do backend, contrato de Release, testes Android e `assembleRelease`.
+- O CI baixa e valida o FaceNet pelo Git blob exato antes da compilação.
+- Adiciona `npm run release:check`, que falha se versão, R8, FaceNet, thresholds, CPU TFLite, migração exactly-once, CI ou documentação crítica se afastarem do contrato 1.0.
+- Adiciona contrato automatizado `release-1.0-readiness-contract.test.ts`.
+
+### Operação, recuperação e privacidade
+- Adiciona checklist formal de liberação 1.0; o número `1.0.0` no código não transforma sozinho a branch em Release estável.
+- Documenta backup e restore PostgreSQL com verificação de integridade em banco separado.
+- Documenta governança biométrica, minimização de dados, retenção, telemetria e resposta a incidentes.
+- A 1.0 depende da Integridade Operacional 0.15/migração 007 e não deve ser publicada antes dos testes físicos, restore real e validação da recuperação `COMMIT -> resposta perdida -> reconciliação`.
+
 ## 0.15.0 — Integridade operacional do Ponto
 
 ### Idempotência e exactly-once
