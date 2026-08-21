@@ -24,7 +24,6 @@ data class CoffeeRuleV2(
     val ativo: Boolean,
     val padraoAtual: Boolean = false,
 )
-
 data class CoffeeRulesV2Response(val regras: List<CoffeeRuleV2>)
 data class UpdateCoffeeRuleV2Request(
     val inicio: String,
@@ -185,6 +184,35 @@ data class DiagnosticOperation(
     val pausasAbertas: Int,
     val sessoesAtivas: Int,
 )
+data class DiagnosticIntegrity(
+    val pausasUltimas24h: Int = 0,
+    val operacoesProtegidasUltimas24h: Int = 0,
+    val registroRapidoUltimas24h: Int = 0,
+    val iniciosUltimas24h: Int = 0,
+    val retornosUltimas24h: Int = 0,
+)
+data class DiagnosticFleetDevice(
+    val id: String,
+    val nome: String,
+    val ativo: Boolean,
+    val ultimoAcessoEm: String?,
+    val telemetriaEm: String?,
+    val appVersion: String?,
+    val deviceModel: String?,
+    val androidVersion: String?,
+    val crashCount: Int = 0,
+    val stallCount: Int = 0,
+    val alertaSaude: Boolean = false,
+    val desatualizado: Boolean = false,
+)
+data class DiagnosticFleet(
+    val totalAtivos: Int = 0,
+    val comTelemetriaRecente: Int = 0,
+    val semTelemetriaRecente: Int = 0,
+    val desatualizados: Int = 0,
+    val alertasSaude: Int = 0,
+    val dispositivos: List<DiagnosticFleetDevice>? = emptyList(),
+)
 data class DiagnosticConfiguration(
     val timezone: String,
     val sessaoHoras: Int,
@@ -200,6 +228,8 @@ data class DiagnosticResponse(
     val requestId: String,
     val banco: DiagnosticDatabase,
     val operacao: DiagnosticOperation,
+    val integridade: DiagnosticIntegrity? = null,
+    val frota: DiagnosticFleet? = null,
     val configuracao: DiagnosticConfiguration,
 )
 
