@@ -45,8 +45,8 @@ export const config = {
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
   biometricRetentionDays: numberEnv('BIOMETRIC_RETENTION_DAYS', 90, 1, 3650),
   deviceRegistrationIdempotencyTtlSeconds: numberEnv('DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS', 600, 60, 900),
-  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '0.7.0'),
-  minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.4.0'),
+  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '1.0.0'),
+  minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.15.0'),
   backendRevision: revisionEnv('BACKEND_REVISION', 'dev'),
 }
 
