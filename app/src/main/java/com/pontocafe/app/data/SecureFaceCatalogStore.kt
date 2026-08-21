@@ -291,7 +291,7 @@ object LocalFaceMatcher {
      */
     fun match(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceMatch? {
         val result = evaluateDetailed(embedding, catalog).match ?: return null
-        PontoAvatarRuntime.recognized(result.colaborador.avatarUrl)
+        PontoAvatarRuntime.recognized(result.colaborador.id, result.colaborador.avatarUrl)
         return result
     }
 
@@ -313,7 +313,7 @@ object LocalFaceMatcher {
         if (embeddings.isEmpty()) return null
 
         evaluateDetailed(embeddings[0], catalog).match?.let { primary ->
-            if (announce) PontoAvatarRuntime.recognized(primary.colaborador.avatarUrl)
+            if (announce) PontoAvatarRuntime.recognized(primary.colaborador.id, primary.colaborador.avatarUrl)
             return LocalFaceResolvedMatch(
                 match = primary,
                 embedding = embeddings[0],
@@ -347,7 +347,12 @@ object LocalFaceMatcher {
         if (contradictoryHighCandidate) return null
 
         val bestFallback = accepted.maxBy { it.match.score }
-        if (announce) PontoAvatarRuntime.recognized(bestFallback.match.colaborador.avatarUrl)
+        if (announce) {
+            PontoAvatarRuntime.recognized(
+                bestFallback.match.colaborador.id,
+                bestFallback.match.colaborador.avatarUrl,
+            )
+        }
         return bestFallback
     }
 

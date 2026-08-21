@@ -1,6 +1,7 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
+import com.pontocafe.app.avatar.PontoAvatarRuntime
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -437,12 +438,14 @@ class AdminRepository(
         require(webp.isNotEmpty()) { "Avatar vazio." }
         val result = api.uploadAvatar(collaboratorId, webp.toRequestBody("image/webp".toMediaType()))
         collaboratorsCache = null
+        PontoAvatarRuntime.avatarUpdated(collaboratorId, result.avatarUrl)
         return result
     }
 
     suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse {
         val result = api.deleteAvatar(collaboratorId)
         collaboratorsCache = null
+        PontoAvatarRuntime.avatarUpdated(collaboratorId, null)
         return result
     }
 

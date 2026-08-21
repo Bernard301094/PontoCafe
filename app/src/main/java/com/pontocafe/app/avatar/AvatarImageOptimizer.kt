@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import java.io.ByteArrayOutputStream
@@ -11,8 +13,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 object AvatarImageOptimizer {
-    private const val TARGET_SIZE = 160
-    private const val FALLBACK_SIZE = 128
+    private const val TARGET_SIZE = 256
+    private const val FALLBACK_SIZE = 192
+    private const val LAST_RESORT_SIZE = 160
     const val MAX_BYTES = 28 * 1024
 
     fun optimize(context: Context, uri: Uri): ByteArray = optimizeDecoded(decode(context, uri))
@@ -32,27 +35,50 @@ object AvatarImageOptimizer {
     }
 
     private fun optimizeDecoded(decoded: Bitmap): ByteArray {
-        val square = centerCrop(decoded)
-        if (square !== decoded) decoded.recycle()
-
+        var square: Bitmap? = null
         try {
-            val primary = Bitmap.createScaledBitmap(square, TARGET_SIZE, TARGET_SIZE, true)
-            try {
-                compressToLimit(primary)?.let { return it }
-            } finally {
-                if (primary !== square) primary.recycle()
-            }
-
-            val fallback = Bitmap.createScaledBitmap(square, FALLBACK_SIZE, FALLBACK_SIZE, true)
-            try {
-                return compressToLimit(fallback, startQuality = 58, minQuality = 34)
-                    ?: error("A imagem continua grande demais mesmo após otimização.")
-            } finally {
-                if (fallback !== square) fallback.recycle()
-            }
+            val prepared = centerCrop(decoded)
+            square = prepared
+            return optimizePreparedSquare(prepared)
         } finally {
-            square.recycle()
+            square?.takeIf { it !== decoded && !it.isRecycled }?.recycle()
+            if (!decoded.isRecycled) decoded.recycle()
         }
+    }
+
+    /**
+     * Otimiza um recorte quadrado já preparado sem assumir a posse do bitmap.
+     * O enrolamento usa esta variante para manter somente o WebP final e liberar
+     * seu recorte temporário logo depois, sem copiar novamente o frame inteiro.
+     */
+    internal fun optimizePreparedSquare(bitmap: Bitmap): ByteArray {
+        require(!bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0) {
+            "A foto de perfil preparada é inválida."
+        }
+        require(bitmap.width == bitmap.height) { "A foto de perfil deve usar recorte quadrado." }
+
+        val sourceSide = bitmap.width
+        val attempts = linkedSetOf(
+            min(TARGET_SIZE, sourceSide),
+            min(FALLBACK_SIZE, sourceSide),
+            min(LAST_RESORT_SIZE, sourceSide),
+        ).filter { it > 0 }
+
+        attempts.forEachIndexed { index, size ->
+            val scaled = Bitmap.createScaledBitmap(bitmap, size, size, true)
+            try {
+                val encoded = when (index) {
+                    0 -> compressToLimit(scaled, startQuality = 78, minQuality = 46)
+                    1 -> compressToLimit(scaled, startQuality = 70, minQuality = 40)
+                    else -> compressToLimit(scaled, startQuality = 62, minQuality = 34)
+                }
+                if (encoded != null) return encoded
+            } finally {
+                if (scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
+            }
+        }
+
+        error("A imagem continua grande demais mesmo após otimização.")
     }
 
     private fun decode(context: Context, uri: Uri): Bitmap {
@@ -73,6 +99,14 @@ object AvatarImageOptimizer {
             }
         } else {
             val resolver = context.contentResolver
+            val orientation = resolver.openInputStream(uri)?.use { input ->
+                runCatching {
+                    ExifInterface(input).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL,
+                    )
+                }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Não foi possível ler a imagem selecionada." }
@@ -83,9 +117,44 @@ object AvatarImageOptimizer {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            resolver.openInputStream(uri)?.use { input ->
+            val decoded = resolver.openInputStream(uri)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
             } ?: error("Não foi possível abrir a imagem selecionada.")
+            applyExifOrientation(decoded, orientation)
+        }
+    }
+
+    /** ImageDecoder handles EXIF itself; this covers the Android 8.x fallback. */
+    private fun applyExifOrientation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                matrix.setRotate(180f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                .also { transformed ->
+                    if (transformed !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+                }
+        } catch (error: Throwable) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            throw error
         }
     }
 

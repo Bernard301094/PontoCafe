@@ -6,6 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.pontocafe.app.avatar.AvatarImageOptimizer
+import com.pontocafe.app.avatar.EnrollmentAvatarCaptureSession
+import com.pontocafe.app.avatar.EnrollmentAvatarUploadStatus
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.BiometricTemplateAggregator
@@ -16,7 +19,10 @@ import com.pontocafe.app.data.SupervisorReportResponse
 import com.pontocafe.app.data.SupervisorRepository
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 enum class SupervisorDestination {
@@ -50,6 +56,12 @@ data class SupervisorUiState(
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
+    val biometricEnrollmentCompleted: Boolean = false,
+    val enrollmentAvatarCaptured: Boolean = false,
+    val enrollmentAvatarPreview: ByteArray? = null,
+    val enrollmentAvatarStatus: EnrollmentAvatarUploadStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
+    val enrollmentAvatarUrl: String? = null,
+    val enrollmentAvatarError: String? = null,
     val sessaoAdministrativa: Boolean = false,
     val ultimaAtualizacaoAoVivoEmMillis: Long? = null,
     val conexaoAoVivoOk: Boolean = true,
@@ -70,6 +82,7 @@ class SupervisorViewModel(
         private set
 
     private val biometricSamples = mutableListOf<FloatArray>()
+    private val enrollmentAvatarCapture = EnrollmentAvatarCaptureSession()
     private var atualizacaoAoVivoEmAndamento = false
     private var atualizacaoPausasEmAndamento = false
     private var atualizacaoRetornoEmAndamento = false
@@ -381,9 +394,20 @@ class SupervisorViewModel(
     }
 
     fun abrirColaboradores() {
+        releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
+            state = state.copy(
+                carregando = true,
+                biometricEnrollmentCompleted = false,
+                enrollmentAvatarCaptured = false,
+                enrollmentAvatarPreview = null,
+                enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
+                enrollmentAvatarUrl = null,
+                enrollmentAvatarError = null,
+                erro = null,
+                mensagem = null,
+            )
             runCatching { repository.collaborators() }
                 .onSuccess {
                     state = state.copy(
@@ -402,6 +426,7 @@ class SupervisorViewModel(
     }
 
     fun abrirNovoColaborador() {
+        releaseEnrollmentAvatarArtifacts()
         state = state.copy(
             destination = SupervisorDestination.NOVO_COLABORADOR,
             erro = null,
@@ -419,6 +444,7 @@ class SupervisorViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.createCollaborator(nome, setor, turno) }
                 .onSuccess { colaborador ->
+                    releaseEnrollmentAvatarArtifacts()
                     biometricSamples.clear()
                     state = state.copy(
                         carregando = false,
@@ -427,6 +453,12 @@ class SupervisorViewModel(
                         biometricScanCycle = state.biometricScanCycle + 1,
                         biometricStepIndex = 0,
                         biometricSamplesCaptured = 0,
+                        biometricEnrollmentCompleted = false,
+                        enrollmentAvatarCaptured = false,
+                        enrollmentAvatarPreview = null,
+                        enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
+                        enrollmentAvatarUrl = colaborador.avatarUrl,
+                        enrollmentAvatarError = null,
                         mensagem = "Colaborador cadastrado. Agora registre o rosto em 5 etapas.",
                     )
                 }
@@ -437,6 +469,7 @@ class SupervisorViewModel(
     }
 
     fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
+        releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         state = state.copy(
             destination = SupervisorDestination.BIOMETRIA,
@@ -444,6 +477,12 @@ class SupervisorViewModel(
             biometricScanCycle = state.biometricScanCycle + 1,
             biometricStepIndex = 0,
             biometricSamplesCaptured = 0,
+            biometricEnrollmentCompleted = false,
+            enrollmentAvatarCaptured = false,
+            enrollmentAvatarPreview = null,
+            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
+            enrollmentAvatarUrl = colaborador.avatarUrl,
+            enrollmentAvatarError = null,
             erro = null,
             mensagem = null,
         )
@@ -464,18 +503,43 @@ class SupervisorViewModel(
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = "Processando amostra facial...")
             try {
-                val embedding = embeddingEngine.embed(frame)
-                FaceEmbeddingIntegrity.requireValid(embedding)
+                val stagedAvatar = runCatching {
+                    withContext(Dispatchers.Default) { enrollmentAvatarCapture.stage(frame) }
+                }.getOrNull()
+                var biometricSampleAccepted = false
+                val embedding = try {
+                    embeddingEngine.embed(frame).also {
+                        FaceEmbeddingIntegrity.requireValid(it)
+                        biometricSampleAccepted = true
+                    }
+                } finally {
+                    if (stagedAvatar != null) {
+                        if (biometricSampleAccepted) {
+                            runCatching {
+                                withContext(Dispatchers.Default) {
+                                    enrollmentAvatarCapture.consider(stagedAvatar)
+                                }
+                            }
+                        }
+                        stagedAvatar.close()
+                    }
+                }
                 biometricSamples += embedding.copyOf()
 
                 val captured = biometricSamples.size
                 if (captured < BIOMETRIC_SAMPLE_COUNT) {
+                    val avatarCaptured = enrollmentAvatarCapture.hasCandidate()
                     state = state.copy(
                         carregando = false,
                         biometricStepIndex = captured,
                         biometricSamplesCaptured = captured,
                         biometricScanCycle = state.biometricScanCycle + 1,
-                        mensagem = "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada.",
+                        enrollmentAvatarCaptured = avatarCaptured,
+                        mensagem = if (avatarCaptured) {
+                            "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada. Foto de perfil selecionada."
+                        } else {
+                            "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada."
+                        },
                         erro = null,
                     )
                     return@launch
@@ -491,29 +555,134 @@ class SupervisorViewModel(
                     samples = samplesForValidation,
                 )
 
-                val colaboradores = repository.collaborators()
                 biometricSamples.clear()
+                val avatarBytes = enrollmentAvatarCapture.takeBestWebp()
+                val existingAvatarAvailable = !colaborador.avatarUrl.isNullOrBlank()
+                val biometricCollaborator = colaborador.copy(rostoCadastrado = true)
+                state = state.copy(
+                    carregando = true,
+                    colaboradorSelecionado = biometricCollaborator,
+                    biometricEnrollmentCompleted = true,
+                    enrollmentAvatarCaptured = avatarBytes != null,
+                    enrollmentAvatarPreview = avatarBytes,
+                    enrollmentAvatarStatus = when {
+                        avatarBytes != null -> EnrollmentAvatarUploadStatus.UPLOADING
+                        existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
+                        else -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
+                    },
+                    enrollmentAvatarUrl = colaborador.avatarUrl,
+                    enrollmentAvatarError = null,
+                    mensagem = "Biometria de ${colaborador.nome} salva com segurança.",
+                    erro = null,
+                )
+
+                var avatarUrl = colaborador.avatarUrl
+                var avatarFailure: Throwable? = null
+                if (avatarBytes != null) {
+                    try {
+                        avatarUrl = repository.uploadAvatar(colaborador.id, avatarBytes).avatarUrl
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        avatarFailure = error
+                    }
+                }
+
+                val updatedCollaborator = biometricCollaborator.copy(avatarUrl = avatarUrl)
                 state = state.copy(
                     carregando = false,
-                    destination = SupervisorDestination.COLABORADORES,
-                    colaboradores = colaboradores,
-                    colaboradorSelecionado = null,
-                    biometricStepIndex = 0,
-                    biometricSamplesCaptured = 0,
-                    mensagem = "Rosto de ${colaborador.nome} cadastrado com 5 amostras e verificação de duplicidade.",
+                    colaboradores = upsertCollaborator(state.colaboradores, updatedCollaborator),
+                    colaboradorSelecionado = updatedCollaborator,
+                    enrollmentAvatarStatus = when {
+                        avatarBytes == null && existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
+                        avatarBytes == null -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
+                        avatarFailure == null -> EnrollmentAvatarUploadStatus.SAVED
+                        else -> EnrollmentAvatarUploadStatus.FAILED
+                    },
+                    enrollmentAvatarUrl = avatarUrl,
+                    enrollmentAvatarError = avatarFailure?.let {
+                        "A biometria foi salva, mas a foto de perfil não. ${SupervisorRepository.message(it)}"
+                    },
+                    mensagem = when {
+                        avatarBytes == null && existingAvatarAvailable ->
+                            "Rosto de ${colaborador.nome} cadastrado. A foto de perfil existente foi mantida."
+                        avatarBytes == null ->
+                            "Rosto de ${colaborador.nome} cadastrado. Você pode adicionar a foto de perfil sem repetir a biometria."
+                        avatarFailure == null ->
+                            "Rosto e foto de perfil de ${colaborador.nome} cadastrados com sucesso."
+                        else ->
+                            "Rosto de ${colaborador.nome} cadastrado. Falta apenas salvar a foto de perfil."
+                    },
                     erro = null,
                 )
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 val completedSequence = biometricSamples.size >= BIOMETRIC_SAMPLE_COUNT
-                if (completedSequence) biometricSamples.clear()
+                if (completedSequence) {
+                    biometricSamples.clear()
+                    enrollmentAvatarCapture.clear()
+                }
                 val captured = biometricSamples.size.coerceAtMost(BIOMETRIC_SAMPLE_COUNT - 1)
                 state = state.copy(
                     carregando = false,
                     biometricStepIndex = captured,
                     biometricSamplesCaptured = captured,
                     biometricScanCycle = state.biometricScanCycle + 1,
+                    enrollmentAvatarCaptured = enrollmentAvatarCapture.hasCandidate(),
                     mensagem = null,
                     erro = SupervisorRepository.message(error),
+                )
+            }
+        }
+    }
+
+    fun tentarNovamenteAvatarDoCadastro() {
+        val preview = state.enrollmentAvatarPreview ?: return
+        saveEnrollmentAvatar(preview)
+    }
+
+    fun substituirAvatarDoCadastro(webp: ByteArray) {
+        if (webp.isEmpty() || webp.size > AvatarImageOptimizer.MAX_BYTES) {
+            state = state.copy(enrollmentAvatarError = "A foto de perfil preparada é inválida.")
+            return
+        }
+        saveEnrollmentAvatar(webp)
+    }
+
+    private fun saveEnrollmentAvatar(webp: ByteArray) {
+        val collaborator = state.colaboradorSelecionado ?: return
+        if (!state.biometricEnrollmentCompleted || state.carregando) return
+
+        state = state.copy(
+            carregando = true,
+            enrollmentAvatarCaptured = true,
+            enrollmentAvatarPreview = webp,
+            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.UPLOADING,
+            enrollmentAvatarError = null,
+            erro = null,
+        )
+        viewModelScope.launch {
+            try {
+                val result = repository.uploadAvatar(collaborator.id, webp)
+                val updated = collaborator.copy(avatarUrl = result.avatarUrl)
+                state = state.copy(
+                    carregando = false,
+                    colaboradores = upsertCollaborator(state.colaboradores, updated),
+                    colaboradorSelecionado = updated,
+                    enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.SAVED,
+                    enrollmentAvatarUrl = result.avatarUrl,
+                    enrollmentAvatarError = null,
+                    mensagem = "Foto de perfil de ${collaborator.nome} salva. A biometria não foi alterada.",
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                state = state.copy(
+                    carregando = false,
+                    enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.FAILED,
+                    enrollmentAvatarError = "A biometria continua salva. ${SupervisorRepository.message(error)}",
+                    mensagem = "Falta apenas salvar a foto de perfil de ${collaborator.nome}.",
+                    erro = null,
                 )
             }
         }
@@ -565,17 +734,25 @@ class SupervisorViewModel(
     }
 
     fun voltarColaboradores() {
+        releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         state = state.copy(
             destination = SupervisorDestination.COLABORADORES,
             colaboradorSelecionado = null,
             biometricStepIndex = 0,
             biometricSamplesCaptured = 0,
+            biometricEnrollmentCompleted = false,
+            enrollmentAvatarCaptured = false,
+            enrollmentAvatarPreview = null,
+            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
+            enrollmentAvatarUrl = null,
+            enrollmentAvatarError = null,
             erro = null,
         )
     }
 
     fun voltarAoVivo() {
+        releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         state = state.copy(
             destination = SupervisorDestination.AO_VIVO,
@@ -590,6 +767,7 @@ class SupervisorViewModel(
     }
 
     fun sair() {
+        releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         viewModelScope.launch {
             repository.signOutSupervisor()
@@ -615,6 +793,29 @@ class SupervisorViewModel(
     private fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
         require(samples.size == BIOMETRIC_SAMPLE_COUNT) { "São necessárias 5 amostras faciais." }
         return BiometricTemplateAggregator.aggregate(samples).embedding
+    }
+
+    private fun releaseEnrollmentAvatarArtifacts() {
+        enrollmentAvatarCapture.clear()
+        state.enrollmentAvatarPreview?.fill(0)
+    }
+
+    private fun upsertCollaborator(
+        collaborators: List<Colaborador>,
+        updated: Colaborador,
+    ): List<Colaborador> {
+        val found = collaborators.any { it.id == updated.id }
+        return (if (found) {
+            collaborators.map { if (it.id == updated.id) updated else it }
+        } else {
+            collaborators + updated
+        }).sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
+    }
+
+    override fun onCleared() {
+        releaseEnrollmentAvatarArtifacts()
+        biometricSamples.clear()
+        super.onCleared()
     }
 
     companion object {

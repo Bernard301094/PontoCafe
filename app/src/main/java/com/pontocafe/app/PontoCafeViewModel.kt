@@ -96,12 +96,15 @@ class PontoCafeViewModel(
 ) : ViewModel() {
 
     private val catalogRefreshMillis = 15 * 60 * 1000L
+    private val avatarCatalogRefreshMillis = 60 * 1000L
     private val catalogMissRefreshCooldownMillis = 30 * 1000L
     private val offlineGraceMillis = 12 * 60 * 60 * 1000L
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     private var pendingOfflineEmbedding: FloatArray? = null
     private var lastCatalogMissRefreshMillis: Long = 0L
+    private var lastAvatarCatalogAttemptMillis: Long = 0L
+    private var avatarCatalogGeneration: Long = 0L
     private var lastRegisteredCollaboratorId: String? = null
     private var lastRegisteredAtMillis: Long = 0L
     private val recognitionInFlight = AtomicBoolean(false)
@@ -110,6 +113,7 @@ class PontoCafeViewModel(
     private var temporalInferenceCount: Int = 0
     private var temporalRecognitionStartedAtNanos: Long = 0L
     private val catalogSyncMutex = Mutex()
+    private val avatarCatalogSyncMutex = Mutex()
 
     var state by mutableStateOf(
         PontoCafeUiState(
@@ -156,6 +160,8 @@ class PontoCafeViewModel(
                     invalidateRecognitionSession()
                     tokenStore.save(deviceToken)
                     faceCatalogStore.clear()
+                    avatarCatalogGeneration += 1L
+                    PontoAvatarRuntime.clearCatalog()
                     offlineStore.clear()
                     pendingOfflineEmbedding = null
                     lastRegisteredCollaboratorId = null
@@ -183,6 +189,8 @@ class PontoCafeViewModel(
         invalidateRecognitionSession()
         tokenStore.clear()
         faceCatalogStore.clear()
+        avatarCatalogGeneration += 1L
+        PontoAvatarRuntime.clearCatalog()
         offlineStore.clear()
         pendingOfflineEmbedding = null
         lastRegisteredCollaboratorId = null
@@ -231,12 +239,50 @@ class PontoCafeViewModel(
 
     fun sincronizarBiometrias(force: Boolean = false) {
         if (!state.deviceConfigured || !embeddingEngine.isReady) return
+        sincronizarAvatares(force)
         viewModelScope.launch {
             // Chamadas concorrentes ficam serializadas em vez de descartar um
             // refresh forçado solicitado ao voltar do cadastro biométrico.
             catalogSyncMutex.withLock {
                 if (!state.deviceConfigured || !embeddingEngine.isReady) return@withLock
                 sincronizarBiometriasInterno(force)
+            }
+        }
+    }
+
+    /**
+     * Atualiza apenas URLs visuais. Falhas aqui não alteram o catálogo facial,
+     * não publicam erro biométrico e nunca bloqueiam o reconhecimento.
+     */
+    private fun sincronizarAvatares(force: Boolean) {
+        if (!state.deviceConfigured) return
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastAvatarCatalogAttemptMillis
+        if (
+            !force && lastAvatarCatalogAttemptMillis > 0L &&
+            elapsed >= 0L && elapsed < avatarCatalogRefreshMillis
+        ) return
+        if (!force) lastAvatarCatalogAttemptMillis = now
+        val expectedGeneration = avatarCatalogGeneration
+
+        viewModelScope.launch {
+            avatarCatalogSyncMutex.withLock {
+                val attemptAt = System.currentTimeMillis()
+                if (!force && lastAvatarCatalogAttemptMillis > now) {
+                    return@withLock
+                }
+                lastAvatarCatalogAttemptMillis = attemptAt
+                try {
+                    val avatars = withContext(Dispatchers.IO) { repository.avatarCatalog() }
+                    if (state.deviceConfigured && avatarCatalogGeneration == expectedGeneration) {
+                        PontoAvatarRuntime.updateCatalog(avatars)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    // Avatar é opcional e visual. Mantemos o último catálogo em
+                    // memória sem contaminar o estado de sincronização facial.
+                }
             }
         }
     }
@@ -330,6 +376,7 @@ class PontoCafeViewModel(
     }
 
     fun processarFrame(frame: FaceFrame) {
+        sincronizarAvatares(force = false)
         if (!state.scanning || state.carregando) {
             if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             return
@@ -564,7 +611,10 @@ class PontoCafeViewModel(
                 )
                 temporalInferenceCount = 0
                 temporalRecognitionStartedAtNanos = 0L
-                PontoAvatarRuntime.recognized(aggregateMatch.colaborador.avatarUrl)
+                PontoAvatarRuntime.recognized(
+                    aggregateMatch.colaborador.id,
+                    aggregateMatch.colaborador.avatarUrl,
+                )
                 state = state.copy(temporalConsensusCount = 0)
                 val match = aggregateMatch
                 val embedding = consensusDecision.embedding

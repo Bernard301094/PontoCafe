@@ -1,6 +1,7 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
+import com.pontocafe.app.avatar.PontoAvatarRuntime
 import java.security.cert.CertPathValidatorException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
@@ -182,10 +183,15 @@ class SupervisorRepository(
     suspend fun uploadAvatar(collaboratorId: String, webp: ByteArray): AvatarMutationResponse {
         require(webp.isNotEmpty()) { "Avatar vazio." }
         val body = webp.toRequestBody("image/webp".toMediaType())
-        return api.uploadAvatar(collaboratorId, body)
+        return api.uploadAvatar(collaboratorId, body).also { result ->
+            PontoAvatarRuntime.avatarUpdated(collaboratorId, result.avatarUrl)
+        }
     }
 
-    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse = api.deleteAvatar(collaboratorId)
+    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse =
+        api.deleteAvatar(collaboratorId).also {
+            PontoAvatarRuntime.avatarUpdated(collaboratorId, null)
+        }
 
     suspend fun saveBiometric(
         collaboratorId: String,

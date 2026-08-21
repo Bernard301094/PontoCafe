@@ -3,8 +3,6 @@ package com.pontocafe.app.data
 import android.content.Context
 import com.pontocafe.app.BuildConfig
 import java.io.IOException
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.json.JSONObject
@@ -243,29 +241,7 @@ class PontoCafeRepository(
         modelo: String,
         versaoModelo: String,
         versaoAtual: String? = null,
-    ): FaceCatalogResponse {
-        val response = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
-        if (!response.atualizado || response.templates.isEmpty()) return response
-
-        val avatars = try {
-            withTimeoutOrNull(AVATAR_CATALOG_TIMEOUT_MS) { avatarCatalog() }.orEmpty()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Throwable) {
-            emptyMap()
-        }
-        if (avatars.isEmpty()) return response
-
-        return response.copy(
-            templates = response.templates.map { template ->
-                template.copy(
-                    colaborador = template.colaborador.copy(
-                        avatarUrl = avatars[template.colaborador.id],
-                    ),
-                )
-            },
-        )
-    }
+    ): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
 
     suspend fun confirmarIdentidadeLocal(
         colaboradorId: String,
@@ -437,8 +413,6 @@ class PontoCafeRepository(
         api.sincronizarOffline(OfflineSyncRequest(eventos))
 
     companion object {
-        private const val AVATAR_CATALOG_TIMEOUT_MS = 1_000L
-
         fun isAuthFailure(error: Throwable): Boolean =
             error is HttpException && (error.code() == 401 || error.code() == 403)
 

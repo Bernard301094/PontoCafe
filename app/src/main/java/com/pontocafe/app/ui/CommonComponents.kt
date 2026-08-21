@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -285,14 +286,26 @@ fun CollaboratorAvatar(
     modifier: Modifier = Modifier,
     avatarSize: Dp = 44.dp,
 ) {
-    Box(modifier = modifier.size(avatarSize), contentAlignment = Alignment.Center) {
+    val hasAvatar = !avatarUrl.isNullOrBlank()
+    Box(
+        modifier = modifier
+            .size(avatarSize)
+            .clearAndSetSemantics {
+                contentDescription = if (hasAvatar) {
+                    "Foto de perfil de $name"
+                } else {
+                    "Sem foto de perfil para $name; exibindo iniciais"
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
         // O fallback já fica desenhado por baixo. Se a rede estiver lenta ou o
         // arquivo não existir, o usuário nunca vê um espaço vazio.
         InitialAvatar(name = name, avatarSize = avatarSize)
-        if (!avatarUrl.isNullOrBlank()) {
+        if (hasAvatar) {
             AsyncImage(
                 model = avatarUrl,
-                contentDescription = "Avatar de $name",
+                contentDescription = null,
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop,
             )

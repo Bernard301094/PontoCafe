@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -99,6 +100,22 @@ private fun supervisorEnrollmentHintV2(
 fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
     val state = viewModel.state
     val collaborator = state.colaboradorSelecionado ?: return
+    BackHandler(enabled = state.carregando) { /* Evita abandonar uma gravação biométrica em andamento. */ }
+    if (state.biometricEnrollmentCompleted) {
+        BiometricEnrollmentAvatarResult(
+            collaborator = collaborator,
+            avatarPreviewWebp = state.enrollmentAvatarPreview,
+            avatarUrl = state.enrollmentAvatarUrl ?: collaborator.avatarUrl,
+            avatarStatus = state.enrollmentAvatarStatus,
+            avatarError = state.enrollmentAvatarError,
+            message = state.mensagem,
+            busy = state.carregando,
+            onRetryAvatar = viewModel::tentarNovamenteAvatarDoCadastro,
+            onReplaceAvatar = viewModel::substituirAvatarDoCadastro,
+            onDone = viewModel::voltarColaboradores,
+        )
+        return
+    }
     val poses = remember(collaborator.id) { SupervisorEnrollmentPoseV2.entries.shuffled() }
     val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)
     val currentPose = poses[stepIndex]
@@ -186,6 +203,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
         SupervisorEnrollmentTopBarV2(
             name = collaborator.nome,
             onBack = viewModel::voltarColaboradores,
+            backEnabled = !state.carregando,
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
@@ -195,6 +213,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
                 stepIndex = stepIndex,
                 totalSteps = poses.size,
                 captured = state.biometricSamplesCaptured,
+                avatarCaptured = state.enrollmentAvatarCaptured,
                 processing = state.carregando,
                 faceModelReady = viewModel.faceModelReady,
                 cameraHint = cameraHint,
@@ -211,6 +230,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
 private fun SupervisorEnrollmentTopBarV2(
     name: String,
     onBack: () -> Unit,
+    backEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -246,7 +266,9 @@ private fun SupervisorEnrollmentTopBarV2(
                 Text("Cadastrar rosto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(name, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.66f))
             }
-            TextButton(onClick = onBack) { Text("Voltar", color = Color.White) }
+            TextButton(onClick = onBack, enabled = backEnabled) {
+                Text("Voltar", color = Color.White.copy(alpha = if (backEnabled) 1f else 0.38f))
+            }
         }
     }
 }
@@ -308,7 +330,7 @@ private fun SupervisorIdentityConfirmationCardV2(
             }
             PcStateBanner(
                 title = "Validação visual obrigatória",
-                supportingText = "Confirme que esta é a pessoa diante da câmera. O rosto ficará vinculado somente a este cadastro.",
+                supportingText = "Confirme a pessoa. Durante o cadastro, a melhor imagem frontal também será usada como foto de perfil, separada da biometria.",
                 tone = PontoCafeTone.WARNING,
             )
             PcFormActions(
@@ -327,6 +349,7 @@ private fun SupervisorEnrollmentBottomSheetV2(
     stepIndex: Int,
     totalSteps: Int,
     captured: Int,
+    avatarCaptured: Boolean,
     processing: Boolean,
     faceModelReady: Boolean,
     cameraHint: String,
@@ -408,9 +431,13 @@ private fun SupervisorEnrollmentBottomSheetV2(
                 color = Color.White.copy(alpha = 0.62f),
             )
             Text(
-                "Um único cadastro biométrico é usado no Ponto. O reconhecimento adapta o recorte da mesma captura sem exigir fotos extras.",
+                if (avatarCaptured) {
+                    "Foto de perfil capturada. Ela permanece separada da biometria facial."
+                } else {
+                    "Olhe diretamente para a câmera: a melhor imagem frontal também será usada como foto de perfil."
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.58f),
+                color = if (avatarCaptured) Color(0xFFB0F2DD) else Color.White.copy(alpha = 0.68f),
                 textAlign = TextAlign.Center,
             )
 

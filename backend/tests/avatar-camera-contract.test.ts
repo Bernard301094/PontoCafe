@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const dialog = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/CollaboratorAvatarSourceDialog.kt', import.meta.url), 'utf8')
+const cameraPermission = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/CameraPermissionComponents.kt', import.meta.url), 'utf8')
 const optimizer = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/avatar/AvatarImageOptimizer.kt', import.meta.url), 'utf8')
 const adminPeople = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPeopleScreenV4.kt', import.meta.url), 'utf8')
 const supervisorPeople = readFileSync(new URL('../../app/src/main/java/com/pontocafe/app/ui/SupervisorPeopleScreenV3.kt', import.meta.url), 'utf8')
@@ -10,8 +11,9 @@ const supervisorPeople = readFileSync(new URL('../../app/src/main/java/com/ponto
 test('seletor de avatar oferece câmera e galeria', () => {
   assert.match(dialog, /ActivityResultContracts\.TakePicturePreview\(\)/)
   assert.match(dialog, /ActivityResultContracts\.GetContent\(\)/)
-  assert.match(dialog, /RequestPermission\(\)/)
-  assert.match(dialog, /Manifest\.permission\.CAMERA/)
+  assert.match(dialog, /rememberCameraPermissionUiState\(\)/)
+  assert.match(cameraPermission, /RequestPermission\(\)/)
+  assert.match(cameraPermission, /Manifest\.permission\.CAMERA/)
   assert.match(dialog, /Tirar foto/)
   assert.match(dialog, /Galeria/)
 })

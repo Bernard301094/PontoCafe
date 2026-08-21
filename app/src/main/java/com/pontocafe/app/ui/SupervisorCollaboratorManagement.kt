@@ -385,7 +385,10 @@ fun SupervisorBiometricEnrollmentScreen(viewModel: SupervisorViewModel) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text("${state.biometricSamplesCaptured} de ${poses.size} amostras capturadas", color = Color.White.copy(alpha = 0.72f))
-                Text("A ordem das etapas muda a cada cadastro. Somente o template facial combinado e cifrado será salvo; nenhuma foto é armazenada.", color = Color.White.copy(alpha = 0.75f))
+                Text(
+                    "A ordem das etapas muda a cada cadastro. A biometria cifrada e a foto de perfil são salvas separadamente; os demais frames não são armazenados.",
+                    color = Color.White.copy(alpha = 0.75f),
+                )
                 state.mensagem?.let { Text(it, color = Color(0xFFD7F3E4)) }
                 state.erro?.let { Text(it, color = Color(0xFFFFC7C7)) }
             }
