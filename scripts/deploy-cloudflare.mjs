@@ -16,6 +16,8 @@ const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const backendDir = fileURLToPath(new URL('../backend/', import.meta.url))
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
 const avatarBucketName = 'pontocafe-avatars'
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 
 const backendPackage = JSON.parse(
   await readFile(new URL('../backend/package.json', import.meta.url), 'utf8'),
@@ -77,7 +79,7 @@ if (!/^[0-9a-f]{40}$/i.test(backendRevision)) {
 }
 
 function runWrangler(args, options = {}) {
-  return run('npx', ['wrangler', ...args], { ...options, cwd: backendDir })
+  return run(npxCommand, ['wrangler', ...args], { ...options, cwd: backendDir })
 }
 
 function ensureAvatarBucket() {
@@ -124,10 +126,10 @@ console.log(`FIRST_ADMIN_SETUP_KEY fingerprint: ${setupKeyFingerprint}`)
 console.log(`Preparing backend ${expectedApiVersion} revision: ${backendRevision}`)
 
 console.log('\n[1/6] Running backend tests and typecheck...')
-run('npm', ['--workspace', 'backend', 'run', 'validate'], { cwd: repoRoot, inherit: true })
+run(npmCommand, ['--workspace', 'backend', 'run', 'validate'], { cwd: repoRoot, inherit: true })
 
 console.log('\n[2/6] Running PontoCafe 1.0 release contract...')
-run('npm', ['run', 'release:check'], { cwd: repoRoot, inherit: true })
+run(npmCommand, ['run', 'release:check'], { cwd: repoRoot, inherit: true })
 
 console.log('\n[3/6] Validating Cloudflare Worker bundle...')
 runWrangler(['deploy', '--dry-run'], { inherit: true })
