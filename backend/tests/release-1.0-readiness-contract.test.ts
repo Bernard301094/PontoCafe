@@ -5,7 +5,10 @@ import test from 'node:test'
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
 
 const gradle = read('app/build.gradle.kts')
+const backendPackage = read('backend/package.json')
 const config = read('backend/src/config.ts')
+const application = read('backend/src/application.ts')
+const deployProduction = read('backend/scripts/deploy-production.mjs')
 const wrangler = read('backend/wrangler.jsonc')
 const reliability = read('backend/src/routes/reliability-routes.ts')
 const telemetry = read('backend/src/routes/device-telemetry-routes.ts')
@@ -15,6 +18,7 @@ const biometricUi = read('app/src/main/java/com/pontocafe/app/ui/BiometricDiagno
 const workflow = read('.github/workflows/validate.yml')
 const releaseGate = read('scripts/check-release-1.0.mjs')
 const migration = read('database/007_ponto_operation_idempotency.sql')
+const readinessIndexes = read('database/008_release_readiness_indexes.sql')
 
 test('Android candidata 1.0 mantém identidade Release e FaceNet compatível', () => {
   assert.match(gradle, /versionCode = 100/)
@@ -25,6 +29,16 @@ test('Android candidata 1.0 mantém identidade Release e FaceNet compatível', (
   assert.match(gradle, /8254aabae5cc73b8d2c15e7c589730eb3c264b87/)
   assert.match(gradle, /play-services-tflite-java:16\.5\.0/)
   assert.doesNotMatch(gradle, /play-services-tflite-gpu/)
+})
+
+test('backend e deploy publicam a mesma versão 1.0.0', () => {
+  assert.match(backendPackage, /"version"\s*:\s*"1\.0\.0"/)
+  assert.match(application, /const API_VERSION = '1\.0\.0'/)
+  assert.match(application, /apiVersion: API_VERSION/)
+  assert.match(deployProduction, /const expectedApiVersion = String\(backendPackage\.version/)
+  assert.match(deployProduction, /status\.apiVersion !== expectedApiVersion/)
+  assert.doesNotMatch(application, /apiVersion:\s*'0\.7\.0'/)
+  assert.doesNotMatch(deployProduction, /status\.apiVersion !== '0\.7\.0'/)
 })
 
 test('thresholds biométricos não são relaxados para a 1.0', () => {
@@ -73,11 +87,14 @@ test('política de versão 1.0 mantém piso compatível com integridade 0.15 no 
   assert.match(wrangler, /"DEVICE_HEALTH_RETENTION_DAYS": "30"/)
 })
 
-test('migração exactly-once continua obrigatória na 1.0', () => {
+test('migrações exactly-once e de retenção continuam obrigatórias na 1.0', () => {
   assert.match(migration, /create table if not exists operacoes_ponto_idempotentes/i)
   assert.match(migration, /REGISTRO_RAPIDO/)
   assert.match(migration, /INICIAR/)
   assert.match(migration, /FINALIZAR/)
+  assert.match(readinessIndexes, /idx_operacoes_ponto_concluido_em/)
+  assert.match(readinessIndexes, /idx_auditoria_app_health_dispositivo_criado/)
+  assert.match(readinessIndexes, /idx_auditoria_app_health_criado/)
 })
 
 test('CI deixa de ser canary e executa gates reais de backend e Android', () => {
