@@ -109,6 +109,15 @@ class SupervisorViewModel(
         viewModelScope.launch { atualizarAoVivoInterno() }
     }
 
+    private fun recoverFromAuthFailure(error: Throwable) {
+        repository.clearActiveSession()
+        state = SupervisorUiState(
+            destination = SupervisorDestination.LOGIN,
+            erro = SupervisorRepository.sessionRecoveryMessage(error),
+            conexaoAoVivoOk = false,
+        )
+    }
+
     fun atualizarPausasAoVivoSilencioso() {
         if (
             state.destination != SupervisorDestination.AO_VIVO ||
@@ -129,12 +138,7 @@ class SupervisorViewModel(
                     }
                     .onFailure { error ->
                         if (SupervisorRepository.isAuthFailure(error)) {
-                            repository.clearActiveSession()
-                            state = SupervisorUiState(
-                                destination = SupervisorDestination.LOGIN,
-                                erro = "Sua sessão expirou ou não possui acesso de supervisor.",
-                                conexaoAoVivoOk = false,
-                            )
+                            recoverFromAuthFailure(error)
                         } else {
                             state = state.copy(conexaoAoVivoOk = false)
                         }
@@ -161,12 +165,7 @@ class SupervisorViewModel(
                     }
                     .onFailure { error ->
                         if (SupervisorRepository.isAuthFailure(error)) {
-                            repository.clearActiveSession()
-                            state = SupervisorUiState(
-                                destination = SupervisorDestination.LOGIN,
-                                erro = "Sua sessão expirou ou não possui acesso de supervisor.",
-                                conexaoAoVivoOk = false,
-                            )
+                            recoverFromAuthFailure(error)
                         }
                     }
             } finally {
@@ -204,12 +203,7 @@ class SupervisorViewModel(
                 }
                 .onFailure { error ->
                     if (SupervisorRepository.isAuthFailure(error)) {
-                        repository.clearActiveSession()
-                        state = SupervisorUiState(
-                            destination = SupervisorDestination.LOGIN,
-                            erro = "Sua sessão expirou ou não possui acesso de supervisor.",
-                            conexaoAoVivoOk = false,
-                        )
+                        recoverFromAuthFailure(error)
                     } else {
                         state = state.copy(
                             destination = SupervisorDestination.AO_VIVO,
