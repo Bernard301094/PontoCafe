@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -13,6 +13,28 @@ const requiredSecrets = [
 
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
 const avatarBucketName = 'pontocafe-avatars'
+
+const backendPackage = JSON.parse(
+  await readFile(new URL('../backend/package.json', import.meta.url), 'utf8'),
+)
+const gradleSource = await readFile(new URL('../app/build.gradle.kts', import.meta.url), 'utf8')
+const backendConfigSource = await readFile(new URL('../backend/src/config.ts', import.meta.url), 'utf8')
+
+const expectedApiVersion = String(backendPackage.version || '').trim()
+const androidVersionMatch = gradleSource.match(/versionName\s*=\s*"(\d+\.\d+\.\d+)"/)
+const minimumAndroidMatch = backendConfigSource.match(/APP_MIN_ANDROID_VERSION',\s*'(\d+\.\d+\.\d+)'/)
+const expectedAndroidVersion = androidVersionMatch?.[1] || ''
+const expectedMinimumAndroidVersion = minimumAndroidMatch?.[1] || ''
+
+for (const [label, value] of [
+  ['backend/package.json', expectedApiVersion],
+  ['app/build.gradle.kts versionName', expectedAndroidVersion],
+  ['backend minimum Android version', expectedMinimumAndroidVersion],
+]) {
+  if (!/^\d+\.\d+\.\d+$/.test(value)) {
+    throw new Error(`Could not resolve a valid production version from ${label}: ${value || '(empty)'}.`)
+  }
+}
 
 const missing = requiredSecrets.filter((name) => !process.env[name]?.trim())
 if (missing.length > 0) {
@@ -97,7 +119,7 @@ async function fetchJson(url, attempts = 10) {
 }
 
 console.log(`FIRST_ADMIN_SETUP_KEY fingerprint: ${setupKeyFingerprint}`)
-console.log(`Deploying backend revision: ${backendRevision}`)
+console.log(`Deploying backend ${expectedApiVersion} revision: ${backendRevision}`)
 
 const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
@@ -129,6 +151,21 @@ try {
       `Deploy not confirmed: /app-status returned backendRevision=${String(status.backendRevision)}; expected=${backendRevision}.`,
     )
   }
+  if (status.apiVersion !== expectedApiVersion) {
+    throw new Error(
+      `API version mismatch: ${String(status.apiVersion)}; expected=${expectedApiVersion}.`,
+    )
+  }
+  if (status.latestAndroidVersion !== expectedAndroidVersion) {
+    throw new Error(
+      `Android latest-version policy mismatch: ${String(status.latestAndroidVersion)}; expected=${expectedAndroidVersion}.`,
+    )
+  }
+  if (status.minimumAndroidVersion !== expectedMinimumAndroidVersion) {
+    throw new Error(
+      `Android minimum-version policy mismatch: ${String(status.minimumAndroidVersion)}; expected=${expectedMinimumAndroidVersion}.`,
+    )
+  }
   if (health.status !== 'ok' || health.banco !== 'ok') {
     throw new Error(`Health check failed: ${JSON.stringify(health)}`)
   }
@@ -137,6 +174,8 @@ try {
   console.log(JSON.stringify({
     backendRevision,
     apiVersion: status.apiVersion,
+    latestAndroidVersion: status.latestAndroidVersion,
+    minimumAndroidVersion: status.minimumAndroidVersion,
     workerVersionId: status.workerVersionId ?? null,
     workerVersionTag: status.workerVersionTag ?? null,
     avatarBucket: avatarBucketName,
