@@ -14,7 +14,7 @@ concurrency:
 jobs:
   backend:
     name: Backend tests, typecheck and release contract
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
 
   android:
     name: Android Release tests and compile gate
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
