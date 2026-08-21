@@ -9,6 +9,32 @@ export async function cleanupExpiredDeviceRegistrations() {
   return { removed: deleted.rowCount ?? 0 }
 }
 
+export async function cleanupExpiredPontoOperations() {
+  const deleted = await query(
+    `delete from operacoes_ponto_idempotentes
+      where concluido_em < now() - ($1::text || ' days')::interval`,
+    [config.pontoOperationRetentionDays],
+  )
+  return {
+    removed: deleted.rowCount ?? 0,
+    retentionDays: config.pontoOperationRetentionDays,
+  }
+}
+
+export async function cleanupExpiredDeviceHealthTelemetry() {
+  const deleted = await query(
+    `delete from auditoria
+      where acao='APP_HEALTH'
+        and entidade='DISPOSITIVO'
+        and criado_em < now() - ($1::text || ' days')::interval`,
+    [config.deviceHealthRetentionDays],
+  )
+  return {
+    removed: deleted.rowCount ?? 0,
+    retentionDays: config.deviceHealthRetentionDays,
+  }
+}
+
 export async function cleanupExpiredBiometrics() {
   return transaction(async (client) => {
     const deleted = await client.query<{ colaborador_id: string }>(
