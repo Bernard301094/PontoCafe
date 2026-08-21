@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -50,14 +50,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminDeviceViewModel
 import com.pontocafe.app.BuildConfig
 import com.pontocafe.app.data.AdminDevice
+import com.pontocafe.app.data.SecureAdminDeviceActivationTokenStore
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -85,8 +87,13 @@ fun AdminDevicesScreenV2(
     viewModel: AdminDeviceViewModel,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val state = viewModel.state
+    val activationTokenStore = remember(context) {
+        SecureAdminDeviceActivationTokenStore(context.applicationContext)
+    }
+    var activationTokens by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var showCreate by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
@@ -97,6 +104,28 @@ fun AdminDevicesScreenV2(
         if (state.carregando || name.trim().length < 2 || pin.length !in 4..12 || pin != confirmPin) return
         focusManager.clearFocus()
         viewModel.criarDispositivo(name, pin)
+    }
+
+    // Somente tokens de ativação ainda pendentes ficam recuperáveis no aparelho
+    // do Administrador. Assim que o Ponto ativa ou é bloqueado, o segredo local é
+    // apagado. O bearer de sessão do Ponto nunca é copiado para esta área.
+    LaunchedEffect(state.dispositivos) {
+        val pendingIds = state.dispositivos
+            .asSequence()
+            .filter { it.ativo && it.statusAtivacao != "ATIVADO" }
+            .map { it.id }
+            .toSet()
+        activationTokenStore.reconcile(pendingIds)
+        activationTokens = pendingIds.mapNotNull { deviceId ->
+            activationTokenStore.read(deviceId)?.let { deviceId to it }
+        }.toMap()
+    }
+
+    LaunchedEffect(state.tokenGerado, state.tokenDeviceId) {
+        val token = state.tokenGerado ?: return@LaunchedEffect
+        val deviceId = state.tokenDeviceId ?: return@LaunchedEffect
+        activationTokenStore.save(deviceId, token)
+        activationTokens = activationTokens + (deviceId to token)
     }
 
     LaunchedEffect(state.tokenGerado, state.tokenRotacionado) {
@@ -138,9 +167,9 @@ fun AdminDevicesScreenV2(
                         }
                     }
                     PcStateBanner(
-                        title = "Visível somente agora",
-                        supportingText = "Salve este token de 10 caracteres antes de fechar. Depois, ele não poderá ser consultado novamente.",
-                        tone = PontoCafeTone.WARNING,
+                        title = "Disponível também no cartão",
+                        supportingText = "Enquanto este aparelho aguardar ativação, este token ficará cifrado neste dispositivo de Administração e poderá ser copiado novamente pelo cartão. Depois da ativação, a credencial do Ponto não é recuperável por segurança.",
+                        tone = PontoCafeTone.INFO,
                     )
                     if (tokenCopied) {
                         Text(
@@ -163,7 +192,7 @@ fun AdminDevicesScreenV2(
             },
             dismissButton = {
                 TextButton(onClick = viewModel::limparToken) {
-                    Text("Já salvei · fechar")
+                    Text("Fechar")
                 }
             },
         )
@@ -220,7 +249,7 @@ fun AdminDevicesScreenV2(
                 item(key = "actions-title") {
                     SectionTitle(
                         "Ações",
-                        "Cadastre um novo terminal ou atualize a lista de aparelhos autorizados.",
+                        "Cadastre um terminal ou atualize imediatamente o estado dos aparelhos autorizados.",
                     )
                 }
 
@@ -283,7 +312,7 @@ fun AdminDevicesScreenV2(
                                     onValueChange = { name = it.take(120) },
                                     modifier = Modifier.fillMaxWidth(),
                                     label = { Text("Nome do dispositivo") },
-                                    placeholder = { Text("Ex.: Galaxy A55 · Produção") },
+                                    placeholder = { Text("Ex.: Tablet · Linha 01") },
                                     singleLine = true,
                                     enabled = !state.carregando,
                                     shape = MaterialTheme.shapes.large,
@@ -325,11 +354,6 @@ fun AdminDevicesScreenV2(
                                     enabled = name.trim().length >= 2 && pin.length in 4..12 && pin == confirmPin,
                                     loading = state.carregando,
                                 )
-                                Text(
-                                    "Os campos só são limpos depois que o servidor confirma a criação.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
                         }
                     }
@@ -338,7 +362,7 @@ fun AdminDevicesScreenV2(
                 item(key = "devices-title") {
                     SectionTitle(
                         "Aparelhos cadastrados",
-                        "${state.dispositivos.count { it.ativo }} ativo(s) · ${state.dispositivos.count { !it.ativo }} inativo(s). Toque em Configurar somente quando precisar alterar um aparelho.",
+                        "${state.dispositivos.count { it.ativo }} com acesso · ${state.dispositivos.count { !it.ativo }} bloqueado(s). As ações principais ficam disponíveis diretamente em cada cartão.",
                     )
                 }
 
@@ -352,7 +376,11 @@ fun AdminDevicesScreenV2(
                     }
                 } else {
                     items(state.dispositivos, key = { "device-v2-${it.id}" }) { device ->
-                        DeviceCardV2(viewModel, device)
+                        DeviceCardV2(
+                            viewModel = viewModel,
+                            device = device,
+                            activationToken = activationTokens[device.id],
+                        )
                     }
                 }
             }
@@ -377,9 +405,7 @@ private fun DeviceHealthOverviewV2(viewModel: AdminDeviceViewModel) {
         title = if (healthy) "Dispositivos protegidos" else "Verifique a conexão do sistema",
         supportingText = buildString {
             append("App ${BuildConfig.VERSION_NAME} · servidor ${if (healthy) "online" else "sem confirmação"}")
-            state.appStatus?.let {
-                append(" · versão atual ${it.latestAndroidVersion}")
-            }
+            state.appStatus?.let { append(" · versão atual ${it.latestAndroidVersion}") }
         },
         icon = if (healthy) Icons.Default.Security else Icons.Default.Devices,
         tone = if (healthy) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
@@ -390,6 +416,7 @@ private fun DeviceHealthOverviewV2(viewModel: AdminDeviceViewModel) {
 private fun DeviceCardV2(
     viewModel: AdminDeviceViewModel,
     device: AdminDevice,
+    activationToken: String?,
 ) {
     val focusManager = LocalFocusManager.current
     var expanded by remember(device.id) { mutableStateOf(false) }
@@ -404,11 +431,11 @@ private fun DeviceCardV2(
     )
     val activationLabel = when (device.statusAtivacao) {
         "ATIVADO" -> "Ativado"
-        "INATIVO" -> "Inativo"
+        "INATIVO" -> "Bloqueado"
         else -> "Aguardando ativação"
     }
     val statusLabel = when {
-        !device.ativo -> "Inativo"
+        !device.ativo -> "Bloqueado"
         device.alertaSaude -> "Requer atenção"
         device.statusAtivacao != "ATIVADO" -> "Aguardando ativação"
         !device.pinConfigurado -> "Configuração pendente"
@@ -429,8 +456,8 @@ private fun DeviceCardV2(
             value = activationLabel,
             supportingText = when (device.statusAtivacao) {
                 "ATIVADO" -> "Concluída em ${formatDeviceTime(device.ativadoEm)}"
-                "INATIVO" -> "Acesso ao Ponto revogado"
-                else -> "Use o token no novo aparelho"
+                "INATIVO" -> "Acesso ao Ponto bloqueado pelo Administrador"
+                else -> "Use o token mostrado abaixo no aparelho"
             },
             tone = when (device.statusAtivacao) {
                 "ATIVADO" -> PontoCafeTone.SUCCESS
@@ -484,14 +511,17 @@ private fun DeviceCardV2(
 
     dangerAction?.let { action ->
         val title = when (action) {
-            DeviceDangerAction.DEACTIVATE -> "Desativar dispositivo?"
-            DeviceDangerAction.DELETE -> "Excluir permanentemente?"
-            DeviceDangerAction.ROTATE -> "Revogar token atual?"
+            DeviceDangerAction.DEACTIVATE -> "Bloquear acesso deste dispositivo?"
+            DeviceDangerAction.DELETE -> "Excluir dispositivo da gestão?"
+            DeviceDangerAction.ROTATE -> if (device.ativo) "Gerar um novo token?" else "Reativar com um novo token?"
         }
         val text = when (action) {
-            DeviceDangerAction.DEACTIVATE -> "O aparelho deixará de registrar pontos até receber uma nova ativação."
-            DeviceDangerAction.DELETE -> "A exclusão é definitiva. Se houver histórico de pausas, o servidor bloqueará a operação para preservar a rastreabilidade."
-            DeviceDangerAction.ROTATE -> "O token instalado deixará de funcionar e um novo token de ativação será gerado."
+            DeviceDangerAction.DEACTIVATE ->
+                "O aparelho deixará de registrar pontos imediatamente. Para voltar a usá-lo, será necessário gerar e informar um novo token de ativação."
+            DeviceDangerAction.DELETE ->
+                "O dispositivo será removido desta lista. Se ele já tiver registros de ponto, o histórico será preservado para auditoria em vez de ser destruído."
+            DeviceDangerAction.ROTATE ->
+                "A credencial anterior será revogada e um novo token de 10 caracteres será gerado para este dispositivo."
         }
         AlertDialog(
             onDismissRequest = { dangerAction = null },
@@ -500,7 +530,7 @@ private fun DeviceCardV2(
                 PcDialogBody {
                     Text(text)
                     PcStateBanner(
-                        title = "Ação restrita ao Administrador",
+                        title = "Ação administrativa",
                         supportingText = "A alteração será registrada na auditoria do sistema.",
                         tone = PontoCafeTone.WARNING,
                     )
@@ -509,9 +539,9 @@ private fun DeviceCardV2(
             confirmButton = {
                 PcDangerButton(
                     text = when (action) {
-                        DeviceDangerAction.DEACTIVATE -> "Desativar"
-                        DeviceDangerAction.DELETE -> "Excluir"
-                        DeviceDangerAction.ROTATE -> "Revogar e gerar novo"
+                        DeviceDangerAction.DEACTIVATE -> "Bloquear acesso"
+                        DeviceDangerAction.DELETE -> "Excluir dispositivo"
+                        DeviceDangerAction.ROTATE -> if (device.ativo) "Revogar e gerar novo" else "Reativar e gerar token"
                     },
                     onClick = {
                         when (action) {
@@ -533,9 +563,7 @@ private fun DeviceCardV2(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics {
-                stateDescription = statusLabel
-            },
+            .semantics { stateDescription = statusLabel },
         colors = CardDefaults.cardColors(
             containerColor = if (device.alertaSaude) {
                 MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.30f)
@@ -553,7 +581,7 @@ private fun DeviceCardV2(
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -570,25 +598,77 @@ private fun DeviceCardV2(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "ID ${device.id.take(8)} · ${if (device.ativo) "acesso ativo" else "acesso inativo"}",
+                        "ID ${device.id.take(8)} · ${if (device.ativo) "acesso permitido" else "acesso bloqueado"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                StatusPill(
-                    statusLabel,
-                    statusTone,
-                )
+                StatusPill(statusLabel, statusTone)
             }
 
             DeviceFactsPanel(deviceFacts)
+            DeviceTokenPanel(device = device, activationToken = activationToken)
 
-            PcTonalButton(
-                text = if (expanded) "Fechar configuração" else "Configurar aparelho",
-                icon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                onClick = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth(),
+            SectionTitle(
+                "Gerenciar dispositivo",
+                "Editar, bloquear ou excluir ficam disponíveis diretamente neste cartão.",
             )
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stack = maxWidth < 620.dp || LocalDensity.current.fontScale >= 1.3f
+                if (stack) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        PcTonalButton(
+                            text = if (expanded) "Fechar edição" else "Editar dispositivo",
+                            icon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            onClick = { expanded = !expanded },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !viewModel.state.carregando,
+                        )
+                        PcSecondaryButton(
+                            text = if (device.ativo) "Bloquear acesso" else "Reativar com novo token",
+                            onClick = {
+                                dangerAction = if (device.ativo) DeviceDangerAction.DEACTIVATE else DeviceDangerAction.ROTATE
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !viewModel.state.carregando,
+                            contentColor = if (device.ativo) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                        PcSecondaryButton(
+                            text = "Excluir dispositivo",
+                            onClick = { dangerAction = DeviceDangerAction.DELETE },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !viewModel.state.carregando,
+                            contentColor = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        PcTonalButton(
+                            text = if (expanded) "Fechar edição" else "Editar",
+                            icon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            onClick = { expanded = !expanded },
+                            modifier = Modifier.weight(1f),
+                            enabled = !viewModel.state.carregando,
+                        )
+                        PcSecondaryButton(
+                            text = if (device.ativo) "Bloquear" else "Reativar",
+                            onClick = {
+                                dangerAction = if (device.ativo) DeviceDangerAction.DEACTIVATE else DeviceDangerAction.ROTATE
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !viewModel.state.carregando,
+                            contentColor = if (device.ativo) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
+                        PcSecondaryButton(
+                            text = "Excluir",
+                            onClick = { dangerAction = DeviceDangerAction.DELETE },
+                            modifier = Modifier.weight(1f),
+                            enabled = !viewModel.state.carregando,
+                            contentColor = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
 
             AnimatedVisibility(visible = expanded) {
                 Column(
@@ -597,7 +677,7 @@ private fun DeviceCardV2(
                 ) {
                     SectionTitle(
                         "Identificação",
-                        "Altere apenas o nome exibido no painel; o ID do aparelho não muda.",
+                        "O nome pode ser alterado sem modificar o ID do dispositivo.",
                     )
                     OutlinedTextField(
                         value = newName,
@@ -622,98 +702,155 @@ private fun DeviceCardV2(
                         enabled = !viewModel.state.carregando && newName.trim().length >= 2 && newName.trim() != device.nome,
                     )
 
-                    if (device.ativo) {
-                        SectionTitle(
-                            "Segurança",
-                            if (device.pinConfigurado) "Defina um novo PIN somente quando precisar substituir o atual." else "Este aparelho ainda precisa de um PIN próprio.",
-                        )
-                        SecurePinFieldV2(
-                            label = "Novo PIN",
-                            value = newPin,
-                            enabled = !viewModel.state.carregando,
-                            imeAction = ImeAction.Next,
-                            keyboardActions = KeyboardActions(
-                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                            ),
-                            onValueChange = { newPin = it },
-                        )
-                        SecurePinFieldV2(
-                            label = "Confirmar novo PIN",
-                            value = confirmPin,
-                            enabled = !viewModel.state.carregando,
-                            imeAction = ImeAction.Done,
-                            keyboardActions = KeyboardActions(onDone = { savePin() }),
-                            isError = newPin.isNotBlank() && confirmPin.isNotBlank() && newPin != confirmPin,
-                            onValueChange = { confirmPin = it },
-                        )
-                        if (newPin.isNotBlank() && confirmPin.isNotBlank() && newPin != confirmPin) {
-                            Text(
-                                "Os PINs não coincidem.",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        PcSecondaryButton(
-                            text = if (device.pinConfigurado) "Alterar PIN" else "Definir PIN",
-                            onClick = ::savePin,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !viewModel.state.carregando && newPin.length in 4..12 && newPin == confirmPin,
+                    SectionTitle(
+                        "PIN de desbloqueio",
+                        if (device.ativo) {
+                            "Defina um novo PIN para este terminal."
+                        } else {
+                            "Você pode preparar um novo PIN mesmo com o acesso bloqueado."
+                        },
+                    )
+                    SecurePinFieldV2(
+                        label = "Novo PIN",
+                        value = newPin,
+                        enabled = !viewModel.state.carregando,
+                        imeAction = ImeAction.Next,
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        ),
+                        onValueChange = { newPin = it },
+                    )
+                    SecurePinFieldV2(
+                        label = "Confirmar novo PIN",
+                        value = confirmPin,
+                        enabled = !viewModel.state.carregando,
+                        imeAction = ImeAction.Done,
+                        keyboardActions = KeyboardActions(onDone = { savePin() }),
+                        isError = newPin.isNotBlank() && confirmPin.isNotBlank() && newPin != confirmPin,
+                        onValueChange = { confirmPin = it },
+                    )
+                    if (newPin.isNotBlank() && confirmPin.isNotBlank() && newPin != confirmPin) {
+                        Text(
+                            "Os PINs não coincidem.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                    PcSecondaryButton(
+                        text = if (device.pinConfigurado) "Alterar PIN" else "Definir PIN",
+                        onClick = ::savePin,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !viewModel.state.carregando && newPin.length in 4..12 && newPin == confirmPin,
+                    )
 
                     SectionTitle(
-                        "Ações do aparelho",
-                        "Tokens e estado de ativação afetam o acesso deste dispositivo ao Ponto Café.",
+                        "Token e ativação",
+                        "Gerar um novo token revoga a credencial anterior e exige nova ativação no aparelho.",
                     )
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        val stackActions = maxWidth < 460.dp || LocalDensity.current.fontScale >= 1.3f
-                        if (stackActions) {
-                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                PcSecondaryButton(
-                                    text = "Gerar novo token",
-                                    onClick = { dangerAction = DeviceDangerAction.ROTATE },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = !viewModel.state.carregando,
-                                )
-                                PcSecondaryButton(
-                                    text = "Desativar aparelho",
-                                    onClick = { dangerAction = DeviceDangerAction.DEACTIVATE },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = device.ativo && !viewModel.state.carregando,
-                                    contentColor = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                                PcSecondaryButton(
-                                    text = "Novo token",
-                                    onClick = { dangerAction = DeviceDangerAction.ROTATE },
-                                    modifier = Modifier.weight(1f),
-                                    enabled = !viewModel.state.carregando,
-                                )
-                                PcSecondaryButton(
-                                    text = "Desativar",
-                                    onClick = { dangerAction = DeviceDangerAction.DEACTIVATE },
-                                    modifier = Modifier.weight(1f),
-                                    enabled = device.ativo && !viewModel.state.carregando,
-                                    contentColor = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
-                    }
-
-                    PcStateBanner(
-                        title = "Zona de risco",
-                        supportingText = "Excluir é permanente e pode ser bloqueado pelo servidor quando houver histórico que precise ser preservado.",
-                        tone = PontoCafeTone.DANGER,
-                    )
-                    TextButton(
-                        onClick = { dangerAction = DeviceDangerAction.DELETE },
+                    PcSecondaryButton(
+                        text = "Gerar novo token",
+                        onClick = { dangerAction = DeviceDangerAction.ROTATE },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !viewModel.state.carregando,
-                    ) {
-                        Text("Excluir permanentemente", color = MaterialTheme.colorScheme.error)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceTokenPanel(
+    device: AdminDevice,
+    activationToken: String?,
+) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember(device.id, activationToken) { mutableStateOf(false) }
+    val pending = device.ativo && device.statusAtivacao != "ATIVADO"
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = when {
+            activationToken != null -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+            pending -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.52f)
+            else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        ) {
+            Text(
+                "Token do dispositivo",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            when {
+                activationToken != null -> {
+                    SelectionContainer {
+                        Text(
+                            activationToken,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
+                    Text(
+                        "Token de ativação pendente. Use este código de 10 caracteres no aparelho correspondente.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    PcSecondaryButton(
+                        text = if (copied) "Token copiado" else "Copiar token",
+                        icon = Icons.Default.ContentCopy,
+                        onClick = {
+                            clipboard.setText(AnnotatedString(activationToken))
+                            copied = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                pending -> {
+                    Text(
+                        "Token de ativação não disponível neste aparelho",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Por segurança, tokens antigos não podem ser reconstruídos a partir do banco. Gere um novo token neste cartão para substituir o anterior.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                !device.ativo -> {
+                    Text(
+                        "Acesso bloqueado",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "A credencial anterior não pode registrar pontos. Reative o aparelho gerando um novo token.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                else -> {
+                    Text(
+                        "Credencial ativa protegida no aparelho",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Depois da ativação, o Ponto troca o código de 10 caracteres por uma credencial longa que fica somente no dispositivo. Ela não é exibida no Admin; para substituí-la, gere um novo token.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -741,12 +878,8 @@ private fun DeviceFactsPanel(facts: List<DeviceFact>) {
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        rowFacts.forEach { fact ->
-                            DeviceFactCell(fact, Modifier.weight(1f))
-                        }
-                        repeat(columns - rowFacts.size) {
-                            Box(modifier = Modifier.weight(1f))
-                        }
+                        rowFacts.forEach { fact -> DeviceFactCell(fact, Modifier.weight(1f)) }
+                        repeat(columns - rowFacts.size) { Box(modifier = Modifier.weight(1f)) }
                     }
                 }
             }
