@@ -1,5 +1,9 @@
 package com.pontocafe.app.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +26,14 @@ import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,11 +41,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SecureAdminSessionStore
+import com.pontocafe.app.notifications.SupervisorAlertNotifier
+import com.pontocafe.app.notifications.SupervisorNotificationAvailability
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -62,6 +71,32 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val activeAccount = remember(sessionStore, state.sessaoAdministrativa) { sessionStore.activeAccount() }
     val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
     val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
+    val appContext = context.applicationContext
+    var notificationAvailability by remember {
+        mutableStateOf<SupervisorNotificationAvailability?>(null)
+    }
+    var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationPermissionDenied = !granted
+        notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+    }
+
+    LaunchedEffect(appContext) {
+        SupervisorAlertNotifier.ensureChannel(appContext)
+        notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+    }
+
+    DisposableEffect(lifecycleOwner, appContext) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -107,6 +142,46 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
         latestReturn = state.ultimoRetorno,
     )
+    val notificationPrompt = when (notificationAvailability) {
+        SupervisorNotificationAvailability.PERMISSION_REQUIRED -> Triple(
+            "Ative os alertas do Supervisor",
+            "O Android precisa da sua permissão para mostrar e vibrar nos novos eventos.",
+            if (notificationPermissionDenied) "Abrir ajustes" else "Permitir notificações",
+        )
+        SupervisorNotificationAvailability.APP_DISABLED -> Triple(
+            "Notificações desativadas no Android",
+            "Os eventos continuam no painel, mas o sistema não pode avisar fora dele.",
+            "Abrir ajustes",
+        )
+        SupervisorNotificationAvailability.CHANNEL_DISABLED -> Triple(
+            "Canal de alertas desativado",
+            "Ative o canal de saídas, retornos e excessos nos ajustes do sistema.",
+            "Revisar canal",
+        )
+        SupervisorNotificationAvailability.VIBRATION_DISABLED -> Triple(
+            "Vibração dos alertas desativada",
+            "As notificações serão exibidas sem vibrar, conforme a configuração atual do canal.",
+            "Revisar canal",
+        )
+        SupervisorNotificationAvailability.ENABLED,
+        null -> null
+    }
+    val notificationAction = {
+        val availability = notificationAvailability
+        if (
+            availability == SupervisorNotificationAvailability.PERMISSION_REQUIRED &&
+            !notificationPermissionDenied &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            SupervisorAlertNotifier.openSettings(
+                context = appContext,
+                channelSpecific = availability == SupervisorNotificationAvailability.CHANNEL_DISABLED ||
+                    availability == SupervisorNotificationAvailability.VIBRATION_DISABLED,
+            )
+        }
+    }
     val pendingFaces = remember(state.colaboradores) { state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() } }
     val nowSnapshot = System.currentTimeMillis()
     val overdue = state.pausasAtivas.count { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
@@ -136,6 +211,17 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     )
                 }
                 item("connection") { SupervisorConnectionBanner(state.conexaoAoVivoOk, state.ultimaAtualizacaoAoVivoEmMillis) }
+                notificationPrompt?.let { (title, text, actionLabel) ->
+                    item("notification-${notificationAvailability?.name}") {
+                        OperationalAlertCard(
+                            title = title,
+                            text = text,
+                            actionLabel = actionLabel,
+                            onClick = notificationAction,
+                            tone = PontoCafeTone.WARNING,
+                        )
+                    }
+                }
                 alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
                 item("attention") {
                     OperationalPauseOverview(

@@ -1,11 +1,5 @@
 package com.pontocafe.app.ui
 
-import android.content.Context
-import android.media.RingtoneManager
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
+import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import java.time.LocalDate
 import kotlinx.coroutines.delay
 
@@ -151,7 +146,12 @@ fun rememberSupervisorLiveActivityAlert(
         }
 
         transientAlert = novoAlerta
-        emitSupervisorLiveAlert(context, novoAlerta.type)
+        SupervisorAlertNotifier.notify(
+            context = context,
+            eventType = novoAlerta.type,
+            title = novoAlerta.title,
+            message = novoAlerta.message,
+        )
     }
 
     LaunchedEffect(transientAlert?.id) {
@@ -238,29 +238,4 @@ private fun nomesParaAlerta(pausas: List<PausaSupervisor>): String = when (pausa
     1 -> pausas.first().nome
     2 -> "${pausas[0].nome} e ${pausas[1].nome}"
     else -> "${pausas.take(2).joinToString(", ") { it.nome }} e mais ${pausas.size - 2}"
-}
-
-private fun emitSupervisorLiveAlert(context: Context, type: String) {
-    runCatching {
-        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        RingtoneManager.getRingtone(context, uri)?.play()
-    }
-
-    runCatching {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            manager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
-        val pattern = when (type) {
-            SupervisorLiveAlertType.RETORNO.name -> longArrayOf(0, 90, 70, 90)
-            SupervisorLiveAlertType.EXCESSO.name -> longArrayOf(0, 260, 100, 260, 100, 420)
-            SupervisorLiveAlertType.MISTO.name -> longArrayOf(0, 140, 70, 140, 70, 140)
-            else -> longArrayOf(0, 180, 90, 260)
-        }
-        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-    }
 }

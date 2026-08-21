@@ -1,6 +1,6 @@
 package com.pontocafe.app.ui
 
-import android.view.HapticFeedbackConstants
+import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,7 +53,7 @@ fun PointReceiptScreen(viewModel: PontoCafeViewModel) {
 
     LaunchedEffect(comprovante, totalVisibleMillis) {
         view.performHapticFeedback(
-            if (withinLimit) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT,
+            if (withinLimit) HapticFeedbackConstantsCompat.CONFIRM else HapticFeedbackConstantsCompat.REJECT,
         )
         var elapsed = 0L
         while (elapsed < totalVisibleMillis) {

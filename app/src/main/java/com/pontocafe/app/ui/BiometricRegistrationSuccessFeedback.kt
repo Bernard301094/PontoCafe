@@ -1,6 +1,6 @@
 package com.pontocafe.app.ui
 
-import android.view.HapticFeedbackConstants
+import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,7 +53,7 @@ fun BiometricRegistrationSuccessFeedback(
 
     LaunchedEffect(successMessage) {
         if (successMessage == null) return@LaunchedEffect
-        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        view.performHapticFeedback(HapticFeedbackConstantsCompat.CONFIRM)
         delay(BIOMETRIC_SUCCESS_VISIBLE_MILLIS)
         onDismiss()
     }

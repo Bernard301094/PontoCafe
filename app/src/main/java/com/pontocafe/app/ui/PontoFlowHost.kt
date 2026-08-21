@@ -3,7 +3,7 @@ package com.pontocafe.app.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.view.HapticFeedbackConstants
+import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -312,7 +312,7 @@ private fun FastPointBlockedOverlay(
 
     LaunchedEffect(nome, mensagemExibida, reason) {
         runCatching {
-            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            view.performHapticFeedback(HapticFeedbackConstantsCompat.REJECT)
         }
         delay(
             if (repeatedPause) USED_BREAK_WARNING_VISIBLE_MILLIS
@@ -438,7 +438,7 @@ private fun FastPointReceiptOverlay(
     LaunchedEffect(comprovante) {
         runCatching {
             view.performHapticFeedback(
-                if (warning) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.CONFIRM,
+                if (warning) HapticFeedbackConstantsCompat.REJECT else HapticFeedbackConstantsCompat.CONFIRM,
             )
         }
 

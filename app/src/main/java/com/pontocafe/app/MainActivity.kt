@@ -30,6 +30,7 @@ import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
 import com.pontocafe.app.data.SupervisorApiClient
+import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import com.pontocafe.app.ui.AdminArea
 import com.pontocafe.app.ui.DeviceSetupScreen
 import com.pontocafe.app.ui.PontoCafeTheme
@@ -47,6 +48,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         appHealthMonitor = AppHealthMonitor(applicationContext).also { it.start() }
+        SupervisorAlertNotifier.ensureChannel(applicationContext)
 
         val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
         val navigationStore = AppNavigationStateStore(applicationContext)

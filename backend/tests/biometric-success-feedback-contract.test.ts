@@ -17,7 +17,7 @@ const supervisorShell = readFileSync(
 
 test('cadastro biométrico exibe confirmação animada, háptica e identificada', () => {
   assert.match(feedback, /PontoCafeSuccessAnimation/)
-  assert.match(feedback, /HapticFeedbackConstants\.CONFIRM/)
+  assert.match(feedback, /HapticFeedbackConstantsCompat\.CONFIRM/)
   assert.match(feedback, /Rosto cadastrado com sucesso!/)
   assert.match(feedback, /Biometria pronta/)
   assert.match(feedback, /employeeName/)
