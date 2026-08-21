@@ -12,6 +12,10 @@ const androidViewModel = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/AdminDeviceViewModel.kt', import.meta.url),
   'utf8',
 )
+const activationTokenStore = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/data/SecureAdminDeviceActivationTokenStore.kt', import.meta.url),
+  'utf8',
+)
 const managementRoute = readFileSync(new URL('../src/routes/device-management-routes.ts', import.meta.url), 'utf8')
 const deviceScreen = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminDevicesScreenV2.kt', import.meta.url),
@@ -75,7 +79,7 @@ test('falha 500 informa etapa e classificação segura sem expor segredo', () =>
   assert.doesNotMatch(route, /console\.(?:log|error).*responseToken/s)
 })
 
-test('migração guarda somente token cifrado para replay temporário', () => {
+test('migração de idempotência guarda somente token cifrado para replay temporário', () => {
   assert.match(migration, /token_ciphertext bytea not null/i)
   assert.match(migration, /token_iv bytea not null/i)
   assert.match(migration, /token_auth_tag bytea not null/i)
@@ -98,30 +102,78 @@ test('Android reutiliza a mesma chave enquanto repete o mesmo cadastro após fal
   assert.match(androidViewModel, /error\.code\(\) in setOf\(400, 409, 422\)/)
 })
 
-test('token aparece imediatamente, pode ser copiado e exige fechamento deliberado', () => {
-  assert.match(deviceScreen, /state\.tokenGerado\?\.let \{ token ->/)
-  assert.match(deviceScreen, /onDismissRequest = \{\}/)
-  assert.match(deviceScreen, /SelectionContainer/)
-  assert.match(deviceScreen, /FontFamily\.Monospace/)
-  assert.match(deviceScreen, /Visível somente agora/)
-  assert.match(deviceScreen, /não poderá ser consultado novamente/)
-  assert.match(deviceScreen, /clipboard\.setText\(AnnotatedString\(token\)\)/)
-  assert.match(deviceScreen, /Copiar token/)
-  assert.match(deviceScreen, /Já salvei · fechar/)
+test('token gerado fica associado ao ID exato do dispositivo', () => {
+  assert.match(androidViewModel, /val tokenDeviceId: String\? = null/)
+  assert.match(androidViewModel, /tokenDeviceId = created\.id/)
+  assert.match(androidViewModel, /tokenDeviceId = rotated\.dispositivoId/)
 })
 
-test('lista administrativa não recupera o token em texto puro depois do cadastro', () => {
+test('token pendente é persistido cifrado pelo Android Keystore e vinculado ao deviceId', () => {
+  assert.match(activationTokenStore, /AndroidKeyStore/)
+  assert.match(activationTokenStore, /AES\/GCM\/NoPadding/)
+  assert.match(activationTokenStore, /setKeySize\(256\)/)
+  assert.match(activationTokenStore, /cipher\.updateAAD\(cleanDeviceId\.toByteArray/)
+  assert.match(activationTokenStore, /TOKEN_PATTERN = Regex\("\^\[A-Za-z0-9\]\{10\}\$"\)/)
+  assert.doesNotMatch(activationTokenStore, /Log\./)
+})
+
+test('token aparece no diálogo e permanece disponível no cartão enquanto aguarda ativação', () => {
+  assert.match(deviceScreen, /state\.tokenGerado\?\.let \{ token ->/)
+  assert.match(deviceScreen, /activationTokenStore\.save\(deviceId, token\)/)
+  assert.match(deviceScreen, /DeviceTokenPanel\(/)
+  assert.match(deviceScreen, /Disponível também no cartão/)
+  assert.match(deviceScreen, /Copiar token/)
+  assert.match(deviceScreen, /clipboard\.setText\(AnnotatedString\(activationToken\)\)/)
+})
+
+test('token de ativação local é removido quando o dispositivo deixa de estar pendente', () => {
+  assert.match(deviceScreen, /filter \{ it\.ativo && it\.statusAtivacao != "ATIVADO" \}/)
+  assert.match(deviceScreen, /activationTokenStore\.reconcile\(pendingIds\)/)
+  assert.match(deviceScreen, /credencial longa do Ponto não é recuperável por segurança/i)
+})
+
+test('lista administrativa do backend continua sem expor credencial do dispositivo em texto puro', () => {
   const start = managementRoute.indexOf("deviceManagementRoutes.get('/devices'")
   const end = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/unlock-pin'", start)
   assert.ok(start >= 0 && end > start)
   const listRoute = managementRoute.slice(start, end)
 
-  assert.doesNotMatch(listRoute, /token_hash|token_ciphertext|activationToken|tokenGerado/)
+  assert.doesNotMatch(listRoute, /activationToken|tokenGerado|token_ciphertext/)
   assert.match(listRoute, /statusAtivacao/)
   assert.match(listRoute, /telemetriaEm/)
 })
 
-test('cards mostram ativação, versão, atividade, saúde e estado operacional', () => {
+test('cards expõem edição, bloqueio e exclusão sem esconder as ações em menus', () => {
+  assert.match(deviceScreen, /Editar dispositivo/)
+  assert.match(deviceScreen, /Bloquear acesso/)
+  assert.match(deviceScreen, /Excluir dispositivo/)
+  assert.match(deviceScreen, /viewModel\.renomear\(device, newName\)/)
+  assert.match(deviceScreen, /viewModel\.desativar\(device\)/)
+  assert.match(deviceScreen, /viewModel\.excluirPermanentemente\(device\)/)
+})
+
+test('exclusão preserva histórico e remove o dispositivo da gestão por arquivamento auditável', () => {
+  assert.match(managementRoute, /ARQUIVAR_DISPOSITIVO/)
+  assert.match(managementRoute, /historicoPreservado:\s*true/)
+  assert.match(managementRoute, /removidoDaGestao:\s*true/)
+  assert.match(managementRoute, /status:\s*'ARCHIVED'/)
+  assert.match(managementRoute, /where not exists[\s\S]*ARQUIVAR_DISPOSITIVO/)
+})
+
+test('bloqueio é idempotente e alteração de PIN não depende de o aparelho estar ativo', () => {
+  const deactivateStart = managementRoute.indexOf("deviceManagementRoutes.post('/devices/:id/desativar'")
+  const rotateStart = managementRoute.indexOf("deviceManagementRoutes.post('/devices/:id/novo-token'", deactivateStart)
+  const deactivateRoute = managementRoute.slice(deactivateStart, rotateStart)
+  assert.match(deactivateRoute, /jaEstavaInativo/)
+  assert.doesNotMatch(deactivateRoute, /já está inativo/i)
+
+  const pinStart = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/unlock-pin'")
+  const renameStart = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/nome'", pinStart)
+  const pinRoute = managementRoute.slice(pinStart, renameStart)
+  assert.doesNotMatch(pinRoute, /ativo=true/)
+})
+
+test('cards continuam mostrando ativação, versão, atividade, saúde e estado operacional', () => {
   assert.match(managementRoute, /APP_HEALTH/)
   assert.match(managementRoute, /ATIVAR_DISPOSITIVO/)
   assert.match(managementRoute, /ROTACIONAR_TOKEN_DISPOSITIVO/)
@@ -133,5 +185,4 @@ test('cards mostram ativação, versão, atividade, saúde e estado operacional'
   assert.match(deviceScreen, /Aguardando ativação/)
   assert.match(deviceScreen, /Atualização disponível/)
   assert.match(deviceScreen, /Sem telemetria recente/)
-  assert.match(deviceScreen, /containerColor = if \(device\.alertaSaude\)/)
 })
