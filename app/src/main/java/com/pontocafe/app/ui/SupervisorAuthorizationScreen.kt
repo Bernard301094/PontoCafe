@@ -9,15 +9,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
@@ -40,10 +44,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,9 +80,9 @@ private const val LegacyPeriodPlaceholder = "MANHA"
 fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     val state = viewModel.state
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
-    var busca by remember { mutableStateOf("") }
-    var motivoRapido by remember { mutableStateOf<String?>(null) }
-    var outroMotivo by remember { mutableStateOf("") }
+    var busca by rememberSaveable { mutableStateOf("") }
+    var motivoRapido by rememberSaveable { mutableStateOf<String?>(null) }
+    var outroMotivo by rememberSaveable { mutableStateOf("") }
     var confirmarLiberacao by remember { mutableStateOf(false) }
     var confirmarCancelamento by remember { mutableStateOf(false) }
 
@@ -108,7 +120,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             onDismissRequest = { if (!state.carregando) confirmarLiberacao = false },
             title = { Text("Confirmar liberação") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PcDialogBody {
                     Text(
                         "Liberar ${selecionado!!.nome}?",
                         style = MaterialTheme.typography.titleMedium,
@@ -126,17 +138,16 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 }
             },
             confirmButton = {
-                Button(
+                PcPrimaryButton(
+                    text = "Liberar pausa",
                     onClick = {
                         confirmarLiberacao = false
                         selecionado?.let {
                             viewModel.gerarAutorizacao(it, LegacyPeriodPlaceholder, motivoFinal)
                         }
                     },
-                    enabled = !state.carregando,
-                ) {
-                    Text("Liberar pausa")
-                }
+                    loading = state.carregando,
+                )
             },
             dismissButton = {
                 TextButton(
@@ -154,26 +165,23 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             onDismissRequest = { if (!state.carregando) confirmarCancelamento = false },
             title = { Text("Cancelar liberação?") },
             text = {
-                Text(
-                    "${selecionado!!.nome} deixará de poder iniciar esta pausa fora do horário. Se a liberação já tiver sido usada, o servidor não permitirá o cancelamento.",
-                )
+                PcDialogBody {
+                    Text(
+                        "${selecionado!!.nome} deixará de poder iniciar esta pausa fora do horário. Se a liberação já tiver sido usada, o servidor não permitirá o cancelamento.",
+                    )
+                }
             },
             confirmButton = {
-                Button(
+                PcDangerButton(
+                    text = "Cancelar liberação",
                     onClick = {
                         confirmarCancelamento = false
                         selecionado?.let {
                             viewModel.cancelarAutorizacao(it, LegacyPeriodPlaceholder)
                         }
                     },
-                    enabled = !state.carregando,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                    ),
-                ) {
-                    Text("Cancelar liberação")
-                }
+                    loading = state.carregando,
+                )
             },
             dismissButton = {
                 TextButton(
@@ -186,18 +194,21 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .navigationBarsPadding(),
-    ) {
+    PontoCafeResponsivePage(maxContentWidth = 900.dp) { responsive ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
             contentPadding = PaddingValues(
-                start = PontoCafeSpacing.lg,
-                end = PontoCafeSpacing.lg,
+                start = responsive.pagePadding,
+                end = responsive.pagePadding,
                 top = PontoCafeSpacing.md,
                 bottom = PontoCafeSpacing.xl,
             ),
@@ -255,6 +266,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 }
 
                 item(key = "search") {
+                    val focusManager = LocalFocusManager.current
                     OutlinedTextField(
                         value = busca,
                         onValueChange = { busca = it },
@@ -263,6 +275,8 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         placeholder = { Text("Digite o nome") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                         shape = RoundedCornerShape(20.dp),
                     )
                 }
@@ -303,7 +317,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         }
                     }
                 } else {
-                    items(filtrados.take(60), key = { "liberacao-${it.id}" }) { colaborador ->
+                    items(filtrados, key = { "liberacao-${it.id}" }) { colaborador ->
                         AuthorizationEmployeeRow(
                             collaborator = colaborador,
                             onClick = {
@@ -368,6 +382,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
 
                 if (motivoRapido == "Outro") {
                     item(key = "other-reason") {
+                        val focusManager = LocalFocusManager.current
                         OutlinedTextField(
                             value = outroMotivo,
                             onValueChange = { outroMotivo = it.take(300) },
@@ -376,7 +391,10 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                             placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
                             minLines = 3,
                             maxLines = 5,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                             shape = RoundedCornerShape(20.dp),
+                            isError = outroMotivo.isNotBlank() && !motivoValido,
                             supportingText = {
                                 Text(
                                     "${outroMotivo.length}/300",
@@ -406,8 +424,8 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             ) {
                 Column(
                     modifier = Modifier.padding(
-                        start = PontoCafeSpacing.lg,
-                        end = PontoCafeSpacing.lg,
+                        start = responsive.pagePadding,
+                        end = responsive.pagePadding,
                         top = PontoCafeSpacing.sm,
                         bottom = PontoCafeSpacing.md,
                     ),
@@ -420,24 +438,13 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Button(
+                    PcPrimaryButton(
+                        text = "Liberar pausa",
                         onClick = { confirmarLiberacao = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(58.dp),
-                        enabled = motivoValido && !state.carregando,
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        Text(
-                            if (state.carregando) "Liberando..." else "Liberar pausa",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = motivoValido,
+                        loading = state.carregando,
+                    )
                     if (!motivoValido) {
                         Text(
                             "Selecione um motivo para habilitar a liberação.",
@@ -449,6 +456,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -535,7 +543,12 @@ private fun AutomaticPeriodCard() {
 @Composable
 private fun AuthorizationFeedbackCard(text: String, error: Boolean) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = if (error) LiveRegionMode.Assertive else LiveRegionMode.Polite
+                stateDescription = text
+            },
         shape = RoundedCornerShape(18.dp),
         color = if (error) {
             MaterialTheme.colorScheme.errorContainer
@@ -607,7 +620,12 @@ private fun AuthorizationStepHeader(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                title,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -845,25 +863,21 @@ private fun AuthorizationReleasedCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            OutlinedButton(
+            PcSecondaryButton(
+                text = "Cancelar liberação",
                 onClick = onCancel,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.60f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) {
-                Text(if (loading) "Processando..." else "Cancelar liberação", fontWeight = FontWeight.SemiBold)
-            }
+                loading = loading,
+                contentColor = MaterialTheme.colorScheme.error,
+            )
 
-            Button(
+            PcPrimaryButton(
+                text = "Liberar outra pessoa",
                 onClick = onAnother,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Text("Liberar outra pessoa")
-            }
+            )
         }
     }
 }

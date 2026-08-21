@@ -6,13 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
@@ -20,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,7 +75,11 @@ fun PcHeroCard(
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                stateDescription = tone.accessibilityLabel()
+            },
         colors = CardDefaults.cardColors(containerColor = container),
         shape = MaterialTheme.shapes.extraLarge,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -90,6 +104,7 @@ fun PcHeroCard(
             ) {
                 Text(
                     title,
+                    modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -117,7 +132,10 @@ fun PcMetricTile(
     val container = if (attention) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLow
 
     Card(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label: $value"
+            if (attention) stateDescription = "Requer atenção"
+        },
         colors = CardDefaults.cardColors(containerColor = container),
         shape = MaterialTheme.shapes.large,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -161,7 +179,12 @@ fun PcActionTile(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier
+            .defaultMinSize(minHeight = 72.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = "$title. $supportingText"
+            },
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = MaterialTheme.shapes.large,
@@ -195,7 +218,7 @@ fun PcActionTile(
                 )
             }
             Icon(
-                Icons.Default.ArrowForward,
+                Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
@@ -226,7 +249,11 @@ fun PcEmptyState(
     icon: ImageVector = Icons.Default.Info,
     modifier: Modifier = Modifier,
 ) {
-    PcSectionSurface(modifier) {
+    PcSectionSurface(
+        modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$title. $supportingText"
+        },
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(vertical = PontoCafeSpacing.md),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -241,7 +268,12 @@ fun PcEmptyState(
                     Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            Text(
+                title,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
             Text(
                 supportingText,
                 style = MaterialTheme.typography.bodyMedium,
@@ -268,7 +300,16 @@ fun PcStateBanner(
     }
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                stateDescription = "${tone.accessibilityLabel()}: $title"
+                liveRegion = if (tone == PontoCafeTone.DANGER) {
+                    LiveRegionMode.Assertive
+                } else {
+                    LiveRegionMode.Polite
+                }
+            },
         shape = MaterialTheme.shapes.medium,
         color = container,
     ) {
@@ -293,18 +334,18 @@ fun PcPrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     icon: ImageVector? = null,
+    loading: Boolean = false,
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier,
-        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .semantics { if (loading) stateDescription = "Carregando" },
+        enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
         contentPadding = ButtonDefaults.ContentPadding,
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        }
-        Text(text, modifier = if (icon != null) Modifier.padding(start = 7.dp) else Modifier)
+        PcButtonContent(text = text, icon = icon, loading = loading)
     }
 }
 
@@ -315,15 +356,17 @@ fun PcTonalButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     icon: ImageVector? = null,
+    loading: Boolean = false,
 ) {
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier,
-        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .semantics { if (loading) stateDescription = "Carregando" },
+        enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
     ) {
-        if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Text(text, modifier = if (icon != null) Modifier.padding(start = 7.dp) else Modifier)
+        PcButtonContent(text = text, icon = icon, loading = loading)
     }
 }
 
@@ -335,16 +378,71 @@ fun PcSecondaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
     contentColor: Color = MaterialTheme.colorScheme.primary,
+    loading: Boolean = false,
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier,
-        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .semantics { if (loading) stateDescription = "Carregando" },
+        enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        if (icon != null) Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Text(text, modifier = if (icon != null) Modifier.padding(start = 7.dp) else Modifier)
+        PcButtonContent(text = text, icon = icon, loading = loading)
     }
+}
+
+@Composable
+fun PcDangerButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    loading: Boolean = false,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .semantics { if (loading) stateDescription = "Carregando" },
+        enabled = enabled && !loading,
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+        ),
+    ) {
+        PcButtonContent(text = text, icon = icon, loading = loading)
+    }
+}
+
+@Composable
+private fun RowScope.PcButtonContent(
+    text: String,
+    icon: ImageVector?,
+    loading: Boolean,
+) {
+    when {
+        loading -> CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+            color = androidx.compose.material3.LocalContentColor.current,
+        )
+        icon != null -> Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+    }
+    Text(
+        text,
+        modifier = if (loading || icon != null) Modifier.padding(start = 7.dp) else Modifier,
+    )
+}
+
+private fun PontoCafeTone.accessibilityLabel(): String = when (this) {
+    PontoCafeTone.NEUTRAL -> "Estado neutro"
+    PontoCafeTone.SUCCESS -> "Sucesso"
+    PontoCafeTone.WARNING -> "Atenção"
+    PontoCafeTone.INFO -> "Informação"
+    PontoCafeTone.DANGER -> "Crítico"
 }

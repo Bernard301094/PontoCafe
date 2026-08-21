@@ -169,6 +169,16 @@ object PontoCafeSpacing {
     val lg = 20.dp
     val xl = 24.dp
     val xxl = 32.dp
+    val xxxl = 40.dp
+}
+
+object PontoCafeDimensions {
+    val minimumTouchTarget = 48.dp
+    val compactContentWidth = 560.dp
+    val formContentWidth = 760.dp
+    val detailContentWidth = 920.dp
+    val dashboardContentWidth = 1_180.dp
+    val dialogMaxWidth = 560.dp
 }
 
 private val PontoCafeShapes = Shapes(

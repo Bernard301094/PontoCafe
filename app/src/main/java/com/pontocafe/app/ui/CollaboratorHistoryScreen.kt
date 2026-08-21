@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -27,7 +30,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
@@ -42,29 +48,44 @@ fun CollaboratorHistoryScreen(
     val state = reliabilityViewModel.state
     val history = state.history
     var deleteConfirmation by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
     if (deleteConfirmation && history != null) {
         AlertDialog(
-            onDismissRequest = { deleteConfirmation = false },
+            onDismissRequest = { if (!state.loading) deleteConfirmation = false },
             title = { Text("Excluir biometria?") },
             text = {
-                Text("O histórico de pausas será preservado. ${history.colaborador.nome} precisará cadastrar o rosto novamente para usar reconhecimento facial.")
+                PcDialogBody {
+                    Text("O histórico de pausas será preservado. ${history.colaborador.nome} precisará cadastrar o rosto novamente para usar reconhecimento facial.")
+                }
             },
             confirmButton = {
-                Button(onClick = {
-                    deleteConfirmation = false
-                    reliabilityViewModel.deleteBiometric(history.colaborador.id)
-                }) { Text("Excluir biometria") }
+                PcDangerButton(
+                    text = "Excluir biometria",
+                    onClick = {
+                        deleteConfirmation = false
+                        reliabilityViewModel.deleteBiometric(history.colaborador.id)
+                    },
+                    loading = state.loading,
+                )
             },
             dismissButton = { TextButton(onClick = { deleteConfirmation = false }) { Text("Cancelar") } },
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = PontoCafeSpacing.lg),
-        contentPadding = PaddingValues(top = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.xxl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-    ) {
+    PontoCafeResponsivePage(maxContentWidth = 900.dp) { responsive ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+                contentPadding = PaddingValues(
+                    start = responsive.pagePadding,
+                    end = responsive.pagePadding,
+                    top = PontoCafeSpacing.lg,
+                    bottom = 104.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+            ) {
         item("header") {
             PontoCafeScreenHeader(title = history?.colaborador?.nome ?: "Histórico", eyebrow = "Colaborador", onBack = onBack)
         }
@@ -80,7 +101,7 @@ fun CollaboratorHistoryScreen(
                     }
                 }
             }
-            return@LazyColumn
+                return@LazyColumn
         }
 
         item("identity") {
@@ -104,8 +125,8 @@ fun CollaboratorHistoryScreen(
         }
 
         item("period") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                listOf(7, 30, 90).forEach { days ->
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                items(listOf(7, 30, 90), key = { it }) { days ->
                     FilterChip(
                         selected = history.periodoDias == days,
                         onClick = { reliabilityViewModel.openHistory(history.colaborador.id, days) },
@@ -116,7 +137,16 @@ fun CollaboratorHistoryScreen(
         }
 
         item("metrics") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+            if (responsive.isNarrow || responsive.usesLargeText) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    MetricCard(history.resumo.totalPausas.toString(), "Pausas", Modifier.fillMaxWidth())
+                    MetricCard(
+                        history.resumo.mediaSegundos?.let(PontoCafeRules::formatDuration) ?: "—",
+                        "Tempo médio",
+                        Modifier.fillMaxWidth(),
+                    )
+                }
+            } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 MetricCard(history.resumo.totalPausas.toString(), "Pausas", Modifier.weight(1f))
                 MetricCard(
                     history.resumo.mediaSegundos?.let(PontoCafeRules::formatDuration) ?: "—",
@@ -126,7 +156,12 @@ fun CollaboratorHistoryScreen(
             }
         }
         item("metrics-2") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+            if (responsive.isNarrow || responsive.usesLargeText) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    MetricCard(history.resumo.acimaLimite.toString(), "Acima do limite", Modifier.fillMaxWidth(), emphasized = history.resumo.acimaLimite > 0)
+                    MetricCard(history.resumo.foraHorario.toString(), "Fora do horário", Modifier.fillMaxWidth(), emphasized = history.resumo.foraHorario > 0)
+                }
+            } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 MetricCard(history.resumo.acimaLimite.toString(), "Acima do limite", Modifier.weight(1f), emphasized = history.resumo.acimaLimite > 0)
                 MetricCard(history.resumo.foraHorario.toString(), "Fora do horário", Modifier.weight(1f), emphasized = history.resumo.foraHorario > 0)
             }
@@ -151,15 +186,19 @@ fun CollaboratorHistoryScreen(
                     )
                     val collaborator = viewModel.state.colaboradores.firstOrNull { it.id == history.colaborador.id }
                     if (collaborator != null) {
-                        Button(
+                        PcPrimaryButton(
+                            text = if (history.biometria.cadastrada) "Recadastrar rosto" else "Cadastrar rosto",
                             onClick = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (history.biometria.cadastrada) "Recadastrar rosto" else "Cadastrar rosto") }
+                        )
                     }
                     if (history.biometria.cadastrada) {
-                        OutlinedButton(onClick = { deleteConfirmation = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Excluir biometria", color = MaterialTheme.colorScheme.error)
-                        }
+                        PcSecondaryButton(
+                            text = "Excluir biometria",
+                            onClick = { deleteConfirmation = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentColor = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }
@@ -181,12 +220,25 @@ fun CollaboratorHistoryScreen(
         item("pauses-title") { SectionTitle("Pausas recentes", "Até 100 registros dentro do período selecionado.") }
         if (history.pausas.isEmpty()) {
             item("empty") {
-                Card(Modifier.fillMaxWidth()) { Text("Nenhuma pausa encontrada neste período.", Modifier.padding(PontoCafeSpacing.md)) }
+                PcEmptyState(
+                    title = "Nenhuma pausa neste período",
+                    supportingText = "Escolha outro intervalo para consultar o histórico desta pessoa.",
+                )
             }
         } else {
             items(history.pausas, key = { it.id }) { pause ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            stateDescription = if (pause.excedeuLimite) {
+                                "Pausa acima do limite"
+                            } else if (pause.foraHorario) {
+                                "Pausa fora do horário"
+                            } else {
+                                "Pausa dentro do limite"
+                            }
+                        },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, if (pause.excedeuLimite) MaterialTheme.colorScheme.error.copy(alpha = .35f) else MaterialTheme.colorScheme.outlineVariant),
                 ) {
@@ -211,6 +263,16 @@ fun CollaboratorHistoryScreen(
                     }
                 }
             }
+        }
+            }
+
+            PcScrollToTopFab(
+                listState = listState,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
+            )
         }
     }
 }

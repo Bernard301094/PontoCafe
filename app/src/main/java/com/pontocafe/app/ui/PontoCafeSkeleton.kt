@@ -31,6 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -166,7 +170,11 @@ fun PontoCafeListSkeletonScreen(
         modifier = modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = "Carregando $title"
+            },
         contentPadding = PaddingValues(
             start = PontoCafeSpacing.lg,
             end = PontoCafeSpacing.lg,

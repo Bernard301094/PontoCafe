@@ -12,13 +12,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -29,6 +30,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.pontocafe.app.data.KioskModeSettings
@@ -133,7 +137,7 @@ fun KioskModeScreen(
                                 enabled = settings.enabled,
                                 onCheckedChange = { persist(settings.copy(keepScreenOn = it)) },
                             )
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             KioskSwitchRow(
                                 title = "Fixar aplicativo na tela",
                                 subtitle = "Usa Lock Task/Screen Pinning. O Android pode pedir confirmação para fixar ou sair.",
@@ -141,7 +145,7 @@ fun KioskModeScreen(
                                 enabled = settings.enabled,
                                 onCheckedChange = { persist(settings.copy(lockTask = it)) },
                             )
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             KioskSwitchRow(
                                 title = "Tentar abrir após reiniciar",
                                 subtitle = "Solicita abertura do Ponto Café após o boot, sujeito às restrições do Android/Samsung.",
@@ -213,7 +217,18 @@ private fun KioskSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .semantics {
+                stateDescription = if (checked) "Ativado" else "Desativado"
+            }
+            .padding(vertical = PontoCafeSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
@@ -234,7 +249,7 @@ private fun KioskSwitchRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             enabled = enabled,
         )
     }

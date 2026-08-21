@@ -10,13 +10,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -26,7 +31,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,11 +62,19 @@ fun BiometricRegistrationSuccessFeedback(
         ?.trim()
         ?.ifBlank { null }
     val view = LocalView.current
+    val accessibilityManager = LocalAccessibilityManager.current
 
     LaunchedEffect(successMessage) {
         if (successMessage == null) return@LaunchedEffect
         view.performHapticFeedback(HapticFeedbackConstantsCompat.CONFIRM)
-        delay(BIOMETRIC_SUCCESS_VISIBLE_MILLIS)
+        delay(
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = BIOMETRIC_SUCCESS_VISIBLE_MILLIS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = true,
+            ) ?: BIOMETRIC_SUCCESS_VISIBLE_MILLIS,
+        )
         onDismiss()
     }
 
@@ -72,28 +92,41 @@ fun BiometricRegistrationSuccessFeedback(
             targetScale = 0.97f,
         ),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.52f))
+                .systemBarsPadding()
                 .padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
+            val compactFeedback = maxHeight < 560.dp || LocalDensity.current.fontScale >= 1.6f
             Surface(
                 modifier = Modifier
                     .widthIn(max = 440.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .semantics {
+                        paneTitle = "Biometria cadastrada"
+                        liveRegion = LiveRegionMode.Assertive
+                        stateDescription = successMessage.orEmpty()
+                    },
                 shape = RoundedCornerShape(30.dp),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
                 shadowElevation = 18.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                    modifier = Modifier
+                        .heightIn(max = if (compactFeedback) 360.dp else 680.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            horizontal = if (compactFeedback) 16.dp else 24.dp,
+                            vertical = if (compactFeedback) 16.dp else 26.dp,
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                 ) {
-                    PontoCafeSuccessAnimation(Modifier.size(112.dp))
+                    PontoCafeSuccessAnimation(Modifier.size(if (compactFeedback) 72.dp else 112.dp))
                     Text(
                         "Rosto cadastrado com sucesso!",
                         style = MaterialTheme.typography.headlineSmall,
@@ -111,7 +144,7 @@ fun BiometricRegistrationSuccessFeedback(
                         )
                     }
                     Text(
-                        "As 5 amostras faciais foram validadas e salvas. Este funcionário já pode usar o reconhecimento facial no Ponto Café.",
+                        "As 5 amostras faciais foram validadas e salvas. Este colaborador já pode usar o reconhecimento facial no Ponto Café.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -132,14 +165,13 @@ fun BiometricRegistrationSuccessFeedback(
                         text = "Biometria pronta",
                         tone = PontoCafeTone.SUCCESS,
                     )
-                    Button(
+                    PcPrimaryButton(
+                        text = "Concluir",
                         onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = PontoCafeSpacing.xs),
-                    ) {
-                        Text("Concluir")
-                    }
+                    )
                 }
             }
         }

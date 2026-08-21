@@ -8,16 +8,20 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
@@ -36,7 +40,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -177,18 +189,18 @@ fun PontoFlowHost(
                 comprovante = state.comprovante,
             )
 
-            dayExhausted && identificacao != null -> FastPointBlockedOverlay(
+            dayExhausted -> FastPointBlockedOverlay(
                 viewModel = viewModel,
-                nome = identificacao.colaborador?.nome,
+                nome = identificacao?.colaborador?.nome,
                 mensagem = exhaustedDayMessage
                     ?: "Pausas de hoje já utilizadas (2/2). Não há mais pausa disponível para hoje.",
                 reason = PointBlockReason.DAILY_EXHAUSTED,
             )
 
-            (serverSaysUsedBreak || localCompletedBreak != null) && identificacao != null ->
+            serverSaysUsedBreak || localCompletedBreak != null ->
                 FastPointBlockedOverlay(
                     viewModel = viewModel,
-                    nome = identificacao.colaborador?.nome,
+                    nome = identificacao?.colaborador?.nome,
                     mensagem = resolvedUsedBreakMessage
                         ?: "Você já utilizou sua folga deste período hoje.",
                     reason = PointBlockReason.PERIOD_USED,
@@ -289,6 +301,7 @@ private fun FastPointBlockedOverlay(
     reason: PointBlockReason,
 ) {
     val view = LocalView.current
+    val accessibilityManager = LocalAccessibilityManager.current
     val repeatedPause = reason == PointBlockReason.DAILY_EXHAUSTED ||
         reason == PointBlockReason.PERIOD_USED
     val mensagemExibida = if (reason == PointBlockReason.PERIOD_USED) {
@@ -314,9 +327,18 @@ private fun FastPointBlockedOverlay(
         runCatching {
             view.performHapticFeedback(HapticFeedbackConstantsCompat.REJECT)
         }
+        val baseTimeout = if (repeatedPause) {
+            USED_BREAK_WARNING_VISIBLE_MILLIS
+        } else {
+            POINT_BLOCKED_VISIBLE_MILLIS
+        }
         delay(
-            if (repeatedPause) USED_BREAK_WARNING_VISIBLE_MILLIS
-            else POINT_BLOCKED_VISIBLE_MILLIS,
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = baseTimeout,
+                containsIcons = true,
+                containsText = true,
+                containsControls = false,
+            ) ?: baseTimeout,
         )
         viewModel.rejeitarIdentidade()
     }
@@ -324,11 +346,17 @@ private fun FastPointBlockedOverlay(
     PointFeedbackBackdrop(
         accent = Color(0xFFFFC867),
         background = Color(0xFF160B08),
-    ) {
+    ) { compactFeedback ->
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp),
+                .widthIn(max = 520.dp)
+                .semantics {
+                    paneTitle = title
+                    liveRegion = LiveRegionMode.Assertive
+                    stateDescription = listOfNotNull(title, nome, mensagemExibida, supporting)
+                        .joinToString(". ")
+                },
             shape = RoundedCornerShape(28.dp),
             color = Color(0xF51D1714),
             contentColor = Color.White,
@@ -336,12 +364,18 @@ private fun FastPointBlockedOverlay(
             shadowElevation = 10.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                modifier = Modifier
+                    .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        horizontal = if (compactFeedback) 16.dp else 24.dp,
+                        vertical = if (compactFeedback) 16.dp else 26.dp,
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Surface(
-                    modifier = Modifier.size(72.dp),
+                    modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
                     shape = CircleShape,
                     color = Color(0xFFFFC867).copy(alpha = 0.12f),
                     border = BorderStroke(
@@ -357,7 +391,7 @@ private fun FastPointBlockedOverlay(
                                 Icons.Default.Warning
                             },
                             contentDescription = null,
-                            modifier = Modifier.size(34.dp),
+                            modifier = Modifier.size(if (compactFeedback) 26.dp else 34.dp),
                             tint = Color(0xFFFFC867),
                         )
                     }
@@ -365,6 +399,7 @@ private fun FastPointBlockedOverlay(
 
                 Text(
                     text = title,
+                    modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
@@ -432,6 +467,7 @@ private fun FastPointReceiptOverlay(
     comprovante: ComprovantePonto,
 ) {
     val view = LocalView.current
+    val accessibilityManager = LocalAccessibilityManager.current
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val warning = !start && comprovante.excedeuLimite
 
@@ -442,7 +478,14 @@ private fun FastPointReceiptOverlay(
             )
         }
 
-        delay(POINT_RECEIPT_VISIBLE_MILLIS)
+        delay(
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = POINT_RECEIPT_VISIBLE_MILLIS,
+                containsIcons = true,
+                containsText = true,
+                containsControls = false,
+            ) ?: POINT_RECEIPT_VISIBLE_MILLIS,
+        )
         viewModel.concluirComprovante()
     }
 
@@ -457,11 +500,16 @@ private fun FastPointReceiptOverlay(
     PointFeedbackBackdrop(
         accent = accent,
         background = Color(0xFF04110E),
-    ) {
+    ) { compactFeedback ->
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp),
+                .widthIn(max = 520.dp)
+                .semantics {
+                    paneTitle = title
+                    liveRegion = LiveRegionMode.Assertive
+                    stateDescription = "$title. ${comprovante.nome}. $detail"
+                },
             shape = RoundedCornerShape(28.dp),
             color = Color(0xF5121C19),
             contentColor = Color.White,
@@ -469,12 +517,18 @@ private fun FastPointReceiptOverlay(
             shadowElevation = 10.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                modifier = Modifier
+                    .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        horizontal = if (compactFeedback) 16.dp else 24.dp,
+                        vertical = if (compactFeedback) 16.dp else 26.dp,
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Surface(
-                    modifier = Modifier.size(72.dp),
+                    modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
                     shape = CircleShape,
                     color = accent.copy(alpha = 0.13f),
                     border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
@@ -483,7 +537,7 @@ private fun FastPointReceiptOverlay(
                         Icon(
                             imageVector = if (warning) Icons.Default.Warning else Icons.Default.CheckCircle,
                             contentDescription = null,
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
                             tint = accent,
                         )
                     }
@@ -491,6 +545,7 @@ private fun FastPointReceiptOverlay(
 
                 Text(
                     text = title,
+                    modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
@@ -520,6 +575,7 @@ private fun FastPointReceiptOverlay(
                 when {
                     comprovante.pendenteSincronizacao -> {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -531,6 +587,7 @@ private fun FastPointReceiptOverlay(
                             )
                             Text(
                                 "Salvo com segurança neste aparelho",
+                                modifier = Modifier.weight(1f),
                                 color = Color.White.copy(alpha = 0.76f),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -582,9 +639,9 @@ private fun FastPointReceiptOverlay(
 private fun PointFeedbackBackdrop(
     accent: Color,
     background: Color,
-    content: @Composable () -> Unit,
+    content: @Composable (compactFeedback: Boolean) -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(background)
@@ -592,9 +649,11 @@ private fun PointFeedbackBackdrop(
             .padding(horizontal = 20.dp, vertical = 24.dp),
         contentAlignment = Alignment.Center,
     ) {
+        val compactFeedback = maxHeight < 560.dp || LocalDensity.current.fontScale >= 1.6f
+        val glowSize = minOf(maxWidth, maxHeight).times(0.72f).coerceAtMost(320.dp)
         Box(
             modifier = Modifier
-                .size(320.dp)
+                .size(glowSize)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -605,7 +664,7 @@ private fun PointFeedbackBackdrop(
                     shape = CircleShape,
                 ),
         )
-        content()
+        content(compactFeedback)
     }
 }
 

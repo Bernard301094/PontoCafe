@@ -14,7 +14,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.PausaSupervisor
@@ -54,6 +59,7 @@ fun rememberSupervisorLiveActivityAlert(
     latestReturn: PausaSupervisor? = null,
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
+    val accessibilityManager = LocalAccessibilityManager.current
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
@@ -156,7 +162,14 @@ fun rememberSupervisorLiveActivityAlert(
 
     LaunchedEffect(transientAlert?.id) {
         val currentId = transientAlert?.id ?: return@LaunchedEffect
-        delay(TRANSIENT_ALERT_DURATION_MILLIS)
+        delay(
+            accessibilityManager?.calculateRecommendedTimeoutMillis(
+                originalTimeoutMillis = TRANSIENT_ALERT_DURATION_MILLIS,
+                containsIcons = false,
+                containsText = true,
+                containsControls = false,
+            ) ?: TRANSIENT_ALERT_DURATION_MILLIS,
+        )
         if (transientAlert?.id == currentId) transientAlert = null
     }
 
@@ -179,7 +192,12 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Assertive
+                stateDescription = "${alert.title}. ${alert.message}"
+            },
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
             contentColor = contentColor,

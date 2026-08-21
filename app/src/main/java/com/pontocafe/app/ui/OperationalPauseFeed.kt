@@ -4,11 +4,13 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -25,6 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.AdminTestPause
@@ -140,18 +147,20 @@ fun OperationalPauseOverview(
                 )
             }
 
-            Row(
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
             ) {
                 OperationalPauseFilter.entries.forEach { option ->
                     val count = filterOperationalPauseItems(items, option, now).size
-                    FilterChip(
-                        selected = filter == option,
-                        onClick = { onFilterChange(option) },
-                        label = { Text("${option.label} $count") },
-                        modifier = Modifier.weight(1f),
-                    )
+                    item(key = option.name) {
+                        FilterChip(
+                            selected = filter == option,
+                            onClick = { onFilterChange(option) },
+                            label = { Text("${option.label} $count") },
+                        )
+                    }
                 }
             }
         }
@@ -189,7 +198,16 @@ fun OperationalPauseCompactCard(
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = when {
+                    overdue -> "Pausa acima do limite"
+                    attention -> "Pausa próxima do limite"
+                    else -> "Pausa dentro do limite"
+                }
+            },
         onClick = onClick,
         colors = CardDefaults.cardColors(
             containerColor = when {
@@ -294,17 +312,7 @@ fun OperationalPauseDetailDialog(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(
-                    start = PontoCafeSpacing.lg,
-                    end = PontoCafeSpacing.lg,
-                    bottom = PontoCafeSpacing.xl,
-                ),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
+        PcBottomSheetContent {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -321,6 +329,7 @@ fun OperationalPauseDetailDialog(
                 ) {
                     Text(
                         text = pause.nome,
+                        modifier = Modifier.semantics { heading() },
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold,
                     )

@@ -1,9 +1,5 @@
 package com.pontocafe.app.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -17,15 +13,20 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Face
@@ -57,12 +58,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.camera.BlinkLiveness
@@ -113,18 +121,8 @@ fun FaceKioskScreen(
         ApiClient.create(context.applicationContext, SecureDeviceTokenStore(context.applicationContext))
     }
     val state = viewModel.state
-    var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA,
-            ) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { permissionGranted = it },
-    )
+    val cameraPermission = rememberCameraPermissionUiState()
+    val permissionGranted = cameraPermission.granted
 
     val captureController = remember { FrameCaptureController() }
     val liveness = remember { BlinkLiveness() }
@@ -204,8 +202,12 @@ fun FaceKioskScreen(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        val expanded = maxWidth >= 600.dp
-        val cameraPermissionWidth = if (expanded) 440.dp else 400.dp
+        val compactHeight = maxHeight < 480.dp
+        val expanded = maxWidth >= 600.dp && !compactHeight
+        val guideWidth = minOf(
+            maxWidth * if (expanded) 0.46f else 0.72f,
+            maxHeight * if (compactHeight) 0.42f else 0.58f,
+        )
 
         if (permissionGranted) {
             FaceCameraPreview(
@@ -288,58 +290,19 @@ fun FaceKioskScreen(
                 onError = { cameraError = it },
             )
         } else {
-            Surface(
+            CameraPermissionCard(
+                state = cameraPermission,
+                title = "Ative a câmera para bater o ponto",
+                rationale = "O Ponto Café usa reconhecimento facial para registrar a saída e o retorno com segurança.",
+                dark = true,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(24.dp)
-                    .widthIn(max = cameraPermissionWidth),
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xF21A1F1D),
-                contentColor = Color.White,
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(58.dp),
-                        shape = CircleShape,
-                        color = Color.White.copy(alpha = 0.10f),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.Face,
-                                contentDescription = null,
-                                tint = Color(0xFF72DCBC),
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
-                    }
-                    Text(
-                        "Ative a câmera para bater o ponto",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        "O Ponto Café usa reconhecimento facial para registrar a saída e o retorno com segurança.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.74f),
-                        textAlign = TextAlign.Center,
-                    )
-                    Button(
-                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Permitir câmera")
-                    }
-                }
-            }
+                    .padding(horizontal = 24.dp, vertical = if (compactHeight) 68.dp else 92.dp),
+            )
         }
 
         if (permissionGranted) {
-            KioskCameraScrims()
+            KioskCameraScrims(compactHeight = compactHeight)
         }
 
         val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
@@ -348,13 +311,15 @@ fun FaceKioskScreen(
         val recognitionReady = challengeCompleted && !captureRequested &&
             !state.carregando && !multipleFacesVisible
 
-        KioskFaceGuide(
-            active = permissionGranted && state.catalogoBiometricoPronto,
-            warning = multipleFacesVisible,
-            ready = recognitionReady,
-            expanded = expanded,
-            modifier = Modifier.align(Alignment.Center),
-        )
+        if (permissionGranted) {
+            KioskFaceGuide(
+                active = state.catalogoBiometricoPronto,
+                warning = multipleFacesVisible,
+                ready = recognitionReady,
+                guideWidth = guideWidth,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
 
         KioskTopBar(
             offline = state.modoOffline,
@@ -417,29 +382,32 @@ fun FaceKioskScreen(
             else -> "Siga a instrução acima. O registro acontece automaticamente."
         }
 
-        KioskInstructionSheet(
-            title = instructionTitle,
-            detail = instructionDetail,
-            loading = state.carregando,
-            noFace = noFaceVisible,
-            multipleFaces = multipleFacesVisible,
-            ready = challengeCompleted,
-            offline = state.modoOffline,
-            updateRequired = state.atualizacaoObrigatoria,
-            updateAvailable = state.atualizacaoDisponivel,
-            latestVersion = state.versaoMaisRecente,
-            catalogReady = state.catalogoBiometricoPronto,
-            syncingCatalog = state.sincronizandoBiometrias,
-            modelReady = viewModel.faceModelReady,
-            pendingEvents = state.eventosPendentes,
-            syncingPending = state.sincronizandoPendencias,
-            catalogSyncError = state.erroSincronizacaoBiometrica,
-            error = cameraError ?: state.erro ?:
-                state.erroSincronizacaoBiometrica.takeIf { !state.catalogoBiometricoPronto },
-            onSyncCatalog = { viewModel.sincronizarBiometrias(force = true) },
-            onSyncPending = viewModel::sincronizarPendenciasOffline,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        if (permissionGranted) {
+            KioskInstructionSheet(
+                title = instructionTitle,
+                detail = instructionDetail,
+                loading = state.carregando,
+                noFace = noFaceVisible,
+                multipleFaces = multipleFacesVisible,
+                ready = challengeCompleted,
+                offline = state.modoOffline,
+                updateRequired = state.atualizacaoObrigatoria,
+                updateAvailable = state.atualizacaoDisponivel,
+                latestVersion = state.versaoMaisRecente,
+                catalogReady = state.catalogoBiometricoPronto,
+                syncingCatalog = state.sincronizandoBiometrias,
+                modelReady = viewModel.faceModelReady,
+                pendingEvents = state.eventosPendentes,
+                syncingPending = state.sincronizandoPendencias,
+                catalogSyncError = state.erroSincronizacaoBiometrica,
+                error = cameraError ?: state.erro ?:
+                    state.erroSincronizacaoBiometrica.takeIf { !state.catalogoBiometricoPronto },
+                onSyncCatalog = { viewModel.sincronizarBiometrias(force = true) },
+                onSyncPending = viewModel::sincronizarPendenciasOffline,
+                compactHeight = compactHeight,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 }
 
@@ -453,6 +421,7 @@ private fun RestrictedAccessDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     val destinationName = when (target) {
         RestrictedAreaRequest.ADMIN -> "Administrador"
         RestrictedAreaRequest.SUPERVISOR -> "Supervisor"
@@ -484,7 +453,7 @@ private fun RestrictedAccessDialog(
         },
         title = { Text("Acesso restrito · $destinationName") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 Text(
                     instruction,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -496,7 +465,14 @@ private fun RestrictedAccessDialog(
                     label = { Text("PIN do dispositivo") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = {
+                        focusManager.clearFocus()
+                        if (!loading && pin.length in 4..12) onConfirm()
+                    }),
                     isError = error != null,
                     supportingText = { Text(error ?: "4 a 12 números") },
                     enabled = !loading,
@@ -504,12 +480,12 @@ private fun RestrictedAccessDialog(
             }
         },
         confirmButton = {
-            Button(
+            PcPrimaryButton(
+                text = "Desbloquear",
                 enabled = !loading && pin.length in 4..12,
                 onClick = onConfirm,
-            ) {
-                Text(if (loading) "Verificando..." else "Desbloquear")
-            }
+                loading = loading,
+            )
         },
         dismissButton = {
             TextButton(
@@ -523,12 +499,12 @@ private fun RestrictedAccessDialog(
 }
 
 @Composable
-private fun KioskCameraScrims() {
+private fun KioskCameraScrims(compactHeight: Boolean) {
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp)
+                .height(if (compactHeight) 104.dp else 180.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
@@ -542,7 +518,7 @@ private fun KioskCameraScrims() {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(260.dp)
+                .height(if (compactHeight) 176.dp else 260.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
@@ -650,7 +626,7 @@ private fun KioskTopBar(
             }
 
             if (hasAdminSession) {
-                IconButton(onClick = onAdmin, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onAdmin, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
                     Icon(
                         Icons.Default.AdminPanelSettings,
                         contentDescription = "Abrir Administrador",
@@ -659,7 +635,7 @@ private fun KioskTopBar(
                 }
             }
             if (hasSupervisorSession) {
-                IconButton(onClick = onSupervisor, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onSupervisor, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
                     Icon(
                         Icons.Default.SupervisorAccount,
                         contentDescription = "Abrir Supervisor",
@@ -668,7 +644,7 @@ private fun KioskTopBar(
                 }
             }
             if (!hasAdminSession && !hasSupervisorSession) {
-                IconButton(onClick = onAccess, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onAccess, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
                     Icon(
                         Icons.Default.Lock,
                         contentDescription = "Acesso restrito",
@@ -701,6 +677,7 @@ private fun KioskInstructionSheet(
     error: String?,
     onSyncCatalog: () -> Unit,
     onSyncPending: () -> Unit,
+    compactHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val accent = when {
@@ -716,7 +693,11 @@ private fun KioskInstructionSheet(
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .widthIn(max = 620.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = listOf(title, detail).filter(String::isNotBlank).joinToString(". ")
+            },
         color = Color(0xF3161B19),
         contentColor = Color.White,
         shape = RoundedCornerShape(24.dp),
@@ -724,7 +705,10 @@ private fun KioskInstructionSheet(
         shadowElevation = 2.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier
+                .heightIn(max = if (compactHeight) 196.dp else 420.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
@@ -793,6 +777,7 @@ private fun KioskInstructionSheet(
             if (pendingEvents > 0 && !offline) {
                 OutlinedButton(
                     onClick = onSyncPending,
+                    enabled = !syncingPending,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -850,7 +835,7 @@ private fun KioskFaceGuide(
     active: Boolean,
     warning: Boolean,
     ready: Boolean,
-    expanded: Boolean,
+    guideWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
     val targetColor = when {
@@ -870,8 +855,16 @@ private fun KioskFaceGuide(
 
     Canvas(
         modifier = modifier
-            .fillMaxWidth(if (expanded) 0.46f else 0.72f)
-            .aspectRatio(0.80f),
+            .width(guideWidth)
+            .aspectRatio(0.80f)
+            .semantics {
+                contentDescription = when {
+                    warning -> "Guia facial: mais de uma pessoa detectada"
+                    ready -> "Guia facial: rosto pronto para reconhecimento"
+                    active -> "Guia facial ativo"
+                    else -> "Guia facial indisponível"
+                }
+            },
     ) {
         val stroke = (if (ready || warning) 4.2.dp else 3.4.dp).toPx()
         val cornerLength = size.minDimension * if (ready) 0.24f else 0.20f

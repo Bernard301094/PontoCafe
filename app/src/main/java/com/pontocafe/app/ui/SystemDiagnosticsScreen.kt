@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
@@ -116,7 +119,6 @@ fun SystemDiagnosticsScreen(
                                     if (it.desatualizados > 0) append(" · ${it.desatualizados} desatualizado(s)")
                                     if (it.alertasSaude > 0) append(" · ${it.alertasSaude} alerta(s) de saúde")
                                 }
-                                append(" · ID ${diagnostic.requestId}")
                             },
                             icon = Icons.Default.HealthAndSafety,
                             tone = if (healthy) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
@@ -129,7 +131,8 @@ fun SystemDiagnosticsScreen(
                             icon = Icons.Default.Refresh,
                             onClick = viewModel::openSystemDiagnostics,
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.loading,
+                            enabled = true,
+                            loading = state.loading,
                         )
                     }
 
@@ -226,8 +229,11 @@ fun SystemDiagnosticsScreen(
                             }
                         }
 
-                        fleetState.dispositivos.orEmpty().take(12).forEach { device ->
-                            item("fleet-${device.id}") { FleetDeviceCard(device) }
+                        items(
+                            items = fleetState.dispositivos.orEmpty(),
+                            key = { "fleet-${it.id}" },
+                        ) { device ->
+                            FleetDeviceCard(device)
                         }
                     }
 
@@ -238,6 +244,7 @@ fun SystemDiagnosticsScreen(
                                 "Status" to diagnostic.banco.status,
                                 "Latência" to "${diagnostic.banco.latenciaMs} ms",
                                 "Relógio do servidor" to formatRemoteTime(diagnostic.banco.servidor),
+                                "ID da verificação" to diagnostic.requestId,
                             ),
                         )
                     }
@@ -295,15 +302,6 @@ fun SystemDiagnosticsScreen(
                     )
                 }
 
-                item("refresh") {
-                    PcPrimaryButton(
-                        text = if (state.loading) "Executando…" else "Executar diagnóstico novamente",
-                        icon = Icons.Default.Refresh,
-                        onClick = viewModel::openSystemDiagnostics,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.loading,
-                    )
-                }
             }
 
             PcScrollToTopFab(
@@ -334,26 +332,50 @@ private fun MetricGrid(
     fourthIcon: ImageVector,
     fourthAttention: Boolean = false,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            PcMetricTile(firstValue, firstLabel, firstIcon, Modifier.weight(1f))
-            PcMetricTile(secondValue, secondLabel, secondIcon, Modifier.weight(1f))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            PcMetricTile(thirdValue, thirdLabel, thirdIcon, Modifier.weight(1f), attention = thirdAttention)
-            PcMetricTile(fourthValue, fourthLabel, fourthIcon, Modifier.weight(1f), attention = fourthAttention)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val singleColumn = maxWidth < 480.dp || LocalDensity.current.fontScale >= 1.6f
+        if (singleColumn) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcMetricTile(firstValue, firstLabel, firstIcon, Modifier.fillMaxWidth())
+                PcMetricTile(secondValue, secondLabel, secondIcon, Modifier.fillMaxWidth())
+                PcMetricTile(thirdValue, thirdLabel, thirdIcon, Modifier.fillMaxWidth(), attention = thirdAttention)
+                PcMetricTile(fourthValue, fourthLabel, fourthIcon, Modifier.fillMaxWidth(), attention = fourthAttention)
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    PcMetricTile(firstValue, firstLabel, firstIcon, Modifier.weight(1f))
+                    PcMetricTile(secondValue, secondLabel, secondIcon, Modifier.weight(1f))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    PcMetricTile(thirdValue, thirdLabel, thirdIcon, Modifier.weight(1f), attention = thirdAttention)
+                    PcMetricTile(fourthValue, fourthLabel, fourthIcon, Modifier.weight(1f), attention = fourthAttention)
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun FleetDeviceCard(device: DiagnosticFleetDevice) {
+    val telemetryRecent = isRemoteTimeRecent(device.telemetriaEm)
+    val statusLabel = when {
+        device.alertaSaude -> "Requer atenção"
+        device.desatualizado -> "Desatualizado"
+        !telemetryRecent -> "Sem telemetria recente"
+        else -> "Saudável"
+    }
+    val statusTone = when {
+        device.alertaSaude -> PontoCafeTone.DANGER
+        device.desatualizado || !telemetryRecent -> PontoCafeTone.WARNING
+        else -> PontoCafeTone.SUCCESS
+    }
     PcSectionSurface {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -375,20 +397,24 @@ private fun FleetDeviceCard(device: DiagnosticFleetDevice) {
                     )
                 }
                 StatusPill(
-                    if (device.alertaSaude) "Atenção" else "Operacional",
-                    if (device.alertaSaude) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+                    statusLabel,
+                    statusTone,
                 )
             }
 
-            Row(
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                StatusPill(
-                    device.appVersion?.let { "App $it" } ?: "Versão não informada",
-                    if (device.desatualizado) PontoCafeTone.WARNING else PontoCafeTone.NEUTRAL,
-                )
-                if (device.desatualizado) StatusPill("Atualização disponível", PontoCafeTone.WARNING)
+                item {
+                    StatusPill(
+                        device.appVersion?.let { "App $it" } ?: "Versão não informada",
+                        if (device.desatualizado) PontoCafeTone.WARNING else PontoCafeTone.NEUTRAL,
+                    )
+                }
+                if (device.desatualizado) {
+                    item { StatusPill("Atualização disponível", PontoCafeTone.WARNING) }
+                }
             }
 
             Text(
@@ -405,6 +431,18 @@ private fun FleetDeviceCard(device: DiagnosticFleetDevice) {
             }
         }
     }
+}
+
+private fun isRemoteTimeRecent(value: String?, nowMillis: Long = System.currentTimeMillis()): Boolean {
+    if (value.isNullOrBlank()) return false
+    val normalized = value.trim()
+        .replace(' ', 'T')
+        .let { raw -> Regex("([+-]\\d{2})$").replace(raw) { match -> "${match.groupValues[1]}:00" } }
+    val instant = runCatching { OffsetDateTime.parse(normalized).toInstant() }
+        .recoverCatching { Instant.parse(normalized) }
+        .getOrNull()
+        ?: return false
+    return nowMillis - instant.toEpochMilli() <= 24L * 60L * 60L * 1_000L
 }
 
 private fun formatHealthTime(value: Long): String {

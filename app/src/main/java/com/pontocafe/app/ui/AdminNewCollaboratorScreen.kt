@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -37,6 +38,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -49,6 +52,7 @@ private val CollaboratorShiftOptions = listOf("A", "B", "C")
 
 @Composable
 fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
+    val focusManager = LocalFocusManager.current
     val state = viewModel.state
     val draftState = remember(viewModel) { FormDraftRegistry.adminCollaborator(viewModel) }
     val draft = draftState.draft
@@ -157,6 +161,9 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                         capitalization = KeyboardCapitalization.Words,
                                         imeAction = ImeAction.Next,
                                     ),
+                                    keyboardActions = KeyboardActions(
+                                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                                    ),
                                 )
                             }
 
@@ -173,8 +180,9 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(
                                         capitalization = KeyboardCapitalization.Words,
-                                        imeAction = ImeAction.Next,
+                                        imeAction = ImeAction.Done,
                                     ),
+                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                                 )
                                 if (sectorSuggestions.isNotEmpty()) {
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
@@ -196,11 +204,11 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Row(
+                                LazyRow(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                                 ) {
-                                    CollaboratorShiftOptions.forEach { shift ->
+                                    items(CollaboratorShiftOptions, key = { "shift-$it" }) { shift ->
                                         FilterChip(
                                             selected = cleanShift == shift,
                                             onClick = { draftState.update(draft.copy(turno = shift)) },
@@ -208,7 +216,6 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                             leadingIcon = if (cleanShift == shift) {
                                                 { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
                                             } else null,
-                                            modifier = Modifier.weight(1f),
                                         )
                                     }
                                 }
@@ -262,11 +269,12 @@ private fun CollaboratorBottomActions(
             }
 
             PcPrimaryButton(
-                text = if (loading) "Salvando…" else "Salvar e cadastrar rosto",
+                text = "Salvar e cadastrar rosto",
                 icon = Icons.Default.Face,
                 onClick = onSave,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
+                loading = loading,
             )
 
             TextButton(

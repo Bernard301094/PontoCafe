@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,9 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -38,23 +42,34 @@ fun SupervisorLoginScreenV2(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val sessionStore = remember(context) {
         SecureAdminSessionStore(context.applicationContext, "supervisor")
     }
     val state = viewModel.state
-    var email by remember { mutableStateOf(sessionStore.loginEmailSuggestion()) }
+    var email by rememberSaveable { mutableStateOf(sessionStore.loginEmailSuggestion()) }
     var password by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xl),
-    ) {
+    fun submit() {
+        if (email.isBlank() || password.length < 10 || state.carregando) return
+        focusManager.clearFocus()
+        sessionStore.prepareLogin(email, "SUPERVISOR")
+        viewModel.login(email, password)
+    }
+
+    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.compactContentWidth) { responsive ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(
+                if (responsive.useCompactVerticalLayout) PontoCafeSpacing.md else PontoCafeSpacing.xl,
+            ),
+        ) {
         PontoCafeScreenHeader(
             title = "Supervisor",
             onBack = onClose,
@@ -81,6 +96,9 @@ fun SupervisorLoginScreenV2(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next,
                 ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                ),
             )
             SecurePasswordField(
                 value = password,
@@ -88,6 +106,8 @@ fun SupervisorLoginScreenV2(
                 label = "Senha",
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.carregando,
+                imeAction = ImeAction.Done,
+                keyboardActions = KeyboardActions(onDone = { submit() }),
             )
             PcFeedbackBanner(
                 message = state.erro,
@@ -101,13 +121,11 @@ fun SupervisorLoginScreenV2(
                 autoDismissMillis = 4_000L,
             )
             PcPrimaryButton(
-                text = if (state.carregando) "Entrando…" else "Entrar como Supervisor",
-                onClick = {
-                    sessionStore.prepareLogin(email, "SUPERVISOR")
-                    viewModel.login(email, password)
-                },
+                text = "Entrar como Supervisor",
+                onClick = ::submit,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.carregando && email.isNotBlank() && password.length >= 10,
+                enabled = email.isNotBlank() && password.length >= 10,
+                loading = state.carregando,
             )
         }
 
@@ -124,5 +142,6 @@ fun SupervisorLoginScreenV2(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
     }
 }

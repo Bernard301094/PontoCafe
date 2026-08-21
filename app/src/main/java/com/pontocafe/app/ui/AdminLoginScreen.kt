@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -24,9 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -36,23 +39,34 @@ import com.pontocafe.app.data.SecureAdminSessionStore
 @Composable
 fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val sessionStore = remember(context) {
         SecureAdminSessionStore(context.applicationContext, "admin")
     }
-    var email by remember { mutableStateOf(sessionStore.loginEmailSuggestion()) }
+    var email by rememberSaveable { mutableStateOf(sessionStore.loginEmailSuggestion()) }
     var senha by remember { mutableStateOf("") }
     val state = viewModel.state
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xl),
-    ) {
+    fun submit() {
+        if (email.isBlank() || senha.length < 10 || state.carregando) return
+        focusManager.clearFocus()
+        sessionStore.prepareLogin(email, "ADMIN")
+        viewModel.login(email, senha)
+    }
+
+    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.compactContentWidth) { responsive ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(
+                if (responsive.useCompactVerticalLayout) PontoCafeSpacing.md else PontoCafeSpacing.xl,
+            ),
+        ) {
         PontoCafeScreenHeader(
             title = "Administrador",
             onBack = onClose,
@@ -79,6 +93,9 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next,
                 ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                ),
             )
             SecurePasswordField(
                 value = senha,
@@ -86,18 +103,17 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 label = "Senha",
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.carregando,
+                imeAction = ImeAction.Done,
+                keyboardActions = KeyboardActions(onDone = { submit() }),
             )
             AdminFeedback(viewModel)
-            Button(
-                onClick = {
-                    sessionStore.prepareLogin(email, "ADMIN")
-                    viewModel.login(email, senha)
-                },
+            PcPrimaryButton(
+                text = "Entrar com segurança",
+                onClick = ::submit,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = email.isNotBlank() && senha.length >= 10 && !state.carregando,
-            ) {
-                Text(if (state.carregando) "Entrando…" else "Entrar com segurança")
-            }
+                enabled = email.isNotBlank() && senha.length >= 10,
+                loading = state.carregando,
+            )
         }
 
         Card(
@@ -113,6 +129,7 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
     }
 }
 

@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,8 +21,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Devices
@@ -36,14 +40,12 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -60,9 +62,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -411,7 +419,28 @@ private fun ManagementOverviewCard(
                 )
             }
 
-            if (responsive.isCompact) {
+            if (responsive.usesLargeText) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                    ManagementStatusCell(
+                        value = if (totalRules == 0) "—" else "$activeRules/$totalRules",
+                        label = "Períodos ativos",
+                        positive = totalRules > 0 && activeRules == totalRules,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ManagementStatusCell(
+                        value = if (faceModelReady) "Pronta" else "Atenção",
+                        label = "Biometria local",
+                        positive = faceModelReady,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ManagementStatusCell(
+                        value = "15 min",
+                        label = "Padrão por pausa",
+                        positive = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else if (responsive.isCompact) {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -493,10 +522,14 @@ private fun ManagementActionGrid(
     actions: List<ManagementAction>,
     responsive: PontoCafeResponsiveInfo,
 ) {
-    val columns = when (responsive.windowSizeClass) {
-        PontoCafeWindowSizeClass.COMPACT -> 1
-        PontoCafeWindowSizeClass.MEDIUM -> 2
-        PontoCafeWindowSizeClass.EXPANDED -> 3
+    val columns = when {
+        responsive.usesVeryLargeText -> 1
+        responsive.usesLargeText && responsive.isExpanded -> 2
+        else -> when (responsive.windowSizeClass) {
+            PontoCafeWindowSizeClass.COMPACT -> 1
+            PontoCafeWindowSizeClass.MEDIUM -> 2
+            PontoCafeWindowSizeClass.EXPANDED -> 3
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
@@ -624,7 +657,7 @@ private fun CoffeeRulesResponsiveLayout(
     responsive: PontoCafeResponsiveInfo,
     viewModel: AdminReliabilityViewModel,
 ) {
-    val columns = if (responsive.isExpanded) 2 else 1
+    val columns = if (responsive.isExpanded && responsive.supportsTwoColumns) 2 else 1
     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
         rules.chunked(columns).forEach { chunk ->
             Row(
@@ -653,6 +686,7 @@ private fun CoffeeRuleEditorV3(
     rule: CoffeeRuleV2,
     modifier: Modifier = Modifier,
 ) {
+    val focusManager = LocalFocusManager.current
     val initialDuration = PontoCafeRules.splitDuration(rule.limiteSegundos)
     var start by remember(rule) { mutableStateOf(rule.inicio) }
     var end by remember(rule) { mutableStateOf(rule.fim) }
@@ -683,6 +717,32 @@ private fun CoffeeRuleEditorV3(
         localError = null
     }
 
+    fun save() {
+        val mins = minutes.toIntOrNull()
+        val secs = seconds.toIntOrNull()
+        localError = when {
+            !start.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário inicial válido."
+            !end.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário final válido."
+            start >= end -> "O horário final deve ser posterior ao inicial."
+            mins == null || secs == null -> "Informe minutos e segundos."
+            secs !in 0..59 -> "Os segundos devem ficar entre 0 e 59."
+            else -> runCatching {
+                PontoCafeRules.durationSeconds(mins, secs)
+            }.exceptionOrNull()?.message
+        }
+
+        if (localError == null && mins != null && secs != null) {
+            focusManager.clearFocus()
+            viewModel.saveRule(
+                rule.periodo,
+                start,
+                end,
+                PontoCafeRules.durationSeconds(mins, secs),
+                active,
+            )
+        }
+    }
+
     editingTime?.let { target ->
         val source = if (target == ManagementRuleTimeTarget.START) start else end
         val hour = source.substringBefore(":").toIntOrNull()?.coerceIn(0, 23) ?: 8
@@ -698,11 +758,13 @@ private fun CoffeeRuleEditorV3(
                 Text(if (target == ManagementRuleTimeTarget.START) "Horário inicial" else "Horário final")
             },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    TimeInput(state = pickerState)
+                PcDialogBody {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        TimeInput(state = pickerState)
+                    }
                 }
             },
             confirmButton = {
@@ -767,15 +829,20 @@ private fun CoffeeRuleEditorV3(
                         localError = null
                     },
                     enabled = !viewModel.state.loading,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Ativar período ${rule.periodo.lowercase()}"
+                    },
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                StatusPill(
-                    if (active) "Ativa" else "Desativada",
-                    if (active) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                )
-                if (dirty) StatusPill("Alterações não salvas", PontoCafeTone.INFO)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                item {
+                    StatusPill(
+                        if (active) "Ativa" else "Desativada",
+                        if (active) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+                    )
+                }
+                if (dirty) item { StatusPill("Alterações não salvas", PontoCafeTone.INFO) }
             }
 
             Row(
@@ -798,11 +865,11 @@ private fun CoffeeRuleEditorV3(
 
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 Text("Duração da pausa", style = MaterialTheme.typography.labelLarge)
-                Row(
+                LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                 ) {
-                    listOf(10, 12, 15).forEach { preset ->
+                    items(listOf(10, 12, 15), key = { "duration-$it" }) { preset ->
                         FilterChip(
                             selected = !customDuration && currentMinutes == preset && currentSeconds == 0,
                             onClick = {
@@ -812,7 +879,6 @@ private fun CoffeeRuleEditorV3(
                                 localError = null
                             },
                             label = { Text("$preset min") },
-                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -824,32 +890,55 @@ private fun CoffeeRuleEditorV3(
             }
 
             AnimatedVisibility(customDuration) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    OutlinedTextField(
-                        value = minutes,
-                        onValueChange = {
-                            minutes = it.filter(Char::isDigit).take(3)
-                            localError = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Minutos") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = seconds,
-                        onValueChange = {
-                            seconds = it.filter(Char::isDigit).take(2)
-                            localError = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Segundos") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                    )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val stack = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
+                    val minutesField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = minutes,
+                            onValueChange = {
+                                minutes = it.filter(Char::isDigit).take(3)
+                                localError = null
+                            },
+                            modifier = fieldModifier,
+                            label = { Text("Minutos") },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Next,
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                            ),
+                            singleLine = true,
+                        )
+                    }
+                    val secondsField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                        OutlinedTextField(
+                            value = seconds,
+                            onValueChange = {
+                                seconds = it.filter(Char::isDigit).take(2)
+                                localError = null
+                            },
+                            modifier = fieldModifier,
+                            label = { Text("Segundos") },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { save() }),
+                            singleLine = true,
+                        )
+                    }
+                    if (stack) {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            minutesField(Modifier.fillMaxWidth())
+                            secondsField(Modifier.fillMaxWidth())
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            minutesField(Modifier.weight(1f))
+                            secondsField(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
 
@@ -865,43 +954,19 @@ private fun CoffeeRuleEditorV3(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                OutlinedButton(
+                PcSecondaryButton(
+                    text = "Descartar",
                     onClick = ::reset,
                     modifier = Modifier.weight(1f),
                     enabled = dirty && !viewModel.state.loading,
-                ) {
-                    Text("Descartar")
-                }
-                Button(
-                    onClick = {
-                        val mins = minutes.toIntOrNull()
-                        val secs = seconds.toIntOrNull()
-                        localError = when {
-                            !start.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário inicial válido."
-                            !end.matches(Regex("^([01]\\d|2[0-3]):[0-5]\\d$")) -> "Informe um horário final válido."
-                            start >= end -> "O horário final deve ser posterior ao inicial."
-                            mins == null || secs == null -> "Informe minutos e segundos."
-                            secs !in 0..59 -> "Os segundos devem ficar entre 0 e 59."
-                            else -> runCatching {
-                                PontoCafeRules.durationSeconds(mins, secs)
-                            }.exceptionOrNull()?.message
-                        }
-
-                        if (localError == null && mins != null && secs != null) {
-                            viewModel.saveRule(
-                                rule.periodo,
-                                start,
-                                end,
-                                PontoCafeRules.durationSeconds(mins, secs),
-                                active,
-                            )
-                        }
-                    },
+                )
+                PcPrimaryButton(
+                    text = "Salvar",
+                    onClick = ::save,
                     modifier = Modifier.weight(1f),
-                    enabled = dirty && !viewModel.state.loading,
-                ) {
-                    Text(if (viewModel.state.loading) "Salvando…" else "Salvar")
-                }
+                    enabled = dirty,
+                    loading = viewModel.state.loading,
+                )
             }
         }
     }

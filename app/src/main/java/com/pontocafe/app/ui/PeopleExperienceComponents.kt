@@ -51,12 +51,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.Colaborador
 
 internal enum class PeopleFaceFilter { ALL, PENDING }
+
+internal enum class PeopleSort(val label: String) {
+    PRIORITY("Pendências primeiro"),
+    NAME("Nome A–Z"),
+    SECTOR("Setor"),
+}
 
 @Composable
 internal fun PeopleCompactSummary(
@@ -66,7 +84,14 @@ internal fun PeopleCompactSummary(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append("$total colaboradores. $pending com rosto pendente")
+                    accessCount?.let { append(". $it acessos") }
+                }
+            },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -145,6 +170,7 @@ internal fun PeopleSearchField(
     accessMode: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val focusManager: FocusManager = LocalFocusManager.current
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -161,6 +187,8 @@ internal fun PeopleSearchField(
         placeholder = { Text(if (accessMode) "Nome, e-mail ou perfil" else "Nome, setor ou turno") },
         singleLine = true,
         shape = MaterialTheme.shapes.large,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
     )
 }
 
@@ -170,6 +198,7 @@ internal fun PeopleFaceFilterRow(
     total: Int,
     pending: Int,
     activeExtraFilters: Int,
+    sort: PeopleSort,
     onSelected: (PeopleFaceFilter) -> Unit,
     onOpenFilters: () -> Unit,
     modifier: Modifier = Modifier,
@@ -209,6 +238,13 @@ internal fun PeopleFaceFilterRow(
                 },
             )
         }
+        item {
+            FilterChip(
+                selected = sort != PeopleSort.PRIORITY,
+                onClick = onOpenFilters,
+                label = { Text("Ordenar: ${sort.label}") },
+            )
+        }
     }
 }
 
@@ -221,22 +257,39 @@ internal fun PeopleSectionSwitch(
     onAccess: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-    ) {
-        FilterChip(
-            selected = collaboratorSelected,
-            onClick = onCollaborators,
-            label = { Text("Colaboradores $collaboratorCount") },
-            modifier = Modifier.weight(1f),
-        )
-        FilterChip(
-            selected = !collaboratorSelected,
-            onClick = onAccess,
-            label = { Text("Acessos $accessCount") },
-            modifier = Modifier.weight(1f),
-        )
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val stack = maxWidth < 340.dp || LocalDensity.current.fontScale >= 1.6f
+        if (stack) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                FilterChip(
+                    selected = collaboratorSelected,
+                    onClick = onCollaborators,
+                    label = { Text("Colaboradores $collaboratorCount") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FilterChip(
+                    selected = !collaboratorSelected,
+                    onClick = onAccess,
+                    label = { Text("Acessos $accessCount") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                FilterChip(
+                    selected = collaboratorSelected,
+                    onClick = onCollaborators,
+                    label = { Text("Colaboradores $collaboratorCount") },
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = !collaboratorSelected,
+                    onClick = onAccess,
+                    label = { Text("Acessos $accessCount") },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 
@@ -259,7 +312,15 @@ internal fun PeoplePersonCard(
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = buildString {
+                    append(if (person.rostoCadastrado) "Biometria pronta" else "Rosto pendente")
+                    if (selectionMode) append(if (selected) ". Selecionado" else ". Não selecionado")
+                }
+            },
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -285,6 +346,9 @@ internal fun PeoplePersonCard(
                     Checkbox(
                         checked = selected,
                         onCheckedChange = onSelected,
+                        modifier = Modifier.semantics {
+                            contentDescription = "Selecionar ${person.nome}"
+                        },
                     )
                 }
 
@@ -330,15 +394,14 @@ internal fun PeoplePersonCard(
             }
 
             if (!selectionMode && !person.rostoCadastrado) {
-                Button(
+                PcPrimaryButton(
+                    text = "Cadastrar rosto",
                     onClick = onBiometric,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !loading,
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Cadastrar rosto", modifier = Modifier.padding(start = 7.dp))
-                }
+                    loading = loading,
+                    icon = Icons.Default.Face,
+                )
             }
         }
     }
@@ -393,53 +456,44 @@ private fun PersonActionContent(
             tone = if (person.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
         )
 
-        Button(
+        PcPrimaryButton(
+            text = if (person.rostoCadastrado) "Atualizar biometria" else "Cadastrar biometria",
             onClick = onBiometric,
             modifier = Modifier.fillMaxWidth(),
             enabled = !loading,
-        ) {
-            Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(
-                if (person.rostoCadastrado) "Atualizar biometria" else "Cadastrar biometria",
-                modifier = Modifier.padding(start = 7.dp),
-            )
-        }
+            loading = loading,
+            icon = Icons.Default.Face,
+        )
 
         HorizontalDivider()
 
         onHistory?.let { callback ->
-            OutlinedButton(
+            PcSecondaryButton(
+                text = "Histórico",
                 onClick = callback,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
-            ) {
-                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("Histórico", modifier = Modifier.padding(start = 7.dp))
-            }
+                icon = Icons.Default.History,
+            )
         }
 
         onEdit?.let { callback ->
-            OutlinedButton(
+            PcSecondaryButton(
+                text = "Editar colaborador",
                 onClick = callback,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("Editar colaborador", modifier = Modifier.padding(start = 7.dp))
-            }
+                icon = Icons.Default.Edit,
+            )
         }
 
-        OutlinedButton(
+        PcSecondaryButton(
+            text = if (person.avatarUrl.isNullOrBlank()) "Definir avatar" else "Alterar avatar",
             onClick = onAvatar,
             modifier = Modifier.fillMaxWidth(),
             enabled = !loading,
-        ) {
-            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(
-                if (person.avatarUrl.isNullOrBlank()) "Definir avatar" else "Alterar avatar",
-                modifier = Modifier.padding(start = 7.dp),
-            )
-        }
+            icon = Icons.Default.CameraAlt,
+        )
 
         if (onDeleteAvatar != null || onDeleteFace != null || onDeleteCollaborator != null) {
             TextButton(
@@ -512,20 +566,20 @@ internal fun PersonActionBottomSheet(
     onDeleteCollaborator: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        PersonActionContent(
-            person = person,
-            loading = loading,
-            onBiometric = onBiometric,
-            onAvatar = onAvatar,
-            onHistory = onHistory,
-            onEdit = onEdit,
-            onDeleteAvatar = onDeleteAvatar,
-            onDeleteFace = onDeleteFace,
-            onDeleteCollaborator = onDeleteCollaborator,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-        )
+        PcBottomSheetContent {
+            PersonActionContent(
+                person = person,
+                loading = loading,
+                onBiometric = onBiometric,
+                onAvatar = onAvatar,
+                onHistory = onHistory,
+                onEdit = onEdit,
+                onDeleteAvatar = onDeleteAvatar,
+                onDeleteFace = onDeleteFace,
+                onDeleteCollaborator = onDeleteCollaborator,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -594,21 +648,19 @@ internal fun PeopleFilterSheet(
     shifts: List<String>,
     currentSector: String?,
     currentShift: String?,
+    currentSort: PeopleSort,
     onDismiss: () -> Unit,
-    onApply: (String?, String?) -> Unit,
+    onApply: (String?, String?, PeopleSort) -> Unit,
 ) {
     var sector by remember(currentSector) { mutableStateOf(currentSector) }
     var shift by remember(currentShift) { mutableStateOf(currentShift) }
+    var sort by remember(currentSort) { mutableStateOf(currentSort) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
+        PcBottomSheetContent {
             Text(
                 "Filtrar pessoas",
+                modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -649,26 +701,27 @@ internal fun PeopleFilterSheet(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        sector = null
-                        shift = null
-                    },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Limpar")
-                }
-                Button(
-                    onClick = { onApply(sector, shift) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Aplicar")
+            Text("Ordenar por", style = MaterialTheme.typography.titleSmall)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                items(PeopleSort.entries, key = { "sort-${it.name}" }) { option ->
+                    FilterChip(
+                        selected = sort == option,
+                        onClick = { sort = option },
+                        label = { Text(option.label) },
+                    )
                 }
             }
+
+            PcFormActions(
+                primaryText = "Aplicar filtros",
+                onPrimary = { onApply(sector, shift, sort) },
+                secondaryText = "Limpar filtros",
+                onSecondary = {
+                    sector = null
+                    shift = null
+                    sort = PeopleSort.PRIORITY
+                },
+            )
         }
     }
 }

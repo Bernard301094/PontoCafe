@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -19,8 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,10 +30,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.Colaborador
@@ -62,14 +63,15 @@ fun SupervisorPeopleScreenV3(
     val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
     val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
 
-    var search by remember { mutableStateOf("") }
-    var faceFilter by remember { mutableStateOf(PeopleFaceFilter.ALL) }
-    var selectedPersonId by remember { mutableStateOf<String?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
+    var faceFilter by rememberSaveable { mutableStateOf(PeopleFaceFilter.ALL) }
+    var peopleSort by rememberSaveable { mutableStateOf(PeopleSort.PRIORITY) }
+    var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteFace by remember { mutableStateOf<Colaborador?>(null) }
     var deleteCollaborator by remember { mutableStateOf<Colaborador?>(null) }
-    var showFilters by remember { mutableStateOf(false) }
-    var sectorFilter by remember { mutableStateOf<String?>(null) }
-    var shiftFilter by remember { mutableStateOf<String?>(null) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var shiftFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
     var avatarBusyId by remember { mutableStateOf<String?>(null) }
     var avatarError by remember { mutableStateOf<String?>(null) }
@@ -125,20 +127,20 @@ fun SupervisorPeopleScreenV3(
             onDismissRequest = { if (!state.carregando) deleteFace = null },
             title = { Text("Excluir biometria facial?") },
             text = {
-                Text("O rosto de ${collaborator.nome} será removido. O colaborador continuará ativo e poderá cadastrar a biometria novamente.")
+                PcDialogBody {
+                    Text("O rosto de ${collaborator.nome} será removido. O colaborador continuará ativo e poderá cadastrar a biometria novamente.")
+                }
             },
             confirmButton = {
-                Button(
+                PcDangerButton(
+                    text = "Excluir rosto",
                     onClick = {
                         deleteFace = null
                         viewModel.excluirRosto(collaborator)
                     },
                     enabled = !state.carregando,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                    ),
-                ) { Text("Excluir rosto") }
+                    loading = state.carregando,
+                )
             },
             dismissButton = {
                 TextButton(onClick = { deleteFace = null }, enabled = !state.carregando) { Text("Cancelar") }
@@ -151,7 +153,7 @@ fun SupervisorPeopleScreenV3(
             onDismissRequest = { if (!state.carregando) deleteCollaborator = null },
             title = { Text("Excluir colaborador?") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcDialogBody {
                     Text("${collaborator.nome} deixará de aparecer imediatamente entre os colaboradores ativos.")
                     PcStateBanner(
                         title = "Histórico preservado",
@@ -161,18 +163,16 @@ fun SupervisorPeopleScreenV3(
                 }
             },
             confirmButton = {
-                Button(
+                PcDangerButton(
+                    text = "Excluir colaborador",
                     onClick = {
                         deleteCollaborator = null
                         selectedPersonId = null
                         viewModel.excluirColaborador(collaborator)
                     },
                     enabled = !state.carregando,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                    ),
-                ) { Text("Excluir colaborador") }
+                    loading = state.carregando,
+                )
             },
             dismissButton = {
                 TextButton(onClick = { deleteCollaborator = null }, enabled = !state.carregando) { Text("Cancelar") }
@@ -194,7 +194,7 @@ fun SupervisorPeopleScreenV3(
         .distinct()
         .sortedBy { it.lowercase() }
 
-    val visible = all.asSequence()
+    val filtered = all.asSequence()
         .filter { faceFilter != PeopleFaceFilter.PENDING || !it.rostoCadastrado }
         .filter {
             query.isBlank() ||
@@ -204,8 +204,16 @@ fun SupervisorPeopleScreenV3(
         }
         .filter { sectorFilter == null || it.setor.orEmpty().equals(sectorFilter, ignoreCase = true) }
         .filter { shiftFilter == null || it.turno.orEmpty().equals(shiftFilter, ignoreCase = true) }
-        .sortedWith(compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }))
         .toList()
+    val visible = when (peopleSort) {
+        PeopleSort.PRIORITY -> filtered.sortedWith(
+            compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }),
+        )
+        PeopleSort.NAME -> filtered.sortedBy { it.nome.lowercase() }
+        PeopleSort.SECTOR -> filtered.sortedWith(
+            compareBy<Colaborador>({ it.setor.orEmpty().lowercase() }, { it.nome.lowercase() }),
+        )
+    }
 
     val selectedPerson = all.firstOrNull { it.id == selectedPersonId }
     val activeExtraFilters = listOfNotNull(sectorFilter, shiftFilter).size
@@ -216,10 +224,12 @@ fun SupervisorPeopleScreenV3(
             shifts = shifts,
             currentSector = sectorFilter,
             currentShift = shiftFilter,
+            currentSort = peopleSort,
             onDismiss = { showFilters = false },
-            onApply = { sector, shift ->
+            onApply = { sector, shift, sort ->
                 sectorFilter = sector
                 shiftFilter = shift
+                peopleSort = sort
                 showFilters = false
             },
         )
@@ -253,10 +263,14 @@ fun SupervisorPeopleScreenV3(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .imePadding(),
     ) {
         val windowClass = pontoCafeWindowSizeClass(maxWidth)
-        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED
+        val compactHeight = maxHeight < 480.dp
+        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED &&
+            !compactHeight &&
+            LocalDensity.current.fontScale < 1.6f
         val pagePadding = when (windowClass) {
             PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
             PontoCafeWindowSizeClass.MEDIUM,
@@ -311,10 +325,12 @@ fun SupervisorPeopleScreenV3(
                     onBackToPonto = onClose,
                 )
 
-                PeopleCompactSummary(
-                    total = all.size,
-                    pending = pending,
-                )
+                if (!compactHeight) {
+                    PeopleCompactSummary(
+                        total = all.size,
+                        pending = pending,
+                    )
+                }
 
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     state.mensagem?.let { message ->
@@ -355,6 +371,7 @@ fun SupervisorPeopleScreenV3(
                     total = all.size,
                     pending = pending,
                     activeExtraFilters = activeExtraFilters,
+                    sort = peopleSort,
                     onSelected = { faceFilter = it },
                     onOpenFilters = { showFilters = true },
                 )

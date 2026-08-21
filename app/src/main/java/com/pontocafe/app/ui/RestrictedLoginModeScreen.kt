@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
@@ -43,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,19 +98,22 @@ fun RestrictedLoginModeScreen(
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
             title = { Text("Remover conta deste aparelho?") },
             text = {
-                Text(
-                    "A sessão salva de ${entry.account.name} será removida somente deste aparelho. A conta continuará existindo no sistema.",
-                )
+                PcDialogBody {
+                    Text(
+                        "A sessão salva de ${entry.account.name} será removida somente deste aparelho. A conta continuará existindo no sistema.",
+                    )
+                }
             },
             confirmButton = {
-                TextButton(
+                PcDangerButton(
+                    text = "Remover deste aparelho",
                     onClick = {
                         val store = if (entry.admin) adminStore else supervisorStore
                         store.forgetAccount(entry.account.id)
                         accounts = loadAccounts()
                         accountToForget = null
                     },
-                ) { Text("Remover") }
+                )
             },
             dismissButton = {
                 TextButton(onClick = { accountToForget = null }) { Text("Cancelar") }
@@ -207,7 +214,7 @@ fun RestrictedLoginModeScreen(
                 item("back") {
                     PcSecondaryButton(
                         text = "Voltar ao Ponto Café",
-                        icon = Icons.Default.ArrowForward,
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
                         onClick = onBackToPonto,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -440,7 +447,15 @@ private fun SavedAccountCard(
     var menuExpanded by remember(account.id) { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                stateDescription = if (account.hasSession) {
+                    "${if (entry.admin) "Administrador" else "Supervisor"}; sessão pronta"
+                } else {
+                    "${if (entry.admin) "Administrador" else "Supervisor"}; senha necessária"
+                }
+            },
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -463,15 +478,30 @@ private fun SavedAccountCard(
                         account.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         account.email,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                item {
+                    StatusPill(
+                        text = if (entry.admin) "Administrador" else "Supervisor",
+                        tone = if (entry.admin) PontoCafeTone.INFO else PontoCafeTone.NEUTRAL,
+                    )
+                }
+                item {
+                    StatusPill(
+                        text = if (account.hasSession) "Sessão pronta" else "Senha necessária",
+                        tone = if (account.hasSession) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
                     )
                 }
             }
@@ -481,24 +511,9 @@ private fun SavedAccountCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                StatusPill(
-                    text = if (entry.admin) "Administrador" else "Supervisor",
-                    tone = if (entry.admin) PontoCafeTone.INFO else PontoCafeTone.NEUTRAL,
-                )
-                StatusPill(
-                    text = if (account.hasSession) "Sessão pronta" else "Senha necessária",
-                    tone = if (account.hasSession) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
                 PcTonalButton(
                     text = if (account.hasSession) "Abrir conta" else "Continuar login",
-                    icon = Icons.Default.ArrowForward,
+                    icon = Icons.AutoMirrored.Filled.ArrowForward,
                     onClick = onOpen,
                     modifier = Modifier.weight(1f),
                 )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
@@ -24,6 +25,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -51,6 +60,7 @@ fun AdminAccountForm(
     showHeader: Boolean = true,
     onSubmit: (NewAccountInput) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     val draft = draftState.draft
     val perfil = AccountProfile.entries.firstOrNull { it.name == draft.perfil } ?: initialProfile
 
@@ -83,6 +93,22 @@ fun AdminAccountForm(
         else -> "Tudo pronto para criar a conta de ${perfil.label}."
     }
 
+    fun submit() {
+        draftState.setValidationError(validationError)
+        if (validationError == null && !carregando) {
+            focusManager.clearFocus()
+            draftState.markSubmitted()
+            onSubmit(
+                NewAccountInput(
+                    nome = cleanName,
+                    email = cleanEmail.lowercase(),
+                    senha = draft.senha,
+                    perfil = perfil,
+                ),
+            )
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
@@ -101,7 +127,7 @@ fun AdminAccountForm(
         )
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val stackProfiles = pontoCafeWindowSizeClass(maxWidth) == PontoCafeWindowSizeClass.COMPACT && maxWidth < 430.dp
+            val stackProfiles = maxWidth < 430.dp || LocalDensity.current.fontScale >= 1.3f
             if (stackProfiles) {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     ProfileChoiceCard(
@@ -165,6 +191,9 @@ fun AdminAccountForm(
                         capitalization = KeyboardCapitalization.Words,
                         imeAction = ImeAction.Next,
                     ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
                 )
                 OutlinedTextField(
                     value = draft.email,
@@ -176,6 +205,9 @@ fun AdminAccountForm(
                     singleLine = true,
                     enabled = !carregando,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
                 )
             }
         }
@@ -198,6 +230,10 @@ fun AdminAccountForm(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !carregando,
                     supportingText = "Mínimo de 10 caracteres",
+                    imeAction = ImeAction.Next,
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
                 )
                 PasswordRequirement("Pelo menos 10 caracteres", passwordLongEnough)
                 PasswordRequirement("Conter letras e números", passwordHasLetter && passwordHasDigit)
@@ -212,6 +248,9 @@ fun AdminAccountForm(
                         passwordsMatch -> "As senhas coincidem"
                         else -> "As senhas ainda não coincidem"
                     },
+                    imeAction = ImeAction.Done,
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    isError = draft.confirmarSenha.isNotBlank() && !passwordsMatch,
                 )
                 PasswordRequirement("Confirmação igual à senha", passwordsMatch)
             }
@@ -235,30 +274,16 @@ fun AdminAccountForm(
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 PcPrimaryButton(
-                    text = if (carregando) {
-                        "Criando conta…"
-                    } else if (perfil == AccountProfile.SUPERVISOR) {
+                    text = if (perfil == AccountProfile.SUPERVISOR) {
                         "Criar conta de Supervisor"
                     } else {
                         "Criar conta de Administrador"
                     },
                     icon = Icons.Default.AdminPanelSettings,
-                    onClick = {
-                        draftState.setValidationError(validationError)
-                        if (validationError == null) {
-                            draftState.markSubmitted()
-                            onSubmit(
-                                NewAccountInput(
-                                    nome = cleanName,
-                                    email = cleanEmail.lowercase(),
-                                    senha = draft.senha,
-                                    perfil = perfil,
-                                ),
-                            )
-                        }
-                    },
+                    onClick = ::submit,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !carregando && validationError == null,
+                    enabled = validationError == null,
+                    loading = carregando,
                 )
             }
         }
@@ -275,7 +300,11 @@ private fun ProfileChoiceCard(
     enabled: Boolean,
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            role = Role.RadioButton
+            this.selected = selected
+            stateDescription = if (selected) "Selecionado" else "Não selecionado"
+        },
         onClick = onClick,
         enabled = enabled,
         shape = MaterialTheme.shapes.large,
@@ -315,7 +344,11 @@ private fun ProfileChoiceCard(
 @Composable
 private fun PasswordRequirement(text: String, fulfilled: Boolean) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                stateDescription = if (fulfilled) "Atendido" else "Pendente"
+            },
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {

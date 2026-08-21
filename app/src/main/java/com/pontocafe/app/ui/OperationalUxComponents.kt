@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
@@ -28,8 +29,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -62,7 +68,9 @@ fun PcScrollToTopFab(
             onClick = { scope.launch { listState.animateScrollToItem(0) } },
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.semantics { contentDescription = "Voltar ao topo" },
+            modifier = Modifier
+                .size(PontoCafeDimensions.minimumTouchTarget)
+                .semantics { contentDescription = "Voltar ao topo" },
         ) {
             Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
         }
@@ -81,13 +89,15 @@ fun PcKeyValueCard(
 ) {
     PcSectionSurface(modifier) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val stacked = pontoCafeWindowSizeClass(maxWidth) == PontoCafeWindowSizeClass.COMPACT
+            val stacked = pontoCafeWindowSizeClass(maxWidth) == PontoCafeWindowSizeClass.COMPACT ||
+                LocalDensity.current.fontScale >= 1.3f
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
                 Text(
                     text = title,
+                    modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -169,7 +179,22 @@ fun PcFeedbackBanner(
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {
+                    liveRegion = if (tone == PontoCafeTone.DANGER) {
+                        LiveRegionMode.Assertive
+                    } else {
+                        LiveRegionMode.Polite
+                    }
+                    stateDescription = when (tone) {
+                        PontoCafeTone.SUCCESS -> "Concluído"
+                        PontoCafeTone.WARNING -> "Atenção"
+                        PontoCafeTone.INFO -> "Informação"
+                        PontoCafeTone.DANGER -> "Erro"
+                        PontoCafeTone.NEUTRAL -> "Aviso"
+                    }
+                },
             color = container,
             contentColor = content,
             shape = MaterialTheme.shapes.medium,

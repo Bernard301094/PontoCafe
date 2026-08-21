@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
@@ -28,7 +30,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -48,10 +49,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
@@ -87,21 +93,22 @@ fun AdminPeopleScreenV4(
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
 
-    var search by remember { mutableStateOf("") }
-    var section by remember { mutableStateOf(AdminPeopleSection.COLLABORATORS) }
-    var faceFilter by remember { mutableStateOf(PeopleFaceFilter.ALL) }
-    var accessFilter by remember { mutableStateOf(AccessProfileFilter.ALL) }
-    var selectedPersonId by remember { mutableStateOf<String?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
+    var section by rememberSaveable { mutableStateOf(AdminPeopleSection.COLLABORATORS) }
+    var faceFilter by rememberSaveable { mutableStateOf(PeopleFaceFilter.ALL) }
+    var peopleSort by rememberSaveable { mutableStateOf(PeopleSort.PRIORITY) }
+    var accessFilter by rememberSaveable { mutableStateOf(AccessProfileFilter.ALL) }
+    var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Colaborador?>(null) }
     var deletingBiometric by remember { mutableStateOf<Colaborador?>(null) }
     var deletingCollaborator by remember { mutableStateOf<Colaborador?>(null) }
     var importPreview by remember { mutableStateOf<CsvImportPreview?>(null) }
-    var selectionMode by remember { mutableStateOf(false) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBulkDialog by remember { mutableStateOf(false) }
-    var showFilters by remember { mutableStateOf(false) }
-    var sectorFilter by remember { mutableStateOf<String?>(null) }
-    var shiftFilter by remember { mutableStateOf<String?>(null) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var shiftFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
     var avatarBusyId by remember { mutableStateOf<String?>(null) }
     var avatarError by remember { mutableStateOf<String?>(null) }
@@ -245,7 +252,7 @@ fun AdminPeopleScreenV4(
         .distinct()
         .sortedBy { it.lowercase() }
 
-    val collaborators = allCollaborators.asSequence()
+    val filteredCollaborators = allCollaborators.asSequence()
         .filter {
             query.isBlank() ||
                 it.nome.contains(query, true) ||
@@ -255,8 +262,16 @@ fun AdminPeopleScreenV4(
         .filter { faceFilter != PeopleFaceFilter.PENDING || !it.rostoCadastrado }
         .filter { sectorFilter == null || it.setor.orEmpty().equals(sectorFilter, ignoreCase = true) }
         .filter { shiftFilter == null || it.turno.orEmpty().equals(shiftFilter, ignoreCase = true) }
-        .sortedWith(compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }))
         .toList()
+    val collaborators = when (peopleSort) {
+        PeopleSort.PRIORITY -> filteredCollaborators.sortedWith(
+            compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }),
+        )
+        PeopleSort.NAME -> filteredCollaborators.sortedBy { it.nome.lowercase() }
+        PeopleSort.SECTOR -> filteredCollaborators.sortedWith(
+            compareBy<Colaborador>({ it.setor.orEmpty().lowercase() }, { it.nome.lowercase() }),
+        )
+    }
 
     val accounts = state.usuarios.asSequence()
         .filter {
@@ -284,10 +299,12 @@ fun AdminPeopleScreenV4(
             shifts = shifts,
             currentSector = sectorFilter,
             currentShift = shiftFilter,
+            currentSort = peopleSort,
             onDismiss = { showFilters = false },
-            onApply = { sector, shift ->
+            onApply = { sector, shift, sort ->
                 sectorFilter = sector
                 shiftFilter = shift
+                peopleSort = sort
                 showFilters = false
             },
         )
@@ -325,7 +342,10 @@ fun AdminPeopleScreenV4(
             .imePadding(),
     ) {
         val windowClass = pontoCafeWindowSizeClass(maxWidth)
-        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED
+        val compactHeight = maxHeight < 480.dp
+        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED &&
+            !compactHeight &&
+            LocalDensity.current.fontScale < 1.6f
         val pagePadding = when (windowClass) {
             PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
             PontoCafeWindowSizeClass.MEDIUM,
@@ -393,12 +413,14 @@ fun AdminPeopleScreenV4(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                 ) {
-                    PeopleCompactSummary(
-                        total = allCollaborators.size,
-                        pending = pendingFaces,
-                        accessCount = state.usuarios.size,
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (!compactHeight) {
+                        PeopleCompactSummary(
+                            total = allCollaborators.size,
+                            pending = pendingFaces,
+                            accessCount = state.usuarios.size,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
 
                     if (section == AdminPeopleSection.COLLABORATORS) {
                         Box {
@@ -523,6 +545,7 @@ fun AdminPeopleScreenV4(
                         total = allCollaborators.size,
                         pending = pendingFaces,
                         activeExtraFilters = activeExtraFilters,
+                        sort = peopleSort,
                         onSelected = { faceFilter = it },
                         onOpenFilters = { showFilters = true },
                     )
@@ -770,7 +793,7 @@ private fun DeleteCollaboratorDialogV4(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir colaborador?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 Text("${collaborator.nome} será removido da equipe ativa e não poderá mais utilizar o Ponto Café.")
                 Text(
                     "Todos os registros faciais serão apagados definitivamente. Autorizações pendentes serão canceladas.",
@@ -796,16 +819,12 @@ private fun DeleteCollaboratorDialogV4(
             }
         },
         confirmButton = {
-            Button(
-                onConfirm,
+            PcDangerButton(
+                text = "Excluir colaborador",
+                onClick = onConfirm,
                 enabled = !loading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) {
-                Text(if (loading) "Excluindo..." else "Excluir colaborador")
-            }
+                loading = loading,
+            )
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
@@ -822,7 +841,7 @@ private fun DeleteBiometricDialogV4(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text("Excluir biometria facial?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 Text("Todos os registros de rosto de ${collaborator.nome} serão apagados definitivamente.")
                 Text(
                     "O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.",
@@ -831,16 +850,12 @@ private fun DeleteBiometricDialogV4(
             }
         },
         confirmButton = {
-            Button(
-                onConfirm,
+            PcDangerButton(
+                text = "Excluir rosto",
+                onClick = onConfirm,
                 enabled = !loading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-            ) {
-                Text(if (loading) "Excluindo..." else "Excluir rosto")
-            }
+                loading = loading,
+            )
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
@@ -857,7 +872,7 @@ private fun ImportPreviewDialogV4(
         onDismissRequest = onDismiss,
         title = { Text("Importar colaboradores") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 Text("${preview.valid.size} registro(s) válido(s) encontrados.")
                 if (preview.errors.isNotEmpty()) {
                     Text("Avisos", style = MaterialTheme.typography.titleSmall)
@@ -868,9 +883,12 @@ private fun ImportPreviewDialogV4(
             }
         },
         confirmButton = {
-            Button(onConfirm, enabled = preview.valid.isNotEmpty() && !loading) {
-                Text("Importar ${preview.valid.size}")
-            }
+            PcPrimaryButton(
+                text = "Importar ${preview.valid.size}",
+                onClick = onConfirm,
+                enabled = preview.valid.isNotEmpty(),
+                loading = loading,
+            )
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
@@ -883,6 +901,7 @@ private fun BulkEditDialogV4(
     onDismiss: () -> Unit,
     onApply: (String?, String?, Boolean) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     var sector by remember { mutableStateOf("") }
     var shift by remember { mutableStateOf("") }
     var changeSector by remember { mutableStateOf(false) }
@@ -893,7 +912,7 @@ private fun BulkEditDialogV4(
         onDismissRequest = onDismiss,
         title = { Text("Editar $selectedCount colaborador(es)") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(changeSector, { changeSector = it })
                     Text("Alterar setor")
@@ -905,6 +924,10 @@ private fun BulkEditDialogV4(
                         Modifier.fillMaxWidth(),
                         label = { Text("Novo setor") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        ),
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -918,6 +941,8 @@ private fun BulkEditDialogV4(
                         Modifier.fillMaxWidth(),
                         label = { Text("Novo turno") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -927,18 +952,18 @@ private fun BulkEditDialogV4(
             }
         },
         confirmButton = {
-            Button(
-                {
+            PcPrimaryButton(
+                text = "Aplicar alterações",
+                onClick = {
                     onApply(
                         sector.takeIf { changeSector }?.trim(),
                         shift.takeIf { changeShift }?.trim(),
                         deactivate,
                     )
                 },
-                enabled = !loading && (changeSector || changeShift || deactivate),
-            ) {
-                Text(if (loading) "Aplicando..." else "Aplicar alterações")
-            }
+                enabled = changeSector || changeShift || deactivate,
+                loading = loading,
+            )
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )
@@ -951,6 +976,7 @@ private fun EditCollaboratorDialogV4(
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     var name by remember(collaborator.id) { mutableStateOf(collaborator.nome) }
     var sector by remember(collaborator.id) { mutableStateOf(collaborator.setor.orEmpty()) }
     var shift by remember(collaborator.id) { mutableStateOf(collaborator.turno.orEmpty()) }
@@ -959,7 +985,7 @@ private fun EditCollaboratorDialogV4(
         onDismissRequest = onDismiss,
         title = { Text("Editar colaborador") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+            PcDialogBody {
                 OutlinedTextField(
                     name,
                     { name = it.take(160) },
@@ -967,6 +993,10 @@ private fun EditCollaboratorDialogV4(
                     label = { Text("Nome") },
                     singleLine = false,
                     maxLines = 3,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
                 )
                 OutlinedTextField(
                     sector,
@@ -974,6 +1004,10 @@ private fun EditCollaboratorDialogV4(
                     Modifier.fillMaxWidth(),
                     label = { Text("Setor") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
                 )
                 OutlinedTextField(
                     shift,
@@ -981,16 +1015,23 @@ private fun EditCollaboratorDialogV4(
                     Modifier.fillMaxWidth(),
                     label = { Text("Turno") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        focusManager.clearFocus()
+                        if (!loading && name.trim().length >= 2) {
+                            onSave(name.trim(), sector.trim(), shift.trim())
+                        }
+                    }),
                 )
             }
         },
         confirmButton = {
-            Button(
-                { onSave(name.trim(), sector.trim(), shift.trim()) },
-                enabled = !loading && name.trim().length >= 2,
-            ) {
-                Text(if (loading) "Salvando..." else "Salvar")
-            }
+            PcPrimaryButton(
+                text = "Salvar",
+                onClick = { onSave(name.trim(), sector.trim(), shift.trim()) },
+                enabled = name.trim().length >= 2,
+                loading = loading,
+            )
         },
         dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
     )

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -28,7 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
@@ -52,7 +53,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +66,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -198,7 +205,8 @@ fun RestrictedAreaLockScreen(
             .fillMaxSize()
             .systemBarsPadding(),
     ) {
-        val compactHeight = maxHeight < 720.dp
+        val compactHeight = maxHeight < 600.dp
+        val compactContent = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
         val horizontalPadding = if (maxWidth < 360.dp) 14.dp else 20.dp
         val cardPadding = if (compactHeight) 20.dp else 24.dp
         val iconBoxSize = if (compactHeight) 50.dp else 58.dp
@@ -236,6 +244,7 @@ fun RestrictedAreaLockScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(max = (maxHeight - 32.dp).coerceAtLeast(240.dp))
                         .verticalScroll(rememberScrollState())
                         .padding(cardPadding),
                     verticalArrangement = Arrangement.spacedBy(if (compactHeight) 14.dp else 18.dp),
@@ -276,6 +285,7 @@ fun RestrictedAreaLockScreen(
                             )
                             Text(
                                 text = "Ponto Café",
+                                modifier = Modifier.semantics { heading() },
                                 style = if (compactHeight) {
                                     MaterialTheme.typography.titleLarge
                                 } else {
@@ -333,7 +343,7 @@ fun RestrictedAreaLockScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Surface(
+                            if (!compactContent) Surface(
                                 shape = CircleShape,
                                 color = LocalPontoCafeSemanticColors.current.successContainer,
                             ) {
@@ -372,7 +382,12 @@ fun RestrictedAreaLockScreen(
 
                     erro?.let { message ->
                         Surface(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    liveRegion = LiveRegionMode.Assertive
+                                    stateDescription = message
+                                },
                             shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.errorContainer,
                             border = BorderStroke(
@@ -391,7 +406,15 @@ fun RestrictedAreaLockScreen(
 
                     Button(
                         onClick = ::forceRequestUnlock,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                stateDescription = if (promptRequested) {
+                                    "Autenticação do sistema aberta"
+                                } else {
+                                    "Aguardando desbloqueio"
+                                }
+                            },
                         shape = RoundedCornerShape(18.dp),
                         contentPadding = PaddingValues(vertical = if (compactHeight) 14.dp else 16.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -420,7 +443,7 @@ fun RestrictedAreaLockScreen(
                         border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )

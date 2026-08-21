@@ -1,7 +1,5 @@
 package com.pontocafe.app.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,9 +13,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import com.pontocafe.app.avatar.AvatarImageOptimizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,6 +41,8 @@ fun CollaboratorAvatarSourceDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val cameraPermission = rememberCameraPermissionUiState()
+    var launchCameraWhenGranted by remember { mutableStateOf(false) }
 
     fun optimizeBitmap(bitmap: Bitmap) {
         scope.launch {
@@ -66,14 +70,10 @@ fun CollaboratorAvatarSourceDialog(
         }
     }
 
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
+    LaunchedEffect(cameraPermission.granted, launchCameraWhenGranted) {
+        if (cameraPermission.granted && launchCameraWhenGranted) {
+            launchCameraWhenGranted = false
             cameraLauncher.launch(null)
-        } else {
-            onDismiss()
-            onError("Permissão de câmera necessária para tirar a foto do avatar.")
         }
     }
 
@@ -104,26 +104,35 @@ fun CollaboratorAvatarSourceDialog(
         icon = { Icon(Icons.Default.Image, contentDescription = null) },
         title = { Text("Definir avatar") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+            PcDialogBody {
                 Text("Escolha como deseja definir o avatar de $collaboratorName.")
                 Text("A foto é usada somente como avatar e permanece separada da biometria facial.")
+                if (cameraPermission.requiresSettings) {
+                    PcStateBanner(
+                        title = "Câmera bloqueada nos ajustes",
+                        supportingText = "Autorize a câmera nos ajustes do Ponto Café para tirar uma foto. A galeria continua disponível.",
+                        tone = PontoCafeTone.WARNING,
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                        PackageManager.PERMISSION_GRANTED
-                    ) {
+                    if (cameraPermission.granted) {
                         cameraLauncher.launch(null)
                     } else {
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        launchCameraWhenGranted = true
+                        if (cameraPermission.requiresSettings) {
+                            cameraPermission.openSettings()
+                        } else {
+                            cameraPermission.requestPermission()
+                        }
                     }
                 },
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = null)
-                Text("Tirar foto")
+                Text(if (cameraPermission.requiresSettings) "Abrir ajustes" else "Tirar foto")
             }
         },
         dismissButton = {

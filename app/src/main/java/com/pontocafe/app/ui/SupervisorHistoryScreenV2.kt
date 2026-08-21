@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -155,7 +157,26 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                 }
 
                 item("metrics") {
-                    Row(
+                    if (responsive.isNarrow || responsive.usesLargeText) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = total.toString(),
+                                label = "Pausas",
+                                icon = Icons.Default.Coffee,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            PcMetricTile(
+                                value = overLimit.toString(),
+                                label = "Acima do limite",
+                                icon = Icons.Default.Timer,
+                                modifier = Modifier.fillMaxWidth(),
+                                attention = overLimit > 0,
+                            )
+                        }
+                    } else Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     ) {
@@ -250,7 +271,11 @@ internal fun HistoryPauseCard(
     ).joinToString(" · ")
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                stateDescription = "$statusText. $meta. Duração ${formatHistoryDuration(duration)}"
+            },
         onClick = onClick,
         colors = CardDefaults.cardColors(
             containerColor = if (exceeded) {
@@ -287,14 +312,14 @@ internal fun HistoryPauseCard(
                     text = pause.nome,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = meta,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -331,20 +356,22 @@ internal fun HistoryPauseDetailDialog(
         onDismissRequest = onDismiss,
         title = { Text(pause.nome) },
         text = {
-            PcKeyValueCard(
-                title = "Informações do registro",
-                rows = listOf(
-                    "Data" to (pause.data?.let(::formatHistoryDateText) ?: "—"),
-                    "Período" to pause.periodo,
-                    "Setor" to (pause.setor ?: "—"),
-                    "Saída" to pause.inicioLocal,
-                    "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
-                    "Duração" to formatHistoryDuration(duration),
-                    "Limite" to formatHistoryDuration(pause.limiteSegundos),
-                    "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
-                    "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
-                ),
-            )
+            PcDialogBody {
+                PcKeyValueCard(
+                    title = "Informações do registro",
+                    rows = listOf(
+                        "Data" to (pause.data?.let(::formatHistoryDateText) ?: "—"),
+                        "Período" to pause.periodo,
+                        "Setor" to (pause.setor ?: "—"),
+                        "Saída" to pause.inicioLocal,
+                        "Retorno" to (pause.fimLocal ?: "Ainda em pausa"),
+                        "Duração" to formatHistoryDuration(duration),
+                        "Limite" to formatHistoryDuration(pause.limiteSegundos),
+                        "Situação" to if (exceeded) "Acima do limite" else "Dentro do limite",
+                        "Fora do horário" to if (pause.foraHorario) "Sim" else "Não",
+                    ),
+                )
+            }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Fechar") }
@@ -365,8 +392,10 @@ internal fun formatHistoryDuration(totalSeconds: Int): String {
 }
 
 private fun formatHistoryDate(date: LocalDate): String =
-    date.format(DateTimeFormatter.ofPattern("EEEE, dd/MM/yyyy", Locale("pt", "BR")))
-        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("pt", "BR")) else it.toString() }
+    date.format(DateTimeFormatter.ofPattern("EEEE, dd/MM/yyyy", Locale.forLanguageTag("pt-BR")))
+        .replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.forLanguageTag("pt-BR")) else it.toString()
+        }
 
 private fun formatHistoryDateText(value: String): String =
     runCatching { LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) }

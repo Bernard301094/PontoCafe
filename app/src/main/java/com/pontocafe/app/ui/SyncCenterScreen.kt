@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import java.time.Instant
@@ -80,19 +82,39 @@ fun SyncCenterScreen(
                 }
 
                 item("summary") {
-                    Row(
+                    if (responsive.isNarrow || responsive.usesLargeText) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            PcMetricTile(
+                                value = snapshot?.pending?.size?.toString() ?: "—",
+                                label = "Pendentes",
+                                icon = Icons.Default.Refresh,
+                                modifier = Modifier.fillMaxWidth(),
+                                attention = (snapshot?.pending?.size ?: 0) > 0,
+                            )
+                            PcMetricTile(
+                                value = snapshot?.failures?.size?.toString() ?: "—",
+                                label = "Com atenção",
+                                icon = Icons.Default.Warning,
+                                modifier = Modifier.fillMaxWidth(),
+                                attention = (snapshot?.failures?.size ?: 0) > 0,
+                            )
+                        }
+                    } else Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     ) {
                         PcMetricTile(
-                            value = (snapshot?.pending?.size ?: 0).toString(),
+                            value = snapshot?.pending?.size?.toString() ?: "—",
                             label = "Pendentes",
                             icon = Icons.Default.Refresh,
                             modifier = Modifier.weight(1f),
                             attention = (snapshot?.pending?.size ?: 0) > 0,
                         )
                         PcMetricTile(
-                            value = (snapshot?.failures?.size ?: 0).toString(),
+                            value = snapshot?.failures?.size?.toString() ?: "—",
                             label = "Com atenção",
                             icon = Icons.Default.Warning,
                             modifier = Modifier.weight(1f),
@@ -105,8 +127,16 @@ fun SyncCenterScreen(
                     PcKeyValueCard(
                         title = "Estado local",
                         rows = listOf(
-                            "Última conexão" to (snapshot?.lastServerOkMillis?.takeIf { it > 0L }?.let(::formatMillis) ?: "Sem registro"),
-                            "Regras offline" to (snapshot?.rulesUpdatedAtMillis?.takeIf { it > 0L }?.let(::formatMillis) ?: "Sem cache"),
+                            "Última conexão" to when {
+                                snapshot == null -> "Carregando…"
+                                snapshot.lastServerOkMillis > 0L -> formatMillis(snapshot.lastServerOkMillis)
+                                else -> "Sem registro"
+                            },
+                            "Regras offline" to when {
+                                snapshot == null -> "Carregando…"
+                                snapshot.rulesUpdatedAtMillis > 0L -> formatMillis(snapshot.rulesUpdatedAtMillis)
+                                else -> "Sem cache"
+                            },
                         ),
                     )
                 }
@@ -120,50 +150,22 @@ fun SyncCenterScreen(
                 }
 
                 item("actions") {
-                    if (responsive.isCompact) {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcPrimaryButton(
-                                text = if (state.loading) "Sincronizando…" else "Sincronizar agora",
-                                icon = Icons.Default.Refresh,
-                                onClick = viewModel::syncPending,
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.loading && (snapshot?.pending?.isNotEmpty() == true),
-                            )
-                            PcSecondaryButton(
-                                text = "Atualizar tela",
-                                icon = Icons.Default.Refresh,
-                                onClick = viewModel::openSyncCenter,
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.loading,
-                            )
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
-                            PcPrimaryButton(
-                                text = if (state.loading) "Sincronizando…" else "Sincronizar agora",
-                                icon = Icons.Default.Refresh,
-                                onClick = viewModel::syncPending,
-                                modifier = Modifier.weight(1f),
-                                enabled = !state.loading && (snapshot?.pending?.isNotEmpty() == true),
-                            )
-                            PcSecondaryButton(
-                                text = "Atualizar tela",
-                                icon = Icons.Default.Refresh,
-                                onClick = viewModel::openSyncCenter,
-                                modifier = Modifier.weight(1f),
-                                enabled = !state.loading,
-                            )
-                        }
-                    }
+                    PcFormActions(
+                        primaryText = "Sincronizar agora",
+                        onPrimary = viewModel::syncPending,
+                        primaryEnabled = snapshot?.pending?.isNotEmpty() == true,
+                        primaryLoading = state.loading,
+                        secondaryText = "Atualizar tela",
+                        onSecondary = viewModel::openSyncCenter,
+                    )
                 }
 
                 item("pending-title") {
                     SectionTitle(
                         "Fila local",
-                        if (snapshot?.pending.isNullOrEmpty()) {
+                        if (snapshot == null) {
+                            "Carregando o estado da fila local."
+                        } else if (snapshot.pending.isEmpty()) {
                             "Nenhum registro aguardando envio."
                         } else {
                             "Cada item permanece aqui até o servidor confirmar o processamento."
@@ -171,7 +173,25 @@ fun SyncCenterScreen(
                     )
                 }
 
-                if (snapshot?.pending.isNullOrEmpty()) {
+                if (snapshot == null && state.loading) {
+                    item("loading") { PontoCafeLoadingSkeleton(rows = 3) }
+                } else if (snapshot == null) {
+                    item("unavailable") {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            PcEmptyState(
+                                title = "Resumo local indisponível",
+                                supportingText = "Atualize a tela para consultar novamente a fila protegida deste aparelho.",
+                                icon = Icons.Default.Warning,
+                            )
+                            PcSecondaryButton(
+                                text = "Atualizar",
+                                onClick = viewModel::openSyncCenter,
+                                icon = Icons.Default.Refresh,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                } else if (snapshot.pending.isEmpty()) {
                     item("empty") {
                         PcEmptyState(
                             title = "Tudo sincronizado",
@@ -180,10 +200,18 @@ fun SyncCenterScreen(
                         )
                     }
                 } else {
-                    items(snapshot!!.pending, key = { it.eventId }) { event ->
+                    items(snapshot.pending, key = { it.eventId }) { event ->
                         val failure = event.falha
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    stateDescription = if (failure == null) {
+                                        "Registro aguardando sincronização"
+                                    } else {
+                                        "Registro com falha de sincronização"
+                                    }
+                                },
                             colors = CardDefaults.cardColors(
                                 containerColor = if (failure == null) {
                                     MaterialTheme.colorScheme.surfaceContainerLow

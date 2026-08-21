@@ -35,6 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -66,6 +72,7 @@ fun PontoCafeHeader(subtitle: String? = null) {
         )
         Text(
             text = "Ponto Café",
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.SemiBold,
@@ -95,7 +102,7 @@ fun PontoCafeScreenHeader(
     ) {
         if (onBack != null) {
             Surface(
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
@@ -121,6 +128,7 @@ fun PontoCafeScreenHeader(
             }
             Text(
                 title,
+                modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.SemiBold,
@@ -134,6 +142,7 @@ fun SectionTitle(title: String, subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(
             title,
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.SemiBold,
@@ -158,7 +167,10 @@ fun MetricCard(
     val semantic = LocalPontoCafeSemanticColors.current
     val displayValue = animatedMetricValue(value)
     Card(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label: $displayValue"
+            if (emphasized) stateDescription = "Requer atenção"
+        },
         colors = CardDefaults.cardColors(
             containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -199,7 +211,9 @@ fun StatusPill(text: String, positive: Boolean, modifier: Modifier = Modifier) {
 fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier) {
     val (container, content) = toneColors(tone)
     Surface(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            stateDescription = text
+        },
         shape = CircleShape,
         color = container,
     ) {
@@ -245,7 +259,11 @@ fun InitialAvatar(
         .ifBlank { "?" }
 
     Surface(
-        modifier = modifier.size(avatarSize),
+        modifier = modifier
+            .size(avatarSize)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Avatar de $name"
+            },
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
     ) {
@@ -406,7 +424,12 @@ fun MessageCard(viewModel: PontoCafeViewModel) {
         val isError = state.erro != null
         val (container, content) = toneColors(if (isError) PontoCafeTone.DANGER else PontoCafeTone.INFO)
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {
+                    liveRegion = if (isError) LiveRegionMode.Assertive else LiveRegionMode.Polite
+                    stateDescription = if (isError) "Erro" else "Informação"
+                },
             colors = CardDefaults.cardColors(containerColor = container),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = MaterialTheme.shapes.large,

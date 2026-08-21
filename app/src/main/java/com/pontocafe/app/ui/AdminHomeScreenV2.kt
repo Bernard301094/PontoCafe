@@ -47,11 +47,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
@@ -289,7 +293,31 @@ fun AdminHomeScreenV2(
                             title = "Ações rápidas",
                             subtitle = "Acesso direto às tarefas administrativas mais usadas.",
                         )
-                        Row(
+                        if (responsive.isNarrow || responsive.usesLargeText) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                            ) {
+                                AdminHomeQuickAction(
+                                    title = "Pessoas",
+                                    icon = Icons.Default.PersonAdd,
+                                    onClick = viewModel::abrirColaboradores,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                AdminHomeQuickAction(
+                                    title = "Autorizar",
+                                    icon = Icons.Default.Coffee,
+                                    onClick = viewModel::abrirAutorizacao,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                AdminHomeQuickAction(
+                                    title = "Dispositivos",
+                                    icon = Icons.Default.Devices,
+                                    onClick = onDevicesClick,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        } else Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                         ) {
@@ -315,7 +343,7 @@ fun AdminHomeScreenV2(
                     }
                 }
 
-                if (responsive.isExpanded) {
+                if (responsive.isExpanded && responsive.supportsTwoColumns) {
                     item("desktop-dashboard") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -388,7 +416,7 @@ fun AdminHomeScreenV2(
                 }
 
                 item("history-header") {
-                    if (responsive.isCompact) {
+                    if (responsive.isCompact || responsive.usesLargeText) {
                         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                             AdminHomeSectionHeader(
                                 title = if (historyDate == LocalDate.now()) "Histórico de hoje" else "Histórico · $historyDateLabel",
@@ -555,7 +583,7 @@ private fun AdminHomeOverviewCard(
                 }
             }
 
-            if (responsive.isCompact) {
+            if (responsive.isCompact || responsive.usesLargeText) {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -608,7 +636,13 @@ private fun AdminHomeNowMetric(
     }
 
     Surface(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label: $value"
+            when {
+                danger -> stateDescription = "Crítico"
+                attention -> stateDescription = "Requer atenção"
+            }
+        },
         shape = MaterialTheme.shapes.medium,
         color = container,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -832,7 +866,9 @@ private fun AdminHomeMiniStat(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label: $value"
+        },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -856,7 +892,12 @@ private fun AdminHomeSectionHeader(
     subtitle: String,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            title,
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(
             subtitle,
             style = MaterialTheme.typography.bodySmall,

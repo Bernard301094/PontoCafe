@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
@@ -29,6 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -41,6 +44,7 @@ private val SupervisorShiftOptions = listOf("A", "B", "C")
 
 @Composable
 fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
+    val focusManager = LocalFocusManager.current
     val state = viewModel.state
     val draftState = remember(viewModel) { FormDraftRegistry.supervisorCollaborator(viewModel) }
     val draft = draftState.draft
@@ -132,6 +136,9 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                                 capitalization = KeyboardCapitalization.Words,
                                 imeAction = ImeAction.Next,
                             ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                            ),
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                             OutlinedTextField(
@@ -143,8 +150,9 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Words,
-                                    imeAction = ImeAction.Next,
+                                    imeAction = ImeAction.Done,
                                 ),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                             )
                             if (sectorSuggestions.isNotEmpty()) {
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
@@ -160,11 +168,11 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                             Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Row(
+                            LazyRow(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                             ) {
-                                SupervisorShiftOptions.forEach { shift ->
+                                items(SupervisorShiftOptions, key = { "supervisor-shift-$it" }) { shift ->
                                     FilterChip(
                                         selected = cleanShift == shift,
                                         onClick = { draftState.update(draft.copy(turno = shift)) },
@@ -172,7 +180,6 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                                         leadingIcon = if (cleanShift == shift) {
                                             { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
                                         } else null,
-                                        modifier = Modifier.weight(1f),
                                     )
                                 }
                             }
@@ -196,7 +203,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
 
             item("save") {
                 PcPrimaryButton(
-                    text = if (state.carregando) "Salvando…" else "Salvar e cadastrar rosto",
+                    text = "Salvar e cadastrar rosto",
                     icon = Icons.Default.Face,
                     onClick = {
                         draftState.markSubmitted()
@@ -204,7 +211,8 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                         viewModel.criarColaborador(cleanName, cleanSector, cleanShift)
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = ready && !state.carregando,
+                    enabled = ready,
+                    loading = state.carregando,
                 )
             }
 

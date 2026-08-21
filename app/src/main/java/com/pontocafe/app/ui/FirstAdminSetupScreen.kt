@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,12 +26,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.pontocafe.app.AdminViewModel
 
 @Composable
 fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
+    val focusManager = LocalFocusManager.current
     var nome by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
@@ -46,6 +50,25 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
         senha.length < 10 -> "A senha deve ter pelo menos 10 caracteres."
         senha != confirmar -> "As senhas não coincidem."
         else -> null
+    }
+
+    fun advanceToSecurity() {
+        erroLocal = validateAccount()
+        if (erroLocal == null) {
+            focusManager.clearFocus()
+            step = 1
+        }
+    }
+
+    fun createAdministrator() {
+        erroLocal = when {
+            chave.length < 16 -> "Informe a chave de instalação válida."
+            else -> validateAccount()
+        }
+        if (erroLocal == null && !state.carregando && state.instalacaoConfigurada) {
+            focusManager.clearFocus()
+            viewModel.criarPrimeiroAdmin(nome, email, senha, chave)
+        }
     }
 
     Column(
@@ -103,6 +126,9 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                         singleLine = true,
                         enabled = !state.carregando,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        ),
                     )
                     OutlinedTextField(
                         value = email,
@@ -112,6 +138,9 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                         singleLine = true,
                         enabled = !state.carregando,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        ),
                     )
                     SecurePasswordField(
                         value = senha,
@@ -120,6 +149,10 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !state.carregando,
                         supportingText = "Mínimo de 10 caracteres",
+                        imeAction = ImeAction.Next,
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                        ),
                     )
                     SecurePasswordField(
                         value = confirmar,
@@ -127,6 +160,8 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                         label = "Confirmar senha",
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !state.carregando,
+                        imeAction = ImeAction.Done,
+                        keyboardActions = KeyboardActions(onDone = { advanceToSecurity() }),
                     )
                 }
 
@@ -136,10 +171,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
 
                 PcPrimaryButton(
                     text = "Continuar",
-                    onClick = {
-                        erroLocal = validateAccount()
-                        if (erroLocal == null) step = 1
-                    },
+                    onClick = ::advanceToSecurity,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.carregando,
                 )
@@ -162,6 +194,8 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.carregando,
                     supportingText = "Fornecida na configuração segura do servidor",
+                    imeAction = ImeAction.Done,
+                    keyboardActions = KeyboardActions(onDone = { createAdministrator() }),
                 )
 
                 erroLocal?.let {
@@ -170,18 +204,11 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 AdminFeedback(viewModel)
 
                 PcPrimaryButton(
-                    text = if (state.carregando) "Criando…" else "Criar administrador",
-                    onClick = {
-                        erroLocal = when {
-                            chave.length < 16 -> "Informe a chave de instalação válida."
-                            else -> validateAccount()
-                        }
-                        if (erroLocal == null) {
-                            viewModel.criarPrimeiroAdmin(nome, email, senha, chave)
-                        }
-                    },
+                    text = "Criar administrador",
+                    onClick = ::createAdministrator,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.carregando && state.instalacaoConfigurada,
+                    enabled = state.instalacaoConfigurada,
+                    loading = state.carregando,
                 )
                 PcSecondaryButton(
                     text = "Voltar e revisar conta",

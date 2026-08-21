@@ -6,18 +6,18 @@ import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -59,6 +60,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +76,7 @@ fun SupervisorReportsScreenV2(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var localError by remember { mutableStateOf<String?>(null) }
+    var exportInProgress by remember { mutableStateOf<String?>(null) }
     var showCalendar by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
     var selectedDelay by remember { mutableStateOf<ReportDelay?>(null) }
@@ -155,14 +159,16 @@ fun SupervisorReportsScreenV2(
             onDismissRequest = { selectedDelay = null },
             title = { Text(delay.nome) },
             text = {
-                PcKeyValueCard(
-                    title = "Resumo no período",
-                    rows = listOf(
-                        "Ocorrências" to delay.ocorrencias.toString(),
-                        "Maior pausa" to viewModel.formatarTempo(delay.maiorDuracaoSegundos),
-                        "Excesso acumulado" to viewModel.formatarTempo(delay.excessoTotalSegundos),
-                    ),
-                )
+                PcDialogBody {
+                    PcKeyValueCard(
+                        title = "Resumo no período",
+                        rows = listOf(
+                            "Ocorrências" to delay.ocorrencias.toString(),
+                            "Maior pausa" to viewModel.formatarTempo(delay.maiorDuracaoSegundos),
+                            "Excesso acumulado" to viewModel.formatarTempo(delay.excessoTotalSegundos),
+                        ),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = { selectedDelay = null }) { Text("Fechar") }
@@ -173,13 +179,7 @@ fun SupervisorReportsScreenV2(
     val exportReport = report
     if (showExportSheet && exportReport != null) {
         ModalBottomSheet(onDismissRequest = { showExportSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-            ) {
+            PcBottomSheetContent {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         "Emitir relatório",
@@ -197,51 +197,70 @@ fun SupervisorReportsScreenV2(
                     supportingText = "${exportReport.resumo.totalPausas} pausa(s) · ${exportReport.resumo.colaboradores} pessoa(s)",
                     tone = if (exportReport.resumo.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
                 )
+                PcFeedbackBanner(
+                    message = localError,
+                    tone = PontoCafeTone.DANGER,
+                    onDismiss = { localError = null },
+                )
                 PcPrimaryButton(
                     text = "Gerar e compartilhar PDF",
                     icon = Icons.Default.Download,
                     onClick = {
                         localError = null
-                        runCatching {
-                            val file = createSupervisorPdfReportV2(context, exportReport, viewModel)
-                            shareSupervisorReportV2(context, file, "application/pdf")
-                        }.onSuccess {
-                            showExportSheet = false
-                        }.onFailure {
-                            localError = it.message ?: "Não foi possível gerar o PDF."
+                        exportInProgress = "PDF"
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    createSupervisorPdfReportV2(context, exportReport, viewModel)
+                                }
+                            }.onSuccess { file ->
+                                exportInProgress = null
+                                showExportSheet = false
+                                shareSupervisorReportV2(context, file, "application/pdf")
+                            }.onFailure {
+                                exportInProgress = null
+                                localError = it.message ?: "Não foi possível gerar o PDF."
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    loading = exportInProgress == "PDF",
+                    enabled = exportInProgress == null,
                 )
                 PcSecondaryButton(
                     text = "Exportar e compartilhar CSV",
                     icon = Icons.Default.Download,
                     onClick = {
                         localError = null
+                        exportInProgress = "CSV"
                         scope.launch {
                             runCatching {
                                 val bytes = viewModel.baixarRelatorioCsv()
-                                val file = supervisorReportFileV2(
-                                    context,
-                                    "pontocafe-${exportReport.periodo.inicio}-${exportReport.periodo.fim}.csv",
-                                )
-                                file.writeBytes(bytes)
-                                shareSupervisorReportV2(context, file, "text/csv")
-                            }.onSuccess {
+                                withContext(Dispatchers.IO) {
+                                    supervisorReportFileV2(
+                                        context,
+                                        "pontocafe-${exportReport.periodo.inicio}-${exportReport.periodo.fim}.csv",
+                                    ).also { it.writeBytes(bytes) }
+                                }
+                            }.onSuccess { file ->
+                                exportInProgress = null
                                 showExportSheet = false
+                                shareSupervisorReportV2(context, file, "text/csv")
                             }.onFailure {
+                                exportInProgress = null
                                 localError = it.message ?: "Não foi possível exportar o CSV."
                             }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    loading = exportInProgress == "CSV",
+                    enabled = exportInProgress == null,
                 )
                 Text(
                     "PDF é ideal para leitura e envio. CSV é indicado para análise em planilhas.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -324,7 +343,7 @@ fun SupervisorReportsScreenV2(
 
                 if (report != null) {
                     item("summary") {
-                        if (responsive.isExpanded) {
+                        if (responsive.isExpanded && responsive.supportsTwoColumns) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
@@ -365,7 +384,7 @@ fun SupervisorReportsScreenV2(
                         ReportMetricsGrid(
                             report = report,
                             viewModel = viewModel,
-                            expanded = responsive.isExpanded,
+                            expanded = responsive.isExpanded && !responsive.usesLargeText,
                         )
                     }
 
@@ -489,16 +508,15 @@ private fun ReportPeriodSelector(
     onCalendar: () -> Unit,
 ) {
     val chips: @Composable () -> Unit = {
-        Row(
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias").forEach { (days, label) ->
+            items(listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias"), key = { "period-${it.first}" }) { (days, label) ->
                 FilterChip(
                     selected = selectedDays == days,
                     onClick = { onDays(days) },
                     label = { Text(label) },
-                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -569,39 +587,58 @@ private fun ReportMetricsGrid(
     viewModel: SupervisorViewModel,
     expanded: Boolean,
 ) {
-    if (expanded) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            ReportMetricTiles(report, viewModel, singleRow = true)
-        }
-    } else {
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.weight(1f))
-                PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.weight(1f))
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val singleColumn = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.6f
+        when {
+            singleColumn -> Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.fillMaxWidth())
+                PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.fillMaxWidth())
                 PcMetricTile(
                     viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
                     "Tempo médio",
                     Icons.Default.Timer,
-                    Modifier.weight(1f),
+                    Modifier.fillMaxWidth(),
                 )
                 PcMetricTile(
                     report.resumo.acimaLimite.toString(),
                     "Acima do limite",
                     Icons.Default.Timer,
-                    Modifier.weight(1f),
+                    Modifier.fillMaxWidth(),
                     attention = report.resumo.acimaLimite > 0,
                 )
+            }
+            expanded -> Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                ReportMetricTiles(report, viewModel, singleRow = true)
+            }
+            else -> Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    PcMetricTile(report.resumo.totalPausas.toString(), "Pausas", Icons.Default.Coffee, Modifier.weight(1f))
+                    PcMetricTile(report.resumo.colaboradores.toString(), "Pessoas", Icons.Default.Groups, Modifier.weight(1f))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    PcMetricTile(
+                        viewModel.formatarTempo(report.resumo.mediaSegundos ?: 0),
+                        "Tempo médio",
+                        Icons.Default.Timer,
+                        Modifier.weight(1f),
+                    )
+                    PcMetricTile(
+                        report.resumo.acimaLimite.toString(),
+                        "Acima do limite",
+                        Icons.Default.Timer,
+                        Modifier.weight(1f),
+                        attention = report.resumo.acimaLimite > 0,
+                    )
+                }
             }
         }
     }
@@ -646,27 +683,46 @@ private fun ReportDayCardV2(day: ReportDay, onClick: () -> Unit) {
         shape = MaterialTheme.shapes.large,
         elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    formatReportDate(day.data),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "${day.pausas} pausa(s) · ${day.foraHorario} fora do horário",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        BoxWithConstraints {
+            val stack = maxWidth < 360.dp || LocalDensity.current.fontScale >= 1.6f
+            val summary: @Composable () -> Unit = {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        formatReportDate(day.data),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "${day.pausas} pausa(s) · ${day.foraHorario} fora do horário",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            StatusPill(
-                text = if (day.acimaLimite > 0) "${day.acimaLimite} acima" else "Dentro do limite",
-                tone = if (day.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
-            )
+            if (stack) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    summary()
+                    StatusPill(
+                        text = if (day.acimaLimite > 0) "${day.acimaLimite} acima" else "Dentro do limite",
+                        tone = if (day.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) { summary() }
+                    StatusPill(
+                        text = if (day.acimaLimite > 0) "${day.acimaLimite} acima" else "Dentro do limite",
+                        tone = if (day.acimaLimite > 0) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+                    )
+                }
+            }
         }
     }
 }

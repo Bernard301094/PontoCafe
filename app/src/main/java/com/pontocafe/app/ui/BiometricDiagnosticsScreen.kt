@@ -1,22 +1,25 @@
 package com.pontocafe.app.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,15 +42,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.camera.FaceCameraPreview
@@ -75,7 +85,7 @@ fun BiometricDiagnosticsScreen(
     }
     var metrics by remember { mutableStateOf<BiometricCalibrationMetrics?>(null) }
     var metricsError by remember { mutableStateOf<String?>(null) }
-    var search by remember { mutableStateOf("") }
+    var search by rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf<Colaborador?>(null) }
     var cameraOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -145,24 +155,25 @@ fun BiometricDiagnosticsScreen(
                     }
 
                     item("metrics") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
+                        BiometricMetricPair(
+                            first = { metricModifier ->
                             PcMetricTile(
                                 value = summary.biometriaCadastrada.toString(),
                                 label = "Rostos cadastrados",
                                 icon = Icons.Default.Face,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                             )
+                            },
+                            second = { metricModifier ->
                             PcMetricTile(
                                 value = summary.biometriaPendente.toString(),
                                 label = "Pendentes",
                                 icon = Icons.Default.Warning,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                                 attention = summary.biometriaPendente > 0,
                             )
-                        }
+                            },
+                        )
                     }
 
                     item("thresholds") {
@@ -220,45 +231,47 @@ fun BiometricDiagnosticsScreen(
                     }
 
                     item("calibration-stat-count") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
+                        BiometricMetricPair(
+                            first = { metricModifier ->
                             PcMetricTile(
                                 value = calibration.amostras.toString(),
                                 label = "Amostras",
                                 icon = Icons.Default.Face,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                             )
+                            },
+                            second = { metricModifier ->
                             PcMetricTile(
                                 value = formatPercent(calibration.top1Accuracy),
                                 label = "Top-1 accuracy",
                                 icon = Icons.Default.CheckCircle,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                             )
-                        }
+                            },
+                        )
                     }
 
                     item("calibration-stat-rates") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
+                        BiometricMetricPair(
+                            first = { metricModifier ->
                             PcMetricTile(
                                 value = formatPercent(calibration.falseRejectRate),
                                 label = "FRR · falsas rejeições",
                                 icon = Icons.Default.Warning,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                                 attention = (calibration.falseRejectRate ?: 0.0) > 0.05,
                             )
+                            },
+                            second = { metricModifier ->
                             PcMetricTile(
                                 value = formatPercent(calibration.falseAcceptRate),
                                 label = "FAR · falsos aceites",
                                 icon = Icons.Default.Warning,
-                                modifier = Modifier.weight(1f),
+                                    modifier = metricModifier,
                                 attention = (calibration.falseAcceptRate ?: 0.0) > 0.0,
                             )
-                        }
+                            },
+                        )
                     }
 
                     item("calibration-stat-note") {
@@ -288,6 +301,7 @@ fun BiometricDiagnosticsScreen(
                 }
 
                 item("search") {
+                    val focusManager = LocalFocusManager.current
                     OutlinedTextField(
                         value = search,
                         onValueChange = { search = it },
@@ -295,6 +309,8 @@ fun BiometricDiagnosticsScreen(
                         label = { Text("Buscar colaborador com rosto") },
                         leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Search, contentDescription = null) },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                         shape = MaterialTheme.shapes.large,
                     )
                 }
@@ -368,6 +384,7 @@ fun BiometricDiagnosticsScreen(
                         onClick = viewModel::runRetentionCleanup,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !state.loading,
+                        loading = state.loading,
                     )
                 }
             }
@@ -389,17 +406,8 @@ private fun CalibrationCamera(
     viewModel: AdminReliabilityViewModel,
     onClose: () -> Unit,
 ) {
-    val context = LocalContext.current
     val state = viewModel.state
-    var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        permissionGranted = it
-    }
+    val cameraPermission = rememberCameraPermissionUiState()
     val captureController = remember { FrameCaptureController() }
     var observation by remember { mutableStateOf(FaceObservation()) }
     var capturePending by remember { mutableStateOf(false) }
@@ -408,8 +416,9 @@ private fun CalibrationCamera(
         if (!state.loading) capturePending = false
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (permissionGranted) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val compactHeight = maxHeight < 480.dp
+        if (cameraPermission.granted) {
             FaceCameraPreview(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
@@ -417,23 +426,23 @@ private fun CalibrationCamera(
                 onFrame = { frame -> viewModel.calibrate(collaborator.id, frame) },
             )
         } else {
-            Column(
-                Modifier.align(Alignment.Center).padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Text("A câmera é necessária para testar a biometria.", color = Color.White)
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Permitir câmera")
-                }
-            }
+            CameraPermissionCard(
+                state = cameraPermission,
+                title = "Permissão de câmera",
+                rationale = "A câmera é necessária para testar a biometria sem armazenar a foto.",
+                dark = true,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp, vertical = if (compactHeight) 72.dp else 96.dp),
+            )
         }
 
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(PontoCafeSpacing.md)
+                .widthIn(max = 900.dp)
+                .fillMaxWidth()
                 .align(Alignment.TopCenter),
             color = Color.Black.copy(alpha = .72f),
             shape = RoundedCornerShape(20.dp),
@@ -451,17 +460,25 @@ private fun CalibrationCamera(
             }
         }
 
-        Surface(
+        if (cameraPermission.granted) Surface(
             modifier = Modifier
-                .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(PontoCafeSpacing.md)
+                .widthIn(max = 720.dp)
+                .fillMaxWidth()
                 .align(Alignment.BottomCenter),
             color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
             shape = RoundedCornerShape(24.dp),
         ) {
             Column(
-                Modifier.padding(PontoCafeSpacing.lg),
+                Modifier
+                    .heightIn(max = if (compactHeight) 220.dp else 600.dp)
+                    .verticalScroll(rememberScrollState())
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        stateDescription = "Estado da calibração biométrica"
+                    }
+                    .padding(PontoCafeSpacing.lg),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
@@ -479,16 +496,16 @@ private fun CalibrationCamera(
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
+                PcPrimaryButton(
+                    text = "Capturar amostra e medir",
                     onClick = {
                         capturePending = true
                         captureController.request()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = permissionGranted && observation.isFrontal && !state.loading && !capturePending && viewModel.faceModelReady,
-                ) {
-                    Text(if (state.loading || capturePending) "Processando…" else "Capturar amostra e medir")
-                }
+                    enabled = observation.isFrontal && viewModel.faceModelReady,
+                    loading = state.loading || capturePending,
+                )
                 state.calibration?.let { CalibrationResultCard(it) }
                 state.error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
@@ -503,7 +520,16 @@ private fun CalibrationResultCard(result: com.pontocafe.app.data.CalibrationResp
     val scorePct = result.score?.let { (it * 100).roundToInt() }
     val marginPct = result.margem?.let { (it * 100).roundToInt() }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = if (result.aprovado) {
+                    "Amostra aprovada"
+                } else {
+                    "Amostra abaixo do critério"
+                }
+            },
         colors = CardDefaults.cardColors(
             containerColor = if (result.aprovado) {
                 LocalPontoCafeSemanticColors.current.successContainer
@@ -533,3 +559,29 @@ private fun CalibrationResultCard(result: com.pontocafe.app.data.CalibrationResp
 
 private fun formatPercent(value: Double?): String =
     value?.let { "%.2f%%".format(it * 100.0) } ?: "—"
+
+@Composable
+private fun BiometricMetricPair(
+    first: @Composable (Modifier) -> Unit,
+    second: @Composable (Modifier) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (maxWidth < 480.dp || LocalDensity.current.fontScale >= 1.3f) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                first(Modifier.fillMaxWidth())
+                second(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                first(Modifier.weight(1f))
+                second(Modifier.weight(1f))
+            }
+        }
+    }
+}

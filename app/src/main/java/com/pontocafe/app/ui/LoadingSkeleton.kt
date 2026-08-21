@@ -18,6 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -37,7 +41,13 @@ fun PontoCafeLoadingSkeleton(
     )
 
     Column(
-        modifier = modifier.fillMaxWidth().alpha(alpha),
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(alpha)
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = "Carregando conteúdo"
+            },
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
         Box(

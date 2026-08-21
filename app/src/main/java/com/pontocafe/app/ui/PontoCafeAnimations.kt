@@ -3,6 +3,7 @@ package com.pontocafe.app.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
@@ -24,6 +25,6 @@ fun PontoCafeSuccessAnimation(
     LottieAnimation(
         composition = composition,
         progress = { progress },
-        modifier = modifier,
+        modifier = modifier.clearAndSetSemantics { },
     )
 }

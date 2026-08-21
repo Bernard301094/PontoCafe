@@ -38,10 +38,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
@@ -62,7 +62,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val testPause by AdminTestPauseStore.active.collectAsState()
-    var pauseFilter by remember { mutableStateOf(OperationalPauseFilter.TODOS) }
+    var pauseFilter by rememberSaveable { mutableStateOf(OperationalPauseFilter.TODOS) }
     var selectedPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     val sessionStore = remember(context, state.sessaoAdministrativa) {
@@ -232,11 +232,19 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     )
                 }
                 item("metrics") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
-                        PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
-                        if (!responsive.isCompact) {
-                            PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.weight(1f), attention = pendingFaces.isNotEmpty())
+                    if (responsive.usesVeryLargeText) {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.fillMaxWidth())
+                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.fillMaxWidth(), attention = overdue > 0)
+                            PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.fillMaxWidth(), attention = pendingFaces.isNotEmpty())
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
+                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
+                            if (!responsive.isCompact) {
+                                PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.weight(1f), attention = pendingFaces.isNotEmpty())
+                            }
                         }
                     }
                 }
@@ -277,7 +285,15 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                 if (pendingFaces.isNotEmpty()) {
                     item("pending") { PcActionTile("${pendingFaces.size} biometria(s) pendente(s)", "Abra Pessoas para concluir os registros faciais.", Icons.Default.Face, viewModel::abrirColaboradores) }
                 }
-                item("refresh") { PcSecondaryButton(if (state.carregando) "Atualizando…" else "Atualizar agora", viewModel::atualizarAoVivo, Modifier.fillMaxWidth(), !state.carregando, Icons.Default.Refresh) }
+                item("refresh") {
+                    PcSecondaryButton(
+                        text = "Atualizar agora",
+                        onClick = viewModel::atualizarAoVivo,
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Default.Refresh,
+                        loading = state.carregando,
+                    )
+                }
             }
             PcScrollToTopFab(listState, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md))
         }

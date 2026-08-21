@@ -1,24 +1,25 @@
 package com.pontocafe.app.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Face
@@ -37,15 +38,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
@@ -92,23 +96,14 @@ private fun supervisorEnrollmentHintV2(
 
 @Composable
 fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
-    val context = LocalContext.current
     val state = viewModel.state
     val collaborator = state.colaboradorSelecionado ?: return
     val poses = remember(collaborator.id) { SupervisorEnrollmentPoseV2.entries.shuffled() }
     val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)
     val currentPose = poses[stepIndex]
 
-    var identityConfirmed by remember(collaborator.id) { mutableStateOf(false) }
-    var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { permissionGranted = it },
-    )
+    var identityConfirmed by rememberSaveable(collaborator.id) { mutableStateOf(false) }
+    val cameraPermission = rememberCameraPermissionUiState()
 
     val captureController = remember { FrameCaptureController() }
     val liveness = remember { BlinkLiveness() }
@@ -123,9 +118,10 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
         cameraHint = currentPose.instruction
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        val compactHeight = maxHeight < 480.dp
         if (identityConfirmed) {
-            if (permissionGranted) {
+            if (cameraPermission.granted) {
                 FaceCameraPreview(
                     modifier = Modifier.fillMaxSize(),
                     captureController = captureController,
@@ -159,9 +155,14 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
                     onFrame = viewModel::processarAmostraBiometrica,
                 )
             } else {
-                SupervisorPermissionCardV2(
-                    onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                    modifier = Modifier.align(Alignment.Center),
+                CameraPermissionCard(
+                    state = cameraPermission,
+                    title = "Permissão de câmera",
+                    rationale = "A câmera é necessária para cadastrar as amostras faciais desta pessoa.",
+                    dark = true,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp, vertical = if (compactHeight) 72.dp else 96.dp),
                 )
             }
         } else {
@@ -171,6 +172,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
                 shift = collaborator.turno,
                 onConfirm = { identityConfirmed = true },
                 onBack = viewModel::voltarColaboradores,
+                compactHeight = compactHeight,
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -181,7 +183,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        if (identityConfirmed) {
+        if (identityConfirmed && cameraPermission.granted) {
             SupervisorEnrollmentBottomSheetV2(
                 currentPose = currentPose,
                 stepIndex = stepIndex,
@@ -192,6 +194,7 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
                 cameraHint = cameraHint,
                 message = state.mensagem,
                 error = state.erro,
+                compactHeight = compactHeight,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -206,9 +209,10 @@ private fun SupervisorEnrollmentTopBarV2(
 ) {
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .widthIn(max = 900.dp)
+            .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         color = Color(0xE8161B19),
         contentColor = Color.White,
@@ -248,16 +252,23 @@ private fun SupervisorIdentityConfirmationCardV2(
     shift: String?,
     onConfirm: () -> Unit,
     onBack: () -> Unit,
+    compactHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 22.dp),
+        modifier = modifier
+            .padding(horizontal = 22.dp, vertical = if (compactHeight) 76.dp else 92.dp)
+            .widthIn(max = 560.dp)
+            .fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xF5161B19)),
         shape = RoundedCornerShape(28.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .heightIn(max = if (compactHeight) 300.dp else 560.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
@@ -294,39 +305,12 @@ private fun SupervisorIdentityConfirmationCardV2(
                 supportingText = "Confirme que esta é a pessoa diante da câmera. O rosto ficará vinculado somente a este cadastro.",
                 tone = PontoCafeTone.WARNING,
             )
-            Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Face, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("Confirmar e iniciar", modifier = Modifier.padding(start = 7.dp))
-            }
-            TextButton(onClick = onBack) { Text("Escolher outra pessoa") }
-        }
-    }
-}
-
-@Composable
-private fun SupervisorPermissionCardV2(
-    onRequestPermission: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xF5161B19)),
-        shape = RoundedCornerShape(24.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
-            Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFF72DCBC), modifier = Modifier.size(34.dp))
-            Text("Permissão de câmera", style = MaterialTheme.typography.titleLarge, color = Color.White)
-            Text(
-                "A câmera é necessária para cadastrar as amostras faciais.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.70f),
-                textAlign = TextAlign.Center,
+            PcFormActions(
+                primaryText = "Confirmar e iniciar",
+                onPrimary = onConfirm,
+                secondaryText = "Escolher outra pessoa",
+                onSecondary = onBack,
             )
-            Button(onClick = onRequestPermission) { Text("Permitir câmera") }
         }
     }
 }
@@ -342,19 +326,28 @@ private fun SupervisorEnrollmentBottomSheetV2(
     cameraHint: String,
     message: String?,
     error: String?,
+    compactHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .widthIn(max = 720.dp)
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = "$cameraHint. $captured de $totalSteps amostras capturadas"
+            },
         color = Color(0xF5161B19),
         contentColor = Color.White,
         shape = RoundedCornerShape(24.dp),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .heightIn(max = if (compactHeight) 196.dp else 460.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
@@ -457,7 +450,11 @@ private fun SupervisorEnrollmentStepperV2(
     processing: Boolean,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                stateDescription = "$captured de $total etapas concluídas; etapa ${current + 1} em andamento"
+            },
         horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {

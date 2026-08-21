@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Fingerprint
@@ -45,11 +49,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
@@ -71,9 +80,9 @@ private enum class AuditCategory(val label: String) {
 fun AdminAuditScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
     val listState = rememberLazyListState()
-    var query by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(AuditCategory.ALL) }
-    var selectedDate by remember { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf(AuditCategory.ALL) }
+    var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<AuditEvent?>(null) }
 
@@ -128,16 +137,17 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
         filtered.groupBy { it.criadoLocal.substringBefore(' ').ifBlank { "Sem data" } }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
+    PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding(),
             contentPadding = PaddingValues(
-                start = PontoCafeSpacing.lg,
-                end = PontoCafeSpacing.lg,
+                start = responsive.pagePadding,
+                end = responsive.pagePadding,
                 top = PontoCafeSpacing.lg,
                 bottom = 104.dp,
             ),
@@ -164,6 +174,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
             item(key = "feedback") { AdminFeedback(viewModel) }
 
             item(key = "search") {
+                val focusManager = LocalFocusManager.current
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -171,43 +182,52 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                     label = { Text("Buscar na auditoria") },
                     placeholder = { Text("Pessoa, ação, dispositivo ou ator") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = if (query.isNotEmpty()) {
+                        {
+                            androidx.compose.material3.IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Limpar busca")
+                            }
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
 
             item(key = "filters") {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        AuditCategory.entries.take(3).forEach { option ->
-                            FilterChip(
-                                selected = category == option,
-                                onClick = { category = option },
-                                label = { Text(option.label) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        AuditCategory.entries.drop(3).forEach { option ->
-                            FilterChip(
-                                selected = category == option,
-                                onClick = { category = option },
-                                label = { Text(option.label) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
+                ) {
+                    items(AuditCategory.entries, key = { it.name }) { option ->
+                        FilterChip(
+                            selected = category == option,
+                            onClick = { category = option },
+                            label = { Text(option.label) },
+                        )
                     }
                 }
             }
 
             item(key = "date-actions") {
-                Row(
+                if (selectedDate != null && (responsive.isNarrow || responsive.usesLargeText)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcSecondaryButton(
+                            text = "Data: $selectedDate",
+                            icon = Icons.Default.CalendarMonth,
+                            onClick = { showDatePicker = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        PcSecondaryButton(
+                            text = "Mostrar todas as datas",
+                            onClick = { selectedDate = null },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                 ) {
@@ -221,6 +241,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                         PcSecondaryButton(
                             text = "Todas",
                             onClick = { selectedDate = null },
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -245,10 +266,13 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                     onClick = viewModel::abrirAuditoria,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.carregando,
+                    loading = state.carregando,
                 )
             }
 
-            if (filtered.isEmpty() && !state.carregando) {
+            if (state.carregando && state.auditoria.isEmpty()) {
+                item(key = "loading") { PontoCafeLoadingSkeleton(rows = 5) }
+            } else if (filtered.isEmpty()) {
                 item(key = "empty") {
                     PcEmptyState(
                         title = "Nenhum evento encontrado",
@@ -269,15 +293,16 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                     AuditEventCard(event = event, onClick = { selectedEvent = event })
                 }
             }
-        }
+            }
 
-        PcScrollToTopFab(
-            listState = listState,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = PontoCafeSpacing.lg, bottom = PontoCafeSpacing.md),
-        )
+            PcScrollToTopFab(
+                listState = listState,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
+            )
+        }
     }
 }
 
@@ -287,7 +312,11 @@ private fun AuditEventCard(event: AuditEvent, onClick: () -> Unit) {
     val tone = auditActionTone(event.acao)
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                stateDescription = "${auditActionLabel(event.acao)}. ${auditCategory(event).label}. ${event.criadoLocal}"
+            },
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = MaterialTheme.shapes.large,
@@ -364,17 +393,7 @@ private fun AuditEventCard(event: AuditEvent, onClick: () -> Unit) {
 private fun AuditEventDetailSheet(event: AuditEvent, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(
-                    start = PontoCafeSpacing.lg,
-                    end = PontoCafeSpacing.lg,
-                    bottom = PontoCafeSpacing.xl,
-                ),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
+        PcBottomSheetContent {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                 Text(
                     auditActionLabel(event.acao),

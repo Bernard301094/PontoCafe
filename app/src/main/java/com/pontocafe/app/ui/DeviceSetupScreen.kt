@@ -12,25 +12,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
@@ -41,18 +43,29 @@ fun DeviceSetupScreen(
     onAdminClick: () -> Unit = {},
     onSupervisorClick: () -> Unit = {},
 ) {
-    var token by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    var token by rememberSaveable { mutableStateOf("") }
+    val loading = viewModel.state.carregando
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.xl),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
-    ) {
+    fun activate() {
+        if (token.length != 10 || loading) return
+        focusManager.clearFocus()
+        viewModel.configurarDispositivo(token)
+    }
+
+    PontoCafeResponsivePage(maxContentWidth = 640.dp) { responsive ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(
+                if (responsive.useCompactVerticalLayout) PontoCafeSpacing.md else PontoCafeSpacing.lg,
+            ),
+        ) {
         PontoCafeScreenHeader(title = "Ativar dispositivo", eyebrow = "Configuração inicial")
 
         Card(
@@ -85,16 +98,20 @@ fun DeviceSetupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Código de 10 caracteres") },
                 supportingText = { Text("${token.length}/10") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { activate() }),
                 singleLine = true,
             )
-            Button(
-                onClick = { viewModel.configurarDispositivo(token) },
+            PcPrimaryButton(
+                text = "Ativar este aparelho",
+                onClick = ::activate,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = token.length == 10 && !viewModel.state.carregando,
-            ) {
-                Text(if (viewModel.state.carregando) "Ativando..." else "Ativar este aparelho")
-            }
+                enabled = token.length == 10,
+                loading = loading,
+            )
         }
 
         MessageCard(viewModel)
@@ -115,13 +132,18 @@ fun DeviceSetupScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = onAdminClick, modifier = Modifier.fillMaxWidth()) {
-                    Text("Entrar como Administrador")
-                }
-                OutlinedButton(onClick = onSupervisorClick, modifier = Modifier.fillMaxWidth()) {
-                    Text("Entrar como Supervisor")
-                }
+                PcSecondaryButton(
+                    text = "Entrar como Administrador",
+                    onClick = onAdminClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PcSecondaryButton(
+                    text = "Entrar como Supervisor",
+                    onClick = onSupervisorClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
+    }
     }
 }

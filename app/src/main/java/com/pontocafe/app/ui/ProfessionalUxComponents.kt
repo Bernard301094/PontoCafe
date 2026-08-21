@@ -26,6 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +63,7 @@ fun PcAreaTopBar(
             )
             Text(
                 text = title,
+                modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -76,7 +80,10 @@ fun PcAreaTopBar(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
-            IconButton(onClick = onProfileClick, modifier = Modifier.size(44.dp)) {
+            IconButton(
+                onClick = onProfileClick,
+                modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
+            ) {
                 InitialAvatar(name = displayName, avatarSize = 34.dp)
             }
         }
@@ -176,6 +183,11 @@ fun PcReportTrendChart(
     val warning = LocalPontoCafeSemanticColors.current.warning
     val track = MaterialTheme.colorScheme.outlineVariant
     val maxValue = ordered.maxOf { maxOf(it.pausas, it.acimaLimite, 1) }.toFloat()
+    val trendDescription = buildString {
+        append("Tendência diária de ${ordered.size} dias. ")
+        append("${ordered.sumOf { it.pausas }} pausas e ")
+        append("${ordered.sumOf { it.acimaLimite }} registros acima do limite no total.")
+    }
 
     PcSectionSurface(modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
@@ -199,7 +211,12 @@ fun PcReportTrendChart(
                 )
             }
 
-            Canvas(modifier = Modifier.fillMaxWidth().height(132.dp)) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(132.dp)
+                    .semantics { contentDescription = trendDescription },
+            ) {
                 if (ordered.size == 1) {
                     val x = size.width / 2f
                     val baseY = size.height - 8.dp.toPx()

@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
@@ -45,10 +47,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
@@ -58,9 +65,9 @@ import com.pontocafe.app.data.Colaborador
 fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
-    var busca by remember { mutableStateOf("") }
-    var periodo by remember { mutableStateOf("MANHA") }
-    var motivo by remember { mutableStateOf("") }
+    var busca by rememberSaveable { mutableStateOf("") }
+    var periodo by rememberSaveable { mutableStateOf("MANHA") }
+    var motivo by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     val query = busca.trim()
@@ -140,6 +147,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                         }
 
                         item(key = "search") {
+                            val focusManager = LocalFocusManager.current
                             OutlinedTextField(
                                 value = busca,
                                 onValueChange = { busca = it },
@@ -158,6 +166,8 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                                     null
                                 },
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                                 shape = MaterialTheme.shapes.large,
                             )
                         }
@@ -253,6 +263,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                         }
 
                         item(key = "reason") {
+                            val focusManager = LocalFocusManager.current
                             OutlinedTextField(
                                 value = motivo,
                                 onValueChange = { motivo = it.take(300) },
@@ -261,7 +272,10 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                                 placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
                                 minLines = 3,
                                 maxLines = 5,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                                 shape = MaterialTheme.shapes.large,
+                                isError = motivo.isNotBlank() && !motivoValido,
                                 supportingText = {
                                     Text(
                                         "${motivo.length}/300",
@@ -300,13 +314,14 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             )
                         }
                         PcPrimaryButton(
-                            text = if (state.carregando) "Gerando autorização…" else "Gerar código de 6 dígitos",
+                            text = "Gerar código de 6 dígitos",
                             icon = Icons.Default.Key,
                             onClick = {
                                 selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivo) }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = podeGerar,
+                            loading = state.carregando,
                         )
                     }
                 }
@@ -374,6 +389,7 @@ private fun StepHeader(
         ) {
             Text(
                 title,
+                modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
