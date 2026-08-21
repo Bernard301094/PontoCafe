@@ -6,7 +6,9 @@ Este documento define o gate de produção da versão `1.0.0`. A presença do n�
 
 - [ ] PR de Integridade Operacional 0.15 revisado e incorporado na sequência correta.
 - [ ] `database/007_ponto_operation_idempotency.sql` aplicado antes do Worker compatível.
+- [ ] `database/008_release_readiness_indexes.sql` aplicado depois da 007 e antes do Worker 1.0.
 - [ ] Confirmar que `operacoes_ponto_idempotentes` aceita `REGISTRO_RAPIDO`, `INICIAR` e `FINALIZAR`.
+- [ ] Confirmar índices de retenção exactly-once e `APP_HEALTH` criados pela 008.
 - [ ] Nenhuma migração pendente na base usada pelo ambiente de produção.
 - [ ] Backup imediatamente anterior ao rollout concluído e identificável.
 
@@ -130,12 +132,16 @@ Na tela **Saúde do sistema**:
 - [ ] dispositivo com versão antiga aparece como desatualizado;
 - [ ] dispositivo sem telemetria recente é sinalizado sem bloquear o Ponto;
 - [ ] crash/travamento recente produz alerta de saúde;
-- [ ] telemetria não contém PIN, senha, token, foto nem embedding.
+- [ ] telemetria não contém PIN, senha, token, foto nem embedding;
+- [ ] `PONTO_OPERATION_RETENTION_DAYS` está conscientemente configurado (padrão 30 dias);
+- [ ] `DEVICE_HEALTH_RETENTION_DAYS` está conscientemente configurado (padrão 30 dias);
+- [ ] cron de manutenção remove apenas diários técnicos antigos e não apaga pausas/auditoria de negócio.
 
 ## 9. Política de atualização
 
 - [ ] `APP_LATEST_ANDROID_VERSION` configurada para a Release liberada;
 - [ ] `APP_MIN_ANDROID_VERSION` definida conscientemente de acordo com compatibilidade do Worker;
+- [ ] `backend/wrangler.jsonc` usa a mesma política da Release, sem defaults antigos sobrescrevendo o backend;
 - [ ] cliente mostra atualização disponível quando a versão instalada é menor;
 - [ ] cliente sinaliza atualização obrigatória quando fica abaixo da mínima;
 - [ ] procedimento de distribuição do APK oficial identifica versão, SHA-256 e certificado.
@@ -171,7 +177,7 @@ Antes do rollout:
 
 - [ ] congelar novas features;
 - [ ] registrar commit, APK SHA-256 e certificado;
-- [ ] aplicar migrações antes do Worker quando exigido;
+- [ ] aplicar migrações 007 e 008 antes do Worker 1.0;
 - [ ] testar um dispositivo piloto antes de atualizar os demais.
 
 Se um problema crítico for encontrado:
