@@ -33,19 +33,38 @@ class LiteRtFaceEmbeddingEngine(
 
     private val initMutex = Mutex()
     private val inferenceMutex = Mutex()
+    private val modelAssetAvailable by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        runCatching { context.assets.openFd(assetName).close() }.isSuccess
+    }
+    private val inferenceWorkspace by lazy(LazyThreadSafetyMode.NONE) { InferenceWorkspace() }
 
     @Volatile
     private var interpreter: InterpreterApi? = null
 
+    @Volatile
+    private var inferencePrimed: Boolean = false
+
     override val isReady: Boolean
-        get() = runCatching { context.assets.openFd(assetName).close() }.isSuccess
+        get() = modelAssetAvailable
 
     override val modelName: String = "FaceNet 128D · LiteRT"
     override val modelVersion: String = MODEL_VERSION
 
     override suspend fun warmUp() {
-        if (!isReady) return
-        getInterpreter()
+        if (!isReady || inferencePrimed) return
+        withContext(Dispatchers.Default) {
+            val runtime = getInterpreter()
+            inferenceMutex.withLock {
+                if (inferencePrimed) return@withLock
+                val workspace = inferenceWorkspace
+                workspace.input.clear()
+                while (workspace.input.hasRemaining()) workspace.input.putFloat(0f)
+                workspace.input.rewind()
+                workspace.output[0].fill(0f)
+                runtime.run(workspace.input, workspace.output)
+                inferencePrimed = true
+            }
+        }
     }
 
     /**
@@ -149,15 +168,17 @@ class LiteRtFaceEmbeddingEngine(
             resized = scaled
             FaceImageQualityAnalyzer.requireAcceptable(scaled)
 
-            val input = toStandardizedBuffer(scaled)
-            val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
             val runtime = getInterpreter()
-
-            inferenceMutex.withLock {
+            val output = inferenceMutex.withLock {
+                val workspace = inferenceWorkspace
+                val input = toStandardizedBuffer(scaled, workspace)
+                workspace.output[0].fill(0f)
                 input.rewind()
-                runtime.run(input, output)
+                runtime.run(input, workspace.output)
+                inferencePrimed = true
+                workspace.output[0].copyOf()
             }
-            return l2Normalize(output[0])
+            return l2Normalize(output)
         } finally {
             resized?.takeIf { it !== face && !it.isRecycled }?.recycle()
         }
@@ -251,11 +272,11 @@ class LiteRtFaceEmbeddingEngine(
      * Prewhitening original do projeto. Não "otimizar" esta matemática sem uma
      * migração biométrica explícita: pequenas diferenças podem alterar scores.
      */
-    private fun toStandardizedBuffer(bitmap: Bitmap): ByteBuffer {
-        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+    private fun toStandardizedBuffer(bitmap: Bitmap, workspace: InferenceWorkspace): ByteBuffer {
+        val pixels = workspace.pixels
         bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
 
-        val raw = FloatArray(pixels.size * 3)
+        val raw = workspace.raw
         var offset = 0
         var sum = 0.0
         for (pixel in pixels) {
@@ -278,12 +299,11 @@ class LiteRtFaceEmbeddingEngine(
         val minimumStd = 1f / sqrt(raw.size.toFloat())
         val std = max(calculatedStd, minimumStd)
 
-        return ByteBuffer.allocateDirect(raw.size * Float.SIZE_BYTES)
-            .order(ByteOrder.nativeOrder())
-            .apply {
-                raw.forEach { putFloat((it - mean) / std) }
-                rewind()
-            }
+        return workspace.input.apply {
+            clear()
+            raw.forEach { putFloat((it - mean) / std) }
+            rewind()
+        }
     }
 
     private fun l2Normalize(values: FloatArray): FloatArray {
@@ -293,6 +313,14 @@ class LiteRtFaceEmbeddingEngine(
         if (norm <= 1e-12f) return values
         for (index in values.indices) values[index] /= norm
         return values
+    }
+
+    private class InferenceWorkspace {
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        val raw = FloatArray(pixels.size * 3)
+        val input: ByteBuffer = ByteBuffer.allocateDirect(raw.size * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+        val output: Array<FloatArray> = arrayOf(FloatArray(EMBEDDING_SIZE))
     }
 
     companion object {

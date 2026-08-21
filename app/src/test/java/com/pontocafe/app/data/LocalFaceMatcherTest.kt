@@ -116,6 +116,31 @@ class LocalFaceMatcherTest {
         assertNull(resolved)
     }
 
+    @Test
+    fun `indice preparado troca junto com a lista do catalogo mesmo na mesma versao`() {
+        val primeira = collaborator("a", "Pessoa A")
+        val segunda = collaborator("b", "Pessoa B")
+        val primeiroCatalogo = catalog(
+            limiar = 0.80,
+            margem = 0.05,
+            templates = listOf(template(primeira, listOf(1f, 0f), "BASE")),
+        )
+        val catalogoAtualizado = catalog(
+            limiar = 0.80,
+            margem = 0.05,
+            templates = listOf(template(segunda, listOf(0f, 1f), "BASE")),
+        )
+
+        assertEquals(primeira.id, LocalFaceMatcher.match(floatArrayOf(1f, 0f), primeiroCatalogo)?.colaborador?.id)
+        assertNull(LocalFaceMatcher.match(floatArrayOf(0f, 1f), primeiroCatalogo))
+
+        val atualizado = LocalFaceMatcher.match(floatArrayOf(0f, 1f), catalogoAtualizado)
+
+        assertNotNull(atualizado)
+        assertEquals(segunda.id, atualizado!!.colaborador.id)
+        assertNull(LocalFaceMatcher.match(floatArrayOf(1f, 0f), catalogoAtualizado))
+    }
+
     private fun collaborator(id: String, name: String) = Colaborador(
         id = id,
         nome = name,

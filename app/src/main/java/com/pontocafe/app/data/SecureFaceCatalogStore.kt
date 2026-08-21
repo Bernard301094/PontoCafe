@@ -61,7 +61,9 @@ class SecureFaceCatalogStore(context: Context) {
     @Volatile
     private var cacheLoaded: Boolean = false
 
+    @Synchronized
     fun save(catalog: CachedFaceCatalog) {
+        validateCatalog(catalog)
         val plaintext = gson.toJson(catalog).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
@@ -70,10 +72,14 @@ class SecureFaceCatalogStore(context: Context) {
         prefs.edit().putString(catalogKey, payload).apply()
         cachedCatalog = catalog
         cacheLoaded = true
+        LocalFaceMatcher.prepareCatalog(catalog.templates)
     }
 
+    @Synchronized
     fun read(): CachedFaceCatalog? {
-        if (cacheLoaded) return cachedCatalog
+        if (cacheLoaded) {
+            return cachedCatalog?.also { LocalFaceMatcher.prepareCatalog(it.templates) }
+        }
         val payload = prefs.getString(catalogKey, null)
         if (payload == null) {
             cachedCatalog = null
@@ -89,7 +95,7 @@ class SecureFaceCatalogStore(context: Context) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
-            gson.fromJson(json, CachedFaceCatalog::class.java)
+            validateCatalog(gson.fromJson(json, CachedFaceCatalog::class.java))
         }.getOrNull()
 
         if (catalog == null) {
@@ -99,13 +105,52 @@ class SecureFaceCatalogStore(context: Context) {
 
         cachedCatalog = catalog
         cacheLoaded = true
+        LocalFaceMatcher.prepareCatalog(catalog.templates)
         return catalog
     }
 
+    @Synchronized
     fun clear() {
         cachedCatalog = null
         cacheLoaded = true
+        LocalFaceMatcher.clearPreparedCatalog()
         prefs.edit().remove(catalogKey).apply()
+    }
+
+    private fun validateCatalog(catalog: CachedFaceCatalog?): CachedFaceCatalog {
+        val current = requireNotNull(catalog) { "Catálogo facial ausente." }
+        require(current.versao.isNotBlank()) { "Versão do catálogo facial ausente." }
+        require(current.modelo.isNotBlank() && current.versaoModelo.isNotBlank()) {
+            "Modelo do catálogo facial ausente."
+        }
+        require(current.limiar.isFinite() && current.limiar in 0.0..1.0) {
+            "Limiar facial inválido."
+        }
+        require(current.margem.isFinite() && current.margem in 0.0..1.0) {
+            "Margem facial inválida."
+        }
+        require(current.sincronizadoEmMillis > 0L) { "Data de sincronização facial inválida." }
+
+        for (template in requireNotNull(current.templates) { "Templates faciais ausentes." }) {
+            val collaborator = requireNotNull(template.colaborador) { "Colaborador facial ausente." }
+            require(collaborator.id.isNotBlank() && collaborator.nome.isNotBlank()) {
+                "Identidade do template facial inválida."
+            }
+            require(template.modelo.isNotBlank() && template.versaoModelo.isNotBlank()) {
+                "Modelo do template facial ausente."
+            }
+            val embedding = requireNotNull(template.embedding) { "Embedding facial ausente." }
+            require(embedding.size in MIN_EMBEDDING_SIZE..MAX_EMBEDDING_SIZE) {
+                "Dimensão do embedding facial inválida."
+            }
+            var normSquared = 0.0
+            for (value in embedding) {
+                require(value.isFinite()) { "Embedding facial não finito." }
+                normSquared += value.toDouble() * value.toDouble()
+            }
+            require(normSquared.isFinite() && normSquared > 0.0) { "Embedding facial vazio." }
+        }
+        return current
     }
 
     private fun getOrCreateKey(): SecretKey {
@@ -125,6 +170,11 @@ class SecureFaceCatalogStore(context: Context) {
         )
         return generator.generateKey()
     }
+
+    companion object {
+        private const val MIN_EMBEDDING_SIZE = 64
+        private const val MAX_EMBEDDING_SIZE = 2_048
+    }
 }
 
 object LocalFaceMatcher {
@@ -132,6 +182,39 @@ object LocalFaceMatcher {
         val template: CachedFaceTemplate,
         val score: Double,
     )
+
+    private data class PreparedTemplate(
+        val template: CachedFaceTemplate,
+        val embedding: FloatArray,
+        val norm: Double,
+    )
+
+    private data class PreparedCollaborator(
+        val templates: List<PreparedTemplate>,
+    )
+
+    private data class PreparedCatalog(
+        val sourceTemplates: List<CachedFaceTemplate>,
+        val collaborators: List<PreparedCollaborator>,
+    )
+
+    private val indexLock = Any()
+
+    @Volatile
+    private var preparedCatalog: PreparedCatalog? = null
+
+    internal fun prepareCatalog(templates: List<CachedFaceTemplate>) {
+        if (preparedCatalog?.sourceTemplates === templates) return
+        synchronized(indexLock) {
+            if (preparedCatalog?.sourceTemplates !== templates) {
+                preparedCatalog = buildIndex(templates)
+            }
+        }
+    }
+
+    internal fun clearPreparedCatalog() {
+        synchronized(indexLock) { preparedCatalog = null }
+    }
 
     /**
      * Mantém o comportamento histórico para um único embedding.
@@ -196,25 +279,25 @@ object LocalFaceMatcher {
         if (currentNormSquared <= 0.0) return null
         val currentNorm = sqrt(currentNormSquared)
 
-        // Templates da mesma pessoa não competem entre si pela margem. Primeiro
-        // obtemos o melhor score por colaborador e só então comparamos identidades.
-        val bestByCollaborator = HashMap<String, BestTemplate>(catalog.templates.size.coerceAtMost(256))
-        for (template in catalog.templates) {
-            val stored = template.embedding
-            if (stored.size != embedding.size) continue
-            val score = cosine(stored, embedding, currentNorm)
-            if (!score.isFinite()) continue
-
-            val collaboratorId = template.colaborador.id
-            val currentBest = bestByCollaborator[collaboratorId]
-            if (currentBest == null || score > currentBest.score) {
-                bestByCollaborator[collaboratorId] = BestTemplate(template, score)
-            }
-        }
-
+        // O catálogo descriptografado já vive em RAM. Preparamos, uma única vez
+        // por lista de templates, os FloatArrays, normas e grupos por pessoa. O
+        // caminho por frame calcula apenas os produtos escalares inevitáveis.
+        val index = preparedIndex(catalog)
         var best: BestTemplate? = null
         var second: BestTemplate? = null
-        for (candidate in bestByCollaborator.values) {
+        for (collaborator in index.collaborators) {
+            var collaboratorBest: BestTemplate? = null
+            for (prepared in collaborator.templates) {
+                if (prepared.embedding.size != embedding.size) continue
+                val score = cosine(prepared, embedding, currentNorm)
+                if (!score.isFinite()) continue
+
+                val currentBest = collaboratorBest
+                if (currentBest == null || score > currentBest.score) {
+                    collaboratorBest = BestTemplate(prepared.template, score)
+                }
+            }
+            val candidate = collaboratorBest ?: continue
             when {
                 best == null || candidate.score > best!!.score -> {
                     second = best
@@ -238,16 +321,49 @@ object LocalFaceMatcher {
         )
     }
 
-    private fun cosine(stored: List<Float>, current: FloatArray, currentNorm: Double): Double {
+    private fun preparedIndex(catalog: CachedFaceCatalog): PreparedCatalog {
+        preparedCatalog?.takeIf { it.sourceTemplates === catalog.templates }?.let { return it }
+        return synchronized(indexLock) {
+            preparedCatalog?.takeIf { it.sourceTemplates === catalog.templates }
+                ?: buildIndex(catalog.templates).also { preparedCatalog = it }
+        }
+    }
+
+    private fun buildIndex(templates: List<CachedFaceTemplate>): PreparedCatalog {
+        val grouped = linkedMapOf<String, MutableList<PreparedTemplate>>()
+        for (template in templates) {
+            if (template.embedding.isEmpty()) continue
+            val stored = template.embedding.toFloatArray()
+            var normSquared = 0.0
+            for (value in stored) {
+                val doubleValue = value.toDouble()
+                normSquared += doubleValue * doubleValue
+            }
+            if (!normSquared.isFinite() || normSquared <= 0.0) continue
+
+            grouped.getOrPut(template.colaborador.id) { ArrayList() }
+                .add(
+                    PreparedTemplate(
+                        template = template,
+                        embedding = stored,
+                        norm = sqrt(normSquared),
+                    ),
+                )
+        }
+        return PreparedCatalog(
+            sourceTemplates = templates,
+            collaborators = grouped.values.map(::PreparedCollaborator),
+        )
+    }
+
+    private fun cosine(stored: PreparedTemplate, current: FloatArray, currentNorm: Double): Double {
         var dot = 0.0
-        var storedNormSquared = 0.0
         for (index in current.indices) {
-            val a = stored[index].toDouble()
+            val a = stored.embedding[index].toDouble()
             val b = current[index].toDouble()
             dot += a * b
-            storedNormSquared += a * a
         }
-        if (storedNormSquared <= 0.0 || currentNorm <= 0.0) return Double.NaN
-        return dot / (sqrt(storedNormSquared) * currentNorm)
+        if (stored.norm <= 0.0 || currentNorm <= 0.0) return Double.NaN
+        return dot / (stored.norm * currentNorm)
     }
 }

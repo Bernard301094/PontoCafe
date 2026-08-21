@@ -17,7 +17,6 @@ import com.pontocafe.app.data.LocalFaceMatcher
 import com.pontocafe.app.data.LocalFaceResolvedMatch
 import com.pontocafe.app.data.PausaAbertaResumo
 import com.pontocafe.app.data.PontoCafeRepository
-import com.pontocafe.app.data.RegraCafe
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
@@ -25,12 +24,22 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 
 enum class TipoComprovantePonto { INICIO, RETORNO }
+
+enum class PontoRecognitionStage {
+    IDENTIFICANDO,
+    CONFIRMANDO_IDENTIDADE,
+    REGISTRANDO_PONTO,
+}
 
 data class ComprovantePonto(
     val tipo: TipoComprovantePonto,
@@ -48,13 +57,16 @@ data class PontoCafeUiState(
     val deviceConfigured: Boolean = false,
     val carregando: Boolean = false,
     val scanning: Boolean = false,
+    val recognitionStage: PontoRecognitionStage? = null,
     val scanCycle: Int = 0,
     val identificacao: IdentificarBiometriaResponse? = null,
     val needsAuthorization: Boolean = false,
     val comprovante: ComprovantePonto? = null,
     val sincronizandoBiometrias: Boolean = false,
+    val catalogoBiometricoCarregado: Boolean = false,
     val catalogoBiometricoPronto: Boolean = false,
     val totalBiometrias: Int = 0,
+    val erroSincronizacaoBiometrica: String? = null,
     val modoOffline: Boolean = false,
     val sincronizandoPendencias: Boolean = false,
     val eventosPendentes: Int = 0,
@@ -83,15 +95,13 @@ class PontoCafeViewModel(
     private var lastCatalogMissRefreshMillis: Long = 0L
     private var lastRegisteredCollaboratorId: String? = null
     private var lastRegisteredAtMillis: Long = 0L
+    private val recognitionInFlight = AtomicBoolean(false)
+    private val catalogSyncMutex = Mutex()
 
     var state by mutableStateOf(
         PontoCafeUiState(
             deviceConfigured = tokenStore.hasToken(),
             scanning = tokenStore.hasToken(),
-            catalogoBiometricoPronto = faceCatalogStore.read()?.templates?.isNotEmpty() == true,
-            totalBiometrias = faceCatalogStore.read()?.totalColaboradores ?: 0,
-            eventosPendentes = offlineStore.pendingCount(),
-            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis().takeIf { it > 0L },
         ),
     )
         private set
@@ -161,11 +171,19 @@ class PontoCafeViewModel(
     fun atualizarConectividadeESincronizar() {
         if (!state.deviceConfigured) return
         viewModelScope.launch {
-            state = state.copy(eventosPendentes = offlineStore.pendingCount())
+            val offlineSnapshot = withContext(Dispatchers.IO) {
+                offlineStore.pendingCount() to offlineStore.lastServerOkMillis().takeIf { it > 0L }
+            }
+            state = state.copy(
+                eventosPendentes = offlineSnapshot.first,
+                ultimaConexaoEmMillis = offlineSnapshot.second,
+            )
             runCatching {
-                val horario = repository.consultarHorario()
-                offlineStore.saveRules(horario.regras)
-                runCatching { repository.appStatus() }.getOrNull()
+                withContext(Dispatchers.IO) {
+                    val horario = repository.consultarHorario()
+                    offlineStore.saveRules(horario.regras)
+                    runCatching { repository.appStatus() }.getOrNull()
+                }
             }.onSuccess { appStatus ->
                 marcarServidorOnline(appStatus)
                 sincronizarPendenciasOfflineInterno()
@@ -176,11 +194,13 @@ class PontoCafeViewModel(
                         erro = "Este dispositivo não está mais autorizado. Solicite uma nova ativação ao Administrador.",
                     )
                 } else {
-                    val offlineAllowed = offlineStore.canOperateOffline(offlineGraceMillis)
+                    val offlineStatus = withContext(Dispatchers.IO) {
+                        offlineStore.canOperateOffline(offlineGraceMillis) to offlineStore.pendingCount()
+                    }
                     state = state.copy(
-                        modoOffline = offlineAllowed,
-                        eventosPendentes = offlineStore.pendingCount(),
-                        erro = if (offlineAllowed) null else state.erro,
+                        modoOffline = offlineStatus.first,
+                        eventosPendentes = offlineStatus.second,
+                        erro = if (offlineStatus.first) null else state.erro,
                     )
                 }
             }
@@ -188,37 +208,77 @@ class PontoCafeViewModel(
     }
 
     fun sincronizarBiometrias(force: Boolean = false) {
-        if (!state.deviceConfigured || !embeddingEngine.isReady || state.sincronizandoBiometrias) return
+        if (!state.deviceConfigured || !embeddingEngine.isReady) return
         viewModelScope.launch {
-            state = state.copy(sincronizandoBiometrias = true)
-            runCatching { obterCatalogoAtual(force) }
-                .onSuccess { catalogo ->
-                    state = state.copy(
-                        sincronizandoBiometrias = false,
-                        catalogoBiometricoPronto = catalogo?.templates?.isNotEmpty() == true,
-                        totalBiometrias = catalogo?.totalColaboradores ?: 0,
-                    )
-                }
-                .onFailure {
-                    state = state.copy(
-                        sincronizandoBiometrias = false,
-                        erro = "Não foi possível sincronizar os rostos cadastrados. Verifique a conexão.",
-                    )
-                }
+            // Chamadas concorrentes ficam serializadas em vez de descartar um
+            // refresh forçado solicitado ao voltar do cadastro biométrico.
+            catalogSyncMutex.withLock {
+                if (!state.deviceConfigured || !embeddingEngine.isReady) return@withLock
+                sincronizarBiometriasInterno(force)
+            }
         }
+    }
+
+    private suspend fun sincronizarBiometriasInterno(force: Boolean) {
+        val cached = withContext(Dispatchers.IO) { faceCatalogStore.read() }
+        publishCatalogState(
+            catalog = cached,
+            syncing = true,
+            syncError = null,
+        )
+
+        try {
+            val catalog = obterCatalogoAtual(
+                force = force,
+                allowStaleOnFailure = false,
+            )
+            publishCatalogState(
+                catalog = catalog,
+                syncing = false,
+                syncError = null,
+            )
+        } catch (error: CancellationException) {
+            state = state.copy(sincronizandoBiometrias = false)
+            throw error
+        } catch (_: Throwable) {
+            // Uma falha de rede/parsing não invalida um catálogo local íntegro e
+            // compatível. Catálogo ausente, corrompido ou de outro modelo continua
+            // indisponível e exige uma sincronização válida.
+            val fallback = withContext(Dispatchers.IO) { faceCatalogStore.read() }
+            publishCatalogState(
+                catalog = fallback,
+                syncing = false,
+                syncError = CATALOG_SYNC_ERROR,
+            )
+        }
+    }
+
+    private fun publishCatalogState(
+        catalog: CachedFaceCatalog?,
+        syncing: Boolean,
+        syncError: String?,
+    ) {
+        val compatible = catalog?.takeIf(::catalogCompatible)
+        state = state.copy(
+            sincronizandoBiometrias = syncing,
+            catalogoBiometricoCarregado = compatible != null,
+            catalogoBiometricoPronto = compatible?.templates?.isNotEmpty() == true,
+            totalBiometrias = compatible?.totalColaboradores ?: 0,
+            erroSincronizacaoBiometrica = syncError,
+        )
     }
 
     fun ativarCamera() {
         pendingOfflineEmbedding = null
         state = state.copy(
             scanning = true,
+            recognitionStage = null,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
             needsAuthorization = false,
             comprovante = null,
             mensagem = null,
             erro = null,
-            eventosPendentes = offlineStore.pendingCount(),
         )
         sincronizarBiometrias(force = false)
         atualizarConectividadeESincronizar()
@@ -234,30 +294,45 @@ class PontoCafeViewModel(
         pendingOfflineEmbedding = null
         state = state.copy(
             scanning = true,
+            recognitionStage = null,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
             needsAuthorization = false,
             comprovante = null,
             mensagem = null,
             erro = null,
-            eventosPendentes = offlineStore.pendingCount(),
         )
         sincronizarPendenciasOffline()
     }
 
     fun processarFrame(frame: FaceFrame) {
-        if (!state.scanning || state.carregando) return
+        if (!state.scanning || state.carregando) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+            return
+        }
         if (!embeddingEngine.isReady) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             state = state.copy(
                 scanning = false,
+                recognitionStage = null,
                 erro = "O módulo de reconhecimento facial ainda não está instalado neste dispositivo.",
             )
+            return
+        }
+        if (!recognitionInFlight.compareAndSet(false, true)) {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             return
         }
 
         viewModelScope.launch {
             pendingOfflineEmbedding = null
-            state = state.copy(carregando = true, scanning = false, erro = null, mensagem = null)
+            state = state.copy(
+                carregando = true,
+                scanning = false,
+                recognitionStage = PontoRecognitionStage.IDENTIFICANDO,
+                erro = null,
+                mensagem = null,
+            )
             try {
                 // Começamos pelo catálogo local já descriptografado/cacheado. Isso
                 // permite decidir imediatamente depois do primeiro embedding, sem
@@ -287,30 +362,35 @@ class PontoCafeViewModel(
 
                 var resolvedMatch = resolvedDuringInference
 
-                // Só consultamos a política de validade/sincronização depois de um
-                // miss local. Se o servidor trouxe catálogo diferente, reaplicamos
-                // os embeddings já calculados sem recapturar o rosto.
-                if (resolvedMatch == null) {
-                    val previousVersion = catalogo?.versao
+                // Só consultamos a rede depois de um miss local. Um catálogo já
+                // vencido é revalidado aqui; se estava fresco, o refresh por miss
+                // abaixo respeita cooldown. Nunca fazemos as duas chamadas no
+                // mesmo reconhecimento.
+                var catalogRefreshAttempted = false
+                if (resolvedMatch == null && catalogNeedsRefresh(catalogo)) {
+                    catalogRefreshAttempted = true
+                    val previousCatalog = catalogo
                     val refreshed = obterCatalogoAtual(force = false)
                     catalogo = refreshed
-                    if (refreshed != null && (previousVersion == null || refreshed.versao != previousVersion)) {
+                    if (refreshed != null && matchingCatalogChanged(previousCatalog, refreshed)) {
                         resolvedMatch = withContext(Dispatchers.Default) {
                             LocalFaceMatcher.matchBest(embeddings, refreshed)
                         }
                     }
                 }
 
-                if (resolvedMatch == null) {
+                if (resolvedMatch == null && !catalogRefreshAttempted) {
                     val now = System.currentTimeMillis()
                     val canRefreshAfterMiss =
                         now - lastCatalogMissRefreshMillis >= catalogMissRefreshCooldownMillis
                     if (canRefreshAfterMiss) {
                         lastCatalogMissRefreshMillis = now
-                        catalogo = obterCatalogoAtual(force = true)
-                        resolvedMatch = catalogo?.let { currentCatalog ->
+                        val previousCatalog = catalogo
+                        val refreshed = obterCatalogoAtual(force = true, fullRefresh = false)
+                        catalogo = refreshed
+                        if (refreshed != null && matchingCatalogChanged(previousCatalog, refreshed)) {
                             withContext(Dispatchers.Default) {
-                                LocalFaceMatcher.matchBest(embeddings, currentCatalog)
+                                resolvedMatch = LocalFaceMatcher.matchBest(embeddings, refreshed)
                             }
                         }
                     }
@@ -321,6 +401,7 @@ class PontoCafeViewModel(
                     state = state.copy(
                         carregando = false,
                         scanning = true,
+                        recognitionStage = null,
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         erro = if (catalogo?.templates?.isEmpty() != false) {
@@ -339,6 +420,7 @@ class PontoCafeViewModel(
                     state = state.copy(
                         carregando = false,
                         scanning = true,
+                        recognitionStage = null,
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         mensagem = "Registro já concluído. Afaste-se da câmera para liberar a próxima pessoa.",
@@ -351,12 +433,15 @@ class PontoCafeViewModel(
                 var fastRouteUnavailable = false
 
                 if (fastEligible) {
-                    val fastResult = repository.registrarRapido(
-                        colaboradorId = match.colaborador.id,
-                        embedding = embedding,
-                        modelo = embeddingEngine.modelName,
-                        versaoModelo = embeddingEngine.modelVersion,
-                    )
+                    state = state.copy(recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO)
+                    val fastResult = withContext(Dispatchers.IO) {
+                        repository.registrarRapido(
+                            colaboradorId = match.colaborador.id,
+                            embedding = embedding,
+                            modelo = embeddingEngine.modelName,
+                            versaoModelo = embeddingEngine.modelVersion,
+                        )
+                    }
 
                     if (fastResult == null) {
                         fastRouteUnavailable = true
@@ -387,28 +472,39 @@ class PontoCafeViewModel(
                 }
 
                 // Sincronização de eventos antigos nunca bloqueia a pessoa atual.
-                if (offlineStore.pendingCount() > 0) sincronizarPendenciasOffline()
+                if (state.eventosPendentes > 0) sincronizarPendenciasOffline()
 
+                state = state.copy(recognitionStage = PontoRecognitionStage.CONFIRMANDO_IDENTIDADE)
                 val identificacao = try {
-                    repository.confirmarIdentidadeLocal(
-                        colaboradorId = match.colaborador.id,
-                        embedding = embedding,
-                        modelo = embeddingEngine.modelName,
-                        versaoModelo = embeddingEngine.modelVersion,
-                    ).also {
-                        pendingOfflineEmbedding = null
-                        offlineStore.markServerOk()
-                        state = state.copy(
-                            modoOffline = false,
-                            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+                    val confirmed = withContext(Dispatchers.IO) {
+                        repository.confirmarIdentidadeLocal(
+                            colaboradorId = match.colaborador.id,
+                            embedding = embedding,
+                            modelo = embeddingEngine.modelName,
+                            versaoModelo = embeddingEngine.modelVersion,
                         )
                     }
+                    pendingOfflineEmbedding = null
+                    val lastServerOk = withContext(Dispatchers.IO) {
+                        offlineStore.markServerOk()
+                        offlineStore.lastServerOkMillis()
+                    }
+                    state = state.copy(
+                        modoOffline = false,
+                        ultimaConexaoEmMillis = lastServerOk,
+                    )
+                    confirmed
                 } catch (error: Throwable) {
-                    if (!PontoCafeRepository.isTemporaryFailure(error) || !offlineStore.canOperateOffline(offlineGraceMillis)) {
+                    val offlineAllowed = withContext(Dispatchers.IO) {
+                        offlineStore.canOperateOffline(offlineGraceMillis)
+                    }
+                    if (!PontoCafeRepository.isTemporaryFailure(error) || !offlineAllowed) {
                         throw error
                     }
                     pendingOfflineEmbedding = embedding.copyOf()
-                    identificacaoOffline(match.colaborador, match.score, embedding)
+                    withContext(Dispatchers.IO) {
+                        identificacaoOffline(match.colaborador, match.score, embedding)
+                    }
                 }
 
                 if (!identificacao.reconhecido || identificacao.colaborador == null || identificacao.verificacaoToken.isNullOrBlank()) {
@@ -416,6 +512,7 @@ class PontoCafeViewModel(
                     state = state.copy(
                         carregando = false,
                         scanning = true,
+                        recognitionStage = null,
                         scanCycle = state.scanCycle + 1,
                         identificacao = null,
                         erro = identificacao.mensagem
@@ -437,24 +534,32 @@ class PontoCafeViewModel(
                     if (registrarIdentificacaoLegadoRapido(identificacao)) return@launch
                 }
 
+                val pendingEvents = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
                 state = state.copy(
                     carregando = false,
                     identificacao = identificacao,
                     scanning = false,
+                    recognitionStage = null,
                     modoOffline = identificacao.verificacaoToken == OFFLINE_VERIFICATION_TOKEN,
-                    eventosPendentes = offlineStore.pendingCount(),
+                    eventosPendentes = pendingEvents,
                     erro = null,
                 )
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 pendingOfflineEmbedding = null
                 state = state.copy(
                     carregando = false,
                     scanning = true,
+                    recognitionStage = null,
                     scanCycle = state.scanCycle + 1,
                     identificacao = null,
                     erro = PontoCafeRepository.mensagemErro(error),
                 )
             }
+        }.invokeOnCompletion {
+            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
+            recognitionInFlight.set(false)
         }
     }
 
@@ -483,22 +588,30 @@ class PontoCafeViewModel(
     ): Boolean {
         val colaborador = identificacao.colaborador ?: return false
         val token = identificacao.verificacaoToken ?: return false
+        state = state.copy(recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO)
         return try {
             if (identificacao.acaoSugerida == "FINALIZAR") {
-                val pausa = repository.finalizar(colaborador.id, token)
+                val pausa = withContext(Dispatchers.IO) {
+                    repository.finalizar(colaborador.id, token)
+                }
                 aplicarRetornoOnline(colaborador.id, colaborador.nome, pausa)
             } else {
-                val pausa = repository.iniciar(
-                    colaboradorId = colaborador.id,
-                    verificacaoToken = token,
-                )
+                val pausa = withContext(Dispatchers.IO) {
+                    repository.iniciar(
+                        colaboradorId = colaborador.id,
+                        verificacaoToken = token,
+                    )
+                }
                 aplicarInicioOnline(colaborador.id, colaborador.nome, pausa)
             }
             true
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             state = state.copy(
                 carregando = false,
                 scanning = false,
+                recognitionStage = null,
                 identificacao = identificacao,
                 erro = PontoCafeRepository.mensagemErro(error),
             )
@@ -621,36 +734,90 @@ class PontoCafeViewModel(
         )
     }
 
-    private suspend fun obterCatalogoAtual(force: Boolean): CachedFaceCatalog? {
+    private fun catalogCompatible(catalog: CachedFaceCatalog): Boolean =
+        catalog.modelo == embeddingEngine.modelName &&
+            catalog.versaoModelo == embeddingEngine.modelVersion
+
+    private fun catalogNeedsRefresh(
+        catalog: CachedFaceCatalog?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (catalog == null || !catalogCompatible(catalog)) return true
+        val ageMillis = nowMillis - catalog.sincronizadoEmMillis
+        return catalog.sincronizadoEmMillis <= 0L || ageMillis < 0L || ageMillis >= catalogRefreshMillis
+    }
+
+    private fun matchingCatalogChanged(
+        previous: CachedFaceCatalog?,
+        current: CachedFaceCatalog,
+    ): Boolean = previous == null ||
+        previous.versao != current.versao ||
+        previous.modelo != current.modelo ||
+        previous.versaoModelo != current.versaoModelo ||
+        previous.limiar != current.limiar ||
+        previous.margem != current.margem ||
+        previous.templates !== current.templates
+
+    private suspend fun obterCatalogoAtual(
+        force: Boolean,
+        fullRefresh: Boolean = force,
+        allowStaleOnFailure: Boolean = true,
+    ): CachedFaceCatalog? {
         // SecureFaceCatalogStore mantém a leitura descriptografada em RAM depois
         // da primeira carga, portanto esta chamada é um fast-path em memória.
         val cache = withContext(Dispatchers.IO) { faceCatalogStore.read() }
+        val compatibleCache = cache?.takeIf(::catalogCompatible)
         val agora = System.currentTimeMillis()
-        val stale = cache == null || agora - cache.sincronizadoEmMillis >= catalogRefreshMillis
+        val stale = catalogNeedsRefresh(cache, agora)
         if (!force && !stale) return cache
 
         val response = try {
-            repository.sincronizarCatalogo(
-                modelo = embeddingEngine.modelName,
-                versaoModelo = embeddingEngine.modelVersion,
-                versaoAtual = if (force) null else cache?.versao,
-            )
+            // Um cache vazio não serve como prova de que o dispositivo possui o
+            // catálogo completo. Na próxima janela de refresh pedimos o payload
+            // integral para recuperar caches antigos que tenham sido gravados sem
+            // templates por uma falha transitória de leitura/descriptografia.
+            val conditionalVersion = compatibleCache
+                ?.takeIf { it.templates.isNotEmpty() }
+                ?.versao
+            withContext(Dispatchers.IO) {
+                repository.sincronizarCatalogo(
+                    modelo = embeddingEngine.modelName,
+                    versaoModelo = embeddingEngine.modelVersion,
+                    versaoAtual = if (fullRefresh) null else conditionalVersion,
+                )
+            }
         } catch (error: Throwable) {
-            if (cache != null && PontoCafeRepository.isTemporaryFailure(error)) return cache
+            if (
+                allowStaleOnFailure && compatibleCache != null &&
+                PontoCafeRepository.isTemporaryFailure(error)
+            ) {
+                return compatibleCache
+            }
             throw error
         }
-        offlineStore.markServerOk()
+        withContext(Dispatchers.IO) { offlineStore.markServerOk() }
 
-        if (!response.atualizado && cache != null) {
-            val refreshed = cache.copy(sincronizadoEmMillis = agora)
+        require(response.modelo == embeddingEngine.modelName && response.versaoModelo == embeddingEngine.modelVersion) {
+            "O servidor retornou um catálogo facial incompatível com este dispositivo."
+        }
+
+        if (!response.atualizado) {
+            val current = requireNotNull(compatibleCache) {
+                "O servidor informou catálogo inalterado sem existir cache local compatível."
+            }
+            val refreshed = current.copy(
+                limiar = response.limiar,
+                margem = response.margem,
+                sincronizadoEmMillis = agora,
+            )
             withContext(Dispatchers.IO) { faceCatalogStore.save(refreshed) }
             return refreshed
         }
 
         val novo = CachedFaceCatalog(
             versao = response.versao,
-            modelo = embeddingEngine.modelName,
-            versaoModelo = embeddingEngine.modelVersion,
+            modelo = response.modelo,
+            versaoModelo = response.versaoModelo,
             limiar = response.limiar,
             margem = response.margem,
             templates = response.templates,
@@ -679,15 +846,7 @@ class PontoCafeViewModel(
             if (identificacao.acaoSugerida == "FINALIZAR") {
                 finalizarPausaOffline(colaborador, embedding)
             } else {
-                val rule = offlineStore.currentRule()
-                if (rule == null) {
-                    state = state.copy(
-                        erro = "Sem conexão, uma pausa fora do horário não pode ser autorizada. Aguarde a conexão ou procure o Supervisor.",
-                        needsAuthorization = false,
-                    )
-                } else {
-                    iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, embedding, rule)
-                }
+                iniciarPausaOffline(colaborador, identificacao.score ?: 0.0, embedding)
             }
             return
         }
@@ -718,6 +877,7 @@ class PontoCafeViewModel(
         state = state.copy(
             identificacao = null,
             scanning = true,
+            recognitionStage = null,
             scanCycle = state.scanCycle + 1,
             needsAuthorization = false,
             mensagem = "Tudo bem. Vamos tentar identificar novamente.",
@@ -772,19 +932,27 @@ class PontoCafeViewModel(
         codigoAutorizacao: String? = null,
     ) {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null)
+            state = state.copy(
+                carregando = true,
+                recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO,
+                erro = null,
+            )
             runCatching {
-                repository.iniciar(
-                    colaboradorId = colaboradorId,
-                    verificacaoToken = verificacaoToken,
-                    periodo = periodo,
-                    codigoAutorizacao = codigoAutorizacao,
-                )
+                withContext(Dispatchers.IO) {
+                    repository.iniciar(
+                        colaboradorId = colaboradorId,
+                        verificacaoToken = verificacaoToken,
+                        periodo = periodo,
+                        codigoAutorizacao = codigoAutorizacao,
+                    )
+                }
             }.onSuccess { pausa ->
                 aplicarInicioOnline(colaboradorId, nome, pausa)
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 state = state.copy(
                     carregando = false,
+                    recognitionStage = null,
                     erro = PontoCafeRepository.mensagemErro(error),
                 )
             }
@@ -793,61 +961,77 @@ class PontoCafeViewModel(
 
     private fun finalizarPausa(colaboradorId: String, nome: String, verificacaoToken: String) {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null)
-            runCatching { repository.finalizar(colaboradorId, verificacaoToken) }
+            state = state.copy(
+                carregando = true,
+                recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO,
+                erro = null,
+            )
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repository.finalizar(colaboradorId, verificacaoToken)
+                }
+            }
                 .onSuccess { pausa ->
                     aplicarRetornoOnline(colaboradorId, nome, pausa)
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     state = state.copy(
                         carregando = false,
+                        recognitionStage = null,
                         erro = PontoCafeRepository.mensagemErro(error),
                     )
                 }
         }
     }
 
-    private fun aplicarInicioOnline(
+    private suspend fun aplicarInicioOnline(
         colaboradorId: String,
         nome: String,
         pausa: IniciarPausaResponse,
     ) {
         pendingOfflineEmbedding = null
-        offlineStore.markServerOk()
-        offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
+        val offlineStatus = withContext(Dispatchers.IO) {
+            offlineStore.recordOnlineStart(colaboradorId, nome, pausa)
+            offlineStore.pendingCount() to offlineStore.lastServerOkMillis()
+        }
         markRegistered(colaboradorId)
         state = state.copy(
             carregando = false,
             scanning = false,
+            recognitionStage = null,
             needsAuthorization = false,
             identificacao = null,
             comprovante = comprovanteInicio(nome, pausa),
             modoOffline = false,
-            eventosPendentes = offlineStore.pendingCount(),
-            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+            eventosPendentes = offlineStatus.first,
+            ultimaConexaoEmMillis = offlineStatus.second,
             mensagem = null,
             erro = null,
         )
         sincronizarPendenciasOffline()
     }
 
-    private fun aplicarRetornoOnline(
+    private suspend fun aplicarRetornoOnline(
         colaboradorId: String,
         nome: String,
         pausa: FinalizarPausaResponse,
     ) {
         pendingOfflineEmbedding = null
-        offlineStore.markServerOk()
-        offlineStore.recordOnlineFinish(colaboradorId)
+        val offlineStatus = withContext(Dispatchers.IO) {
+            offlineStore.recordOnlineFinish(colaboradorId)
+            offlineStore.pendingCount() to offlineStore.lastServerOkMillis()
+        }
         markRegistered(colaboradorId)
         state = state.copy(
             carregando = false,
             scanning = false,
+            recognitionStage = null,
             identificacao = null,
             comprovante = comprovanteRetorno(nome, pausa),
             modoOffline = false,
-            eventosPendentes = offlineStore.pendingCount(),
-            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+            eventosPendentes = offlineStatus.first,
+            ultimaConexaoEmMillis = offlineStatus.second,
             mensagem = null,
             erro = null,
         )
@@ -858,40 +1042,66 @@ class PontoCafeViewModel(
         colaborador: com.pontocafe.app.data.Colaborador,
         score: Double,
         embedding: FloatArray,
-        rule: RegraCafe,
     ) {
-        runCatching {
-            offlineStore.queueOfflineStart(
-                colaborador = colaborador,
-                score = score,
-                embedding = embedding,
-                model = embeddingEngine.modelName,
-                modelVersion = embeddingEngine.modelVersion,
-                rule = rule,
-            )
-        }.onSuccess { local ->
-            pendingOfflineEmbedding = null
-            markRegistered(colaborador.id)
-            state = state.copy(
-                carregando = false,
-                scanning = false,
-                needsAuthorization = false,
-                identificacao = null,
-                modoOffline = true,
-                eventosPendentes = offlineStore.pendingCount(),
-                comprovante = ComprovantePonto(
-                    tipo = TipoComprovantePonto.INICIO,
-                    nome = colaborador.nome,
-                    horarioRegistrado = local.inicioLocal,
-                    retornoAte = local.retornoAteLocal,
-                    limiteSegundos = local.limiteSegundos,
-                    pendenteSincronizacao = true,
-                ),
-                mensagem = null,
-                erro = null,
-            )
-        }.onFailure { error ->
-            state = state.copy(erro = error.message ?: "Não foi possível salvar o registro offline.")
+        state = state.copy(
+            carregando = true,
+            recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO,
+            erro = null,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val rule = offlineStore.currentRule() ?: return@withContext null
+                    val local = offlineStore.queueOfflineStart(
+                        colaborador = colaborador,
+                        score = score,
+                        embedding = embedding,
+                        model = embeddingEngine.modelName,
+                        modelVersion = embeddingEngine.modelVersion,
+                        rule = rule,
+                    )
+                    local to offlineStore.pendingCount()
+                }
+            }.onSuccess { persisted ->
+                if (persisted == null) {
+                    state = state.copy(
+                        carregando = false,
+                        recognitionStage = null,
+                        needsAuthorization = false,
+                        erro = "Sem conexão, uma pausa fora do horário não pode ser autorizada. Aguarde a conexão ou procure o Supervisor.",
+                    )
+                } else {
+                    val (local, pendingCount) = persisted
+                    pendingOfflineEmbedding = null
+                    markRegistered(colaborador.id)
+                    state = state.copy(
+                        carregando = false,
+                        scanning = false,
+                        recognitionStage = null,
+                        needsAuthorization = false,
+                        identificacao = null,
+                        modoOffline = true,
+                        eventosPendentes = pendingCount,
+                        comprovante = ComprovantePonto(
+                            tipo = TipoComprovantePonto.INICIO,
+                            nome = colaborador.nome,
+                            horarioRegistrado = local.inicioLocal,
+                            retornoAte = local.retornoAteLocal,
+                            limiteSegundos = local.limiteSegundos,
+                            pendenteSincronizacao = true,
+                        ),
+                        mensagem = null,
+                        erro = null,
+                    )
+                }
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                state = state.copy(
+                    carregando = false,
+                    recognitionStage = null,
+                    erro = error.message ?: "Não foi possível salvar o registro offline.",
+                )
+            }
         }
     }
 
@@ -900,86 +1110,117 @@ class PontoCafeViewModel(
         embedding: FloatArray,
     ) {
         val score = state.identificacao?.score ?: 0.0
-        runCatching {
-            offlineStore.queueOfflineFinish(
-                colaborador = colaborador,
-                score = score,
-                embedding = embedding,
-                model = embeddingEngine.modelName,
-                modelVersion = embeddingEngine.modelVersion,
-            )
-        }.onSuccess { (open, duration) ->
-            pendingOfflineEmbedding = null
-            markRegistered(colaborador.id)
-            state = state.copy(
-                carregando = false,
-                scanning = false,
-                identificacao = null,
-                modoOffline = true,
-                eventosPendentes = offlineStore.pendingCount(),
-                comprovante = ComprovantePonto(
-                    tipo = TipoComprovantePonto.RETORNO,
-                    nome = colaborador.nome,
-                    horarioRegistrado = ZonedDateTime.now(timezone).format(timeFormatter),
-                    duracaoSegundos = duration,
-                    limiteSegundos = open.limiteSegundos,
-                    excedeuLimite = duration > open.limiteSegundos,
-                    pendenteSincronizacao = true,
-                ),
-                mensagem = null,
-                erro = null,
-            )
-        }.onFailure { error ->
-            state = state.copy(erro = error.message ?: "Não foi possível salvar o retorno offline.")
+        state = state.copy(
+            carregando = true,
+            recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO,
+            erro = null,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val (open, duration) = offlineStore.queueOfflineFinish(
+                        colaborador = colaborador,
+                        score = score,
+                        embedding = embedding,
+                        model = embeddingEngine.modelName,
+                        modelVersion = embeddingEngine.modelVersion,
+                    )
+                    Triple(open, duration, offlineStore.pendingCount())
+                }
+            }.onSuccess { (open, duration, pendingCount) ->
+                pendingOfflineEmbedding = null
+                markRegistered(colaborador.id)
+                state = state.copy(
+                    carregando = false,
+                    scanning = false,
+                    recognitionStage = null,
+                    identificacao = null,
+                    modoOffline = true,
+                    eventosPendentes = pendingCount,
+                    comprovante = ComprovantePonto(
+                        tipo = TipoComprovantePonto.RETORNO,
+                        nome = colaborador.nome,
+                        horarioRegistrado = ZonedDateTime.now(timezone).format(timeFormatter),
+                        duracaoSegundos = duration,
+                        limiteSegundos = open.limiteSegundos,
+                        excedeuLimite = duration > open.limiteSegundos,
+                        pendenteSincronizacao = true,
+                    ),
+                    mensagem = null,
+                    erro = null,
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                state = state.copy(
+                    carregando = false,
+                    recognitionStage = null,
+                    erro = error.message ?: "Não foi possível salvar o retorno offline.",
+                )
+            }
         }
     }
 
     fun sincronizarPendenciasOffline() {
-        if (!state.deviceConfigured || state.sincronizandoPendencias || offlineStore.pendingCount() == 0) return
+        if (!state.deviceConfigured || state.sincronizandoPendencias) return
         viewModelScope.launch { sincronizarPendenciasOfflineInterno() }
     }
 
     private suspend fun sincronizarPendenciasOfflineInterno() {
-        if (state.sincronizandoPendencias || offlineStore.pendingCount() == 0) return
-        state = state.copy(sincronizandoPendencias = true, eventosPendentes = offlineStore.pendingCount())
+        val initialPendingCount = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
+        if (state.sincronizandoPendencias || initialPendingCount == 0) return
+        state = state.copy(sincronizandoPendencias = true, eventosPendentes = initialPendingCount)
         try {
             var batches = 0
-            while (offlineStore.pendingCount() > 0 && batches < 5) {
-                val batch = offlineStore.pendingEvents().take(100)
+            while (batches < 5) {
+                val batch = withContext(Dispatchers.IO) { offlineStore.pendingEvents().take(100) }
                 if (batch.isEmpty()) break
-                val response = repository.sincronizarOffline(batch)
-                offlineStore.removeProcessed(response.processados)
-                offlineStore.markServerOk()
+                val response = withContext(Dispatchers.IO) { repository.sincronizarOffline(batch) }
+                withContext(Dispatchers.IO) {
+                    offlineStore.removeProcessed(response.processados)
+                    offlineStore.markServerOk()
+                }
                 batches += 1
                 if (response.processados.isEmpty()) break
             }
+            val offlineStatus = withContext(Dispatchers.IO) {
+                offlineStore.pendingCount() to offlineStore.lastServerOkMillis()
+            }
             state = state.copy(
                 sincronizandoPendencias = false,
-                eventosPendentes = offlineStore.pendingCount(),
+                eventosPendentes = offlineStatus.first,
                 modoOffline = false,
-                ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
-                mensagem = if (offlineStore.pendingCount() == 0) null else "Alguns registros ainda aguardam sincronização.",
+                ultimaConexaoEmMillis = offlineStatus.second,
+                mensagem = if (offlineStatus.first == 0) null else "Alguns registros ainda aguardam sincronização.",
             )
+        } catch (error: CancellationException) {
+            state = state.copy(sincronizandoPendencias = false)
+            throw error
         } catch (_: Throwable) {
+            val offlineStatus = withContext(Dispatchers.IO) {
+                offlineStore.pendingCount() to offlineStore.canOperateOffline(offlineGraceMillis)
+            }
             state = state.copy(
                 sincronizandoPendencias = false,
-                eventosPendentes = offlineStore.pendingCount(),
-                modoOffline = offlineStore.canOperateOffline(offlineGraceMillis),
+                eventosPendentes = offlineStatus.first,
+                modoOffline = offlineStatus.second,
             )
         }
     }
 
-    private fun marcarServidorOnline(appStatus: AppStatusResponse?) {
-        offlineStore.markServerOk()
+    private suspend fun marcarServidorOnline(appStatus: AppStatusResponse?) {
+        val offlineStatus = withContext(Dispatchers.IO) {
+            offlineStore.markServerOk()
+            offlineStore.lastServerOkMillis() to offlineStore.pendingCount()
+        }
         val latest = appStatus?.latestAndroidVersion
         val minimum = appStatus?.minimumAndroidVersion
         state = state.copy(
             modoOffline = false,
-            ultimaConexaoEmMillis = offlineStore.lastServerOkMillis(),
+            ultimaConexaoEmMillis = offlineStatus.first,
             versaoMaisRecente = latest,
             atualizacaoDisponivel = latest?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
             atualizacaoObrigatoria = minimum?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
-            eventosPendentes = offlineStore.pendingCount(),
+            eventosPendentes = offlineStatus.second,
         )
     }
 
@@ -1017,6 +1258,8 @@ class PontoCafeViewModel(
 
     companion object {
         private const val OFFLINE_VERIFICATION_TOKEN = "OFFLINE_LOCAL"
+        private const val CATALOG_SYNC_ERROR =
+            "Não foi possível atualizar os rostos agora. Verifique a conexão e tente novamente."
         private const val FAST_SCORE_BONUS = 0.03
         private const val FAST_MARGIN_BONUS = 0.02
         private const val FAST_MARGIN_MULTIPLIER = 1.5

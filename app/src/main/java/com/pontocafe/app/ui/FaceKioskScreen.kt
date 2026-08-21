@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.pontocafe.app.PontoCafeViewModel
+import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FaceObservation
@@ -136,6 +137,7 @@ fun FaceKioskScreen(
     var challengeCompleted by remember { mutableStateOf(false) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
     var unlockLoading by remember { mutableStateOf(false) }
@@ -193,6 +195,7 @@ fun FaceKioskScreen(
         challengeCompleted = false
         captureRequested = false
         detectedFaces = 0
+        cameraError = null
         livenessState = LivenessState.POSICIONE_ROSTO
     }
 
@@ -208,14 +211,17 @@ fun FaceKioskScreen(
             FaceCameraPreview(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
+                analysisEnabled = viewModel.faceModelReady && state.scanning &&
+                    state.catalogoBiometricoPronto && !state.carregando,
                 showPositionGuide = false,
                 onObservation = { observation ->
+                    cameraError = null
                     if (detectedFaces != observation.faceCount) {
                         detectedFaces = observation.faceCount
                     }
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
-                        !state.sincronizandoBiometrias && !state.carregando && !captureRequested
+                        !state.carregando && !captureRequested
                     ) {
                         if (!challengeCompleted) {
                             if (challenge == KioskLivenessChallenge.BLINK) {
@@ -279,6 +285,7 @@ fun FaceKioskScreen(
                     }
                 },
                 onFrame = viewModel::processarFrame,
+                onError = { cameraError = it },
             )
         } else {
             Surface(
@@ -336,9 +343,10 @@ fun FaceKioskScreen(
         }
 
         val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
-            !state.sincronizandoBiometrias && !state.carregando && detectedFaces == 0
+            !state.carregando && detectedFaces == 0
         val multipleFacesVisible = state.scanning && detectedFaces > 1
-        val recognitionReady = challengeCompleted && !state.carregando && !multipleFacesVisible
+        val recognitionReady = challengeCompleted && !captureRequested &&
+            !state.carregando && !multipleFacesVisible
 
         KioskFaceGuide(
             active = permissionGranted && state.catalogoBiometricoPronto,
@@ -367,20 +375,40 @@ fun FaceKioskScreen(
             else -> challenge.instruction
         }
         val instructionTitle = when {
+            cameraError != null -> "Câmera indisponível"
             !viewModel.faceModelReady -> "Reconhecimento indisponível"
-            state.sincronizandoBiometrias -> "Preparando reconhecimento"
+            state.sincronizandoBiometrias && !state.catalogoBiometricoPronto -> "Preparando reconhecimento"
+            !state.catalogoBiometricoPronto && state.erroSincronizacaoBiometrica != null -> "Rostos indisponíveis"
+            state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto -> "Nenhum rosto disponível"
             !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
-            state.carregando -> "Confirmando seu ponto"
+            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO -> "Identificando rosto"
+            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE -> "Confirmando identidade"
+            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO -> "Confirmando seu ponto"
+            captureRequested -> "Capturando rosto"
+            state.carregando -> "Processando reconhecimento"
             multipleFacesVisible -> "Apenas uma pessoa por vez"
             noFaceVisible -> "Aproxime-se da câmera"
             challengeCompleted -> "Identidade pronta"
             else -> challengeInstruction
         }
         val instructionDetail = when {
+            cameraError != null -> cameraError.orEmpty()
             !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
-            state.sincronizandoBiometrias -> "Sincronizando o catálogo facial deste dispositivo."
+            state.sincronizandoBiometrias && !state.catalogoBiometricoPronto ->
+                "Carregando o catálogo facial seguro deste dispositivo."
+            !state.catalogoBiometricoPronto && state.erroSincronizacaoBiometrica != null ->
+                state.erroSincronizacaoBiometrica.orEmpty()
+            state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto ->
+                "O catálogo está sincronizado, mas não contém rostos ativos compatíveis com este modelo."
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
-            state.carregando -> "Aguarde enquanto validamos sua identidade e o registro."
+            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO ->
+                "Comparando a captura com o catálogo seguro deste dispositivo."
+            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE ->
+                "Validando a correspondência facial de forma autoritativa."
+            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO ->
+                "Identidade confirmada. Aguarde o resultado do registro."
+            captureRequested -> "Mantenha o rosto centralizado por mais um instante."
+            state.carregando -> "Aguarde a conclusão do processamento."
             multipleFacesVisible -> "Deixe somente uma pessoa dentro do enquadramento."
             noFaceVisible -> "Centralize o rosto dentro do guia para começar."
             challengeCompleted -> "Olhe de frente e mantenha o rosto estável por um instante."
@@ -405,7 +433,9 @@ fun FaceKioskScreen(
             modelReady = viewModel.faceModelReady,
             pendingEvents = state.eventosPendentes,
             syncingPending = state.sincronizandoPendencias,
-            error = state.erro,
+            catalogSyncError = state.erroSincronizacaoBiometrica,
+            error = cameraError ?: state.erro ?:
+                state.erroSincronizacaoBiometrica.takeIf { !state.catalogoBiometricoPronto },
             onSyncCatalog = { viewModel.sincronizarBiometrias(force = true) },
             onSyncPending = viewModel::sincronizarPendenciasOffline,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -667,6 +697,7 @@ private fun KioskInstructionSheet(
     modelReady: Boolean,
     pendingEvents: Int,
     syncingPending: Boolean,
+    catalogSyncError: String?,
     error: String?,
     onSyncCatalog: () -> Unit,
     onSyncPending: () -> Unit,
@@ -745,6 +776,9 @@ private fun KioskInstructionSheet(
             }
             if (offline) {
                 StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
+            }
+            if (catalogReady && catalogSyncError != null) {
+                StatusPill("Catálogo local ativo · atualização pendente", PontoCafeTone.WARNING)
             }
 
             if (!catalogReady && !syncingCatalog && modelReady) {

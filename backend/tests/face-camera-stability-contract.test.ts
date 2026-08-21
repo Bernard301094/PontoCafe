@@ -10,6 +10,10 @@ const engine = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/camera/LiteRtFaceEmbeddingEngine.kt', import.meta.url),
   'utf8',
 )
+const kiosk = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url),
+  'utf8',
+)
 
 test('analisador facial usa um único detector detalhado e sempre libera ImageProxy', () => {
   assert.match(camera, /Tasks\.await\(detector\.process\(image\)\)/)
@@ -22,6 +26,26 @@ test('analisador facial usa um único detector detalhado e sempre libera ImagePr
   assert.match(camera, /captureController\.retry\(\)/)
   assert.match(camera, /STRATEGY_KEEP_ONLY_LATEST/)
   assert.match(camera, /executor\.shutdownNow\(\)/)
+})
+
+test('análise ML Kit pausa enquanto um reconhecimento não pode aceitar novos frames', () => {
+  assert.match(camera, /analysisEnabled: \(\) -> Boolean/)
+  assert.match(camera, /if \(!analysisEnabled\(\)\)/)
+  assert.match(camera, /return@Analyzer/)
+  assert.match(camera, /analysisEnabledFlag::get/)
+  assert.match(kiosk, /analysisEnabled = viewModel\.faceModelReady && state\.scanning/)
+  assert.match(kiosk, /state\.catalogoBiometricoPronto && !state\.carregando/)
+  assert.match(kiosk, /state\.sincronizandoBiometrias && !state\.catalogoBiometricoPronto/)
+  assert.match(kiosk, /!state\.carregando/)
+})
+
+test('falha ao abrir câmera frontal chega à interface em vez de parecer ausência de rosto', () => {
+  assert.match(camera, /onError: \(String\) -> Unit/)
+  assert.match(camera, /currentOnError\.value/)
+  assert.match(camera, /Não foi possível iniciar a câmera frontal/)
+  assert.match(kiosk, /var cameraError by remember/)
+  assert.match(kiosk, /Câmera indisponível/)
+  assert.match(kiosk, /error = cameraError \?: state\.erro/)
 })
 
 test('embedding canônico continua CPU e com duas threads', () => {

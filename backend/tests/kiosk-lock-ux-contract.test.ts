@@ -49,6 +49,16 @@ test('Ponto comunica o fluxo facial com layout responsivo', () => {
   assert.match(kiosk, /fillMaxWidth\(if \(expanded\) 0\.46f else 0\.72f\)/)
 })
 
+test('Ponto distingue captura, identificação, confirmação e registro', () => {
+  assert.match(kiosk, /Capturando rosto/)
+  assert.match(kiosk, /PontoRecognitionStage\.IDENTIFICANDO/)
+  assert.match(kiosk, /Identificando rosto/)
+  assert.match(kiosk, /PontoRecognitionStage\.CONFIRMANDO_IDENTIDADE/)
+  assert.match(kiosk, /Confirmando identidade/)
+  assert.match(kiosk, /PontoRecognitionStage\.REGISTRANDO_PONTO/)
+  assert.match(kiosk, /Confirmando seu ponto/)
+})
+
 test('feedback do ponto preserva durações e prioridade dos bloqueios', () => {
   assert.match(flow, /POINT_RECEIPT_VISIBLE_MILLIS = 3_000L/)
   assert.match(flow, /POINT_BLOCKED_VISIBLE_MILLIS = 2_000L/)

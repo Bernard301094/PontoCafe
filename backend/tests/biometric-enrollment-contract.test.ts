@@ -22,8 +22,8 @@ const enrollmentScreen = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminBiometricEnrollmentScreen.kt', import.meta.url),
   'utf8',
 )
-const peopleScreen = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPeopleScreenV2.kt', import.meta.url),
+const adminShell = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminArea.kt', import.meta.url),
   'utf8',
 )
 const kioskScreen = readFileSync(
@@ -57,10 +57,11 @@ test('cadastro passa a acumular múltiplas aparências sem substituir o rosto an
 })
 
 test('matching local compara pessoas, não variantes da mesma pessoa', () => {
-  assert.match(faceCatalog, /bestByCollaborator/)
+  assert.match(faceCatalog, /PreparedCatalog/)
+  assert.match(faceCatalog, /PreparedCollaborator/)
   assert.match(faceCatalog, /template\.colaborador\.id/)
-  assert.match(faceCatalog, /bestByCollaborator\.values\.sortedByDescending/)
-  assert.match(faceCatalog, /best\.second - second < catalog\.margem/)
+  assert.match(faceCatalog, /sourceTemplates === catalog\.templates/)
+  assert.match(faceCatalog, /winner\.score - secondScore < catalog\.margem/)
 })
 
 test('servidor confirma identidade usando o melhor template da pessoa', () => {
@@ -76,7 +77,7 @@ test('landmarks faciais ficam disponíveis sem quebrar embeddings já cadastrado
   assert.match(camera, /FaceLandmark\.RIGHT_EYE/)
   assert.match(camera, /FaceLandmark\.NOSE_BASE/)
   assert.match(engine, /FACE_MARGIN = 0\.18f/)
-  assert.match(engine, /Mantemos exatamente o mesmo recorte\/preprocessamento/)
+  assert.match(engine, /canonicalRect\(source, frame\.faceBounds\)/)
 })
 
 test('liveness troca o piscar por giro de cabeça quando os olhos não ficam legíveis', () => {
@@ -85,7 +86,7 @@ test('liveness troca o piscar por giro de cabeça quando os olhos não ficam leg
   assert.match(kioskScreen, /challengeAdjustedForEyes/)
   assert.match(kioskScreen, /KioskLivenessChallenge\.TURN_LEFT/)
   assert.match(kioskScreen, /KioskLivenessChallenge\.TURN_RIGHT/)
-  assert.match(kioskScreen, /O piscar não ficou nítido/)
+  assert.match(kioskScreen, /Siga o movimento de cabeça indicado/)
 })
 
 test('substituição de identidade continua exigindo exclusão biométrica explícita', () => {
@@ -95,16 +96,14 @@ test('substituição de identidade continua exigindo exclusão biométrica expl�
 
 test('Android confirma visualmente a pessoa antes de iniciar o cadastro', () => {
   assert.match(enrollmentScreen, /Confirme a pessoa/)
-  assert.match(enrollmentScreen, /Confirmar pessoa e iniciar/)
+  assert.match(enrollmentScreen, /Confirmar e iniciar/)
   assert.match(enrollmentScreen, /identityConfirmed/)
 })
 
 test('cadastro facial concluído mantém confirmação dinâmica e temporária', () => {
-  assert.match(peopleScreen, /SnackbarHostState/)
-  assert.match(peopleScreen, /Rosto de \$it registrado com sucesso/)
-  assert.match(peopleScreen, /SnackbarDuration\.Short/)
-  assert.match(peopleScreen, /actionLabel = "OK"/)
-  assert.match(peopleScreen, /viewModel\.limparFeedback\(\)/)
+  assert.match(adminShell, /BiometricRegistrationSuccessFeedback\(/)
+  assert.match(adminShell, /message = state\.mensagem/)
+  assert.match(adminShell, /onDismiss = viewModel::limparFeedback/)
 })
 
 test('modo Ponto captura o embedding frontal somente depois da prova de vida', () => {

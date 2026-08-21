@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -182,6 +183,7 @@ private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
 private fun analyzer(
     detector: FaceDetector,
     captureController: FrameCaptureController,
+    analysisEnabled: () -> Boolean,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
 ): ImageAnalysis.Analyzer {
@@ -190,6 +192,10 @@ private fun analyzer(
 
     return ImageAnalysis.Analyzer { imageProxy ->
         try {
+            if (!analysisEnabled()) {
+                FacePresenceMonitor.faceCount = 0
+                return@Analyzer
+            }
             val mediaImage = imageProxy.image ?: return@Analyzer
             val rotation = imageProxy.imageInfo.rotationDegrees
             val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
@@ -317,18 +323,22 @@ private fun FacePositionGuide(modifier: Modifier = Modifier) {
 fun FaceCameraPreview(
     modifier: Modifier = Modifier,
     captureController: FrameCaptureController,
+    analysisEnabled: Boolean = true,
     showPositionGuide: Boolean = true,
     onObservation: (FaceObservation) -> Unit,
     onFrame: (FaceFrame) -> Unit,
+    onError: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val rootView = LocalView.current
     val currentOnObservation = rememberUpdatedState(onObservation)
     val currentOnFrame = rememberUpdatedState(onFrame)
+    val currentOnError = rememberUpdatedState(onError)
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val cameraAlive = remember { AtomicBoolean(true) }
+    val analysisEnabledFlag = remember { AtomicBoolean(analysisEnabled) }
     val detector = remember {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -342,6 +352,11 @@ fun FaceCameraPreview(
     }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    SideEffect {
+        analysisEnabledFlag.set(analysisEnabled)
+        if (!analysisEnabled) FacePresenceMonitor.faceCount = 0
+    }
 
     DisposableEffect(rootView) {
         val previousKeepScreenOn = rootView.keepScreenOn
@@ -394,6 +409,7 @@ fun FaceCameraPreview(
                             analyzer(
                                 detector = detector,
                                 captureController = captureController,
+                                analysisEnabled = analysisEnabledFlag::get,
                                 onObservation = { observation ->
                                     mainExecutor.execute {
                                         if (cameraAlive.get()) {
@@ -432,6 +448,11 @@ fun FaceCameraPreview(
                     FacePresenceMonitor.faceCount = 0
                     Log.e(FACE_CAMERA_TAG, "Não foi possível iniciar a câmera frontal.", error)
                     runCatching { currentOnObservation.value(FaceObservation()) }
+                    runCatching {
+                        currentOnError.value(
+                            "Não foi possível iniciar a câmera frontal. Verifique se ela está disponível e tente novamente.",
+                        )
+                    }
                 }
             }
         }, mainExecutor)
