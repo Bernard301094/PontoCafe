@@ -8,6 +8,10 @@ const android = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/data/AdminApiClient.kt', import.meta.url),
   'utf8',
 )
+const pontoAndroid = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/data/ApiClient.kt', import.meta.url),
+  'utf8',
+)
 const androidViewModel = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/AdminDeviceViewModel.kt', import.meta.url),
   'utf8',
@@ -16,7 +20,11 @@ const activationTokenStore = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/data/SecureAdminDeviceActivationTokenStore.kt', import.meta.url),
   'utf8',
 )
+const sharedRoute = readFileSync(new URL('../src/routes/shared.ts', import.meta.url), 'utf8')
+const application = readFileSync(new URL('../src/application.ts', import.meta.url), 'utf8')
+const maintenance = readFileSync(new URL('../src/maintenance.ts', import.meta.url), 'utf8')
 const managementRoute = readFileSync(new URL('../src/routes/device-management-routes.ts', import.meta.url), 'utf8')
+const reliabilityRoute = readFileSync(new URL('../src/routes/reliability-routes.ts', import.meta.url), 'utf8')
 const deviceScreen = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminDevicesScreenV2.kt', import.meta.url),
   'utf8',
@@ -132,6 +140,32 @@ test('token de ativação local é removido quando o dispositivo deixa de estar 
   assert.match(deviceScreen, /credencial longa do Ponto não é recuperável por segurança/i)
 })
 
+test('Android envia versão, modelo real e Android em toda requisição autenticada do Ponto', () => {
+  assert.match(pontoAndroid, /import android\.os\.Build/)
+  assert.match(pontoAndroid, /X-App-Version/)
+  assert.match(pontoAndroid, /X-Device-Model/)
+  assert.match(pontoAndroid, /X-Android-Version/)
+  assert.match(pontoAndroid, /Build\.MANUFACTURER/)
+  assert.match(pontoAndroid, /Build\.MODEL/)
+  assert.match(pontoAndroid, /Build\.VERSION\.SDK_INT/)
+})
+
+test('Worker aceita metadados reais e registra heartbeat apenas para dispositivo autenticado', () => {
+  assert.match(application, /X-Device-Model/)
+  assert.match(application, /X-Android-Version/)
+  assert.match(sharedRoute, /DEVICE_HEARTBEAT/)
+  assert.match(sharedRoute, /recordDeviceHeartbeat/)
+  assert.match(sharedRoute, /interval '15 minutes'/)
+  const authPosition = sharedRoute.indexOf("c.set('device', device)")
+  const heartbeatPosition = sharedRoute.indexOf('recordDeviceHeartbeat', authPosition)
+  assert.ok(authPosition >= 0 && heartbeatPosition > authPosition)
+})
+
+test('heartbeat tem a mesma retenção da telemetria de saúde', () => {
+  assert.match(maintenance, /acao in \('APP_HEALTH','DEVICE_HEARTBEAT'\)/)
+  assert.match(maintenance, /deviceHealthRetentionDays/)
+})
+
 test('lista administrativa do backend continua sem expor credencial do dispositivo em texto puro', () => {
   const start = managementRoute.indexOf("deviceManagementRoutes.get('/devices'")
   const end = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/unlock-pin'", start)
@@ -141,6 +175,28 @@ test('lista administrativa do backend continua sem expor credencial do dispositi
   assert.doesNotMatch(listRoute, /activationToken|tokenGerado|token_ciphertext/)
   assert.match(listRoute, /statusAtivacao/)
   assert.match(listRoute, /telemetriaEm/)
+})
+
+test('status e última atividade são derivados de uso autenticado real, não da data de criação', () => {
+  const start = managementRoute.indexOf("deviceManagementRoutes.get('/devices'")
+  const end = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/unlock-pin'", start)
+  const listRoute = managementRoute.slice(start, end)
+
+  assert.match(listRoute, /pause_activity\.ultima_pausa_em/)
+  assert.match(listRoute, /DEVICE_HEARTBEAT/)
+  assert.match(listRoute, /activation\.ultima_ativacao_em/)
+  assert.match(listRoute, /rotation\.ultima_rotacao_em>greatest/)
+  assert.doesNotMatch(listRoute, /greatest\(\s*d\.criado_em/)
+})
+
+test('modelo, Android e versão preferem heartbeat real sem apagar dados de saúde', () => {
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'appVersion'\)/)
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'deviceModel'\)/)
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'androidVersion'\)/)
+  assert.match(managementRoute, /telemetryCounter\(healthDetails\.crashCount\)/)
+  assert.match(managementRoute, /hasRecentHealthAlert\(device\.telemetriaDetalhes\)/)
+  assert.match(reliabilityRoute, /DEVICE_HEARTBEAT/)
+  assert.match(reliabilityRoute, /metadataString\(heartbeatDetails, healthDetails, 'deviceModel'\)/)
 })
 
 test('cards expõem edição, bloqueio e exclusão sem esconder as ações em menus', () => {
@@ -175,6 +231,7 @@ test('bloqueio é idempotente e alteração de PIN não depende de o aparelho es
 
 test('cards continuam mostrando ativação, versão, atividade, saúde e estado operacional', () => {
   assert.match(managementRoute, /APP_HEALTH/)
+  assert.match(managementRoute, /DEVICE_HEARTBEAT/)
   assert.match(managementRoute, /ATIVAR_DISPOSITIVO/)
   assert.match(managementRoute, /ROTACIONAR_TOKEN_DISPOSITIVO/)
   assert.match(managementRoute, /alertaSaude/)
