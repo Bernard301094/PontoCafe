@@ -6,6 +6,7 @@ const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta
 
 const gradle = read('app/build.gradle.kts')
 const config = read('backend/src/config.ts')
+const wrangler = read('backend/wrangler.jsonc')
 const reliability = read('backend/src/routes/reliability-routes.ts')
 const telemetry = read('backend/src/routes/device-telemetry-routes.ts')
 const diagnosticClient = read('app/src/main/java/com/pontocafe/app/data/AdminReliabilityApiClient.kt')
@@ -29,6 +30,8 @@ test('Android candidata 1.0 mantém identidade Release e FaceNet compatível', (
 test('thresholds biométricos não são relaxados para a 1.0', () => {
   assert.match(config, /FACE_MATCH_THRESHOLD', 0\.72/)
   assert.match(config, /FACE_IDENTIFICATION_MARGIN', 0\.06/)
+  assert.match(wrangler, /"FACE_MATCH_THRESHOLD": "0\.72"/)
+  assert.match(wrangler, /"FACE_IDENTIFICATION_MARGIN": "0\.06"/)
   assert.match(biometricUi, /Top-1 accuracy/)
   assert.match(biometricUi, /FRR/)
   assert.match(biometricUi, /FAR/)
@@ -61,9 +64,13 @@ test('frota usa somente telemetria técnica e sinaliza versão/saúde', () => {
   assert.doesNotMatch(telemetry, /verificacaoToken/i)
 })
 
-test('política de versão 1.0 mantém piso compatível com integridade 0.15', () => {
+test('política de versão 1.0 mantém piso compatível com integridade 0.15 no código e no Worker', () => {
   assert.match(config, /APP_LATEST_ANDROID_VERSION', '1\.0\.0'/)
   assert.match(config, /APP_MIN_ANDROID_VERSION', '0\.15\.0'/)
+  assert.match(wrangler, /"APP_LATEST_ANDROID_VERSION": "1\.0\.0"/)
+  assert.match(wrangler, /"APP_MIN_ANDROID_VERSION": "0\.15\.0"/)
+  assert.match(wrangler, /"PONTO_OPERATION_RETENTION_DAYS": "30"/)
+  assert.match(wrangler, /"DEVICE_HEALTH_RETENTION_DAYS": "30"/)
 })
 
 test('migração exactly-once continua obrigatória na 1.0', () => {
