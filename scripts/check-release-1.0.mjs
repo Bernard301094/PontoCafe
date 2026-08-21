@@ -55,6 +55,10 @@ assert.match(deployCloudflare, /const expectedApiVersion = String\(backendPackag
 assert.match(deployCloudflare, /status\.apiVersion !== expectedApiVersion/)
 assert.match(deployCloudflare, /status\.latestAndroidVersion !== expectedAndroidVersion/)
 assert.match(deployCloudflare, /status\.minimumAndroidVersion !== expectedMinimumAndroidVersion/)
+assert.match(deployCloudflare, /\['--workspace', 'backend', 'run', 'validate'\]/)
+assert.match(deployCloudflare, /\['run', 'release:check'\]/)
+assert.match(deployCloudflare, /\['deploy', '--dry-run'\]/)
+assert.match(deployCloudflare, /cwd: backendDir/)
 
 assert.match(backendConfig, /FACE_MATCH_THRESHOLD', 0\.72/)
 assert.match(backendConfig, /FACE_IDENTIFICATION_MARGIN', 0\.06/)
