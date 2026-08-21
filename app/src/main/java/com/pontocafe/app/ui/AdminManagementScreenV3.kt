@@ -80,8 +80,17 @@ import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.CoffeeRuleV2
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.domain.PontoCafeRules
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 private enum class ManagementRuleTimeTarget { START, END }
+
+private data class CoffeeWindowState(
+    val label: String,
+    val supportingText: String,
+    val tone: PontoCafeTone,
+)
 
 private data class ManagementAction(
     val title: String,
@@ -107,6 +116,16 @@ fun AdminManagementScreenV3(
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
     val testPause by AdminTestPauseStore.active.collectAsState()
+    val durationSummary = remember(reliability.rules) {
+        val configured = reliability.rules
+            .map { PontoCafeRules.formatDuration(it.limiteSegundos) }
+            .distinct()
+        when (configured.size) {
+            0 -> "—"
+            1 -> configured.first()
+            else -> "Variável"
+        }
+    }
 
     var showAccountSheet by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(testPause != null) }
@@ -209,6 +228,7 @@ fun AdminManagementScreenV3(
                 ManagementOverviewCard(
                     activeRules = reliability.rules.count { it.ativo },
                     totalRules = reliability.rules.size,
+                    durationSummary = durationSummary,
                     faceModelReady = reliabilityViewModel.faceModelReady,
                     responsive = responsive,
                 )
@@ -248,7 +268,7 @@ fun AdminManagementScreenV3(
             }
 
             item("rules-title") {
-                ManagementRulesHeader()
+                ManagementRulesHeader(reliability.rules)
             }
 
             if (reliability.rules.isEmpty() && reliability.loading) {
@@ -372,6 +392,7 @@ fun AdminManagementScreenV3(
 private fun ManagementOverviewCard(
     activeRules: Int,
     totalRules: Int,
+    durationSummary: String,
     faceModelReady: Boolean,
     responsive: PontoCafeResponsiveInfo,
 ) {
@@ -412,8 +433,8 @@ private fun ManagementOverviewCard(
                     modifier = Modifier.weight(1f),
                 )
                 ManagementStatusCell(
-                    value = "15 min",
-                    label = "Padrão por pausa",
+                    value = durationSummary,
+                    label = "Tempo configurado",
                     positive = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -434,8 +455,8 @@ private fun ManagementOverviewCard(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     ManagementStatusCell(
-                        value = "15 min",
-                        label = "Padrão por pausa",
+                        value = durationSummary,
+                        label = "Tempo configurado",
                         positive = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -460,8 +481,8 @@ private fun ManagementOverviewCard(
                         )
                     }
                     ManagementStatusCell(
-                        value = "15 min",
-                        label = "Padrão por pausa",
+                        value = durationSummary,
+                        label = "Tempo configurado",
                         positive = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -608,7 +629,7 @@ private fun ManagementActionCard(
 }
 
 @Composable
-private fun ManagementRulesHeader() {
+private fun ManagementRulesHeader(rules: List<CoffeeRuleV2>) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
@@ -621,7 +642,7 @@ private fun ManagementRulesHeader() {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "Edite somente o período necessário. O padrão operacional permanece em 15 minutos por pausa.",
+                "Horários definem quando a pausa pode começar; tempos de café definem quanto ela pode durar.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -642,7 +663,7 @@ private fun ManagementRulesHeader() {
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
                 Text(
-                    "15 min",
+                    "${rules.count { it.ativo }}/${rules.size} ativos",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
@@ -698,6 +719,7 @@ private fun CoffeeRuleEditorV3(
     var active by remember(rule) { mutableStateOf(rule.ativo) }
     var localError by remember(rule) { mutableStateOf<String?>(null) }
     var editingTime by remember(rule) { mutableStateOf<ManagementRuleTimeTarget?>(null) }
+    var editing by remember(rule) { mutableStateOf(false) }
 
     val currentMinutes = minutes.toIntOrNull()
     val currentSeconds = seconds.toIntOrNull()
@@ -706,6 +728,12 @@ private fun CoffeeRuleEditorV3(
         active != rule.ativo ||
         currentMinutes != initialDuration.first ||
         currentSeconds != initialDuration.second
+    val currentDurationSeconds = if (currentMinutes != null && currentSeconds != null) {
+        currentMinutes * 60 + currentSeconds
+    } else {
+        rule.limiteSegundos
+    }
+    val windowState = coffeeWindowState(active = active, start = start, end = end)
 
     fun reset() {
         start = rule.inicio
@@ -715,6 +743,7 @@ private fun CoffeeRuleEditorV3(
         customDuration = initialDuration.second != 0 || initialDuration.first !in setOf(10, 12, 15)
         active = rule.ativo
         localError = null
+        editing = false
     }
 
     fun save() {
@@ -817,158 +846,387 @@ private fun CoffeeRuleEditorV3(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "${rule.inicio}–${rule.fim} · ${PontoCafeRules.formatDuration(rule.limiteSegundos)}",
+                        "Janela de início e limite de duração",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(
-                    checked = active,
-                    onCheckedChange = {
-                        active = it
-                        localError = null
-                    },
-                    enabled = !viewModel.state.loading,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Ativar período ${rule.periodo.lowercase()}"
-                    },
-                )
             }
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 item {
-                    StatusPill(
-                        if (active) "Ativa" else "Desativada",
-                        if (active) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                    )
+                    StatusPill(windowState.label, windowState.tone)
                 }
                 if (dirty) item { StatusPill("Alterações não salvas", PontoCafeTone.INFO) }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                RuleTimeSelectorV3(
-                    label = "Início",
-                    value = start,
-                    onClick = { editingTime = ManagementRuleTimeTarget.START },
-                    modifier = Modifier.weight(1f),
-                )
-                RuleTimeSelectorV3(
-                    label = "Fim",
-                    value = end,
-                    onClick = { editingTime = ManagementRuleTimeTarget.END },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            CoffeeRuleSummaryGrid(
+                start = start,
+                end = end,
+                durationSeconds = currentDurationSeconds,
+                windowState = windowState,
+            )
 
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                Text("Duração da pausa", style = MaterialTheme.typography.labelLarge)
-                LazyRow(
+            PcTonalButton(
+                text = if (editing) "Fechar edição" else "Editar período",
+                icon = if (editing) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                onClick = { editing = !editing },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !viewModel.state.loading,
+            )
+
+            AnimatedVisibility(editing) {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md)) {
+                    HorizontalDivider()
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(PontoCafeSpacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Período ativo", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (active) "Aceita inícios dentro desta janela." else "Bloqueia novos inícios neste período.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = active,
+                                onCheckedChange = {
+                                    active = it
+                                    localError = null
+                                },
+                                enabled = !viewModel.state.loading,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Ativar período ${rule.periodo.lowercase()}"
+                                },
+                            )
+                        }
+                    }
+
+                    SectionTitle(
+                        "Horários",
+                        "Defina quando este período começa e termina.",
+                    )
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val stack = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
+                        if (stack) {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                RuleTimeSelectorV3(
+                                    label = "Início da janela",
+                                    value = start,
+                                    onClick = { editingTime = ManagementRuleTimeTarget.START },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                RuleTimeSelectorV3(
+                                    label = "Fim da janela",
+                                    value = end,
+                                    onClick = { editingTime = ManagementRuleTimeTarget.END },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                RuleTimeSelectorV3(
+                                    label = "Início da janela",
+                                    value = start,
+                                    onClick = { editingTime = ManagementRuleTimeTarget.START },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                RuleTimeSelectorV3(
+                                    label = "Fim da janela",
+                                    value = end,
+                                    onClick = { editingTime = ManagementRuleTimeTarget.END },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+
+                    SectionTitle(
+                        "Tempo de café",
+                        "Limite máximo entre o início e o retorno desta pausa.",
+                    )
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    ) {
+                        items(listOf(10, 12, 15), key = { "duration-$it" }) { preset ->
+                            FilterChip(
+                                selected = !customDuration && currentMinutes == preset && currentSeconds == 0,
+                                onClick = {
+                                    minutes = preset.toString()
+                                    seconds = "0"
+                                    customDuration = false
+                                    localError = null
+                                },
+                                label = { Text("$preset min") },
+                            )
+                        }
+                    }
+                    if (!customDuration) {
+                        TextButton(onClick = { customDuration = true }) {
+                            Text("Definir outro tempo")
+                        }
+                    }
+
+                    AnimatedVisibility(customDuration) {
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val stack = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
+                            val minutesField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                                OutlinedTextField(
+                                    value = minutes,
+                                    onValueChange = {
+                                        minutes = it.filter(Char::isDigit).take(3)
+                                        localError = null
+                                    },
+                                    modifier = fieldModifier,
+                                    label = { Text("Minutos") },
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Number,
+                                        imeAction = ImeAction.Next,
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                                    ),
+                                    singleLine = true,
+                                )
+                            }
+                            val secondsField: @Composable (Modifier) -> Unit = { fieldModifier ->
+                                OutlinedTextField(
+                                    value = seconds,
+                                    onValueChange = {
+                                        seconds = it.filter(Char::isDigit).take(2)
+                                        localError = null
+                                    },
+                                    modifier = fieldModifier,
+                                    label = { Text("Segundos") },
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Number,
+                                        imeAction = ImeAction.Done,
+                                    ),
+                                    keyboardActions = KeyboardActions(onDone = { save() }),
+                                    singleLine = true,
+                                )
+                            }
+                            if (stack) {
+                                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                    minutesField(Modifier.fillMaxWidth())
+                                    secondsField(Modifier.fillMaxWidth())
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                    minutesField(Modifier.weight(1f))
+                                    secondsField(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    localError?.let { message ->
+                        PcStateBanner(
+                            title = "Revise esta regra",
+                            supportingText = message,
+                            tone = PontoCafeTone.DANGER,
+                        )
+                    }
+
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val stack = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
+                        if (stack) {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                PcPrimaryButton(
+                                    text = "Salvar alterações",
+                                    onClick = ::save,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = dirty,
+                                    loading = viewModel.state.loading,
+                                )
+                                PcSecondaryButton(
+                                    text = "Descartar",
+                                    onClick = ::reset,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = dirty && !viewModel.state.loading,
+                                )
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                PcSecondaryButton(
+                                    text = "Descartar",
+                                    onClick = ::reset,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = dirty && !viewModel.state.loading,
+                                )
+                                PcPrimaryButton(
+                                    text = "Salvar alterações",
+                                    onClick = ::save,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = dirty,
+                                    loading = viewModel.state.loading,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoffeeRuleSummaryGrid(
+    start: String,
+    end: String,
+    durationSeconds: Int,
+    windowState: CoffeeWindowState,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val stack = maxWidth < 520.dp || LocalDensity.current.fontScale >= 1.3f
+        if (stack) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                CoffeeRuleSummaryCard(
+                    title = "Horários",
+                    value = "$start – $end",
+                    supportingText = windowState.supportingText,
+                    status = windowState.label,
+                    tone = windowState.tone,
+                    icon = Icons.Default.Schedule,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    items(listOf(10, 12, 15), key = { "duration-$it" }) { preset ->
-                        FilterChip(
-                            selected = !customDuration && currentMinutes == preset && currentSeconds == 0,
-                            onClick = {
-                                minutes = preset.toString()
-                                seconds = "0"
-                                customDuration = false
-                                localError = null
-                            },
-                            label = { Text("$preset min") },
-                        )
-                    }
-                }
-                if (!customDuration) {
-                    TextButton(onClick = { customDuration = true }) {
-                        Text("Personalizar duração")
-                    }
-                }
-            }
-
-            AnimatedVisibility(customDuration) {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    val stack = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
-                    val minutesField: @Composable (Modifier) -> Unit = { fieldModifier ->
-                        OutlinedTextField(
-                            value = minutes,
-                            onValueChange = {
-                                minutes = it.filter(Char::isDigit).take(3)
-                                localError = null
-                            },
-                            modifier = fieldModifier,
-                            label = { Text("Minutos") },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Next,
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                            ),
-                            singleLine = true,
-                        )
-                    }
-                    val secondsField: @Composable (Modifier) -> Unit = { fieldModifier ->
-                        OutlinedTextField(
-                            value = seconds,
-                            onValueChange = {
-                                seconds = it.filter(Char::isDigit).take(2)
-                                localError = null
-                            },
-                            modifier = fieldModifier,
-                            label = { Text("Segundos") },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Done,
-                            ),
-                            keyboardActions = KeyboardActions(onDone = { save() }),
-                            singleLine = true,
-                        )
-                    }
-                    if (stack) {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            minutesField(Modifier.fillMaxWidth())
-                            secondsField(Modifier.fillMaxWidth())
-                        }
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            minutesField(Modifier.weight(1f))
-                            secondsField(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-
-            localError?.let { message ->
-                PcStateBanner(
-                    title = "Revise esta regra",
-                    supportingText = message,
-                    tone = PontoCafeTone.DANGER,
+                )
+                CoffeeRuleSummaryCard(
+                    title = "Tempo de café",
+                    value = PontoCafeRules.formatDuration(durationSeconds),
+                    supportingText = "Limite máximo entre início e retorno",
+                    status = "Limite atual",
+                    tone = PontoCafeTone.INFO,
+                    icon = Icons.Default.Timer,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                PcSecondaryButton(
-                    text = "Descartar",
-                    onClick = ::reset,
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                CoffeeRuleSummaryCard(
+                    title = "Horários",
+                    value = "$start – $end",
+                    supportingText = windowState.supportingText,
+                    status = windowState.label,
+                    tone = windowState.tone,
+                    icon = Icons.Default.Schedule,
                     modifier = Modifier.weight(1f),
-                    enabled = dirty && !viewModel.state.loading,
                 )
-                PcPrimaryButton(
-                    text = "Salvar",
-                    onClick = ::save,
+                CoffeeRuleSummaryCard(
+                    title = "Tempo de café",
+                    value = PontoCafeRules.formatDuration(durationSeconds),
+                    supportingText = "Limite máximo entre início e retorno",
+                    status = "Limite atual",
+                    tone = PontoCafeTone.INFO,
+                    icon = Icons.Default.Timer,
                     modifier = Modifier.weight(1f),
-                    enabled = dirty,
-                    loading = viewModel.state.loading,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CoffeeRuleSummaryCard(
+    title: String,
+    value: String,
+    supportingText: String,
+    status: String,
+    tone: PontoCafeTone,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(0.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            StatusPill(status, tone)
+        }
+    }
+}
+
+private fun coffeeWindowState(
+    active: Boolean,
+    start: String,
+    end: String,
+    now: LocalTime = ZonedDateTime.now(ZoneId.of("America/Fortaleza")).toLocalTime(),
+): CoffeeWindowState {
+    if (!active) {
+        return CoffeeWindowState(
+            label = "Inativo",
+            supportingText = "Esta janela não aceita novos inícios",
+            tone = PontoCafeTone.NEUTRAL,
+        )
+    }
+    val startTime = runCatching { LocalTime.parse(start) }.getOrNull()
+    val endTime = runCatching { LocalTime.parse(end) }.getOrNull()
+    if (startTime == null || endTime == null || !startTime.isBefore(endTime)) {
+        return CoffeeWindowState(
+            label = "Revisar horário",
+            supportingText = "O início deve ser anterior ao fim",
+            tone = PontoCafeTone.DANGER,
+        )
+    }
+    return when {
+        !now.isBefore(startTime) && now.isBefore(endTime) -> CoffeeWindowState(
+            label = "Em andamento",
+            supportingText = "A hora atual está dentro desta janela",
+            tone = PontoCafeTone.SUCCESS,
+        )
+        now.isBefore(startTime) -> CoffeeWindowState(
+            label = "Próximo hoje",
+            supportingText = "Começa às $start",
+            tone = PontoCafeTone.INFO,
+        )
+        else -> CoffeeWindowState(
+            label = "Encerrado hoje",
+            supportingText = "Terminou às $end",
+            tone = PontoCafeTone.NEUTRAL,
+        )
     }
 }
 

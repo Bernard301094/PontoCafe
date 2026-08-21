@@ -41,6 +41,11 @@ test('versão do catálogo muda quando um rosto ativo é incluído ou atualizado
   assert.match(catalogRoute, /atualizado: false/)
 })
 
+test('leitura do catálogo aceita bancos anteriores à coluna opcional tipo', () => {
+  assert.match(catalogRoute, /coalesce\(to_jsonb\(t\)->>'tipo','LEGADO'\)/)
+  assert.doesNotMatch(catalogRoute, /\bt\.tipo\b/)
+})
+
 test('refresh forçado nunca é descartado por uma sincronização que já está ativa', () => {
   assert.match(viewModel, /private val catalogSyncMutex = Mutex\(\)/)
   assert.match(viewModel, /catalogSyncMutex\.withLock/)

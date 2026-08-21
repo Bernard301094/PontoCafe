@@ -76,9 +76,9 @@ private enum class PointBlockReason {
 
 /**
  * Host contínuo do Ponto. A câmera permanece montada durante reconhecimento,
- * avisos e comprovante. Não existe confirmação manual de identidade nem tela
- * de código temporário no Ponto: depois da validação biométrica, o backend
- * decide se registra ou bloqueia a tentativa.
+ * avisos e comprovante. Depois da validação biométrica, o backend decide se
+ * registra ou bloqueia a tentativa, inclusive nas exceções previamente
+ * autorizadas.
  *
  * A UI também consulta o histórico local cifrado de pausas concluídas. Essa
  * segunda barreira é somente de bloqueio: ela nunca autoriza um registro.
@@ -102,7 +102,6 @@ fun PontoFlowHost(
     val localHistoryStore = remember(
         identificacao?.verificacaoToken,
         state.scanCycle,
-        state.needsAuthorization,
     ) {
         SecurePontoOfflineStore(context.applicationContext)
     }
@@ -163,11 +162,10 @@ fun PontoFlowHost(
 
     LaunchedEffect(
         identificacao?.verificacaoToken,
-        state.needsAuthorization,
         usedBreakDetected,
     ) {
         val atual = identificacao ?: return@LaunchedEffect
-        if (usedBreakDetected || state.needsAuthorization || atual.acaoSugerida == "BLOQUEADO") {
+        if (usedBreakDetected || atual.acaoSugerida == "BLOQUEADO") {
             return@LaunchedEffect
         }
         viewModel.confirmarIdentidade()
@@ -210,15 +208,10 @@ fun PontoFlowHost(
                 viewModel = viewModel,
                 nome = identificacao.colaborador?.nome,
                 mensagem = identificacao.mensagem ?: "Nenhum ponto foi registrado.",
-                reason = PointBlockReason.GENERIC,
-            )
-
-            state.needsAuthorization -> FastPointBlockedOverlay(
-                viewModel = viewModel,
-                nome = identificacao?.colaborador?.nome,
-                mensagem = identificacao?.mensagem
-                    ?: "Fora do horário permitido. Nenhum ponto foi registrado.",
-                reason = PointBlockReason.OUTSIDE_WINDOW,
+                reason = if (
+                    identificacao.motivo == "FORA_HORARIO" ||
+                    identificacao.motivo == "FORA_HORARIO_NAO_LIBERADO"
+                ) PointBlockReason.OUTSIDE_WINDOW else PointBlockReason.GENERIC,
             )
 
             identificacao != null && !state.erro.isNullOrBlank() -> {

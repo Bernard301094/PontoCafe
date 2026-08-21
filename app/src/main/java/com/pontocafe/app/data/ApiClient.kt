@@ -129,8 +129,6 @@ data class IniciarPausaRequest(
     val operacaoId: String,
     val colaboradorId: String,
     val verificacaoToken: String,
-    val periodo: String? = null,
-    val codigoAutorizacao: String? = null,
 )
 
 data class IniciarPausaResponse(
@@ -385,8 +383,6 @@ class PontoCafeRepository(
     suspend fun iniciar(
         colaboradorId: String,
         verificacaoToken: String,
-        periodo: String? = null,
-        codigoAutorizacao: String? = null,
     ): IniciarPausaResponse = executarMutacaoConfirmada(
         colaboradorId = colaboradorId,
         acao = "INICIAR",
@@ -396,8 +392,6 @@ class PontoCafeRepository(
                 operacaoId = operationId,
                 colaboradorId = colaboradorId,
                 verificacaoToken = verificacaoToken,
-                periodo = periodo,
-                codigoAutorizacao = codigoAutorizacao,
             ),
         )
     }

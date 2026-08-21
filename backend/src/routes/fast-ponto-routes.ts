@@ -406,10 +406,6 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
         ],
       )
 
-      if (authorizationId) {
-        await client.query('update autorizacoes set usado_em=now() where id=$1', [authorizationId])
-      }
-
       const pauseId = newId()
       const inserted = await client.query<{ inicio_em: string }>(
         `insert into pausas_cafe
@@ -427,6 +423,19 @@ fastPontoRoutes.post('/registro-rapido', async (c) => {
           verificationId,
         ],
       )
+      if (authorizationId) {
+        const consumed = await client.query(
+          `update autorizacoes
+              set usado_em=now()
+            where id=$1 and colaborador_id=$2
+              and usado_em is null and cancelada_em is null
+          returning id`,
+          [authorizationId, best.colaborador_id],
+        )
+        if (consumed.rowCount !== 1) {
+          throw new Error('A liberação prévia expirou ou já foi utilizada.')
+        }
+      }
       const inicioEm = inserted.rows[0]!.inicio_em
       const times = await client.query<{ inicio_local: string; retorno_local: string }>(
         `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,

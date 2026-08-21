@@ -48,7 +48,9 @@ data class AdminUiState(
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
     val biometricSamplesCaptured: Int = 0,
-    val authorizationCode: String? = null,
+    val authorizationId: String? = null,
+    val authorizationEmployeeName: String? = null,
+    val authorizationPeriod: String? = null,
     val authorizationExpirySeconds: Int? = null,
     val mensagem: String? = null,
     val erro: String? = null,
@@ -415,31 +417,58 @@ class AdminViewModel(
 
     fun abrirAutorizacao() {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
+            state = state.copy(
+                carregando = true,
+                erro = null,
+                mensagem = null,
+                authorizationId = null,
+                authorizationEmployeeName = null,
+                authorizationPeriod = null,
+                authorizationExpirySeconds = null,
+            )
             runCatching { repository.collaborators() }
                 .onSuccess { state = state.copy(carregando = false, destination = AdminDestination.AUTHORIZATION, colaboradores = it) }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun gerarAutorizacao(colaborador: Colaborador, periodo: String, motivo: String) {
-        if (periodo != "MANHA" && periodo != "TARDE") {
-            state = state.copy(erro = "Selecione o período autorizado.")
-            return
-        }
+    fun autorizarPausa(colaborador: Colaborador, motivo: String) {
         if (motivo.trim().length < 2) {
             state = state.copy(erro = "Informe o motivo da autorização.")
             return
         }
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
-            runCatching { repository.createAuthorization(colaborador.id, periodo, motivo) }
+            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationId = null)
+            runCatching { repository.createAuthorization(colaborador.id, motivo) }
                 .onSuccess { auth ->
                     state = state.copy(
                         carregando = false,
-                        authorizationCode = auth.codigo,
+                        authorizationId = auth.id,
+                        authorizationEmployeeName = auth.colaboradorNome,
+                        authorizationPeriod = auth.periodo,
                         authorizationExpirySeconds = auth.expiraEmSegundos,
-                        mensagem = "Código temporário gerado para ${colaborador.nome}.",
+                        mensagem = "Autorização concedida para ${auth.colaboradorNome}.",
+                        erro = null,
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun cancelarAutorizacao(colaborador: Colaborador) {
+        if (state.authorizationId == null || state.carregando) return
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.cancelAuthorization(colaborador.id) }
+                .onSuccess {
+                    state = state.copy(
+                        carregando = false,
+                        authorizationId = null,
+                        authorizationEmployeeName = null,
+                        authorizationPeriod = null,
+                        authorizationExpirySeconds = null,
+                        mensagem = "Autorização de ${colaborador.nome} cancelada.",
+                        erro = null,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -447,7 +476,14 @@ class AdminViewModel(
     }
 
     fun limparAutorizacao() {
-        state = state.copy(authorizationCode = null, authorizationExpirySeconds = null, mensagem = null)
+        state = state.copy(
+            authorizationId = null,
+            authorizationEmployeeName = null,
+            authorizationPeriod = null,
+            authorizationExpirySeconds = null,
+            mensagem = null,
+            erro = null,
+        )
     }
 
     fun voltarHome() {

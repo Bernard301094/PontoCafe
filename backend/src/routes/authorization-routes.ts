@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
-import { generateAuthorizationCode, hashAuthorizationCode, newId } from '../security.js'
+import { hashToken, newId, newToken } from '../security.js'
 import { parseJson, periodoSchema, uuidSchema } from './shared.js'
 
 export const authorizationRoutes = new Hono<AppEnv>()
@@ -45,9 +45,10 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
   }
 
   const user = c.get('user')
-  // Mantemos um segredo interno apenas por compatibilidade com o schema atual.
-  // O colaborador não precisa mais receber nem digitar código no Ponto.
-  const segredoInterno = generateAuthorizationCode()
+  // `codigo_hash` permanece obrigatório no schema legado. Gravamos apenas o hash
+  // de um nonce aleatório, sem significado operacional e sem devolvê-lo a nenhum
+  // cliente. A autorização é vinculada à pessoa e consumida pelo servidor.
+  const nonceHash = hashToken(newToken())
   const id = newId()
 
   const created = await transaction(async (client) => {
@@ -75,7 +76,7 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
         body.data.colaboradorId,
         user.id,
         periodo,
-        hashAuthorizationCode(segredoInterno),
+        nonceHash,
         body.data.motivo,
         config.authorizationTtlSeconds,
       ],
@@ -106,14 +107,13 @@ authorizationRoutes.post('/autorizacoes', async (c) => {
 
   return c.json({
     id,
-    // Campo legado mantido para compatibilidade; não é exibido nem solicitado.
-    codigo: segredoInterno,
     liberada: true,
     colaboradorNome: created.colaboradorNome,
     periodo,
     periodoDefinidoAutomaticamente: true,
     expiraEm: created.expiraEm,
     expiraEmSegundos: config.authorizationTtlSeconds,
+    usoUnico: true,
     aviso: 'Pausa liberada previamente. O período foi definido automaticamente pelo horário do servidor.',
   }, 201)
 })

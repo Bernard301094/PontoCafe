@@ -5,7 +5,7 @@ import type { AppEnv, Device } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query, transaction } from '../db.js'
 import { cosineSimilarity, decryptEmbedding, hashToken, newId, newToken } from '../security.js'
-import { embeddingSchema, parseJson, periodoSchema, uuidSchema } from './shared.js'
+import { embeddingSchema, parseJson, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
   const token = c.req.header('X-Device-Token')?.trim()
@@ -276,7 +276,9 @@ pontoRoutes.post('/biometria/identificar', async (c) => {
       setor: melhor.setor,
       turno: melhor.turno,
     },
-    acaoSugerida: aberta ? 'FINALIZAR' : 'INICIAR',
+    acaoSugerida: aberta
+      ? 'FINALIZAR'
+      : (foraHorarioSemPausaAberta && !autorizadoForaHorario ? 'BLOQUEADO' : 'INICIAR'),
     pausaAberta: aberta ? {
       id: aberta.id,
       periodo: aberta.periodo,
@@ -332,8 +334,6 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
   const body = await parseJson(c, z.object({
     colaboradorId: uuidSchema,
     verificacaoToken: z.string().min(20),
-    periodo: periodoSchema.optional(),
-    codigoAutorizacao: z.string().regex(/^\d{6}$/).optional(),
   }))
   if (!body.ok) return body.response
   const device = c.get('device')
@@ -406,10 +406,6 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
         )
       }
 
-      if (autorizacaoId) {
-        await client.query('update autorizacoes set usado_em=now() where id=$1', [autorizacaoId])
-      }
-
       const id = newId()
       try {
         const inserted = await client.query<{ inicio_em: string }>(
@@ -417,6 +413,19 @@ pontoRoutes.post('/pausas/iniciar', async (c) => {
            values ($1,$2,$3,$4,$5,$6,$7,$8) returning inicio_em::text`,
           [id, body.data.colaboradorId, periodo, limiteSegundos, foraHorario, autorizacaoId, device.id, verification.rows[0].id],
         )
+        if (autorizacaoId) {
+          const consumed = await client.query(
+            `update autorizacoes
+                set usado_em=now()
+              where id=$1 and colaborador_id=$2
+                and usado_em is null and cancelada_em is null
+            returning id`,
+            [autorizacaoId, body.data.colaboradorId],
+          )
+          if (consumed.rowCount !== 1) {
+            throw new AppError('A liberação prévia expirou ou já foi utilizada.', 409, { periodo })
+          }
+        }
         const horario = await client.query<{ inicio_local: string; retorno_local: string }>(
           `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,
                   to_char(($1::timestamptz + ($2 * interval '1 second')) at time zone $3,'HH24:MI') as retorno_local`,

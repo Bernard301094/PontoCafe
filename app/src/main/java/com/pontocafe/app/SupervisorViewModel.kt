@@ -41,9 +41,9 @@ data class SupervisorUiState(
     val relatorioAnterior: SupervisorReportResponse? = null,
     val relatorioInicio: String? = null,
     val relatorioFim: String? = null,
-    // Campo legado usado apenas como marcador de uma liberação ativa na UI.
-    val authorizationCode: String? = null,
+    val authorizationId: String? = null,
     val authorizationEmployeeName: String? = null,
+    val authorizationPeriod: String? = null,
     val authorizationExpiresSeconds: Int? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
@@ -195,8 +195,9 @@ class SupervisorViewModel(
                         sessaoAdministrativa = repository.usingAdminSession(),
                         ultimaAtualizacaoAoVivoEmMillis = System.currentTimeMillis(),
                         conexaoAoVivoOk = true,
-                        authorizationCode = null,
+                        authorizationId = null,
                         authorizationEmployeeName = null,
+                        authorizationPeriod = null,
                         authorizationExpiresSeconds = null,
                         erro = null,
                     )
@@ -253,8 +254,9 @@ class SupervisorViewModel(
                 carregando = true,
                 erro = null,
                 mensagem = null,
-                authorizationCode = null,
+                authorizationId = null,
                 authorizationEmployeeName = null,
+                authorizationPeriod = null,
                 authorizationExpiresSeconds = null,
             )
             runCatching { repository.collaborators() }
@@ -271,25 +273,21 @@ class SupervisorViewModel(
         }
     }
 
-    fun gerarAutorizacao(colaborador: Colaborador, periodo: String, motivo: String) {
-        if (periodo != "MANHA" && periodo != "TARDE") {
-            state = state.copy(erro = "Selecione o período autorizado.")
-            return
-        }
+    fun autorizarPausa(colaborador: Colaborador, motivo: String) {
         if (motivo.trim().length < 2) {
             state = state.copy(erro = "Informe o motivo da liberação.")
             return
         }
 
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationCode = null)
-            runCatching { repository.createAuthorization(colaborador.id, periodo, motivo) }
+            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationId = null)
+            runCatching { repository.createAuthorization(colaborador.id, motivo) }
                 .onSuccess { authorization ->
                     state = state.copy(
                         carregando = false,
-                        // Guardamos o id, e não o segredo interno legado, apenas para marcar a liberação na UI.
-                        authorizationCode = authorization.id,
+                        authorizationId = authorization.id,
                         authorizationEmployeeName = colaborador.nome,
+                        authorizationPeriod = authorization.periodo,
                         authorizationExpiresSeconds = authorization.expiraEmSegundos,
                         mensagem = null,
                         erro = null,
@@ -301,21 +299,17 @@ class SupervisorViewModel(
         }
     }
 
-    fun cancelarAutorizacao(colaborador: Colaborador, periodo: String) {
-        if (state.authorizationCode == null || state.carregando) return
-        if (periodo != "MANHA" && periodo != "TARDE") {
-            state = state.copy(erro = "Período da liberação inválido.")
-            return
-        }
-
+    fun cancelarAutorizacao(colaborador: Colaborador) {
+        if (state.authorizationId == null || state.carregando) return
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.cancelAuthorization(colaborador.id, periodo) }
+            runCatching { repository.cancelAuthorization(colaborador.id) }
                 .onSuccess {
                     state = state.copy(
                         carregando = false,
-                        authorizationCode = null,
+                        authorizationId = null,
                         authorizationEmployeeName = null,
+                        authorizationPeriod = null,
                         authorizationExpiresSeconds = null,
                         mensagem = "Liberação de ${colaborador.nome} cancelada.",
                         erro = null,
@@ -327,10 +321,11 @@ class SupervisorViewModel(
         }
     }
 
-    fun limparAutorizacaoGerada() {
+    fun limparAutorizacao() {
         state = state.copy(
-            authorizationCode = null,
+            authorizationId = null,
             authorizationEmployeeName = null,
+            authorizationPeriod = null,
             authorizationExpiresSeconds = null,
             mensagem = null,
             erro = null,
@@ -587,8 +582,9 @@ class SupervisorViewModel(
         biometricSamples.clear()
         state = state.copy(
             destination = SupervisorDestination.AO_VIVO,
-            authorizationCode = null,
+            authorizationId = null,
             authorizationEmployeeName = null,
+            authorizationPeriod = null,
             authorizationExpiresSeconds = null,
             erro = null,
             mensagem = null,

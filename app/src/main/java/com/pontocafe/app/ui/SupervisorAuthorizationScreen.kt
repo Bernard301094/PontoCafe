@@ -72,10 +72,6 @@ private val SupervisorAuthorizationReasons = listOf(
     "Outro",
 )
 
-// Compatibilidade com a assinatura atual do ViewModel. O backend ignora este valor
-// e determina o período real pela hora oficial configurada no servidor.
-private const val LegacyPeriodPlaceholder = "MANHA"
-
 @Composable
 fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     val state = viewModel.state
@@ -105,9 +101,9 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         .sortedBy { it.nome.lowercase() }
         .toList()
 
-    val liberacaoAtiva = state.authorizationCode != null
-    val expiraEmMillis = remember(state.authorizationCode, state.authorizationExpiresSeconds) {
-        if (state.authorizationCode != null && (state.authorizationExpiresSeconds ?: 0) > 0) {
+    val liberacaoAtiva = state.authorizationId != null
+    val expiraEmMillis = remember(state.authorizationId, state.authorizationExpiresSeconds) {
+        if (state.authorizationId != null && (state.authorizationExpiresSeconds ?: 0) > 0) {
             System.currentTimeMillis() + (state.authorizationExpiresSeconds ?: 0) * 1_000L
         } else {
             null
@@ -143,7 +139,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     onClick = {
                         confirmarLiberacao = false
                         selecionado?.let {
-                            viewModel.gerarAutorizacao(it, LegacyPeriodPlaceholder, motivoFinal)
+                            viewModel.autorizarPausa(it, motivoFinal)
                         }
                     },
                     loading = state.carregando,
@@ -177,7 +173,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     onClick = {
                         confirmarCancelamento = false
                         selecionado?.let {
-                            viewModel.cancelarAutorizacao(it, LegacyPeriodPlaceholder)
+                            viewModel.cancelarAutorizacao(it)
                         }
                     },
                     loading = state.carregando,
@@ -243,12 +239,13 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 item(key = "success") {
                     AuthorizationReleasedCard(
                         employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
+                        period = state.authorizationPeriod,
                         reason = motivoFinal,
                         expiresAt = expiraEmLocal,
                         loading = state.carregando,
                         onCancel = { confirmarCancelamento = true },
                         onAnother = {
-                            viewModel.limparAutorizacaoGerada()
+                            viewModel.limparAutorizacao()
                             selecionado = null
                             busca = ""
                             motivoRapido = null
@@ -788,6 +785,7 @@ private fun AuthorizationReviewCard(
 @Composable
 private fun AuthorizationReleasedCard(
     employeeName: String,
+    period: String?,
     reason: String,
     expiresAt: String?,
     loading: Boolean,
@@ -848,7 +846,10 @@ private fun AuthorizationReleasedCard(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text("Período: definido automaticamente", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Período: ${if (period == "MANHA") "manhã" else if (period == "TARDE") "tarde" else "definido pelo servidor"}",
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Text("Motivo: ${reason.ifBlank { "Exceção operacional" }}")
                     Text(
                         if (expiresAt != null) "Liberada até $expiresAt · uso único"

@@ -84,7 +84,6 @@ data class AvatarMutationResponse(
 
 data class CancelAuthorizationRequest(
     val colaboradorId: String,
-    val periodo: String,
 )
 
 data class CancelAuthorizationResponse(
@@ -165,10 +164,10 @@ class SupervisorRepository(
     suspend fun historico(data: String? = null) = api.historico(data).pausas
     suspend fun report(inicio: String, fim: String) = api.report(inicio, fim)
     suspend fun reportCsv(inicio: String, fim: String): ByteArray = api.reportCsv(inicio, fim).bytes()
-    suspend fun createAuthorization(colaboradorId: String, periodo: String, motivo: String) =
-        api.createAuthorization(CreateAuthorizationRequest(colaboradorId, periodo, motivo.trim()))
-    suspend fun cancelAuthorization(colaboradorId: String, periodo: String) =
-        api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId, periodo))
+    suspend fun createAuthorization(colaboradorId: String, motivo: String) =
+        api.createAuthorization(CreateAuthorizationRequest(colaboradorId, motivo.trim()))
+    suspend fun cancelAuthorization(colaboradorId: String) =
+        api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId))
     suspend fun collaborators() = api.collaborators().colaboradores
         .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 

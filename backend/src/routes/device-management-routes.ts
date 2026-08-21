@@ -12,6 +12,17 @@ deviceManagementRoutes.use('*', requireUser, requireRole('ADMIN'))
 const pinSchema = z.string().trim().regex(/^\d{4,12}$/, 'O PIN deve ter entre 4 e 12 números.')
 const nameSchema = z.string().trim().min(2).max(120)
 
+function telemetryCounter(value: unknown): number {
+  const parsed = Number(value ?? 0)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0
+}
+
+function hasRecentHealthAlert(details: Record<string, unknown> | null): boolean {
+  if (!details) return false
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  return telemetryCounter(details.lastCrashMillis) >= cutoff || telemetryCounter(details.lastStallMillis) >= cutoff
+}
+
 async function auditDevice(
   client: PoolClient,
   actorId: string,
@@ -33,22 +44,83 @@ deviceManagementRoutes.get('/devices', async (c) => {
     ativo: boolean
     criadoEm: string
     atualizadoEm: string
-    ultimoAcessoEm: string
+    ultimoAcessoEm: string | null
     pinConfigurado: boolean
+    telemetriaEm: string | null
+    telemetriaDetalhes: Record<string, unknown> | null
+    ultimaAtivacaoEm: string | null
+    ultimaRotacaoEm: string | null
+    aguardandoAtivacao: boolean
   }>(
     `select d.id,d.nome,d.ativo,
             d.criado_em::text as "criadoEm",
             d.atualizado_em::text as "atualizadoEm",
             greatest(
-              d.atualizado_em,
+              d.criado_em,
               coalesce((select max(p.inicio_em) from pausas_cafe p where p.dispositivo_inicio_id=d.id),d.criado_em),
-              coalesce((select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id),d.criado_em)
+              coalesce((select max(p.fim_em) from pausas_cafe p where p.dispositivo_fim_id=d.id),d.criado_em),
+              coalesce(h.criado_em,d.criado_em),
+              coalesce(activation.ultima_ativacao_em,d.criado_em)
             )::text as "ultimoAcessoEm",
-            (d.unlock_pin_hash is not null) as "pinConfigurado"
+            (d.unlock_pin_hash is not null) as "pinConfigurado",
+            h.criado_em::text as "telemetriaEm",
+            h.detalhes as "telemetriaDetalhes",
+            activation.ultima_ativacao_em::text as "ultimaAtivacaoEm",
+            rotation.ultima_rotacao_em::text as "ultimaRotacaoEm",
+            (
+              activation.ultima_ativacao_em is null or
+              rotation.ultima_rotacao_em>activation.ultima_ativacao_em
+            ) as "aguardandoAtivacao"
        from dispositivos d
+       left join lateral (
+         select a.criado_em,a.detalhes
+           from auditoria a
+          where a.acao='APP_HEALTH'
+            and a.entidade='DISPOSITIVO'
+            and a.entidade_id::text=d.id::text
+          order by a.criado_em desc
+          limit 1
+       ) h on true
+       left join lateral (
+         select max(a.criado_em) as ultima_ativacao_em
+           from auditoria a
+          where a.acao='ATIVAR_DISPOSITIVO'
+            and a.entidade='DISPOSITIVO'
+            and a.entidade_id::text=d.id::text
+       ) activation on true
+       left join lateral (
+         select max(a.criado_em) as ultima_rotacao_em
+           from auditoria a
+          where a.acao='ROTACIONAR_TOKEN_DISPOSITIVO'
+            and a.entidade='DISPOSITIVO'
+            and a.entidade_id::text=d.id::text
+       ) rotation on true
       order by d.ativo desc,d.nome`,
   )
-  return c.json({ dispositivos: result.rows })
+  return c.json({
+    dispositivos: result.rows.map((device) => {
+      const details = device.telemetriaDetalhes ?? {}
+
+      return {
+        id: device.id,
+        nome: device.nome,
+        ativo: device.ativo,
+        criadoEm: device.criadoEm,
+        atualizadoEm: device.atualizadoEm,
+        ultimoAcessoEm: device.ultimoAcessoEm,
+        pinConfigurado: device.pinConfigurado,
+        statusAtivacao: !device.ativo ? 'INATIVO' : device.aguardandoAtivacao ? 'AGUARDANDO_ATIVACAO' : 'ATIVADO',
+        ativadoEm: device.ultimaAtivacaoEm,
+        telemetriaEm: device.telemetriaEm,
+        appVersion: typeof details.appVersion === 'string' ? details.appVersion : null,
+        deviceModel: typeof details.deviceModel === 'string' ? details.deviceModel : null,
+        androidVersion: typeof details.androidVersion === 'string' ? details.androidVersion : null,
+        crashCount: telemetryCounter(details.crashCount),
+        stallCount: telemetryCounter(details.stallCount),
+        alertaSaude: hasRecentHealthAlert(device.telemetriaDetalhes),
+      }
+    }),
+  })
 })
 
 deviceManagementRoutes.put('/devices/:id/unlock-pin', async (c) => {
@@ -178,7 +250,7 @@ deviceManagementRoutes.post('/devices/:id/novo-token', async (c) => {
     nome: device.nome,
     token: activationToken,
     ativo: true,
-    aviso: 'O token anterior foi revogado. Use este código de 10 caracteres para ativar novamente o dispositivo.',
+    aviso: 'O token anterior foi revogado. Use este novo token de 10 caracteres para ativar novamente o dispositivo.',
   })
 })
 

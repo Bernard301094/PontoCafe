@@ -13,7 +13,7 @@ import {
   type PontoOperationIdentity,
 } from '../ponto-operation-idempotency.js'
 import { hashToken, newId } from '../security.js'
-import { parseJson, periodoSchema, uuidSchema } from './shared.js'
+import { parseJson, uuidSchema } from './shared.js'
 
 const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
   const token = c.req.header('X-Device-Token')?.trim()
@@ -219,8 +219,6 @@ idempotentPontoMutationRoutes.post('/pausas/iniciar', async (c) => {
     operacaoId: uuidSchema.optional(),
     colaboradorId: uuidSchema,
     verificacaoToken: z.string().min(20),
-    periodo: periodoSchema.optional(),
-    codigoAutorizacao: z.string().regex(/^\d{6}$/).optional(),
   }))
   if (!body.ok) return body.response
 
@@ -306,10 +304,6 @@ idempotentPontoMutationRoutes.post('/pausas/iniciar', async (c) => {
         )
       }
 
-      if (autorizacaoId) {
-        await client.query('update autorizacoes set usado_em=now() where id=$1', [autorizacaoId])
-      }
-
       const pauseId = newId()
       try {
         const inserted = await client.query<{ inicio_em: string }>(
@@ -328,6 +322,19 @@ idempotentPontoMutationRoutes.post('/pausas/iniciar', async (c) => {
             verification.rows[0].id,
           ],
         )
+        if (autorizacaoId) {
+          const consumed = await client.query(
+            `update autorizacoes
+                set usado_em=now()
+              where id=$1 and colaborador_id=$2
+                and usado_em is null and cancelada_em is null
+            returning id`,
+            [autorizacaoId, body.data.colaboradorId],
+          )
+          if (consumed.rowCount !== 1) {
+            throw new AppError('A liberação prévia expirou ou já foi utilizada.', 409, { periodo })
+          }
+        }
         const inicioEm = inserted.rows[0]!.inicio_em
         const horario = await client.query<{ inicio_local: string; retorno_local: string }>(
           `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,

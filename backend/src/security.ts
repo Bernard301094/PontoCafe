@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { config, biometricKey } from './config.js'
 import { generateDeviceActivationCode } from './device-activation-code.js'
 
@@ -6,10 +6,8 @@ export const newId = () => randomUUID()
 export const newToken = () => randomBytes(32).toString('base64url')
 export const newDeviceToken = generateDeviceActivationCode
 export const hashToken = (value: string) => createHash('sha256').update(value).digest('hex')
-export const hashAuthorizationCode = (code: string) => createHmac('sha256', config.codePepper).update(code).digest('hex')
 export const hashDeviceUnlockPin = (deviceId: string, pin: string) =>
   createHmac('sha256', config.codePepper).update(`device-unlock:${deviceId}:${pin}`).digest('hex')
-export const generateAuthorizationCode = () => randomInt(100000, 1000000).toString()
 
 export function secureHexEquals(a: string, b: string): boolean {
   if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b) || a.length !== b.length) return false

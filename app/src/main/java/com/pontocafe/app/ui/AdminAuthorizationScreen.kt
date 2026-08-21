@@ -1,15 +1,12 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -20,22 +17,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,8 +58,9 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
     var busca by rememberSaveable { mutableStateOf("") }
-    var periodo by rememberSaveable { mutableStateOf("MANHA") }
     var motivo by rememberSaveable { mutableStateOf("") }
+    var confirmarAutorizacao by remember { mutableStateOf(false) }
+    var confirmarCancelamento by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     val query = busca.trim()
@@ -83,8 +76,74 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
         .toList()
 
     val motivoValido = motivo.trim().length >= 2
-    val podeGerar = selecionado != null && motivoValido && !state.carregando
-    val showBottomAction = state.authorizationCode == null && selecionado != null
+    val podeAutorizar = selecionado != null && motivoValido && !state.carregando
+    val showBottomAction = state.authorizationId == null && selecionado != null
+
+    if (confirmarAutorizacao && selecionado != null) {
+        AlertDialog(
+            onDismissRequest = { if (!state.carregando) confirmarAutorizacao = false },
+            title = { Text("Confirmar autorização") },
+            text = {
+                PcDialogBody {
+                    Text(
+                        "Autorizar ${selecionado!!.nome}?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text("Motivo: ${motivo.trim()}")
+                    Text(
+                        "O período será definido pela hora oficial do servidor. A autorização expira automaticamente e só pode ser usada uma vez.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                PcPrimaryButton(
+                    text = "Autorizar",
+                    onClick = {
+                        confirmarAutorizacao = false
+                        selecionado?.let { viewModel.autorizarPausa(it, motivo) }
+                    },
+                    loading = state.carregando,
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmarAutorizacao = false },
+                    enabled = !state.carregando,
+                ) { Text("Voltar") }
+            },
+        )
+    }
+
+    if (confirmarCancelamento && selecionado != null) {
+        AlertDialog(
+            onDismissRequest = { if (!state.carregando) confirmarCancelamento = false },
+            title = { Text("Cancelar autorização?") },
+            text = {
+                Text(
+                    "${selecionado!!.nome} deixará de poder iniciar esta pausa fora do horário. Uma autorização já utilizada não pode ser cancelada.",
+                )
+            },
+            confirmButton = {
+                PcDangerButton(
+                    text = "Cancelar autorização",
+                    onClick = {
+                        confirmarCancelamento = false
+                        selecionado?.let(viewModel::cancelarAutorizacao)
+                    },
+                    loading = state.carregando,
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmarCancelamento = false },
+                    enabled = !state.carregando,
+                ) { Text("Manter autorização") }
+            },
+        )
+    }
 
     PontoCafeResponsivePage(maxContentWidth = 840.dp) { responsive ->
         Box(
@@ -116,8 +175,8 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
 
                 item(key = "context") {
                     PcHeroCard(
-                        title = "Exceção temporária",
-                        supportingText = "Gera um código de uso único. A autorização real permanece registrada na auditoria.",
+                        title = "Autorização direta e temporária",
+                        supportingText = "Depois de autorizar, o colaborador pode ir ao Ponto. O reconhecimento facial localizará a autorização automaticamente.",
                         icon = Icons.Default.AccessTime,
                         tone = PontoCafeTone.INFO,
                     )
@@ -127,13 +186,20 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                     AdminFeedback(viewModel)
                 }
 
-                state.authorizationCode?.let { codigo ->
-                    item(key = "generated-code") {
-                        GeneratedAuthorizationCard(
-                            code = codigo,
-                            employeeName = state.authorizationEmployeeName ?: "-",
-                            expiresSeconds = state.authorizationExpiresSeconds ?: 0,
-                            onGenerateAnother = viewModel::limparAutorizacaoGerada,
+                state.authorizationId?.let {
+                    item(key = "authorization-granted") {
+                        GrantedAuthorizationCard(
+                            employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
+                            period = state.authorizationPeriod,
+                            expiresSeconds = state.authorizationExpirySeconds ?: 0,
+                            loading = state.carregando,
+                            onCancel = { confirmarCancelamento = true },
+                            onAuthorizeAnother = {
+                                viewModel.limparAutorizacao()
+                                selecionado = null
+                                busca = ""
+                                motivo = ""
+                            },
                         )
                     }
                 } ?: run {
@@ -226,37 +292,9 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             )
                         }
 
-                        item(key = "period-step") {
-                            StepHeader(
-                                number = "2",
-                                title = "Período da pausa",
-                                subtitle = "Escolha em qual janela a exceção será válida.",
-                            )
-                        }
-
-                        item(key = "period") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                            ) {
-                                PeriodChip(
-                                    label = "Manhã",
-                                    selected = periodo == "MANHA",
-                                    onClick = { periodo = "MANHA" },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                PeriodChip(
-                                    label = "Tarde",
-                                    selected = periodo == "TARDE",
-                                    onClick = { periodo = "TARDE" },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-
                         item(key = "reason-step") {
                             StepHeader(
-                                number = "3",
+                                number = "2",
                                 title = "Motivo",
                                 subtitle = "Explique brevemente por que a pausa precisa ocorrer fora do horário.",
                             )
@@ -314,13 +352,11 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             )
                         }
                         PcPrimaryButton(
-                            text = "Gerar código de 6 dígitos",
-                            icon = Icons.Default.Key,
-                            onClick = {
-                                selecionado?.let { viewModel.gerarAutorizacao(it, periodo, motivo) }
-                            },
+                            text = "Autorizar pausa",
+                            icon = Icons.Default.CheckCircle,
+                            onClick = { confirmarAutorizacao = true },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = podeGerar,
+                            enabled = podeAutorizar,
                             loading = state.carregando,
                         )
                     }
@@ -490,40 +526,6 @@ private fun CollaboratorDetail(collaborator: Colaborador) {
 }
 
 @Composable
-private fun PeriodChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = {
-            Text(
-                label,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            )
-        },
-        leadingIcon = if (selected) {
-            {
-                Icon(
-                    Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(FilterChipDefaults.IconSize),
-                )
-            }
-        } else {
-            null
-        },
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-    )
-}
-
-@Composable
 private fun EmptyAuthorizationSearch(query: String) {
     PcEmptyState(
         title = "Nenhum colaborador encontrado",
@@ -537,72 +539,88 @@ private fun EmptyAuthorizationSearch(query: String) {
 }
 
 @Composable
-private fun GeneratedAuthorizationCard(
-    code: String,
+private fun GrantedAuthorizationCard(
     employeeName: String,
+    period: String?,
     expiresSeconds: Int,
-    onGenerateAnother: () -> Unit,
+    loading: Boolean,
+    onCancel: () -> Unit,
+    onAuthorizeAnother: () -> Unit,
 ) {
-    PcSectionSurface {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = LocalPontoCafeSemanticColors.current.successContainer,
+    ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            modifier = Modifier.padding(PontoCafeSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            StatusPill("Autorização criada", tone = PontoCafeTone.SUCCESS)
-            Text(
-                employeeName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                "Código de uso único",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            SelectionContainer {
-                Text(
-                    code,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center,
-                )
-            }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        Icons.Default.AccessTime,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp),
+                    tint = LocalPontoCafeSemanticColors.current.success,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Autorização concedida",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Expira em aproximadamente $expiresSeconds s",
-                        style = MaterialTheme.typography.labelMedium,
+                        "O colaborador já pode bater o ponto",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = LocalPontoCafeSemanticColors.current.success,
+                    )
+                }
+            }
+
+            Text(employeeName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f),
+            ) {
+                Column(
+                    modifier = Modifier.padding(PontoCafeSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    Text(
+                        "Período: ${if (period == "MANHA") "manhã" else if (period == "TARDE") "tarde" else "definido pelo servidor"}",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (expiresSeconds > 0) "Disponível por aproximadamente $expiresSeconds s · uso único"
+                        else "Uso único · expira automaticamente",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+
             Text(
-                "O código pode ser usado uma única vez. Gerar outro código para o mesmo período cancela o anterior.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                "O reconhecimento facial encontrará a autorização no Ponto. Ela será encerrada ao registrar a pausa, ao expirar ou ao ser cancelada.",
+                style = MaterialTheme.typography.bodyMedium,
             )
-            Spacer(Modifier.height(4.dp))
-            PcPrimaryButton(
-                text = "Gerar outra autorização",
-                onClick = onGenerateAnother,
+
+            PcSecondaryButton(
+                text = "Cancelar autorização",
+                onClick = onCancel,
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
+                contentColor = MaterialTheme.colorScheme.error,
+            )
+            PcPrimaryButton(
+                text = "Autorizar outra pessoa",
+                onClick = onAuthorizeAnother,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading,
             )
         }
     }

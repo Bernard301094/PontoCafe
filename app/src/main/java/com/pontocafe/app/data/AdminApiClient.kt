@@ -65,6 +65,15 @@ data class AdminDevice(
     val atualizadoEm: String,
     val ultimoAcessoEm: String? = null,
     val pinConfigurado: Boolean,
+    val statusAtivacao: String = "AGUARDANDO_ATIVACAO",
+    val ativadoEm: String? = null,
+    val telemetriaEm: String? = null,
+    val appVersion: String? = null,
+    val deviceModel: String? = null,
+    val androidVersion: String? = null,
+    val crashCount: Int = 0,
+    val stallCount: Int = 0,
+    val alertaSaude: Boolean = false,
 )
 
 data class AdminDevicesResponse(val dispositivos: List<AdminDevice>)
@@ -144,15 +153,18 @@ data class DeviceCreatedResponse(
 
 data class CreateAuthorizationRequest(
     val colaboradorId: String,
-    val periodo: String,
     val motivo: String,
 )
 
 data class AuthorizationCreatedResponse(
     val id: String,
-    val codigo: String,
+    val liberada: Boolean,
+    val colaboradorNome: String,
+    val periodo: String,
+    val periodoDefinidoAutomaticamente: Boolean = true,
     val expiraEm: String?,
     val expiraEmSegundos: Int,
+    val usoUnico: Boolean = true,
     val aviso: String,
 )
 
@@ -263,6 +275,9 @@ interface AdminApi {
     suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
 
     @POST("admin/autorizacoes") suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
+    @POST("admin/autorizacoes/cancelar") suspend fun cancelAuthorization(
+        @Body body: CancelAuthorizationRequest,
+    ): CancelAuthorizationResponse
 }
 
 class AdminRepository(
@@ -452,9 +467,12 @@ class AdminRepository(
         return result
     }
 
-    suspend fun createAuthorization(collaboratorId: String, period: String, reason: String) = api.createAuthorization(
-        CreateAuthorizationRequest(collaboratorId, period, reason.trim()),
+    suspend fun createAuthorization(collaboratorId: String, reason: String) = api.createAuthorization(
+        CreateAuthorizationRequest(collaboratorId, reason.trim()),
     )
+
+    suspend fun cancelAuthorization(collaboratorId: String) =
+        api.cancelAuthorization(CancelAuthorizationRequest(collaboratorId))
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() {

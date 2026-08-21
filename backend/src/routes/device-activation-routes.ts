@@ -239,7 +239,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
         token: responseToken,
         pinConfigurado: true,
         replayIdempotente: !registration.criado_agora,
-        aviso: 'Este código de ativação de 10 caracteres é exibido uma única vez.',
+        aviso: 'Este token de ativação de 10 caracteres é exibido uma única vez.',
         requestId: c.get('requestId'),
       }, registration.criado_agora ? 201 : 200)
     } catch (error) {
@@ -257,7 +257,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
 
       const diagnosticCode = tokenCollision ? 'DEVICE_TOKEN_COLLISION' : 'DEVICE_CREATE_FAILED'
       const diagnosticMessage = tokenCollision
-        ? 'Não foi possível gerar um código de ativação único.'
+        ? 'Não foi possível gerar um token de ativação único.'
         : `Não foi possível criar o dispositivo. Diagnóstico ${stage}/${descriptor.code}.`
 
       return c.json(
@@ -274,7 +274,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
   }
 
   return c.json(
-    errorPayload(c, 'Não foi possível gerar um código de ativação único.', 'DEVICE_TOKEN_COLLISION'),
+    errorPayload(c, 'Não foi possível gerar um token de ativação único.', 'DEVICE_TOKEN_COLLISION'),
     500,
   )
 })

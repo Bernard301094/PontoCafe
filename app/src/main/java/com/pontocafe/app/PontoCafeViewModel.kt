@@ -60,7 +60,6 @@ data class PontoCafeUiState(
     val recognitionStage: PontoRecognitionStage? = null,
     val scanCycle: Int = 0,
     val identificacao: IdentificarBiometriaResponse? = null,
-    val needsAuthorization: Boolean = false,
     val comprovante: ComprovantePonto? = null,
     val sincronizandoBiometrias: Boolean = false,
     val catalogoBiometricoCarregado: Boolean = false,
@@ -275,7 +274,6 @@ class PontoCafeViewModel(
             recognitionStage = null,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
-            needsAuthorization = false,
             comprovante = null,
             mensagem = null,
             erro = null,
@@ -297,7 +295,6 @@ class PontoCafeViewModel(
             recognitionStage = null,
             scanCycle = state.scanCycle + 1,
             identificacao = null,
-            needsAuthorization = false,
             comprovante = null,
             mensagem = null,
             erro = null,
@@ -865,9 +862,9 @@ class PontoCafeViewModel(
             )
         } else {
             state = state.copy(
-                needsAuthorization = true,
-                mensagem = "Fora do horário permitido. Informe o código temporário gerado pelo administrador.",
-                erro = null,
+                mensagem = null,
+                erro = identificacao.mensagem
+                    ?: "Fora do horário permitido. Solicite uma autorização prévia ao Supervisor.",
             )
         }
     }
@@ -879,45 +876,9 @@ class PontoCafeViewModel(
             scanning = true,
             recognitionStage = null,
             scanCycle = state.scanCycle + 1,
-            needsAuthorization = false,
             mensagem = "Tudo bem. Vamos tentar identificar novamente.",
             erro = null,
         )
-    }
-
-    fun confirmarAutorizacao(periodo: String, codigo: String) {
-        if (state.modoOffline) {
-            pendingOfflineEmbedding = null
-            state = state.copy(
-                erro = "A autorização fora do horário exige conexão com o servidor.",
-                needsAuthorization = false,
-            )
-            return
-        }
-        val identificacao = state.identificacao ?: return
-        val colaborador = identificacao.colaborador ?: return
-        val token = identificacao.verificacaoToken ?: return
-
-        if (codigo.length != 6 || codigo.any { !it.isDigit() }) {
-            state = state.copy(erro = "Informe o código de 6 dígitos.")
-            return
-        }
-        if (periodo != "MANHA" && periodo != "TARDE") {
-            state = state.copy(erro = "Selecione o período autorizado.")
-            return
-        }
-
-        iniciarPausa(
-            colaboradorId = colaborador.id,
-            nome = colaborador.nome,
-            verificacaoToken = token,
-            periodo = periodo,
-            codigoAutorizacao = codigo,
-        )
-    }
-
-    fun cancelarAutorizacao() {
-        rejeitarIdentidade()
     }
 
     fun limparMensagem() {
@@ -928,8 +889,6 @@ class PontoCafeViewModel(
         colaboradorId: String,
         nome: String,
         verificacaoToken: String,
-        periodo: String? = null,
-        codigoAutorizacao: String? = null,
     ) {
         viewModelScope.launch {
             state = state.copy(
@@ -942,8 +901,6 @@ class PontoCafeViewModel(
                     repository.iniciar(
                         colaboradorId = colaboradorId,
                         verificacaoToken = verificacaoToken,
-                        periodo = periodo,
-                        codigoAutorizacao = codigoAutorizacao,
                     )
                 }
             }.onSuccess { pausa ->
@@ -1000,7 +957,6 @@ class PontoCafeViewModel(
             carregando = false,
             scanning = false,
             recognitionStage = null,
-            needsAuthorization = false,
             identificacao = null,
             comprovante = comprovanteInicio(nome, pausa),
             modoOffline = false,
@@ -1067,7 +1023,6 @@ class PontoCafeViewModel(
                     state = state.copy(
                         carregando = false,
                         recognitionStage = null,
-                        needsAuthorization = false,
                         erro = "Sem conexão, uma pausa fora do horário não pode ser autorizada. Aguarde a conexão ou procure o Supervisor.",
                     )
                 } else {
@@ -1078,7 +1033,6 @@ class PontoCafeViewModel(
                         carregando = false,
                         scanning = false,
                         recognitionStage = null,
-                        needsAuthorization = false,
                         identificacao = null,
                         modoOffline = true,
                         eventosPendentes = pendingCount,

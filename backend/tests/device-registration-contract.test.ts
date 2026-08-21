@@ -12,6 +12,11 @@ const androidViewModel = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/AdminDeviceViewModel.kt', import.meta.url),
   'utf8',
 )
+const managementRoute = readFileSync(new URL('../src/routes/device-management-routes.ts', import.meta.url), 'utf8')
+const deviceScreen = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminDevicesScreenV2.kt', import.meta.url),
+  'utf8',
+)
 
 test('cadastro de dispositivo continua restrito a ADMIN', () => {
   assert.match(route, /requireUser, requireRole\('ADMIN'\)/)
@@ -91,4 +96,42 @@ test('Android reutiliza a mesma chave enquanto repete o mesmo cadastro após fal
   assert.match(androidViewModel, /repository\.createDevice\(cleanName, cleanPin, idempotencyKey\)/)
   assert.match(androidViewModel, /shouldDiscardPendingRegistration\(error\)/)
   assert.match(androidViewModel, /error\.code\(\) in setOf\(400, 409, 422\)/)
+})
+
+test('token aparece imediatamente, pode ser copiado e exige fechamento deliberado', () => {
+  assert.match(deviceScreen, /state\.tokenGerado\?\.let \{ token ->/)
+  assert.match(deviceScreen, /onDismissRequest = \{\}/)
+  assert.match(deviceScreen, /SelectionContainer/)
+  assert.match(deviceScreen, /FontFamily\.Monospace/)
+  assert.match(deviceScreen, /Visível somente agora/)
+  assert.match(deviceScreen, /não poderá ser consultado novamente/)
+  assert.match(deviceScreen, /clipboard\.setText\(AnnotatedString\(token\)\)/)
+  assert.match(deviceScreen, /Copiar token/)
+  assert.match(deviceScreen, /Já salvei · fechar/)
+})
+
+test('lista administrativa não recupera o token em texto puro depois do cadastro', () => {
+  const start = managementRoute.indexOf("deviceManagementRoutes.get('/devices'")
+  const end = managementRoute.indexOf("deviceManagementRoutes.put('/devices/:id/unlock-pin'", start)
+  assert.ok(start >= 0 && end > start)
+  const listRoute = managementRoute.slice(start, end)
+
+  assert.doesNotMatch(listRoute, /token_hash|token_ciphertext|activationToken|tokenGerado/)
+  assert.match(listRoute, /statusAtivacao/)
+  assert.match(listRoute, /telemetriaEm/)
+})
+
+test('cards mostram ativação, versão, atividade, saúde e estado operacional', () => {
+  assert.match(managementRoute, /APP_HEALTH/)
+  assert.match(managementRoute, /ATIVAR_DISPOSITIVO/)
+  assert.match(managementRoute, /ROTACIONAR_TOKEN_DISPOSITIVO/)
+  assert.match(managementRoute, /alertaSaude/)
+  assert.match(deviceScreen, /label = "Ativação"/)
+  assert.match(deviceScreen, /label = "Aplicativo"/)
+  assert.match(deviceScreen, /label = "Última atividade"/)
+  assert.match(deviceScreen, /label = "Saúde e segurança"/)
+  assert.match(deviceScreen, /Aguardando ativação/)
+  assert.match(deviceScreen, /Atualização disponível/)
+  assert.match(deviceScreen, /Sem telemetria recente/)
+  assert.match(deviceScreen, /containerColor = if \(device\.alertaSaude\)/)
 })

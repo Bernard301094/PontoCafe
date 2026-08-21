@@ -83,11 +83,16 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
     return c.json({ erro: 'Modelo facial inválido.' }, 400)
   }
 
+  // `tipo` foi acrescentado pela migração de múltiplas aparências, mas não é
+  // necessário para comparar embeddings. A leitura pelo JSON da linha devolve
+  // null quando a coluna ainda não existe, evitando derrubar todo o catálogo de
+  // instalações legadas com PostgreSQL 42703 e preservando o rótulo quando a
+  // migração já foi aplicada.
   const metadata = await query<{ versao: string }>(
     `select md5(coalesce(string_agg(
        col.id::text || ':' || coalesce(col.matricula,'') || ':' || col.nome || ':' ||
        coalesce(col.setor,'') || ':' || coalesce(col.turno,'') || ':' ||
-       t.id::text || ':' || coalesce(t.tipo,'LEGADO') || ':' || t.atualizado_em::text,
+       t.id::text || ':' || coalesce(to_jsonb(t)->>'tipo','LEGADO') || ':' || t.atualizado_em::text,
        '|' order by col.id,t.id
      ),'')) as versao
      from templates_faciais t
@@ -111,7 +116,7 @@ localBiometricRoutes.get('/biometria/catalogo', async (c) => {
   }
 
   const result = await query<CatalogTemplateRow>(
-    `select t.id,coalesce(t.tipo,'LEGADO') as tipo,t.colaborador_id,
+    `select t.id,coalesce(to_jsonb(t)->>'tipo','LEGADO') as tipo,t.colaborador_id,
             col.matricula,col.nome,col.setor,col.turno,
             t.template_cifrado,t.iv,t.auth_tag,t.dimensao,t.modelo,t.versao_modelo,
             t.atualizado_em::text
@@ -403,8 +408,7 @@ localBiometricRoutes.post('/biometria/confirmar-local', async (c) => {
   const foraHorarioSemPausaAberta = !aberta && !regra
   const autorizadoForaHorario = foraHorarioSemPausaAberta && Boolean(liberacao)
 
-  // Sem liberação prévia, o caso é terminal. Não existe mais tela para digitar
-  // código temporário no Ponto.
+  // Sem liberação prévia, o caso é terminal e nenhum registro é iniciado.
   if (foraHorarioSemPausaAberta && !autorizadoForaHorario) {
     return c.json({
       reconhecido: true,

@@ -210,7 +210,11 @@ class AdminDeviceViewModel(
             runCatching { repository.deactivateDevice(dispositivo.id) }
                 .onSuccess {
                     val local = state.dispositivos.map { item ->
-                        if (item.id == dispositivo.id) item.copy(ativo = false) else item
+                        if (item.id == dispositivo.id) {
+                            item.copy(ativo = false, statusAtivacao = "INATIVO")
+                        } else {
+                            item
+                        }
                     }
                     val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
@@ -259,7 +263,15 @@ class AdminDeviceViewModel(
             runCatching { repository.rotateDeviceToken(dispositivo.id) }
                 .onSuccess { rotated ->
                     val local = state.dispositivos.map { item ->
-                        if (item.id == dispositivo.id) item.copy(ativo = true) else item
+                        if (item.id == dispositivo.id) {
+                            item.copy(
+                                ativo = true,
+                                statusAtivacao = "AGUARDANDO_ATIVACAO",
+                                ativadoEm = null,
+                            )
+                        } else {
+                            item
+                        }
                     }
                     val (devices, refreshed) = atualizarListaOu(local)
                     state = state.copy(
@@ -269,7 +281,7 @@ class AdminDeviceViewModel(
                         tokenDeviceName = rotated.nome,
                         tokenRotacionado = true,
                         mensagem = mensagemComRefresh(
-                            "Token anterior revogado. Use o novo código para ativar novamente este aparelho.",
+                            "Token anterior revogado. Use o novo token para ativar novamente este aparelho.",
                             refreshed,
                         ),
                         erro = null,

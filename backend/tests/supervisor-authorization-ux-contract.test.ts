@@ -21,11 +21,11 @@ const routes = fs.readFileSync(
   'utf8',
 )
 
-test('Supervisor usa fluxo de liberação prévia sem código visível', () => {
+test('Supervisor usa liberação direta sem segredo visível ou digitável', () => {
   assert.match(ui, /Liberações fora do horário/)
-  assert.match(ui, /nenhum código é digitado no terminal/)
-  assert.doesNotMatch(ui, /Gerar código de 6 dígitos/)
-  assert.doesNotMatch(ui, /Código temporário/)
+  assert.match(ui, /Escolha apenas a pessoa e o motivo/)
+  assert.match(ui, /reconhecimento facial encontrará esta liberação automaticamente/)
+  assert.doesNotMatch(ui, /código|codigo|Gerar código de 6 dígitos|Código temporário/i)
 })
 
 test('seleção colapsa para configuração e CTA fica persistente', () => {
@@ -38,8 +38,7 @@ test('seleção colapsa para configuração e CTA fica persistente', () => {
 test('Supervisor não escolhe manualmente manhã ou tarde', () => {
   assert.match(ui, /Período automático/)
   assert.match(ui, /Você não precisa escolher Manhã ou Tarde/)
-  assert.doesNotMatch(ui, /selected = periodo == "MANHA"/)
-  assert.doesNotMatch(ui, /selected = periodo == "TARDE"/)
+  assert.doesNotMatch(ui, /selected = periodo == "MANHA"|selected = periodo == "TARDE"/)
   assert.match(routes, /async function inferirPeriodoAtual/)
   assert.match(routes, /periodoDefinidoAutomaticamente: true/)
   assert.match(routes, /now\(\) at time zone \$1/)
@@ -52,6 +51,7 @@ test('UX exige confirmação, oferece motivos rápidos e mostra vencimento', () 
   assert.match(ui, /Atraso na produção/)
   assert.match(ui, /Orientação do Supervisor/)
   assert.match(ui, /Liberada até/)
+  assert.match(ui, /uso único/i)
 })
 
 test('cancelamento é ação real de servidor e auditada', () => {
@@ -63,7 +63,10 @@ test('cancelamento é ação real de servidor e auditada', () => {
   assert.match(routes, /cancelada_em=now\(\)/)
 })
 
-test('segredo legado não é guardado como código visível no estado do Supervisor', () => {
-  assert.match(viewModel, /authorizationCode = authorization\.id/)
-  assert.match(routes, /Campo legado mantido para compatibilidade/)
+test('estado guarda apenas o identificador opaco da liberação', () => {
+  assert.match(viewModel, /val authorizationId: String\? = null/)
+  assert.match(viewModel, /authorizationId = authorization\.id/)
+  assert.match(viewModel, /repository\.createAuthorization\(colaborador\.id, motivo\)/)
+  assert.doesNotMatch(viewModel, /authorizationCode|codigoAutorizacao/)
+  assert.doesNotMatch(apiClient, /authorizationCode|codigoAutorizacao/)
 })
