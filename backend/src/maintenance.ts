@@ -24,7 +24,7 @@ export async function cleanupExpiredPontoOperations() {
 export async function cleanupExpiredDeviceHealthTelemetry() {
   const deleted = await query(
     `delete from auditoria
-      where acao='APP_HEALTH'
+      where acao in ('APP_HEALTH','DEVICE_HEARTBEAT')
         and entidade='DISPOSITIVO'
         and criado_em < now() - ($1::text || ' days')::interval`,
     [config.deviceHealthRetentionDays],
