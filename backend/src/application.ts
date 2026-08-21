@@ -39,7 +39,16 @@ app.use('*', requestIdMiddleware())
 app.use('*', secureHeaders())
 app.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-App-Version', 'X-Request-Id', 'Idempotency-Key'],
+  allowHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Device-Token',
+    'X-App-Version',
+    'X-Device-Model',
+    'X-Android-Version',
+    'X-Request-Id',
+    'Idempotency-Key',
+  ],
   exposeHeaders: ['set-auth-token', 'X-Request-Id', 'Server-Timing'],
   allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
 }))
