@@ -6,7 +6,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -15,21 +19,43 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
-/** Visual face guide kept separate so voice guidance does not alter camera geometry. */
+private const val FACE_GUIDE_READY_STABILITY_MILLIS = 350L
+
+/**
+ * Visual positioning guide. Neutral means no usable face yet, red means the
+ * current face is outside the accepted capture geometry, and green means the
+ * face has remained correctly positioned long enough to avoid frame-to-frame
+ * color flicker.
+ */
 @Composable
 internal fun KioskFaceGuide(
     active: Boolean,
+    faceDetected: Boolean,
     warning: Boolean,
-    ready: Boolean,
+    positioned: Boolean,
+    recognitionReady: Boolean,
     guideWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
+    var stablePositioned by remember { mutableStateOf(false) }
+
+    LaunchedEffect(active, faceDetected, warning, positioned) {
+        if (!active || !faceDetected || warning || !positioned) {
+            stablePositioned = false
+        } else {
+            delay(FACE_GUIDE_READY_STABILITY_MILLIS)
+            stablePositioned = true
+        }
+    }
+
     val targetColor = when {
-        warning -> Color(0xFFFFB4AB)
-        ready -> Color(0xFF72DCBC)
-        active -> Color.White.copy(alpha = 0.90f)
-        else -> Color.White.copy(alpha = 0.32f)
+        !active -> Color.White.copy(alpha = 0.32f)
+        warning -> Color(0xFFFF5C5C)
+        !faceDetected -> Color.White.copy(alpha = 0.78f)
+        !stablePositioned -> Color(0xFFFF5C5C)
+        else -> Color(0xFF49E39A)
     }
     val guideColor by animateColorAsState(
         targetValue = targetColor,
@@ -46,15 +72,18 @@ internal fun KioskFaceGuide(
             .aspectRatio(0.80f)
             .semantics {
                 contentDescription = when {
-                    warning -> "Guia facial: mais de uma pessoa detectada"
-                    ready -> "Guia facial: rosto pronto para reconhecimento"
-                    active -> "Guia facial ativo"
-                    else -> "Guia facial indisponível"
+                    !active -> "Guia facial indisponível"
+                    warning -> "Guia facial vermelho: mais de uma pessoa detectada"
+                    !faceDetected -> "Guia facial aguardando um rosto"
+                    !stablePositioned -> "Guia facial vermelho: ajuste o rosto dentro da área"
+                    recognitionReady -> "Guia facial verde: rosto pronto para reconhecimento"
+                    else -> "Guia facial verde: posição correta"
                 }
             },
     ) {
-        val stroke = (if (ready || warning) 4.2.dp else 3.4.dp).toPx()
-        val cornerLength = size.minDimension * if (ready) 0.24f else 0.20f
+        val emphasized = stablePositioned || recognitionReady || warning
+        val stroke = (if (emphasized) 4.2.dp else 3.4.dp).toPx()
+        val cornerLength = size.minDimension * if (stablePositioned) 0.24f else 0.20f
         val inset = stroke
         val left = inset
         val top = inset
