@@ -6,7 +6,6 @@ import { query } from '../db.js'
 import { hashDeviceUnlockPin, hashToken, secureHexEquals } from '../security.js'
 import { parseJson } from './shared.js'
 
-const LEGACY_DEFAULT_PIN_SHA256 = '51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f'
 const MAX_FAILURES = 5
 const LOCK_SECONDS = 60
 
@@ -60,9 +59,17 @@ deviceUnlockRoutes.post('/device/unlock', async (c) => {
     }, 429)
   }
 
-  const valid = security.unlock_pin_hash
-    ? secureHexEquals(hashDeviceUnlockPin(device.id, body.data.pin), security.unlock_pin_hash)
-    : secureHexEquals(hashToken(body.data.pin), LEGACY_DEFAULT_PIN_SHA256)
+  if (!security.unlock_pin_hash) {
+    return c.json({
+      erro: 'Este dispositivo não possui PIN configurado. Entre com uma conta de Administrador ou Supervisor.',
+      codigo: 'DEVICE_PIN_NOT_CONFIGURED',
+    }, 409)
+  }
+
+  const valid = secureHexEquals(
+    hashDeviceUnlockPin(device.id, body.data.pin),
+    security.unlock_pin_hash,
+  )
 
   if (!valid) {
     const nextFailures = security.unlock_fail_count + 1
