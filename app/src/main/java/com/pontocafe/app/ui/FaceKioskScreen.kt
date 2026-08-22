@@ -83,6 +83,9 @@ import com.pontocafe.app.camera.LivenessState
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
+import com.pontocafe.app.voice.PontoVoiceKioskCue
+import com.pontocafe.app.voice.PontoVoicePromptPolicy
+import com.pontocafe.app.voice.PontoVoiceRuntime
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -432,6 +435,36 @@ fun FaceKioskScreen(
             challengeAdjustedForEyes -> "Siga o movimento de cabeça indicado."
             state.modoOffline -> "O registro ficará protegido neste aparelho até a conexão voltar."
             else -> "Siga a instrução acima. O registro acontece automaticamente."
+        }
+
+        val faceRecognitionError = state.erro?.startsWith(
+            "ROSTO NÃO RECONHECIDO",
+            ignoreCase = true,
+        ) == true
+        val voiceCue = when {
+            !permissionGranted -> PontoVoiceKioskCue.CAMERA_PERMISSION_REQUIRED
+            restrictedAreaRequest != null -> null
+            cameraError != null -> PontoVoiceKioskCue.CAMERA_UNAVAILABLE
+            !viewModel.faceModelReady -> PontoVoiceKioskCue.MODEL_UNAVAILABLE
+            faceRecognitionError -> PontoVoiceKioskCue.FACE_NOT_RECOGNIZED
+            state.comprovante != null || state.identificacao != null -> null
+            !state.catalogoBiometricoPronto || state.carregando || captureRequested ||
+                state.recognitionStage != null -> null
+            multipleFacesVisible -> PontoVoiceKioskCue.MULTIPLE_FACES
+            noFaceVisible -> PontoVoiceKioskCue.NO_FACE
+            challengeCompleted -> PontoVoiceKioskCue.CENTER_FACE
+            challenge == KioskLivenessChallenge.BLINK &&
+                livenessState == LivenessState.ABRA_OS_OLHOS -> PontoVoiceKioskCue.OPEN_EYES
+            livenessState == LivenessState.POSICIONE_ROSTO -> PontoVoiceKioskCue.LOOK_AT_CAMERA
+            challenge == KioskLivenessChallenge.BLINK -> PontoVoiceKioskCue.BLINK
+            challenge == KioskLivenessChallenge.TURN_LEFT -> PontoVoiceKioskCue.TURN_LEFT
+            else -> PontoVoiceKioskCue.TURN_RIGHT
+        }
+
+        LaunchedEffect(state.scanCycle, voiceCue) {
+            voiceCue?.let { cue ->
+                PontoVoiceRuntime.speak(context, PontoVoicePromptPolicy.kiosk(cue))
+            }
         }
 
         if (permissionGranted) {
@@ -896,108 +929,5 @@ private fun KioskInstructionSheet(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun KioskFaceGuide(
-    active: Boolean,
-    warning: Boolean,
-    ready: Boolean,
-    guideWidth: Dp,
-    modifier: Modifier = Modifier,
-) {
-    val targetColor = when {
-        warning -> Color(0xFFFFB4AB)
-        ready -> Color(0xFF72DCBC)
-        active -> Color.White.copy(alpha = 0.90f)
-        else -> Color.White.copy(alpha = 0.32f)
-    }
-    val guideColor by animateColorAsState(
-        targetValue = targetColor,
-        animationSpec = tween(
-            PontoCafeMotion.Standard,
-            easing = PontoCafeMotion.EmphasizedEasing,
-        ),
-        label = "kiosk-guide-color",
-    )
-
-    Canvas(
-        modifier = modifier
-            .width(guideWidth)
-            .aspectRatio(0.80f)
-            .semantics {
-                contentDescription = when {
-                    warning -> "Guia facial: mais de uma pessoa detectada"
-                    ready -> "Guia facial: rosto pronto para reconhecimento"
-                    active -> "Guia facial ativo"
-                    else -> "Guia facial indisponível"
-                }
-            },
-    ) {
-        val stroke = (if (ready || warning) 4.2.dp else 3.4.dp).toPx()
-        val cornerLength = size.minDimension * if (ready) 0.24f else 0.20f
-        val inset = stroke
-        val left = inset
-        val top = inset
-        val right = size.width - inset
-        val bottom = size.height - inset
-
-        drawLine(
-            guideColor,
-            Offset(left, top + cornerLength),
-            Offset(left, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, top),
-            Offset(left + cornerLength, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right - cornerLength, top),
-            Offset(right, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right, top),
-            Offset(right, top + cornerLength),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, bottom - cornerLength),
-            Offset(left, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, bottom),
-            Offset(left + cornerLength, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right - cornerLength, bottom),
-            Offset(right, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right, bottom),
-            Offset(right, bottom - cornerLength),
-            stroke,
-            cap = StrokeCap.Round,
-        )
     }
 }
