@@ -39,6 +39,8 @@ import com.pontocafe.app.ui.PontoFlowHost
 import com.pontocafe.app.ui.RestrictedAreaLockScreen
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorAreaShell
+import com.pontocafe.app.voice.PontoVoiceGuidanceEffect
+import com.pontocafe.app.voice.PontoVoiceRuntime
 
 private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
 
@@ -342,6 +344,7 @@ class MainActivity : FragmentActivity() {
                                         onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
                                     )
                                 } else {
+                                    PontoVoiceGuidanceEffect(viewModel = vm)
                                     PontoFlowHost(
                                         viewModel = vm,
                                         hasAdminSession = adminSessionDisponivel,
@@ -360,6 +363,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        PontoVoiceRuntime.shutdown()
         if (::appHealthMonitor.isInitialized) appHealthMonitor.stop()
         super.onDestroy()
     }
