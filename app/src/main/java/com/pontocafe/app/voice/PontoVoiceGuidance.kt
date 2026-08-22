@@ -194,47 +194,49 @@ private class PontoTextToSpeech(context: Context) {
     private var lastSpokenAtMillis: Long = 0L
 
     init {
-        engine = TextToSpeech(context.applicationContext) { status ->
-            if (status != TextToSpeech.SUCCESS) {
+        engine = TextToSpeech(context.applicationContext) { status -> onInitialized(status) }
+    }
+
+    private fun onInitialized(status: Int) {
+        if (status != TextToSpeech.SUCCESS) {
+            synchronized(this) {
+                ready = false
+                pending = null
+            }
+            return
+        }
+
+        val current = engine ?: return
+        val localeResult = runCatching {
+            current.setLanguage(Locale.forLanguageTag("pt-BR"))
+        }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+        if (localeResult == TextToSpeech.LANG_MISSING_DATA || localeResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+            val fallback = runCatching { current.setLanguage(Locale.getDefault()) }
+                .getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+            if (fallback == TextToSpeech.LANG_MISSING_DATA || fallback == TextToSpeech.LANG_NOT_SUPPORTED) {
                 synchronized(this) {
                     ready = false
                     pending = null
                 }
-                return@TextToSpeech
+                return
             }
-
-            val current = engine ?: return@TextToSpeech
-            val localeResult = runCatching {
-                current.setLanguage(Locale.forLanguageTag("pt-BR"))
-            }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
-            if (localeResult == TextToSpeech.LANG_MISSING_DATA || localeResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                val fallback = runCatching { current.setLanguage(Locale.getDefault()) }
-                    .getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
-                if (fallback == TextToSpeech.LANG_MISSING_DATA || fallback == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    synchronized(this) {
-                        ready = false
-                        pending = null
-                    }
-                    return@TextToSpeech
-                }
-            }
-
-            runCatching {
-                current.setSpeechRate(0.96f)
-                current.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build(),
-                )
-            }
-
-            val queued = synchronized(this) {
-                ready = true
-                pending.also { pending = null }
-            }
-            queued?.let(::speak)
         }
+
+        runCatching {
+            current.setSpeechRate(0.96f)
+            current.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+        }
+
+        val queued = synchronized(this) {
+            ready = true
+            pending.also { pending = null }
+        }
+        queued?.let(::speak)
     }
 
     @Synchronized
