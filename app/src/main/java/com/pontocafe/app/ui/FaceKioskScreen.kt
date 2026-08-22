@@ -162,6 +162,12 @@ fun FaceKioskScreen(
                 unlockError = null
             },
             onDismiss = { if (!unlockLoading) fecharSolicitacaoAcesso() },
+            onLogin = {
+                if (!unlockLoading) {
+                    fecharSolicitacaoAcesso()
+                    onLoginModeClick()
+                }
+            },
             onConfirm = {
                 val destination = target
                 unlockLoading = true
@@ -465,6 +471,7 @@ private fun RestrictedAccessDialog(
     error: String?,
     onPinChange: (String) -> Unit,
     onDismiss: () -> Unit,
+    onLogin: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -505,7 +512,7 @@ private fun RestrictedAccessDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Se este aparelho não tiver PIN configurado, você será direcionado ao login protegido.",
+                    "Se este aparelho não tiver PIN configurado, use Entrar com conta para autenticar um Administrador ou Supervisor.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -539,11 +546,22 @@ private fun RestrictedAccessDialog(
             )
         },
         dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !loading,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                Text("Cancelar")
+                TextButton(
+                    onClick = onDismiss,
+                    enabled = !loading,
+                ) {
+                    Text("Cancelar")
+                }
+                TextButton(
+                    onClick = onLogin,
+                    enabled = !loading,
+                ) {
+                    Text("Entrar com conta")
+                }
             }
         },
     )
