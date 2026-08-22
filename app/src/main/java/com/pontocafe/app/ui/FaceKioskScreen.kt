@@ -177,9 +177,14 @@ fun FaceKioskScreen(
                             }
                         }
                         .onFailure { error ->
-                            unlockLoading = false
-                            exitPin = ""
-                            unlockError = PontoCafeRepository.mensagemErro(error)
+                            if (PontoCafeRepository.isDevicePinNotConfigured(error)) {
+                                fecharSolicitacaoAcesso()
+                                onLoginModeClick()
+                            } else {
+                                unlockLoading = false
+                                exitPin = ""
+                                unlockError = PontoCafeRepository.mensagemErro(error)
+                            }
                         }
                 }
             },
@@ -497,6 +502,11 @@ private fun RestrictedAccessDialog(
             PcDialogBody {
                 Text(
                     instruction,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Se este aparelho não tiver PIN configurado, você será direcionado ao login protegido.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
