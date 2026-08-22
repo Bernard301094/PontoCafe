@@ -35,7 +35,7 @@ type DeviceRegistrationRow = {
 deviceActivationRoutes.post('/device-activation', async (c) => {
   const body = await parseJson(c, z.object({
     nome: z.string().trim().min(2).max(120),
-    pin: z.string().trim().regex(/^\d{4,12}$/),
+    pin: z.string().trim().regex(/^\d{4,12}$/).optional(),
   }))
   if (!body.ok) return body.response
 
@@ -60,10 +60,11 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
   const idempotencyKey = incomingIdempotencyKey
   const actor = c.get('user')
   const deviceName = normalizeDeviceRegistrationName(body.data.nome)
+  const unlockPin = body.data.pin?.trim() || null
   const fingerprint = deviceRegistrationFingerprint(
     actor.id,
     deviceName,
-    body.data.pin,
+    unlockPin,
     config.codePepper,
   )
 
@@ -71,7 +72,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
     const deviceId = newId()
     const requestNonce = newId()
     const token = newDeviceToken(10)
-    const unlockPinHash = hashDeviceUnlockPin(deviceId, body.data.pin)
+    const unlockPinHash = unlockPin ? hashDeviceUnlockPin(deviceId, unlockPin) : null
     let stage = 'DEVICE_CRYPTO'
 
     try {
@@ -128,8 +129,8 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
              $5::uuid,
              $10,
              $11,
-             $12,
-             now()
+             $12::text,
+             case when $12::text is null then null else now() end
            from idempotencia
            where request_nonce=$4::uuid
            returning id,nome
@@ -184,7 +185,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
           unlockPinHash,
           JSON.stringify({
             nome: deviceName,
-            pinConfigurado: true,
+            pinConfigurado: unlockPinHash !== null,
             idempotencia: true,
           }),
         ],
@@ -237,7 +238,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
         id: registration.dispositivo_id,
         nome: registration.nome_criado || deviceName,
         token: responseToken,
-        pinConfigurado: true,
+        pinConfigurado: unlockPinHash !== null,
         replayIdempotente: !registration.criado_agora,
         aviso: 'Este token de ativação de 10 caracteres é exibido uma única vez.',
         requestId: c.get('requestId'),
