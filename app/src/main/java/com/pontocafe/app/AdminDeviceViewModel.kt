@@ -12,8 +12,10 @@ import com.pontocafe.app.data.AppStatusResponse
 import com.pontocafe.app.data.SystemHealthResponse
 import java.security.MessageDigest
 import java.util.UUID
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -40,6 +42,7 @@ class AdminDeviceViewModel(
 
     private var pendingRegistrationKey: String? = null
     private var pendingRegistrationFingerprint: String? = null
+    private var pendingDeviceRefreshJob: Job? = null
 
     fun carregar() {
         viewModelScope.launch {
@@ -60,6 +63,7 @@ class AdminDeviceViewModel(
                         appStatus = appStatus,
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { error ->
                     state = state.copy(carregando = false, erro = AdminRepository.message(error))
@@ -99,6 +103,31 @@ class AdminDeviceViewModel(
 
     private fun shouldDiscardPendingRegistration(error: Throwable): Boolean =
         error is HttpException && error.code() in setOf(400, 409, 422)
+
+    private fun hasPendingActivation(): Boolean =
+        state.dispositivos.any { it.ativo && it.statusAtivacao != "ATIVADO" }
+
+    private fun ensurePendingDeviceRefresh() {
+        if (!hasPendingActivation()) {
+            pendingDeviceRefreshJob?.cancel()
+            pendingDeviceRefreshJob = null
+            return
+        }
+        if (pendingDeviceRefreshJob?.isActive == true) return
+
+        pendingDeviceRefreshJob = viewModelScope.launch {
+            try {
+                while (hasPendingActivation()) {
+                    delay(12_000L)
+                    if (state.carregando) continue
+                    val refreshed = runCatching { repository.devices() }.getOrNull() ?: continue
+                    state = state.copy(dispositivos = refreshed)
+                }
+            } finally {
+                pendingDeviceRefreshJob = null
+            }
+        }
+    }
 
     fun criarDispositivo(nome: String, pin: String?) {
         val cleanName = nome.trim()
@@ -140,6 +169,7 @@ class AdminDeviceViewModel(
                         mensagem = mensagemComRefresh(baseMessage, refreshed),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { error ->
                     if (shouldDiscardPendingRegistration(error)) clearPendingRegistration()
@@ -178,6 +208,7 @@ class AdminDeviceViewModel(
                         ),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { error ->
                     state = state.copy(
@@ -209,6 +240,7 @@ class AdminDeviceViewModel(
                         mensagem = mensagemComRefresh("Dispositivo renomeado para $cleanName.", refreshed),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
@@ -236,6 +268,7 @@ class AdminDeviceViewModel(
                         ),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
@@ -257,6 +290,7 @@ class AdminDeviceViewModel(
                         ),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure {
                     state = state.copy(
@@ -303,6 +337,7 @@ class AdminDeviceViewModel(
                         ),
                         erro = null,
                     )
+                    ensurePendingDeviceRefresh()
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
