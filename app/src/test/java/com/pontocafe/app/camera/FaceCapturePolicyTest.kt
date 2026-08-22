@@ -21,10 +21,35 @@ class FaceCapturePolicyTest {
             FaceCaptureRejectionReason.EXTREME_POSE,
             FaceCapturePolicy.evaluate(readyFacts().copy(yaw = 13f), FaceCapturePurpose.IDENTIFICATION),
         )
+    }
+
+    @Test
+    fun `acessorios nao bloqueiam rosto geometricamente valido por sinais auxiliares`() {
+        val accessoryFacts = readyFacts().copy(
+            reliableLandmarks = false,
+            eyesAcceptable = false,
+        )
+
+        assertNull(FaceCapturePolicy.evaluate(accessoryFacts, FaceCapturePurpose.IDENTIFICATION))
+        assertNull(FaceCapturePolicy.evaluate(accessoryFacts, FaceCapturePurpose.ENROLLMENT))
         assertEquals(
             FaceCaptureRejectionReason.LANDMARKS_MISSING,
             FaceCapturePolicy.evaluate(
                 readyFacts().copy(reliableLandmarks = false),
+                FaceCapturePurpose.DIAGNOSTIC,
+            ),
+        )
+        assertEquals(
+            FaceCaptureRejectionReason.EYES_NOT_VISIBLE,
+            FaceCapturePolicy.evaluate(
+                readyFacts().copy(eyesAcceptable = false),
+                FaceCapturePurpose.DIAGNOSTIC,
+            ),
+        )
+        assertEquals(
+            FaceCaptureRejectionReason.EXTREME_POSE,
+            FaceCapturePolicy.evaluate(
+                accessoryFacts.copy(yaw = 13f),
                 FaceCapturePurpose.IDENTIFICATION,
             ),
         )

@@ -69,8 +69,16 @@ object FaceCapturePolicy {
                 kotlin.math.abs(facts.pitch) > MAX_IDENTIFICATION_PITCH ||
                 kotlin.math.abs(facts.roll) > MAX_IDENTIFICATION_ROLL) ->
             FaceCaptureRejectionReason.EXTREME_POSE
-        !facts.reliableLandmarks -> FaceCaptureRejectionReason.LANDMARKS_MISSING
-        purpose != FaceCapturePurpose.ENROLLMENT && !facts.eyesAcceptable ->
+        // Landmarks and eye probabilities are auxiliary ML Kit signals, not
+        // identity evidence. Glasses/reflections can make them intermittently
+        // unavailable even when the face box and pose are valid. Enrollment and
+        // identification therefore keep the geometric gates and let FaceNet,
+        // liveness, temporal consensus and the authoritative matcher decide the
+        // identity. Diagnostic capture remains strict so signal regressions stay
+        // observable without blocking legitimate users.
+        purpose == FaceCapturePurpose.DIAGNOSTIC && !facts.reliableLandmarks ->
+            FaceCaptureRejectionReason.LANDMARKS_MISSING
+        purpose == FaceCapturePurpose.DIAGNOSTIC && !facts.eyesAcceptable ->
             FaceCaptureRejectionReason.EYES_NOT_VISIBLE
         else -> null
     }
