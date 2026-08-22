@@ -2,6 +2,7 @@ package com.pontocafe.app.voice
 
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.TipoComprovantePonto
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,6 +31,55 @@ class PontoVoicePromptPolicyTest {
     }
 
     @Test
+    fun `estados transitórios esperam antes de falar e possuem cooldown longo`() {
+        val noFace = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.NO_FACE)
+        val look = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.LOOK_AT_CAMERA)
+        val multiple = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.MULTIPLE_FACES)
+
+        assertEquals(PontoVoicePriority.LOW, noFace.priority)
+        assertTrue(noFace.stabilityDelayMillis >= 5_000L)
+        assertTrue(noFace.cooldownMillis >= 30_000L)
+        assertTrue(look.stabilityDelayMillis >= 1_500L)
+        assertTrue(look.cooldownMillis >= 15_000L)
+        assertTrue(multiple.stabilityDelayMillis >= 1_000L)
+    }
+
+    @Test
+    fun `liveness limita narracao a tres instrucoes por ciclo`() {
+        val gate = PontoVoiceGate()
+        val session = "scan:1"
+        val cues = listOf(
+            PontoVoiceKioskCue.BLINK,
+            PontoVoiceKioskCue.OPEN_EYES,
+            PontoVoiceKioskCue.TURN_LEFT,
+            PontoVoiceKioskCue.CENTER_FACE,
+        )
+
+        cues.take(3).forEachIndexed { index, cue ->
+            val prompt = PontoVoicePromptPolicy.kiosk(cue)
+            val now = 1_000L + index
+            assertTrue(gate.canSpeak(prompt, now, session))
+            gate.markSpoken(prompt, now, session)
+        }
+
+        val fourth = PontoVoicePromptPolicy.kiosk(cues.last())
+        assertFalse(gate.canSpeak(fourth, 2_000L, session))
+        assertTrue(gate.canSpeak(fourth, 2_001L, "scan:2"))
+    }
+
+    @Test
+    fun `cooldown impede repetir a mesma fala no mesmo ciclo`() {
+        val gate = PontoVoiceGate()
+        val prompt = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.BLINK)
+        val session = "scan:9"
+
+        assertTrue(gate.canSpeak(prompt, 10_000L, session))
+        gate.markSpoken(prompt, 10_000L, session)
+        assertFalse(gate.canSpeak(prompt, 10_500L, session))
+        assertTrue(gate.canSpeak(prompt, 10_500L, "scan:10"))
+    }
+
+    @Test
     fun `inicio da pausa fala prazo de retorno e estado offline`() {
         val online = receipt(
             tipo = TipoComprovantePonto.INICIO,
@@ -37,13 +87,14 @@ class PontoVoicePromptPolicyTest {
         )
         val offline = online.copy(pendenteSincronizacao = true)
 
-        val onlinePrompt = PontoVoicePromptPolicy.receipt(online).text
-        val offlinePrompt = PontoVoicePromptPolicy.receipt(offline).text
+        val onlinePrompt = PontoVoicePromptPolicy.receipt(online)
+        val offlinePrompt = PontoVoicePromptPolicy.receipt(offline)
 
-        assertTrue(onlinePrompt.contains("Retorne até 08:47"))
-        assertFalse(onlinePrompt.contains("sincronizado", ignoreCase = true))
-        assertTrue(offlinePrompt.contains("salvo neste aparelho", ignoreCase = true))
-        assertTrue(offlinePrompt.contains("sincronizado", ignoreCase = true))
+        assertEquals(PontoVoicePriority.RESULT, onlinePrompt.priority)
+        assertTrue(onlinePrompt.text.contains("Retorne até 08:47"))
+        assertFalse(onlinePrompt.text.contains("sincronizado", ignoreCase = true))
+        assertTrue(offlinePrompt.text.contains("salvo neste aparelho", ignoreCase = true))
+        assertTrue(offlinePrompt.text.contains("sincronizado", ignoreCase = true))
     }
 
     @Test
@@ -55,6 +106,10 @@ class PontoVoicePromptPolicyTest {
 
         assertTrue(
             PontoVoicePromptPolicy.receipt(exceeded).text.contains("limite da pausa foi excedido", ignoreCase = true),
+        )
+        assertEquals(
+            PontoVoicePriority.CRITICAL,
+            PontoVoicePromptPolicy.blocked("PAUSAS_DO_DIA_JA_UTILIZADAS").priority,
         )
         assertTrue(
             PontoVoicePromptPolicy.blocked("PAUSAS_DO_DIA_JA_UTILIZADAS").text
