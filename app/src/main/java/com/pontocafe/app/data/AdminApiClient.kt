@@ -77,7 +77,58 @@ data class AdminDevice(
     val alertaSaude: Boolean = false,
 )
 
-data class AdminDevicesResponse(val dispositivos: List<AdminDevice>)
+/**
+ * Wire DTO kept nullable for fields introduced after the first production API.
+ * Gson can bypass Kotlin constructor defaults when a field is absent, so the
+ * API object is normalized before it is allowed into UI state.
+ */
+data class AdminDeviceWire(
+    val id: String,
+    val nome: String,
+    val ativo: Boolean,
+    val criadoEm: String,
+    val atualizadoEm: String,
+    val ultimoAcessoEm: String? = null,
+    val pinConfigurado: Boolean = false,
+    val statusAtivacao: String? = null,
+    val ativadoEm: String? = null,
+    val telemetriaEm: String? = null,
+    val appVersion: String? = null,
+    val deviceModel: String? = null,
+    val androidVersion: String? = null,
+    val crashCount: Int = 0,
+    val stallCount: Int = 0,
+    val alertaSaude: Boolean = false,
+)
+
+private fun AdminDeviceWire.toDomain(): AdminDevice {
+    val normalizedStatus = when {
+        !ativo -> "INATIVO"
+        statusAtivacao.equals("ATIVADO", ignoreCase = true) -> "ATIVADO"
+        statusAtivacao.equals("INATIVO", ignoreCase = true) -> "INATIVO"
+        else -> "AGUARDANDO_ATIVACAO"
+    }
+    return AdminDevice(
+        id = id,
+        nome = nome,
+        ativo = ativo,
+        criadoEm = criadoEm,
+        atualizadoEm = atualizadoEm,
+        ultimoAcessoEm = ultimoAcessoEm,
+        pinConfigurado = pinConfigurado,
+        statusAtivacao = normalizedStatus,
+        ativadoEm = ativadoEm,
+        telemetriaEm = telemetriaEm,
+        appVersion = appVersion,
+        deviceModel = deviceModel,
+        androidVersion = androidVersion,
+        crashCount = crashCount,
+        stallCount = stallCount,
+        alertaSaude = alertaSaude,
+    )
+}
+
+data class AdminDevicesResponse(val dispositivos: List<AdminDeviceWire>)
 data class UpdateDevicePinRequest(val pin: String)
 data class UpdateDevicePinResponse(
     val ok: Boolean,
@@ -141,13 +192,13 @@ data class CreateAdminUserRequest(
 
 data class ChangePasswordRequest(val novaSenha: String)
 data class ChangeProfileRequest(val perfil: String)
-data class CreateDeviceRequest(val nome: String, val pin: String)
+data class CreateDeviceRequest(val nome: String, val pin: String?)
 
 data class DeviceCreatedResponse(
     val id: String,
     val nome: String,
     val token: String,
-    val pinConfigurado: Boolean = true,
+    val pinConfigurado: Boolean = false,
     val replayIdempotente: Boolean = false,
     val aviso: String,
 )
@@ -353,14 +404,17 @@ class AdminRepository(
         return updated
     }
 
-    suspend fun createDevice(name: String, pin: String, idempotencyKey: String): DeviceCreatedResponse {
-        val created = api.createDevice(idempotencyKey, CreateDeviceRequest(name.trim(), pin.trim()))
+    suspend fun createDevice(name: String, pin: String?, idempotencyKey: String): DeviceCreatedResponse {
+        val normalizedPin = pin?.trim()?.ifBlank { null }
+        val created = api.createDevice(idempotencyKey, CreateDeviceRequest(name.trim(), normalizedPin))
         devicesCache = null
         summaryCache = null
         return created
     }
 
-    suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos.also { devicesCache = it }
+    suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos
+        .map(AdminDeviceWire::toDomain)
+        .also { devicesCache = it }
 
     suspend fun updateDevicePin(deviceId: String, pin: String): UpdateDevicePinResponse {
         val updated = api.updateDevicePin(deviceId, UpdateDevicePinRequest(pin.trim()))
@@ -523,10 +577,11 @@ class AdminRepository(
 
 object AdminApiClient {
     fun create(sessionStore: SecureAdminSessionStore): AdminRepository {
+        val appVersion = safeHttpHeaderValue(BuildConfig.VERSION_NAME, 80)
         val authInterceptor = Interceptor { chain ->
             val request = chain.request().newBuilder().apply {
                 sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
-                header("X-App-Version", BuildConfig.VERSION_NAME)
+                if (appVersion.isNotBlank()) header("X-App-Version", appVersion)
             }.build()
             chain.proceed(request)
         }
