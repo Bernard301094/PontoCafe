@@ -10,15 +10,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.PontoCafeViewModel
-import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.TipoComprovantePonto
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
+enum class PontoVoicePriority {
+    LOW,
+    INSTRUCTION,
+    RESULT,
+    CRITICAL,
+}
+
 data class PontoVoicePrompt(
     val key: String,
     val text: String,
+    val priority: PontoVoicePriority = PontoVoicePriority.INSTRUCTION,
+    val cooldownMillis: Long = 12_000L,
+    val stabilityDelayMillis: Long = 0L,
     val interrupt: Boolean = true,
+    val countsTowardInstructionBudget: Boolean = false,
 )
 
 enum class PontoVoiceKioskCue {
@@ -37,58 +47,79 @@ enum class PontoVoiceKioskCue {
 }
 
 /**
- * Pure phrase policy. Keeping copy selection outside TextToSpeech makes voice
+ * Pure phrase policy. Keeping copy and cadence outside TextToSpeech makes voice
  * behavior deterministic and testable without an Android speech engine.
  */
 object PontoVoicePromptPolicy {
     fun kiosk(cue: PontoVoiceKioskCue): PontoVoicePrompt = when (cue) {
         PontoVoiceKioskCue.CAMERA_PERMISSION_REQUIRED -> prompt(
-            "camera-permission",
-            "Ative a câmera para bater o ponto.",
+            key = "camera-permission",
+            text = "Ative a câmera para bater o ponto.",
+            priority = PontoVoicePriority.CRITICAL,
+            cooldownMillis = 60_000L,
         )
         PontoVoiceKioskCue.CAMERA_UNAVAILABLE -> prompt(
-            "camera-unavailable",
-            "Câmera indisponível. Procure um responsável.",
+            key = "camera-unavailable",
+            text = "Câmera indisponível. Procure um responsável.",
+            priority = PontoVoicePriority.CRITICAL,
+            cooldownMillis = 60_000L,
         )
         PontoVoiceKioskCue.MODEL_UNAVAILABLE -> prompt(
-            "model-unavailable",
-            "Reconhecimento facial indisponível neste aparelho.",
+            key = "model-unavailable",
+            text = "Reconhecimento facial indisponível neste aparelho.",
+            priority = PontoVoicePriority.CRITICAL,
+            cooldownMillis = 60_000L,
         )
         PontoVoiceKioskCue.MULTIPLE_FACES -> prompt(
-            "multiple-faces",
-            "Apenas uma pessoa por vez. Deixe somente um rosto diante da câmera.",
+            key = "multiple-faces",
+            text = "Apenas uma pessoa por vez. Deixe somente um rosto diante da câmera.",
+            priority = PontoVoicePriority.INSTRUCTION,
+            cooldownMillis = 15_000L,
+            stabilityDelayMillis = 1_200L,
         )
         PontoVoiceKioskCue.NO_FACE -> prompt(
-            "no-face",
-            "Aproxime-se e olhe para a câmera.",
+            key = "no-face",
+            text = "Aproxime-se e olhe para a câmera.",
+            priority = PontoVoicePriority.LOW,
+            cooldownMillis = 30_000L,
+            stabilityDelayMillis = 5_000L,
+            interrupt = false,
         )
         PontoVoiceKioskCue.LOOK_AT_CAMERA -> prompt(
-            "look-at-camera",
-            "Olhe para a câmera e mantenha o rosto centralizado.",
+            key = "look-at-camera",
+            text = "Olhe para a câmera e mantenha o rosto centralizado.",
+            priority = PontoVoicePriority.LOW,
+            cooldownMillis = 15_000L,
+            stabilityDelayMillis = 1_800L,
+            interrupt = false,
         )
-        PontoVoiceKioskCue.BLINK -> prompt(
-            "blink",
-            "Pisque uma vez.",
+        PontoVoiceKioskCue.BLINK -> livenessPrompt(
+            key = "blink",
+            text = "Pisque uma vez.",
         )
-        PontoVoiceKioskCue.OPEN_EYES -> prompt(
-            "open-eyes",
-            "Agora abra os olhos.",
+        PontoVoiceKioskCue.OPEN_EYES -> livenessPrompt(
+            key = "open-eyes",
+            text = "Agora abra os olhos.",
+            stabilityDelayMillis = 250L,
         )
-        PontoVoiceKioskCue.TURN_LEFT -> prompt(
-            "turn-left",
-            "Vire levemente para a esquerda.",
+        PontoVoiceKioskCue.TURN_LEFT -> livenessPrompt(
+            key = "turn-left",
+            text = "Vire levemente para a esquerda.",
         )
-        PontoVoiceKioskCue.TURN_RIGHT -> prompt(
-            "turn-right",
-            "Vire levemente para a direita.",
+        PontoVoiceKioskCue.TURN_RIGHT -> livenessPrompt(
+            key = "turn-right",
+            text = "Vire levemente para a direita.",
         )
-        PontoVoiceKioskCue.CENTER_FACE -> prompt(
-            "center-face",
-            "Volte ao centro e olhe para a câmera.",
+        PontoVoiceKioskCue.CENTER_FACE -> livenessPrompt(
+            key = "center-face",
+            text = "Volte ao centro e olhe para a câmera.",
+            stabilityDelayMillis = 350L,
         )
         PontoVoiceKioskCue.FACE_NOT_RECOGNIZED -> prompt(
-            "face-not-recognized",
-            "Rosto não reconhecido. Olhe de frente, centralize o rosto e tente novamente.",
+            key = "face-not-recognized",
+            text = "Rosto não reconhecido. Olhe de frente, centralize o rosto e tente novamente.",
+            priority = PontoVoicePriority.RESULT,
+            cooldownMillis = 12_000L,
         )
     }
 
@@ -107,7 +138,12 @@ object PontoVoicePromptPolicy {
                 } else {
                     "Pausa iniciada.$offlineSuffix"
                 }
-                prompt("receipt-start:${comprovante.horarioRegistrado}", text)
+                prompt(
+                    key = "receipt-start:${comprovante.horarioRegistrado}",
+                    text = text,
+                    priority = PontoVoicePriority.RESULT,
+                    cooldownMillis = 60_000L,
+                )
             }
             TipoComprovantePonto.RETORNO -> {
                 val text = when {
@@ -115,42 +151,145 @@ object PontoVoicePromptPolicy {
                         "Retorno registrado. Atenção: o limite da pausa foi excedido.$offlineSuffix"
                     else -> "Retorno registrado com sucesso.$offlineSuffix"
                 }
-                prompt("receipt-return:${comprovante.horarioRegistrado}", text)
+                prompt(
+                    key = "receipt-return:${comprovante.horarioRegistrado}",
+                    text = text,
+                    priority = PontoVoicePriority.RESULT,
+                    cooldownMillis = 60_000L,
+                )
             }
         }
     }
 
     fun blocked(motivo: String?): PontoVoicePrompt = when (motivo) {
-        "PAUSAS_DO_DIA_JA_UTILIZADAS" -> prompt(
+        "PAUSAS_DO_DIA_JA_UTILIZADAS" -> criticalPrompt(
             "blocked-daily",
             "Pausas de hoje já utilizadas. Não há mais pausa disponível para hoje.",
         )
-        "PAUSA_PERIODO_JA_UTILIZADA" -> prompt(
+        "PAUSA_PERIODO_JA_UTILIZADA" -> criticalPrompt(
             "blocked-period",
             "Esta pausa já foi utilizada hoje. Nenhum novo registro foi criado.",
         )
         "FORA_HORARIO",
-        "FORA_HORARIO_NAO_LIBERADO" -> prompt(
+        "FORA_HORARIO_NAO_LIBERADO" -> criticalPrompt(
             "blocked-outside-window",
             "Fora do horário permitido. Solicite uma liberação ao supervisor.",
         )
-        else -> prompt(
+        else -> criticalPrompt(
             "blocked-generic",
             "Registro não realizado. Verifique a mensagem na tela.",
         )
     }
 
-    fun registrationInProgress(): PontoVoicePrompt = prompt(
-        "registration-in-progress",
-        "Identidade confirmada. Aguarde o registro do ponto.",
-    )
-
-    fun genericRegistrationError(): PontoVoicePrompt = prompt(
+    fun genericRegistrationError(): PontoVoicePrompt = criticalPrompt(
         "registration-error",
         "Não foi possível registrar o ponto. Verifique a mensagem na tela.",
+        cooldownMillis = 15_000L,
     )
 
-    private fun prompt(key: String, text: String) = PontoVoicePrompt(key = key, text = text)
+    private fun livenessPrompt(
+        key: String,
+        text: String,
+        stabilityDelayMillis: Long = 450L,
+    ) = prompt(
+        key = key,
+        text = text,
+        priority = PontoVoicePriority.INSTRUCTION,
+        cooldownMillis = 12_000L,
+        stabilityDelayMillis = stabilityDelayMillis,
+        countsTowardInstructionBudget = true,
+    )
+
+    private fun criticalPrompt(
+        key: String,
+        text: String,
+        cooldownMillis: Long = 30_000L,
+    ) = prompt(
+        key = key,
+        text = text,
+        priority = PontoVoicePriority.CRITICAL,
+        cooldownMillis = cooldownMillis,
+    )
+
+    private fun prompt(
+        key: String,
+        text: String,
+        priority: PontoVoicePriority,
+        cooldownMillis: Long,
+        stabilityDelayMillis: Long = 0L,
+        interrupt: Boolean = true,
+        countsTowardInstructionBudget: Boolean = false,
+    ) = PontoVoicePrompt(
+        key = key,
+        text = text,
+        priority = priority,
+        cooldownMillis = cooldownMillis,
+        stabilityDelayMillis = stabilityDelayMillis,
+        interrupt = interrupt,
+        countsTowardInstructionBudget = countsTowardInstructionBudget,
+    )
+}
+
+/**
+ * Small pure state gate that prevents a kiosk from becoming a continuous
+ * narrator. Repeated prompts are cooled down per scan session and liveness is
+ * limited to a small instruction budget. Point results and critical warnings do
+ * not consume that budget.
+ */
+internal class PontoVoiceGate {
+    private var activeSessionKey: String? = null
+    private var sessionInstructionCount = 0
+    private val sessionLastSpokenAt = mutableMapOf<String, Long>()
+    private val globalLastSpokenAt = mutableMapOf<String, Long>()
+
+    fun canSpeak(
+        prompt: PontoVoicePrompt,
+        nowMillis: Long,
+        sessionKey: String?,
+    ): Boolean {
+        prepareSession(sessionKey)
+        val timestamps = if (sessionKey != null) sessionLastSpokenAt else globalLastSpokenAt
+        val previous = timestamps[prompt.key]
+        if (previous != null && nowMillis - previous < prompt.cooldownMillis) return false
+        if (
+            sessionKey != null && prompt.countsTowardInstructionBudget &&
+            sessionInstructionCount >= MAX_INSTRUCTIONS_PER_SESSION
+        ) {
+            return false
+        }
+        return true
+    }
+
+    fun markSpoken(
+        prompt: PontoVoicePrompt,
+        nowMillis: Long,
+        sessionKey: String?,
+    ) {
+        prepareSession(sessionKey)
+        val timestamps = if (sessionKey != null) sessionLastSpokenAt else globalLastSpokenAt
+        timestamps[prompt.key] = nowMillis
+        if (sessionKey != null && prompt.countsTowardInstructionBudget) {
+            sessionInstructionCount += 1
+        }
+    }
+
+    fun reset() {
+        activeSessionKey = null
+        sessionInstructionCount = 0
+        sessionLastSpokenAt.clear()
+        globalLastSpokenAt.clear()
+    }
+
+    private fun prepareSession(sessionKey: String?) {
+        if (sessionKey == null || sessionKey == activeSessionKey) return
+        activeSessionKey = sessionKey
+        sessionInstructionCount = 0
+        sessionLastSpokenAt.clear()
+    }
+
+    companion object {
+        const val MAX_INSTRUCTIONS_PER_SESSION = 3
+    }
 }
 
 /**
@@ -164,12 +303,16 @@ object PontoVoiceRuntime {
     @Volatile
     private var speaker: PontoTextToSpeech? = null
 
-    fun speak(context: Context, prompt: PontoVoicePrompt) {
+    fun speak(
+        context: Context,
+        prompt: PontoVoicePrompt,
+        sessionKey: String? = null,
+    ) {
         if (screenReaderOwnsSpeech(context)) return
         val current = speaker ?: synchronized(lock) {
             speaker ?: PontoTextToSpeech(context.applicationContext).also { speaker = it }
         }
-        runCatching { current.speak(prompt) }
+        runCatching { current.speak(prompt, sessionKey) }
     }
 
     fun shutdown() {
@@ -185,13 +328,17 @@ object PontoVoiceRuntime {
     }
 }
 
+private data class PendingSpeech(
+    val prompt: PontoVoicePrompt,
+    val sessionKey: String?,
+)
+
 private class PontoTextToSpeech(context: Context) {
     private val utteranceSequence = AtomicLong(0L)
+    private val gate = PontoVoiceGate()
     private var engine: TextToSpeech? = null
     private var ready = false
-    private var pending: PontoVoicePrompt? = null
-    private var lastText: String? = null
-    private var lastSpokenAtMillis: Long = 0L
+    private var pending: PendingSpeech? = null
 
     init {
         engine = TextToSpeech(context.applicationContext) { status -> onInitialized(status) }
@@ -236,21 +383,21 @@ private class PontoTextToSpeech(context: Context) {
             ready = true
             pending.also { pending = null }
         }
-        queued?.let(::speak)
+        queued?.let { speak(it.prompt, it.sessionKey) }
     }
 
     @Synchronized
-    fun speak(prompt: PontoVoicePrompt) {
+    fun speak(prompt: PontoVoicePrompt, sessionKey: String?) {
         val text = prompt.text.trim()
         if (text.isEmpty()) return
 
         if (!ready) {
-            pending = prompt.copy(text = text)
+            pending = PendingSpeech(prompt.copy(text = text), sessionKey)
             return
         }
 
         val now = System.currentTimeMillis()
-        if (text == lastText && now - lastSpokenAtMillis < REPEAT_SUPPRESSION_MILLIS) return
+        if (!gate.canSpeak(prompt, now, sessionKey)) return
 
         val current = engine ?: return
         val queueMode = if (prompt.interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
@@ -259,8 +406,7 @@ private class PontoTextToSpeech(context: Context) {
             current.speak(text, queueMode, null, utteranceId)
         }.getOrDefault(TextToSpeech.ERROR)
         if (result == TextToSpeech.SUCCESS) {
-            lastText = text
-            lastSpokenAtMillis = now
+            gate.markSpoken(prompt, now, sessionKey)
         }
     }
 
@@ -268,19 +414,16 @@ private class PontoTextToSpeech(context: Context) {
     fun shutdown() {
         pending = null
         ready = false
+        gate.reset()
         runCatching { engine?.stop() }
         runCatching { engine?.shutdown() }
         engine = null
     }
-
-    companion object {
-        private const val REPEAT_SUPPRESSION_MILLIS = 2_500L
-    }
 }
 
 /**
- * Announces only point outcomes and authoritative blocks. Camera/liveness cues
- * are emitted directly by FaceKioskScreen where the current challenge exists.
+ * Announces only authoritative point outcomes and blocks. Normal recognition,
+ * processing and registration stages intentionally stay silent.
  */
 @Composable
 fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
@@ -293,15 +436,12 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
         comprovante,
         identificacao?.acaoSugerida,
         identificacao?.motivo,
-        state.recognitionStage,
         state.erro,
     ) {
         when {
             comprovante != null -> PontoVoicePromptPolicy.receipt(comprovante)
             identificacao?.acaoSugerida == "BLOQUEADO" ->
                 PontoVoicePromptPolicy.blocked(identificacao.motivo)
-            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO ->
-                PontoVoicePromptPolicy.registrationInProgress()
             identificacao != null && !state.erro.isNullOrBlank() ->
                 PontoVoicePromptPolicy.genericRegistrationError()
             else -> null
