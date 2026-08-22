@@ -417,6 +417,9 @@ class PontoCafeRepository(
         fun isAuthFailure(error: Throwable): Boolean =
             error is HttpException && (error.code() == 401 || error.code() == 403)
 
+        fun isDevicePinNotConfigured(error: Throwable): Boolean =
+            error is HttpException && error.code() == 409
+
         fun isTemporaryFailure(error: Throwable): Boolean =
             error is IOException || (error is HttpException && error.code() >= 500)
 
@@ -433,26 +436,45 @@ class PontoCafeRepository(
     }
 }
 
+internal fun safeHttpHeaderValue(value: String, maxLength: Int): String {
+    if (maxLength <= 0) return ""
+    val safe = buildString(value.length) {
+        value.trim().forEach { char ->
+            append(if (char.code in 0x20..0x7e) char else '-')
+        }
+    }
+    return safe
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(maxLength)
+}
+
 object ApiClient {
     fun create(context: Context, tokenStore: SecureDeviceTokenStore): PontoCafeRepository {
-        val deviceModel = listOf(Build.MANUFACTURER, Build.MODEL)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString(" ")
-            .take(120)
-        val androidVersion = buildString {
-            val release = Build.VERSION.RELEASE?.trim().orEmpty()
-            if (release.isNotBlank()) append(release)
-            if (isNotEmpty()) append(" · ")
-            append("API ${Build.VERSION.SDK_INT}")
-        }.take(40)
+        val deviceModel = safeHttpHeaderValue(
+            listOf(Build.MANUFACTURER, Build.MODEL)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString(" "),
+            120,
+        )
+        val androidVersion = safeHttpHeaderValue(
+            buildString {
+                val release = Build.VERSION.RELEASE?.trim().orEmpty()
+                if (release.isNotBlank()) append(release)
+                if (isNotEmpty()) append(" - ")
+                append("API ${Build.VERSION.SDK_INT}")
+            },
+            40,
+        )
+        val appVersion = safeHttpHeaderValue(BuildConfig.VERSION_NAME, 80)
 
         val tokenInterceptor = Interceptor { chain ->
             val token = tokenStore.read()
             val request = chain.request().newBuilder().apply {
                 if (!token.isNullOrBlank()) header("X-Device-Token", token)
-                header("X-App-Version", BuildConfig.VERSION_NAME)
+                if (appVersion.isNotBlank()) header("X-App-Version", appVersion)
                 if (deviceModel.isNotBlank()) header("X-Device-Model", deviceModel)
                 if (androidVersion.isNotBlank()) header("X-Android-Version", androidVersion)
             }.build()
