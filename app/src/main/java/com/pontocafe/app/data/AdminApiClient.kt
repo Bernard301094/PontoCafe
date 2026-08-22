@@ -412,7 +412,7 @@ class AdminRepository(
         return created
     }
 
-    suspend fun devices(): List<AdminDevice> = devicesCache ?: api.devices().dispositivos
+    suspend fun devices(): List<AdminDevice> = api.devices().dispositivos
         .map(AdminDeviceWire::toDomain)
         .also { devicesCache = it }
 
