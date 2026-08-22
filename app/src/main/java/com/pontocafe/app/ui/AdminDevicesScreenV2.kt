@@ -39,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,14 +97,16 @@ fun AdminDevicesScreenV2(
     var activationTokens by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var showCreate by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
+    var configurePin by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var confirmPin by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     fun createDevice() {
-        if (state.carregando || name.trim().length < 2 || pin.length !in 4..12 || pin != confirmPin) return
+        val pinValid = !configurePin || (pin.length in 4..12 && pin == confirmPin)
+        if (state.carregando || name.trim().length < 2 || !pinValid) return
         focusManager.clearFocus()
-        viewModel.criarDispositivo(name, pin)
+        viewModel.criarDispositivo(name, pin.takeIf { configurePin })
     }
 
     // Somente tokens de ativação ainda pendentes ficam recuperáveis no aparelho
@@ -131,6 +134,7 @@ fun AdminDevicesScreenV2(
     LaunchedEffect(state.tokenGerado, state.tokenRotacionado) {
         if (state.tokenGerado != null && !state.tokenRotacionado) {
             name = ""
+            configurePin = false
             pin = ""
             confirmPin = ""
             showCreate = false
@@ -305,7 +309,7 @@ fun AdminDevicesScreenV2(
                             ) {
                                 SectionTitle(
                                     "Cadastrar aparelho",
-                                    "Use um nome fácil de identificar e defina um PIN exclusivo deste dispositivo.",
+                                    "Use um nome fácil de identificar. O PIN é opcional e pode ser definido agora ou depois.",
                                 )
                                 OutlinedTextField(
                                     value = name,
@@ -321,37 +325,91 @@ fun AdminDevicesScreenV2(
                                         onNext = { focusManager.moveFocus(FocusDirection.Down) },
                                     ),
                                 )
-                                SecurePinFieldV2(
-                                    label = "PIN de desbloqueio",
-                                    value = pin,
-                                    enabled = !state.carregando,
-                                    imeAction = ImeAction.Next,
-                                    keyboardActions = KeyboardActions(
-                                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                                    ),
-                                    onValueChange = { pin = it },
-                                )
-                                SecurePinFieldV2(
-                                    label = "Confirmar PIN",
-                                    value = confirmPin,
-                                    enabled = !state.carregando,
-                                    imeAction = ImeAction.Done,
-                                    keyboardActions = KeyboardActions(onDone = { createDevice() }),
-                                    isError = pin.isNotBlank() && confirmPin.isNotBlank() && pin != confirmPin,
-                                    onValueChange = { confirmPin = it },
-                                )
-                                if (pin.isNotBlank() && confirmPin.isNotBlank() && pin != confirmPin) {
-                                    Text(
-                                        "Os PINs não coincidem.",
-                                        color = MaterialTheme.colorScheme.error,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.large,
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(PontoCafeSpacing.md),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            Text(
+                                                "Configurar PIN agora",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Text(
+                                                if (configurePin) {
+                                                    "O PIN será exclusivo deste aparelho."
+                                                } else {
+                                                    "Sem PIN, sair do modo Ponto exigirá login autenticado de Administrador ou Supervisor."
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        Switch(
+                                            checked = configurePin,
+                                            onCheckedChange = { enabled ->
+                                                configurePin = enabled
+                                                if (!enabled) {
+                                                    pin = ""
+                                                    confirmPin = ""
+                                                }
+                                            },
+                                            enabled = !state.carregando,
+                                        )
+                                    }
                                 }
+
+                                AnimatedVisibility(visible = configurePin) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                                    ) {
+                                        SecurePinFieldV2(
+                                            label = "PIN de desbloqueio",
+                                            value = pin,
+                                            enabled = !state.carregando,
+                                            imeAction = ImeAction.Next,
+                                            keyboardActions = KeyboardActions(
+                                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                                            ),
+                                            onValueChange = { pin = it },
+                                        )
+                                        SecurePinFieldV2(
+                                            label = "Confirmar PIN",
+                                            value = confirmPin,
+                                            enabled = !state.carregando,
+                                            imeAction = ImeAction.Done,
+                                            keyboardActions = KeyboardActions(onDone = { createDevice() }),
+                                            isError = pin.isNotBlank() && confirmPin.isNotBlank() && pin != confirmPin,
+                                            onValueChange = { confirmPin = it },
+                                        )
+                                        if (pin.isNotBlank() && confirmPin.isNotBlank() && pin != confirmPin) {
+                                            Text(
+                                                "Os PINs não coincidem.",
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                    }
+                                }
+
                                 PcPrimaryButton(
                                     text = "Cadastrar e gerar token",
                                     onClick = ::createDevice,
                                     modifier = Modifier.fillMaxWidth(),
-                                    enabled = name.trim().length >= 2 && pin.length in 4..12 && pin == confirmPin,
+                                    enabled = name.trim().length >= 2 &&
+                                        (!configurePin || (pin.length in 4..12 && pin == confirmPin)),
                                     loading = state.carregando,
                                 )
                             }
@@ -438,7 +496,6 @@ private fun DeviceCardV2(
         !device.ativo -> "Bloqueado"
         device.alertaSaude -> "Requer atenção"
         device.statusAtivacao != "ATIVADO" -> "Aguardando ativação"
-        !device.pinConfigurado -> "Configuração pendente"
         updateAvailable -> "Atualização disponível"
         !telemetryRecent -> "Sem telemetria recente"
         else -> "Operacional"
@@ -446,8 +503,7 @@ private fun DeviceCardV2(
     val statusTone = when {
         !device.ativo -> PontoCafeTone.NEUTRAL
         device.alertaSaude -> PontoCafeTone.DANGER
-        device.statusAtivacao != "ATIVADO" || !device.pinConfigurado || updateAvailable || !telemetryRecent ->
-            PontoCafeTone.WARNING
+        device.statusAtivacao != "ATIVADO" || updateAvailable || !telemetryRecent -> PontoCafeTone.WARNING
         else -> PontoCafeTone.SUCCESS
     }
     val deviceFacts = listOf(
@@ -485,14 +541,24 @@ private fun DeviceCardV2(
         ),
         DeviceFact(
             label = "Saúde e segurança",
-            value = if (device.alertaSaude) "Verificar aparelho" else "Sem alerta recente",
+            value = when {
+                device.alertaSaude -> "Verificar aparelho"
+                device.pinConfigurado -> "PIN configurado"
+                else -> "Login obrigatório"
+            },
             supportingText = buildString {
-                append(if (device.pinConfigurado) "PIN configurado" else "PIN pendente")
+                append(
+                    if (device.pinConfigurado) {
+                        "Saída do modo Ponto protegida por PIN"
+                    } else {
+                        "Sem PIN: saída do modo Ponto exige login autenticado"
+                    },
+                )
                 if (device.crashCount > 0 || device.stallCount > 0) {
                     append(" · ${device.crashCount} falha(s) · ${device.stallCount} travamento(s)")
                 }
             },
-            tone = if (device.alertaSaude || !device.pinConfigurado) PontoCafeTone.WARNING else PontoCafeTone.SUCCESS,
+            tone = if (device.alertaSaude) PontoCafeTone.WARNING else if (device.pinConfigurado) PontoCafeTone.SUCCESS else PontoCafeTone.INFO,
         ),
     )
 
