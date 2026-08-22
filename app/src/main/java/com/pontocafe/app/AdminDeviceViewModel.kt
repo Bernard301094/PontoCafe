@@ -77,13 +77,13 @@ class AdminDeviceViewModel(
     private fun mensagemComRefresh(base: String, atualizado: Boolean): String =
         if (atualizado) base else "$base A lista não pôde ser atualizada agora; toque em Atualizar quando a conexão voltar."
 
-    private fun registrationFingerprint(nome: String, pin: String): String {
+    private fun registrationFingerprint(nome: String, pin: String?): String {
         val bytes = MessageDigest.getInstance("SHA-256")
-            .digest("$nome\u0000$pin".toByteArray(Charsets.UTF_8))
+            .digest("$nome\u0000${pin.orEmpty()}".toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
     }
 
-    private fun idempotencyKeyFor(nome: String, pin: String): String {
+    private fun idempotencyKeyFor(nome: String, pin: String?): String {
         val fingerprint = registrationFingerprint(nome, pin)
         if (pendingRegistrationKey == null || pendingRegistrationFingerprint != fingerprint) {
             pendingRegistrationKey = UUID.randomUUID().toString()
@@ -100,14 +100,14 @@ class AdminDeviceViewModel(
     private fun shouldDiscardPendingRegistration(error: Throwable): Boolean =
         error is HttpException && error.code() in setOf(400, 409, 422)
 
-    fun criarDispositivo(nome: String, pin: String) {
+    fun criarDispositivo(nome: String, pin: String?) {
         val cleanName = nome.trim()
-        val cleanPin = pin.trim()
+        val cleanPin = pin?.trim()?.takeIf { it.isNotBlank() }
         if (cleanName.length < 2) {
             state = state.copy(erro = "Informe um nome para o dispositivo.")
             return
         }
-        if (!Regex("^\\d{4,12}$").matches(cleanPin)) {
+        if (cleanPin != null && !Regex("^\\d{4,12}$").matches(cleanPin)) {
             state = state.copy(erro = "O PIN deve ter entre 4 e 12 números.")
             return
         }
@@ -125,6 +125,11 @@ class AdminDeviceViewModel(
                 .onSuccess { created ->
                     clearPendingRegistration()
                     val (devices, refreshed) = atualizarListaOu(state.dispositivos)
+                    val baseMessage = if (created.pinConfigurado) {
+                        "Dispositivo criado com PIN próprio. O token ficará disponível no cartão enquanto aguarda ativação."
+                    } else {
+                        "Dispositivo criado sem PIN. Para sair do modo Ponto será necessário entrar com uma conta de Administrador ou Supervisor. O token ficará disponível no cartão enquanto aguarda ativação."
+                    }
                     state = state.copy(
                         carregando = false,
                         dispositivos = devices,
@@ -132,10 +137,7 @@ class AdminDeviceViewModel(
                         tokenDeviceId = created.id,
                         tokenDeviceName = created.nome,
                         tokenRotacionado = false,
-                        mensagem = mensagemComRefresh(
-                            "Dispositivo criado com PIN próprio. O token ficará disponível no cartão enquanto aguarda ativação.",
-                            refreshed,
-                        ),
+                        mensagem = mensagemComRefresh(baseMessage, refreshed),
                         erro = null,
                     )
                 }
