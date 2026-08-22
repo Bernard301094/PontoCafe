@@ -26,12 +26,15 @@ function hasRecentHealthAlert(details: Record<string, unknown> | null): boolean 
 function metadataString(
   heartbeat: Record<string, unknown> | null,
   health: Record<string, unknown> | null,
+  activation: Record<string, unknown> | null,
   key: string,
 ): string | null {
   const heartbeatValue = heartbeat?.[key]
   if (typeof heartbeatValue === 'string' && heartbeatValue.trim()) return heartbeatValue.trim()
   const healthValue = health?.[key]
   if (typeof healthValue === 'string' && healthValue.trim()) return healthValue.trim()
+  const activationValue = activation?.[key]
+  if (typeof activationValue === 'string' && activationValue.trim()) return activationValue.trim()
   return null
 }
 
@@ -61,6 +64,7 @@ deviceManagementRoutes.get('/devices', async (c) => {
     telemetriaEm: string | null
     telemetriaDetalhes: Record<string, unknown> | null
     heartbeatDetalhes: Record<string, unknown> | null
+    activationDetalhes: Record<string, unknown> | null
     ultimaAtivacaoEm: string | null
     ultimaRotacaoEm: string | null
     aguardandoAtivacao: boolean
@@ -79,6 +83,7 @@ deviceManagementRoutes.get('/devices', async (c) => {
             greatest(h.criado_em,heartbeat.criado_em)::text as "telemetriaEm",
             h.detalhes as "telemetriaDetalhes",
             heartbeat.detalhes as "heartbeatDetalhes",
+            activation.detalhes as "activationDetalhes",
             activation.ultima_ativacao_em::text as "ultimaAtivacaoEm",
             rotation.ultima_rotacao_em::text as "ultimaRotacaoEm",
             (
@@ -125,11 +130,13 @@ deviceManagementRoutes.get('/devices', async (c) => {
           limit 1
        ) heartbeat on true
        left join lateral (
-         select max(a.criado_em) as ultima_ativacao_em
+         select a.criado_em as ultima_ativacao_em,a.detalhes
            from auditoria a
           where a.acao='ATIVAR_DISPOSITIVO'
             and a.entidade='DISPOSITIVO'
             and a.entidade_id::text=d.id::text
+          order by a.criado_em desc
+          limit 1
        ) activation on true
        left join lateral (
          select max(a.criado_em) as ultima_rotacao_em
@@ -156,6 +163,7 @@ deviceManagementRoutes.get('/devices', async (c) => {
     dispositivos: result.rows.map((device) => {
       const healthDetails = device.telemetriaDetalhes ?? {}
       const heartbeatDetails = device.heartbeatDetalhes ?? {}
+      const activationDetails = device.activationDetalhes ?? {}
 
       return {
         id: device.id,
@@ -168,9 +176,9 @@ deviceManagementRoutes.get('/devices', async (c) => {
         statusAtivacao: !device.ativo ? 'INATIVO' : device.aguardandoAtivacao ? 'AGUARDANDO_ATIVACAO' : 'ATIVADO',
         ativadoEm: device.ultimaAtivacaoEm,
         telemetriaEm: device.telemetriaEm,
-        appVersion: metadataString(heartbeatDetails, healthDetails, 'appVersion'),
-        deviceModel: metadataString(heartbeatDetails, healthDetails, 'deviceModel'),
-        androidVersion: metadataString(heartbeatDetails, healthDetails, 'androidVersion'),
+        appVersion: metadataString(heartbeatDetails, healthDetails, activationDetails, 'appVersion'),
+        deviceModel: metadataString(heartbeatDetails, healthDetails, activationDetails, 'deviceModel'),
+        androidVersion: metadataString(heartbeatDetails, healthDetails, activationDetails, 'androidVersion'),
         crashCount: telemetryCounter(healthDetails.crashCount),
         stallCount: telemetryCounter(healthDetails.stallCount),
         alertaSaude: hasRecentHealthAlert(device.telemetriaDetalhes),
