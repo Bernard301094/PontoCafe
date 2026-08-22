@@ -155,33 +155,49 @@ class PontoCafeViewModel(
 
         viewModelScope.launch {
             state = state.copy(carregando = true, mensagem = null, erro = null)
-            runCatching { repository.activateDevice(normalizedToken) }
-                .onSuccess { deviceToken ->
-                    invalidateRecognitionSession()
-                    tokenStore.save(deviceToken)
-                    faceCatalogStore.clear()
-                    avatarCatalogGeneration += 1L
-                    PontoAvatarRuntime.clearCatalog()
-                    offlineStore.clear()
-                    pendingOfflineEmbedding = null
-                    lastRegisteredCollaboratorId = null
-                    lastRegisteredAtMillis = 0L
-                    state = PontoCafeUiState(
-                        deviceConfigured = true,
-                        scanning = true,
-                        scanCycle = state.scanCycle + 1,
-                        mensagem = "Dispositivo configurado com sucesso.",
-                    )
-                    viewModelScope.launch { runCatching { embeddingEngine.warmUp() } }
-                    sincronizarBiometrias(force = true)
-                    atualizarConectividadeESincronizar()
+            try {
+                val deviceToken = withContext(Dispatchers.IO) {
+                    repository.activateDevice(normalizedToken)
                 }
-                .onFailure { error ->
+                val credentialPersisted = withContext(Dispatchers.IO) {
+                    tokenStore.save(deviceToken) && tokenStore.read() == deviceToken
+                }
+                if (!credentialPersisted) {
+                    withContext(Dispatchers.IO) { tokenStore.clear() }
                     state = state.copy(
                         carregando = false,
-                        erro = PontoCafeRepository.mensagemErro(error),
+                        deviceConfigured = false,
+                        scanning = false,
+                        erro = "A ativação foi aceita, mas a credencial segura não pôde ser salva neste aparelho. Gere um novo token no Administrador e tente novamente.",
                     )
+                    return@launch
                 }
+
+                invalidateRecognitionSession()
+                runCatching { withContext(Dispatchers.IO) { faceCatalogStore.clear() } }
+                avatarCatalogGeneration += 1L
+                runCatching { PontoAvatarRuntime.clearCatalog() }
+                runCatching { withContext(Dispatchers.IO) { offlineStore.clear() } }
+                pendingOfflineEmbedding = null
+                lastRegisteredCollaboratorId = null
+                lastRegisteredAtMillis = 0L
+                state = PontoCafeUiState(
+                    deviceConfigured = true,
+                    scanning = true,
+                    scanCycle = state.scanCycle + 1,
+                    mensagem = "Dispositivo configurado com sucesso.",
+                )
+                viewModelScope.launch { runCatching { embeddingEngine.warmUp() } }
+                sincronizarBiometrias(force = true)
+                atualizarConectividadeESincronizar()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                state = state.copy(
+                    carregando = false,
+                    erro = PontoCafeRepository.mensagemErro(error),
+                )
+            }
         }
     }
 
