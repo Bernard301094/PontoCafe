@@ -58,6 +58,13 @@ test('payload legado de dispositivos é normalizado antes de qualquer copy do es
   assert.match(adminViewModel, /item\.copy\(pinConfigurado = true\)/)
 })
 
+test('a lista administrativa de dispositivos sempre busca o estado atual do servidor', () => {
+  assert.match(adminApi, /suspend fun devices\(\): List<AdminDevice> = api\.devices\(\)\.dispositivos/)
+  assert.doesNotMatch(adminApi, /suspend fun devices\(\): List<AdminDevice> = devicesCache \?:/)
+  assert.match(adminViewModel, /delay\(12_000L\)/)
+  assert.match(adminViewModel, /ensurePendingDeviceRefresh\(\)/)
+})
+
 test('ativação só marca o aparelho como configurado depois de confirmar leitura da credencial segura', () => {
   const readback = 'tokenStore.save(deviceToken) && tokenStore.read() == deviceToken'
   const configured = 'deviceConfigured = true'
@@ -79,6 +86,7 @@ test('dispositivo sem PIN não possui fallback global e segue para login autenti
   assert.doesNotMatch(unlockRoute, /LEGACY_DEFAULT_PIN_SHA256/)
   assert.doesNotMatch(unlockRoute, /51b6d230c2e8d8a991c525dcd98cc5c2567eb5720336ea62a6e1097ad04fbc3f/)
   assert.match(kioskUi, /PontoCafeRepository\.isDevicePinNotConfigured\(error\)/)
+  assert.match(kioskUi, /Text\("Entrar com conta"\)/)
   assert.match(kioskUi, /onLoginModeClick\(\)/)
 })
 
