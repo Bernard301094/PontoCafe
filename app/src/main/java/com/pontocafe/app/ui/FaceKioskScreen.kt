@@ -86,6 +86,7 @@ import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.voice.PontoVoiceKioskCue
 import com.pontocafe.app.voice.PontoVoicePromptPolicy
 import com.pontocafe.app.voice.PontoVoiceRuntime
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -141,6 +142,7 @@ fun FaceKioskScreen(
     var challengeCompleted by remember { mutableStateOf(false) }
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
+    var facePositioned by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
@@ -211,6 +213,7 @@ fun FaceKioskScreen(
         challengeCompleted = false
         captureRequested = false
         detectedFaces = 0
+        facePositioned = false
         cameraError = null
         livenessState = LivenessState.POSICIONE_ROSTO
     }
@@ -238,6 +241,10 @@ fun FaceKioskScreen(
                     cameraError = null
                     if (detectedFaces != observation.faceCount) {
                         detectedFaces = observation.faceCount
+                    }
+                    val positionedNow = observation.faceCount == 1 && observation.isWellPositioned
+                    if (facePositioned != positionedNow) {
+                        facePositioned = positionedNow
                     }
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
@@ -335,6 +342,7 @@ fun FaceKioskScreen(
                     stableChallengeFrames[0] = 0
                     stableRecognitionFrames[0] = 0
                     blinkPendingFrames[0] = 0
+                    facePositioned = false
                     liveness.reset()
                     turnChallengeContinuity.reset()
                     livenessState = LivenessState.POSICIONE_ROSTO
@@ -366,8 +374,10 @@ fun FaceKioskScreen(
         if (permissionGranted) {
             KioskFaceGuide(
                 active = state.catalogoBiometricoPronto,
+                faceDetected = detectedFaces == 1,
                 warning = multipleFacesVisible,
-                ready = recognitionReady,
+                positioned = facePositioned,
+                recognitionReady = recognitionReady,
                 guideWidth = guideWidth,
                 modifier = Modifier.align(Alignment.Center),
             )
@@ -463,7 +473,15 @@ fun FaceKioskScreen(
 
         LaunchedEffect(state.scanCycle, voiceCue) {
             voiceCue?.let { cue ->
-                PontoVoiceRuntime.speak(context, PontoVoicePromptPolicy.kiosk(cue))
+                val prompt = PontoVoicePromptPolicy.kiosk(cue)
+                if (prompt.stabilityDelayMillis > 0L) {
+                    delay(prompt.stabilityDelayMillis)
+                }
+                PontoVoiceRuntime.speak(
+                    context = context,
+                    prompt = prompt,
+                    sessionKey = "scan:${state.scanCycle}",
+                )
             }
         }
 
