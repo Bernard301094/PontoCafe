@@ -59,7 +59,7 @@ class PassiveFaceLiveness(
 ) {
     private val samples = ArrayDeque<PassiveLivenessSample>()
     private var activeTrackingId: Int? = null
-    private var startedAtMillis: Long = 0L
+    private var startedAtMillis: Long = UNSET_TIME
     private var acceptedTrackingId: Int? = null
     private var acceptedSample: PassiveLivenessSample? = null
 
@@ -74,7 +74,7 @@ class PassiveFaceLiveness(
     fun reset() {
         samples.clear()
         activeTrackingId = null
-        startedAtMillis = 0L
+        startedAtMillis = UNSET_TIME
         acceptedTrackingId = null
         acceptedSample = null
     }
@@ -94,7 +94,7 @@ class PassiveFaceLiveness(
             resetObservationOnly()
         }
 
-        if (startedAtMillis == 0L) {
+        if (startedAtMillis == UNSET_TIME) {
             startedAtMillis = sample.capturedAtMillis
             activeTrackingId = sample.trackingId
         }
@@ -161,9 +161,7 @@ class PassiveFaceLiveness(
     fun matchesAcceptedFace(sample: PassiveLivenessSample): Boolean {
         val accepted = acceptedSample ?: return false
         if (sample.faceCount != 1 || !sample.captureReady || !sample.frontal) return false
-        if (
-            acceptedTrackingId != null || sample.trackingId != null
-        ) {
+        if (acceptedTrackingId != null || sample.trackingId != null) {
             if (acceptedTrackingId == null || acceptedTrackingId != sample.trackingId) return false
         }
 
@@ -183,7 +181,7 @@ class PassiveFaceLiveness(
     private fun resetObservationOnly() {
         samples.clear()
         activeTrackingId = null
-        startedAtMillis = 0L
+        startedAtMillis = UNSET_TIME
         acceptedTrackingId = null
         acceptedSample = null
     }
@@ -237,6 +235,7 @@ class PassiveFaceLiveness(
     }
 
     companion object {
+        private const val UNSET_TIME = -1L
         private const val MAX_SAMPLES = 18
         private const val MIN_EYE_VARIATION = 0.07f
         private const val MIN_POSE_VARIATION = 0.75f
