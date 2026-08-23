@@ -1,6 +1,10 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
@@ -27,9 +31,9 @@ private const val FACE_GUIDE_READY_STABILITY_MILLIS = 180L
  * Visual positioning guide. Neutral means no usable face yet, red means the
  * current face is outside the accepted capture geometry, and green means the
  * face has remained correctly positioned long enough to avoid frame-to-frame
- * color flicker. The short stabilization window keeps the visual feedback in
- * sync with the passive fast path instead of making the UI feel slower than the
- * recognizer.
+ * color flicker. When recognition is actually ready, a very small pulse gives
+ * immediate visual confirmation without delaying capture or changing any
+ * biometric threshold.
  */
 @Composable
 internal fun KioskFaceGuide(
@@ -67,6 +71,16 @@ internal fun KioskFaceGuide(
         ),
         label = "kiosk-guide-color",
     )
+    val pulseTransition = rememberInfiniteTransition(label = "kiosk-recognition-pulse")
+    val readyPulse by pulseTransition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650, easing = PontoCafeMotion.StandardEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "kiosk-recognition-ready-alpha",
+    )
 
     Canvas(
         modifier = modifier
@@ -78,13 +92,16 @@ internal fun KioskFaceGuide(
                     warning -> "Guia facial vermelho: mais de uma pessoa detectada"
                     !faceDetected -> "Guia facial aguardando um rosto"
                     !stablePositioned -> "Guia facial vermelho: ajuste o rosto dentro da área"
-                    recognitionReady -> "Guia facial verde: rosto pronto para reconhecimento"
+                    recognitionReady -> "Guia facial verde pulsando: rosto pronto para reconhecimento"
                     else -> "Guia facial verde: posição correta"
                 }
             },
     ) {
         val emphasized = stablePositioned || recognitionReady || warning
-        val stroke = (if (emphasized) 4.2.dp else 3.4.dp).toPx()
+        val pulseFactor = if (recognitionReady) readyPulse else 1f
+        val drawColor = guideColor.copy(alpha = guideColor.alpha * pulseFactor)
+        val stroke = (if (emphasized) 4.2.dp else 3.4.dp).toPx() *
+            if (recognitionReady) (0.96f + (pulseFactor * 0.08f)) else 1f
         val cornerLength = size.minDimension * if (stablePositioned) 0.24f else 0.20f
         val inset = stroke
         val left = inset
@@ -92,61 +109,13 @@ internal fun KioskFaceGuide(
         val right = size.width - inset
         val bottom = size.height - inset
 
-        drawLine(
-            guideColor,
-            Offset(left, top + cornerLength),
-            Offset(left, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, top),
-            Offset(left + cornerLength, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right - cornerLength, top),
-            Offset(right, top),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right, top),
-            Offset(right, top + cornerLength),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, bottom - cornerLength),
-            Offset(left, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(left, bottom),
-            Offset(left + cornerLength, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right - cornerLength, bottom),
-            Offset(right, bottom),
-            stroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            guideColor,
-            Offset(right, bottom),
-            Offset(right, bottom - cornerLength),
-            stroke,
-            cap = StrokeCap.Round,
-        )
+        drawLine(drawColor, Offset(left, top + cornerLength), Offset(left, top), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(left, top), Offset(left + cornerLength, top), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(right - cornerLength, top), Offset(right, top), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(right, top), Offset(right, top + cornerLength), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(left, bottom - cornerLength), Offset(left, bottom), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(left, bottom), Offset(left + cornerLength, bottom), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(right - cornerLength, bottom), Offset(right, bottom), stroke, cap = StrokeCap.Round)
+        drawLine(drawColor, Offset(right, bottom), Offset(right, bottom - cornerLength), stroke, cap = StrokeCap.Round)
     }
 }
