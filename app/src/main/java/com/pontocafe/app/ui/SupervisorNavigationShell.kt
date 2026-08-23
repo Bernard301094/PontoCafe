@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorDestination
 import com.pontocafe.app.SupervisorViewModel
+import com.pontocafe.app.data.SupervisorPasswordChangeRuntime
 import kotlinx.coroutines.delay
 
 private enum class SupervisorPrimaryDestination(val label: String) {
@@ -46,6 +47,15 @@ fun SupervisorAreaShell(
 ) {
     val state = viewModel.state
     var pendingPrimaryDestination by remember { mutableStateOf<SupervisorPrimaryDestination?>(null) }
+
+    // Esta barreira é intencionalmente anterior a qualquer tela operacional.
+    // Enquanto o backend marcar PASSWORD_CHANGE_REQUIRED, nenhuma área protegida
+    // é apresentada, mas a sessão temporária permanece válida apenas para trocar
+    // a senha ou sair da conta.
+    if (SupervisorPasswordChangeRuntime.required) {
+        SupervisorInitialPasswordChangeScreen(viewModel = viewModel, onClose = onClose)
+        return
+    }
 
     val transientMessage = state.mensagem?.takeUnless { message ->
         message.startsWith("Rosto de ") && message.contains("cadastrado com 5 amostras")
@@ -99,9 +109,6 @@ fun SupervisorAreaShell(
                 SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreenV2(viewModel)
                 SupervisorDestination.HISTORICO -> SupervisorHistoryScreenV2(viewModel)
                 SupervisorDestination.AUTORIZACAO -> SupervisorAuthorizationScreen(viewModel)
-                // Estes destinos são tratados pelo NavigationSuite abaixo. Se o
-                // estado mudar durante uma animação, não reintroduzimos a antiga
-                // árvore SupervisorArea: a próxima recomposição resolve o root.
                 SupervisorDestination.AO_VIVO,
                 SupervisorDestination.COLABORADORES,
                 SupervisorDestination.RELATORIOS -> Unit
