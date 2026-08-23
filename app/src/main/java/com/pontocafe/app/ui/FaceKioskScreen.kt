@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,10 +80,7 @@ import kotlin.math.abs
 
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
-/**
- * Challenge ativo legado. Ele não é mais executado no fluxo normal: só entra
- * quando o liveness passivo RGB considera a sequência inconclusiva.
- */
+/** Challenge ativo legado, agora usado somente quando o passivo é inconclusivo. */
 private enum class KioskFallbackChallenge(val instruction: String) {
     BLINK("Pisque uma vez"),
     TURN_LEFT("Vire levemente para a esquerda"),
@@ -100,6 +98,7 @@ private enum class KioskFallbackChallenge(val instruction: String) {
 }
 
 private const val FALLBACK_CHALLENGE_STABLE_FRAMES = 3
+private const val FALLBACK_BLINK_MAX_FRAMES = 24
 private const val RECOGNITION_STABLE_FRAMES_AFTER_LIVENESS = 1
 
 @Composable
@@ -131,6 +130,7 @@ fun FaceKioskScreen(
     var fallbackChallenge by remember { mutableStateOf(KioskFallbackChallenge.BLINK) }
     var fallbackLivenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
     val fallbackStableFrames = remember { intArrayOf(0) }
+    val fallbackBlinkFrames = remember { intArrayOf(0) }
     val recognitionStableFrames = remember { intArrayOf(0) }
 
     var captureRequested by remember { mutableStateOf(false) }
@@ -153,8 +153,21 @@ fun FaceKioskScreen(
         fallbackChallenge = KioskFallbackChallenge.BLINK
         fallbackLivenessState = LivenessState.POSICIONE_ROSTO
         fallbackStableFrames[0] = 0
+        fallbackBlinkFrames[0] = 0
         recognitionStableFrames[0] = 0
         captureRequested = false
+    }
+
+    fun selectTurnFallback() {
+        fallbackChallenge = listOf(
+            KioskFallbackChallenge.TURN_LEFT,
+            KioskFallbackChallenge.TURN_RIGHT,
+        ).random()
+        fallbackStableFrames[0] = 0
+        fallbackBlinkFrames[0] = 0
+        blinkLiveness.reset()
+        fallbackContinuity.reset()
+        fallbackLivenessState = LivenessState.POSICIONE_ROSTO
     }
 
     fun startFallback(observation: FaceObservation) {
@@ -162,6 +175,7 @@ fun FaceKioskScreen(
         verificationCompleted = false
         completedByFallback = false
         fallbackStableFrames[0] = 0
+        fallbackBlinkFrames[0] = 0
         recognitionStableFrames[0] = 0
         blinkLiveness.reset()
         fallbackContinuity.reset()
@@ -275,8 +289,10 @@ fun FaceKioskScreen(
                     detectedFaces = observation.faceCount
                     facePositioned = observation.faceCount == 1 && observation.isIdentificationReady
 
+                    // Qualquer 0 ou 2+ rostos invalida TODA a evidência acumulada.
+                    // Nunca reaproveita liveness de uma cena em que outra pessoa entrou.
                     if (observation.faceCount != 1) {
-                        if (verificationCompleted || activeFallback) resetLiveness()
+                        resetLiveness()
                         return@FaceCameraPreview
                     }
 
@@ -301,8 +317,13 @@ fun FaceKioskScreen(
                             KioskFallbackChallenge.BLINK -> {
                                 val next = blinkLiveness.update(observation)
                                 fallbackLivenessState = next
+                                if (observation.isFrontal) fallbackBlinkFrames[0] += 1 else fallbackBlinkFrames[0] = 0
                                 if (next == LivenessState.CONCLUIDO) {
                                     completeVerification(byFallback = true)
+                                } else if (fallbackBlinkFrames[0] >= FALLBACK_BLINK_MAX_FRAMES) {
+                                    // Se a classificação ocular oscilar/sumir, não prende o
+                                    // colaborador indefinidamente no mesmo fallback.
+                                    selectTurnFallback()
                                 }
                             }
 
@@ -365,8 +386,8 @@ fun FaceKioskScreen(
                         FaceCaptureRejectionReason.FACE_TOO_SMALL,
                         FaceCaptureRejectionReason.FACE_TOO_LARGE,
                         FaceCaptureRejectionReason.EXTREME_POSE -> {
-                            // Variação transitória: preserva o liveness já concluído
-                            // e tenta outro frame útil da mesma pessoa imediatamente.
+                            // Variação transitória: preserva liveness concluído e
+                            // tenta o próximo frame útil da mesma pessoa.
                         }
 
                         FaceCaptureRejectionReason.NO_FACE,
@@ -514,8 +535,19 @@ fun FaceKioskScreen(
                 detail = instructionDetail,
                 multipleFaces = multipleFacesVisible,
                 ready = recognitionReady,
+                offline = state.modoOffline,
+                updateRequired = state.atualizacaoObrigatoria,
+                updateAvailable = state.atualizacaoDisponivel,
+                latestVersion = state.versaoMaisRecente,
+                catalogReady = state.catalogoBiometricoPronto,
+                syncingCatalog = state.sincronizandoBiometrias,
+                modelReady = viewModel.faceModelReady,
+                pendingEvents = state.eventosPendentes,
+                syncingPending = state.sincronizandoPendencias,
                 error = cameraError ?: state.erro ?:
                     state.erroSincronizacaoBiometrica.takeIf { !state.catalogoBiometricoPronto },
+                onSyncCatalog = { viewModel.sincronizarBiometrias(force = true) },
+                onSyncPending = viewModel::sincronizarPendenciasOffline,
                 compact = compactHeight,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -616,7 +648,18 @@ private fun KioskInstructionPanel(
     detail: String,
     multipleFaces: Boolean,
     ready: Boolean,
+    offline: Boolean,
+    updateRequired: Boolean,
+    updateAvailable: Boolean,
+    latestVersion: String?,
+    catalogReady: Boolean,
+    syncingCatalog: Boolean,
+    modelReady: Boolean,
+    pendingEvents: Int,
+    syncingPending: Boolean,
     error: String?,
+    onSyncCatalog: () -> Unit,
+    onSyncPending: () -> Unit,
     compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -642,9 +685,9 @@ private fun KioskInstructionPanel(
     ) {
         Column(
             modifier = Modifier
-                .heightIn(max = if (compact) 170.dp else 260.dp)
+                .heightIn(max = if (compact) 190.dp else 320.dp)
                 .padding(horizontal = 18.dp, vertical = 15.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Text(
                 title,
@@ -657,12 +700,35 @@ private fun KioskInstructionPanel(
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.78f),
             )
+
             if (error?.startsWith("ROSTO NÃO RECONHECIDO", ignoreCase = true) == true) {
                 Text(
                     "Rosto não reconhecido. Olhe de frente e tente novamente.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFFFDAD6),
                 )
+            }
+
+            if (updateRequired) {
+                StatusPill("Atualização obrigatória · ${latestVersion ?: "nova versão"}", PontoCafeTone.DANGER)
+            } else if (updateAvailable) {
+                StatusPill("Nova versão · ${latestVersion ?: "disponível"}", PontoCafeTone.INFO)
+            }
+            if (offline) StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
+
+            if (!catalogReady && !syncingCatalog && modelReady) {
+                Button(onClick = onSyncCatalog, modifier = Modifier.fillMaxWidth()) {
+                    Text("Sincronizar rostos")
+                }
+            }
+            if (pendingEvents > 0 && !offline) {
+                OutlinedButton(
+                    onClick = onSyncPending,
+                    enabled = !syncingPending,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (syncingPending) "Sincronizando…" else "Sincronizar $pendingEvents pendente(s)")
+                }
             }
         }
     }
