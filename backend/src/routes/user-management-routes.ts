@@ -3,12 +3,36 @@ import { z } from 'zod'
 import { getAuth, requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { query } from '../db.js'
 import { newId } from '../security.js'
+import { generateTemporaryPassword } from '../supervisor-onboarding.js'
 import { parseJson } from './shared.js'
 
 export const userManagementRoutes = new Hono<AppEnv>()
 userManagementRoutes.use('*', requireUser, requireRole('ADMIN'))
 
 type CreateUserStage = 'hash_senha' | 'persistencia'
+
+const createUserSchema = z.object({
+  nome: z.string().trim().min(2).max(120),
+  email: z.string().trim().toLowerCase().email().max(254),
+  senha: z.string().min(10).max(128).optional(),
+  perfil: z.enum(['SUPERVISOR', 'ADMIN']).default('SUPERVISOR'),
+  turno: z.enum(['A', 'B', 'C', 'D']).optional().nullable(),
+}).superRefine((value, ctx) => {
+  if (value.perfil === 'SUPERVISOR' && !value.turno) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['turno'],
+      message: 'Informe o turno do Supervisor.',
+    })
+  }
+  if (value.perfil === 'ADMIN' && !value.senha) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['senha'],
+      message: 'Informe a senha inicial do Administrador.',
+    })
+  }
+})
 
 function databaseErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null
@@ -33,52 +57,57 @@ function safeCreateUserCode(error: unknown, stage: CreateUserStage): string {
 }
 
 userManagementRoutes.post('/usuarios', async (c) => {
-  const body = await parseJson(c, z.object({
-    nome: z.string().trim().min(2).max(120),
-    email: z.string().trim().toLowerCase().email().max(254),
-    senha: z.string().min(10).max(128),
-    perfil: z.enum(['SUPERVISOR', 'ADMIN']).default('SUPERVISOR'),
-  }))
+  const body = await parseJson(c, createUserSchema)
   if (!body.ok) return body.response
 
   const actor = c.get('user')
-  const role = body.data.perfil === 'ADMIN' ? 'admin' : 'user'
+  const supervisor = body.data.perfil === 'SUPERVISOR'
+  const role = supervisor ? 'user' : 'admin'
+  const temporaryPassword = supervisor ? generateTemporaryPassword() : null
+  const plaintextPassword = temporaryPassword ?? body.data.senha
+  if (!plaintextPassword) {
+    return c.json({ erro: 'Senha inicial ausente.' }, 400)
+  }
+
+  const turno = supervisor ? body.data.turno ?? null : null
   const userId = newId()
   const accountId = newId()
   let stage: CreateUserStage = 'hash_senha'
 
   try {
-    // Usa exatamente o mesmo hasher configurado pelo Better Auth. A senha
-    // nunca é persistida, retornada ou registrada em texto puro.
+    // Criação e login usam exatamente o mesmo provider de senha. A senha
+    // temporária nunca é gravada em texto puro nem incluída em logs/auditoria.
     const authContext = await getAuth().$context
-    const passwordHash = await authContext.password.hash(body.data.senha)
+    const passwordHash = await authContext.password.hash(plaintextPassword)
 
     stage = 'persistencia'
-    const result = await query<{ id: string; name: string; email: string }>(
+    const result = await query<{ id: string; name: string; email: string; turno: string | null }>(
       `with created_user as (
          insert into "user"
-           (id,name,email,"emailVerified","createdAt","updatedAt",role,banned)
-         values ($1,$2,$3,true,now(),now(),$4,false)
-         returning id,name,email
+           (id,name,email,"emailVerified","createdAt","updatedAt",role,banned,turno,"mustChangePassword")
+         values ($1,$2,$3,true,now(),now(),$4,false,$5,$6)
+         returning id,name,email,turno
        ), created_account as (
          insert into account
            (id,"accountId","providerId","userId",password,"createdAt","updatedAt")
-         select $5,id,'credential',id,$6,now(),now()
+         select $7,id,'credential',id,$8,now(),now()
            from created_user
          returning id
        ), created_audit as (
          insert into auditoria
            (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
-         select $7,'ADMIN','CRIAR_CONTA','USUARIO',id,$8::jsonb
+         select $9,'ADMIN','CRIAR_CONTA','USUARIO',id,$10::jsonb
            from created_user
          returning id
        )
-       select id,name,email from created_user`,
+       select id,name,email,turno from created_user`,
       [
         userId,
         body.data.nome,
         body.data.email,
         role,
+        turno,
+        supervisor,
         accountId,
         passwordHash,
         actor.id,
@@ -86,6 +115,9 @@ userManagementRoutes.post('/usuarios', async (c) => {
           email: body.data.email,
           nome: body.data.nome,
           perfil: body.data.perfil,
+          turno,
+          senhaTemporariaGerada: supervisor,
+          trocaSenhaObrigatoria: supervisor,
         }),
       ],
     )
@@ -93,13 +125,19 @@ userManagementRoutes.post('/usuarios', async (c) => {
     const created = result.rows[0]
     if (!created) throw new Error('Conta não retornada após persistência.')
 
+    c.header('Cache-Control', 'no-store')
     return c.json({
       usuario: {
         id: created.id,
         nome: created.name,
         email: created.email,
         perfil: body.data.perfil,
+        turno: created.turno,
+        trocaSenhaObrigatoria: supervisor,
       },
+      // Única exposição em texto puro: resposta TLS ao Administrador que acabou
+      // de criar a conta. O cliente deve tratá-la como informação efêmera.
+      senhaTemporaria: temporaryPassword,
     }, 201)
   } catch (error) {
     const code = databaseErrorCode(error)
