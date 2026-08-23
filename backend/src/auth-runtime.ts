@@ -8,7 +8,13 @@ import { getPool, query } from './db.js'
 import { hashPassword, verifyPassword } from './password-crypto.js'
 
 export type Role = 'ADMIN' | 'SUPERVISOR'
-export type AuthUser = { id: string; nome: string; email: string; papel: Role }
+export type AuthUser = {
+  id: string
+  nome: string
+  email: string
+  papel: Role
+  turno: 'A' | 'B' | 'C' | 'D' | null
+}
 export type Device = { id: string; nome: string }
 
 export type WorkerVersionMetadata = {
@@ -46,9 +52,6 @@ function createAuth() {
       disableSignUp: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
-      // Explicitly bind the password provider instead of relying on conditional
-      // package exports chosen by Wrangler/workerd. The implementation keeps
-      // Better Auth's existing scrypt parameters and persisted hash format.
       password: {
         hash: hashPassword,
         verify: verifyPassword,
@@ -56,9 +59,6 @@ function createAuth() {
     },
     session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
     advanced: { database: { generateId: 'uuid' } },
-    // O token gerado pelo Ponto Café já é um segredo aleatório de 256 bits.
-    // No modo padrão, o plugin Bearer o converte internamente no cookie assinado
-    // que Better Auth espera antes de consultar a sessão.
     plugins: [bearer(), admin()],
   })
 }
@@ -91,7 +91,9 @@ function readBearerToken(value: string | undefined): string | null {
 
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const token = readBearerToken(c.req.header('Authorization'))
-  if (!token) return c.json({ erro: 'Não autenticado.', requestId: c.get('requestId') }, 401)
+  if (!token) {
+    return c.json({ erro: 'Não autenticado.', codigo: 'AUTH_SESSION_REQUIRED', requestId: c.get('requestId') }, 401)
+  }
 
   const result = await query<{
     id: string
@@ -99,8 +101,11 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
     email: string
     role: string | null
     banned: boolean | null
+    turno: string | null
+    mustChangePassword: boolean
   }>(
-    `select u.id,u.name,u.email,u.role,u.banned
+    `select u.id,u.name,u.email,u.role,u.banned,u.turno,
+            u."mustChangePassword" as "mustChangePassword"
        from session s
        join "user" u on u.id=s."userId"
       where s.token=$1 and s."expiresAt">now()
@@ -108,17 +113,33 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
     [token],
   )
   const user = result.rows[0]
-  if (!user) return c.json({ erro: 'Sessão inválida ou expirada.', requestId: c.get('requestId') }, 401)
-  if (user.banned) return c.json({ erro: 'Esta conta está desativada.', requestId: c.get('requestId') }, 403)
-  if (user.role !== 'admin' && user.role !== 'user') {
-    return c.json({ erro: 'Perfil de acesso inválido.', requestId: c.get('requestId') }, 403)
+  if (!user) {
+    return c.json({ erro: 'Sessão inválida ou expirada.', codigo: 'AUTH_SESSION_INVALID', requestId: c.get('requestId') }, 401)
   }
+  if (user.banned) {
+    return c.json({ erro: 'Esta conta está desativada.', codigo: 'AUTH_ACCOUNT_DISABLED', requestId: c.get('requestId') }, 403)
+  }
+  if (user.role !== 'admin' && user.role !== 'user') {
+    return c.json({ erro: 'Perfil de acesso inválido.', codigo: 'AUTH_ROLE_INVALID', requestId: c.get('requestId') }, 403)
+  }
+  if (user.role === 'user' && user.mustChangePassword) {
+    return c.json({
+      erro: 'Troque a senha temporária antes de continuar.',
+      codigo: 'PASSWORD_CHANGE_REQUIRED',
+      requestId: c.get('requestId'),
+    }, 403)
+  }
+
+  const turno = user.turno === 'A' || user.turno === 'B' || user.turno === 'C' || user.turno === 'D'
+    ? user.turno
+    : null
 
   c.set('user', {
     id: user.id,
     nome: user.name,
     email: user.email,
     papel: user.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
+    turno,
   })
   await next()
 })
@@ -126,7 +147,11 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
 export function requireRole(...roles: Role[]): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     if (!roles.includes(c.get('user').papel)) {
-      return c.json({ erro: 'Acesso negado.', requestId: c.get('requestId') }, 403)
+      return c.json({
+        erro: 'Acesso negado.',
+        codigo: 'AUTH_ROLE_DENIED',
+        requestId: c.get('requestId'),
+      }, 403)
     }
     await next()
   }
