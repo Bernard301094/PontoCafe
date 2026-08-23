@@ -39,7 +39,7 @@ const settings = readFileSync(new URL('../../settings.gradle.kts', import.meta.u
 
 test('voz própria usa sherpa-onnx e Piper pt-BR offline com modelo verificado', () => {
   assert.match(settings, /https:\/\/jitpack\.io/)
-  assert.match(gradle, /com\.github\.k2-fsa:sherpa-onnx:v1\.13\.4/)
+  assert.match(gradle, /com\.github\.k2-fsa:sherpa-onnx:v1\.13\.6/)
   assert.match(gradle, /org\.apache\.commons:commons-compress:1\.27\.1/)
   assert.match(neuralVoice, /OfflineTts/)
   assert.match(neuralVoice, /OfflineTtsVitsModelConfig/)
@@ -52,6 +52,16 @@ test('voz própria usa sherpa-onnx e Piper pt-BR offline com modelo verificado',
   assert.match(neuralVoice, /sha256\(model\)/)
   assert.match(neuralVoice, /MAX_ARCHIVE_BYTES/)
   assert.match(neuralVoice, /MAX_EXTRACTED_BYTES/)
+})
+
+test('runtime neural evita fallback prolongado por erro transitório de AudioTrack', () => {
+  assert.match(neuralVoice, /RETRY_AFTER_MILLIS = 30_000L/)
+  assert.match(neuralVoice, /VOICE_PLAYBACK_FAILED/)
+  assert.match(neuralVoice, /track\.play\(\)[\s\S]*track\.write/)
+  assert.match(neuralVoice, /WRITE_CHUNK_SAMPLES/)
+  assert.match(neuralVoice, /Falha de AudioTrack não invalida o modelo\/engine/)
+  assert.match(neuralVoice, /numThreads = 1/)
+  assert.match(neuralVoice, /provider = "cpu"/)
 })
 
 test('voz neural mantém Android TTS pt-BR como fallback fail-open e respeita acessibilidade', () => {
