@@ -110,6 +110,9 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const user = result.rows[0]
   if (!user) return c.json({ erro: 'Sessão inválida ou expirada.', requestId: c.get('requestId') }, 401)
   if (user.banned) return c.json({ erro: 'Esta conta está desativada.', requestId: c.get('requestId') }, 403)
+  if (user.role !== 'admin' && user.role !== 'user') {
+    return c.json({ erro: 'Perfil de acesso inválido.', requestId: c.get('requestId') }, 403)
+  }
 
   c.set('user', {
     id: user.id,
