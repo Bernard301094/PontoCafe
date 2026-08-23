@@ -38,10 +38,50 @@ internal enum class PontoNeuralVoiceAvailability {
     FAILED,
 }
 
+internal enum class PontoSpeechBackend {
+    NEURAL_PONTOCAFE,
+    ANDROID_TTS_FALLBACK,
+    NONE,
+}
+
+internal enum class PontoNeuralVoiceFailureStage {
+    PREPARATION,
+    SYNTHESIS,
+    PLAYBACK,
+}
+
+internal sealed interface PontoNeuralSpeechEvent {
+    data object Queued : PontoNeuralSpeechEvent
+    data object Synthesizing : PontoNeuralSpeechEvent
+    data object SynthesisCompleted : PontoNeuralSpeechEvent
+    data object PlaybackStarted : PontoNeuralSpeechEvent
+    data object PlaybackCompleted : PontoNeuralSpeechEvent
+    data class Failed(
+        val stage: PontoNeuralVoiceFailureStage,
+        val diagnosticCode: String,
+    ) : PontoNeuralSpeechEvent
+}
+
+internal object PontoSpeechBackendTracker {
+    @Volatile
+    private var backend: PontoSpeechBackend = PontoSpeechBackend.NONE
+
+    fun current(): PontoSpeechBackend = backend
+
+    fun mark(value: PontoSpeechBackend) {
+        backend = value
+    }
+
+    fun reset() {
+        backend = PontoSpeechBackend.NONE
+    }
+}
+
 internal data class PontoNeuralVoiceDiagnostics(
     val availability: PontoNeuralVoiceAvailability,
     val modelInstalled: Boolean,
     val usingAndroidFallback: Boolean,
+    val lastSpeechBackend: PontoSpeechBackend,
     val lastFailureAtMillis: Long?,
     val lastFailureReason: String?,
     val retryAvailableInMillis: Long,
@@ -64,9 +104,10 @@ private data class CachedNeuralAudio(
  *
  * O modelo pt-BR não é empacotado no APK: ele é baixado uma única vez para o
  * armazenamento privado da aplicação, validado por SHA-256 e reutilizado sem
- * internet. Até ficar pronto (ou se qualquer etapa falhar), o chamador mantém
- * o Android TextToSpeech como fallback. Nenhuma falha de voz interfere no
- * reconhecimento facial ou no registro do ponto.
+ * internet. Quando o modelo já está instalado, uma fala solicitada enquanto o
+ * engine ainda está em PREPARING fica enfileirada atrás da inicialização neural
+ * em vez de cair imediatamente no Android TTS. Enquanto o primeiro download
+ * ainda não terminou, o chamador continua livre para usar o fallback Android.
  */
 internal object PontoNeuralVoiceRuntime {
     private const val TAG = "PontoCafeVoice"
@@ -114,7 +155,7 @@ internal object PontoNeuralVoiceRuntime {
 
     fun diagnostics(context: Context): PontoNeuralVoiceDiagnostics {
         val appContext = context.applicationContext
-        val modelDir = File(File(appContext.filesDir, "pontocafe-voice"), MODEL_DIR)
+        val modelDir = modelDirectory(appContext)
         val now = System.currentTimeMillis()
         synchronized(lock) {
             val retryIn = if (state == NeuralVoiceState.FAILED && lastFailureAtMillis > 0L) {
@@ -122,10 +163,12 @@ internal object PontoNeuralVoiceRuntime {
             } else {
                 0L
             }
+            val lastBackend = PontoSpeechBackendTracker.current()
             return PontoNeuralVoiceDiagnostics(
                 availability = state.toAvailability(),
                 modelInstalled = modelReadyOnDisk(modelDir),
-                usingAndroidFallback = state != NeuralVoiceState.READY || engine == null,
+                usingAndroidFallback = lastBackend == PontoSpeechBackend.ANDROID_TTS_FALLBACK,
+                lastSpeechBackend = lastBackend,
                 lastFailureAtMillis = lastFailureAtMillis.takeIf { it > 0L },
                 lastFailureReason = lastFailureReason,
                 retryAvailableInMillis = retryIn,
@@ -143,20 +186,41 @@ internal object PontoNeuralVoiceRuntime {
         ensurePreparing(context.applicationContext)
     }
 
+    /**
+     * ACCEPTED means only that the utterance was admitted to the neural worker.
+     * Observable completion is delivered exclusively through [onEvent].
+     */
     fun speak(
         context: Context,
         prompt: PontoVoicePrompt,
         sessionKey: String?,
         onFailure: (() -> Unit)? = null,
+        onEvent: ((PontoNeuralSpeechEvent) -> Unit)? = null,
     ): PontoNeuralSpeechDecision {
-        val currentEngine = engine
-        if (state != NeuralVoiceState.READY || currentEngine == null) {
-            ensurePreparing(context.applicationContext)
-            return PontoNeuralSpeechDecision.UNAVAILABLE
-        }
-
+        val appContext = context.applicationContext
         val normalizedText = PontoVoiceTextNormalizer.normalize(prompt.text)
         if (normalizedText.isBlank()) return PontoNeuralSpeechDecision.SUPPRESSED
+
+        var currentEngine = engine
+        if (state != NeuralVoiceState.READY || currentEngine == null) {
+            val installed = modelReadyOnDisk(modelDirectory(appContext))
+            ensurePreparing(appContext)
+
+            // First installation can involve a large download. Do not hold an
+            // operational prompt behind that download; Android TTS remains the
+            // fail-open path until the model exists locally.
+            if (!installed) return PontoNeuralSpeechDecision.UNAVAILABLE
+
+            // The preparation task and this speech task share the same single
+            // worker. When PREPARING, the utterance is therefore guaranteed to
+            // run only after the engine preparation ahead of it has completed.
+            val canQueueBehindPreparation = synchronized(lock) {
+                state == NeuralVoiceState.PREPARING ||
+                    (state == NeuralVoiceState.READY && engine != null)
+            }
+            if (!canQueueBehindPreparation) return PontoNeuralSpeechDecision.UNAVAILABLE
+            currentEngine = null
+        }
 
         val now = System.currentTimeMillis()
         val lifecycle: Long
@@ -183,30 +247,96 @@ internal object PontoNeuralVoiceRuntime {
             utterance = utteranceVersion
         }
 
+        emitEvent(onEvent, PontoNeuralSpeechEvent.Queued)
         worker.execute {
-            if (!isCurrent(lifecycle, utterance)) return@execute
+            if (!isCurrent(lifecycle, utterance)) {
+                emitEvent(
+                    onEvent,
+                    PontoNeuralSpeechEvent.Failed(
+                        PontoNeuralVoiceFailureStage.PLAYBACK,
+                        "VOICE_SUPERSEDED",
+                    ),
+                )
+                return@execute
+            }
 
-            val audio = try {
-                synchronized(lock) { cache[normalizedText] }
-                    ?: synthesize(currentEngine, normalizedText).also { generated ->
-                        synchronized(lock) { cache[normalizedText] = generated }
-                    }
-            } catch (error: Throwable) {
-                Log.e(TAG, "VOICE_SYNTHESIS_FAILED", error)
-                markEngineFailure(currentEngine, error)
+            val executionEngine = currentEngine ?: synchronized(lock) {
+                if (state == NeuralVoiceState.READY) engine else null
+            }
+            if (executionEngine == null) {
+                emitEvent(
+                    onEvent,
+                    PontoNeuralSpeechEvent.Failed(
+                        PontoNeuralVoiceFailureStage.PREPARATION,
+                        "VOICE_ENGINE_NOT_READY",
+                    ),
+                )
                 runCatching { onFailure?.invoke() }
                 return@execute
             }
 
-            if (!isCurrent(lifecycle, utterance)) return@execute
+            emitEvent(onEvent, PontoNeuralSpeechEvent.Synthesizing)
+            val audio = try {
+                synchronized(lock) { cache[normalizedText] }
+                    ?: synthesize(executionEngine, normalizedText).also { generated ->
+                        synchronized(lock) { cache[normalizedText] = generated }
+                    }
+            } catch (error: Throwable) {
+                Log.e(TAG, "VOICE_SYNTHESIS_FAILED", error)
+                markEngineFailure(executionEngine, error)
+                emitEvent(
+                    onEvent,
+                    PontoNeuralSpeechEvent.Failed(
+                        PontoNeuralVoiceFailureStage.SYNTHESIS,
+                        diagnosticCode(error, "VOICE_SYNTHESIS_FAILED"),
+                    ),
+                )
+                runCatching { onFailure?.invoke() }
+                return@execute
+            }
+            emitEvent(onEvent, PontoNeuralSpeechEvent.SynthesisCompleted)
+
+            if (!isCurrent(lifecycle, utterance)) {
+                emitEvent(
+                    onEvent,
+                    PontoNeuralSpeechEvent.Failed(
+                        PontoNeuralVoiceFailureStage.PLAYBACK,
+                        "VOICE_SUPERSEDED",
+                    ),
+                )
+                return@execute
+            }
 
             try {
-                play(audio, lifecycle, utterance)
+                val completed = play(
+                    audio = audio,
+                    lifecycle = lifecycle,
+                    utterance = utterance,
+                    onStarted = { emitEvent(onEvent, PontoNeuralSpeechEvent.PlaybackStarted) },
+                )
+                if (completed) {
+                    PontoSpeechBackendTracker.mark(PontoSpeechBackend.NEURAL_PONTOCAFE)
+                    emitEvent(onEvent, PontoNeuralSpeechEvent.PlaybackCompleted)
+                } else {
+                    emitEvent(
+                        onEvent,
+                        PontoNeuralSpeechEvent.Failed(
+                            PontoNeuralVoiceFailureStage.PLAYBACK,
+                            "VOICE_PLAYBACK_INTERRUPTED",
+                        ),
+                    )
+                }
             } catch (error: Throwable) {
-                // Falha de AudioTrack não invalida o modelo/engine. A versão
-                // anterior marcava todo o runtime como FAILED e podia manter a
-                // voz Android por 15 minutos após um erro transitório de áudio.
+                // Falha de AudioTrack não invalida o modelo/engine. O fallback
+                // Android continua disponível para a fala operacional normal.
                 Log.e(TAG, "VOICE_PLAYBACK_FAILED", error)
+                emitEvent(
+                    onEvent,
+                    PontoNeuralSpeechEvent.Failed(
+                        PontoNeuralVoiceFailureStage.PLAYBACK,
+                        diagnosticCode(error, "VOICE_PLAYBACK_FAILED"),
+                    ),
+                )
                 if (isCurrent(lifecycle, utterance)) {
                     runCatching { onFailure?.invoke() }
                 }
@@ -230,6 +360,7 @@ internal object PontoNeuralVoiceRuntime {
             cache.clear()
             gate.reset()
         }
+        PontoSpeechBackendTracker.reset()
         if (engineToRelease != null) {
             worker.execute { runCatching { engineToRelease.release() } }
         }
@@ -328,7 +459,12 @@ internal object PontoNeuralVoiceRuntime {
         return CachedNeuralAudio(samples = pcm, sampleRate = generated.sampleRate)
     }
 
-    private fun play(audio: CachedNeuralAudio, lifecycle: Long, utterance: Long) {
+    private fun play(
+        audio: CachedNeuralAudio,
+        lifecycle: Long,
+        utterance: Long,
+        onStarted: () -> Unit,
+    ): Boolean {
         val minBuffer = AudioTrack.getMinBufferSize(
             audio.sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
@@ -336,10 +472,6 @@ internal object PontoNeuralVoiceRuntime {
         )
         check(minBuffer > 0) { "VOICE_AUDIO_BUFFER_INVALID" }
 
-        // MODE_STREAM deve começar a reproduzir antes do WRITE_BLOCKING. Isso
-        // evita que uma fala longa tente preencher um buffer inteiro antes de o
-        // AudioTrack poder drená-lo, situação que fazia o fallback Android ser
-        // acionado em alguns aparelhos.
         val bufferBytes = max(minBuffer, WRITE_CHUNK_SAMPLES * 2)
         val track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -364,13 +496,16 @@ internal object PontoNeuralVoiceRuntime {
         synchronized(lock) {
             if (!isCurrentLocked(lifecycle, utterance)) {
                 track.release()
-                return
+                return false
             }
             currentTrack = track
         }
 
         try {
             track.play()
+            check(track.playState == AudioTrack.PLAYSTATE_PLAYING) { "VOICE_AUDIO_TRACK_NOT_PLAYING" }
+            onStarted()
+
             var offset = 0
             while (offset < audio.samples.size && isCurrent(lifecycle, utterance)) {
                 val count = min(WRITE_CHUNK_SAMPLES, audio.samples.size - offset)
@@ -384,7 +519,7 @@ internal object PontoNeuralVoiceRuntime {
                 offset += written
             }
 
-            if (!isCurrent(lifecycle, utterance)) return
+            if (!isCurrent(lifecycle, utterance) || offset < audio.samples.size) return false
 
             while (
                 isCurrent(lifecycle, utterance) &&
@@ -393,6 +528,9 @@ internal object PontoNeuralVoiceRuntime {
             ) {
                 Thread.sleep(20L)
             }
+
+            return isCurrent(lifecycle, utterance) &&
+                track.playbackHeadPosition.toLong() >= audio.samples.size.toLong()
         } finally {
             runCatching { track.stop() }
             runCatching { track.flush() }
@@ -415,6 +553,9 @@ internal object PontoNeuralVoiceRuntime {
         Log.e(TAG, "VOICE_ENGINE_FAILED", error)
         runCatching { failedEngine.release() }
     }
+
+    private fun modelDirectory(context: Context): File =
+        File(File(context.filesDir, "pontocafe-voice"), MODEL_DIR)
 
     private fun modelReadyOnDisk(modelDir: File): Boolean {
         val marker = File(modelDir, ".ready-$MODEL_SHA256")
@@ -458,9 +599,6 @@ internal object PontoNeuralVoiceRuntime {
             Log.i(TAG, "VOICE_DOWNLOAD_DONE bytes=${archive.length()}")
             extractArchive(archive, extracted)
 
-            // O pacote oficial usa MODEL_DIR como raiz. A busca recursiva deixa
-            // o instalador tolerante a um eventual prefixo ./ ou mudança de
-            // empacotamento sem aceitar um modelo diferente.
             val extractedModel = extracted.walkTopDown()
                 .firstOrNull { it.isFile && it.name == MODEL_FILE }
                 ?: error("VOICE_MODEL_NOT_FOUND_AFTER_EXTRACT")
@@ -565,6 +703,20 @@ internal object PontoNeuralVoiceRuntime {
                 }
             }
         }
+    }
+
+    private fun emitEvent(
+        listener: ((PontoNeuralSpeechEvent) -> Unit)?,
+        event: PontoNeuralSpeechEvent,
+    ) {
+        runCatching { listener?.invoke(event) }
+    }
+
+    private fun diagnosticCode(error: Throwable, fallback: String): String {
+        val raw = error.message?.trim().orEmpty()
+        return raw
+            .takeIf { it.matches(Regex("[A-Z0-9_:-]{3,120}")) }
+            ?: fallback
     }
 
     private fun classifyVoiceFailure(error: Throwable): String {
