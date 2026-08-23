@@ -52,6 +52,8 @@ import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import com.pontocafe.app.notifications.SupervisorNotificationAvailability
+import com.pontocafe.app.voice.PontoNeuralVoiceDiagnostics
+import com.pontocafe.app.voice.PontoNeuralVoiceRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -77,6 +79,9 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val appContext = context.applicationContext
     val alertHistoryStore = remember(appContext) { OperationalAlertHistoryStore(appContext) }
     var alertHistory by remember { mutableStateOf<List<OperationalAlertHistoryItem>>(alertHistoryStore.snapshot()) }
+    var voiceDiagnostics by remember {
+        mutableStateOf<PontoNeuralVoiceDiagnostics>(PontoNeuralVoiceRuntime.diagnostics(appContext))
+    }
     var notificationAvailability by remember {
         mutableStateOf<SupervisorNotificationAvailability?>(null)
     }
@@ -93,12 +98,18 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     LaunchedEffect(appContext) {
         SupervisorAlertNotifier.ensureChannel(appContext)
         notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+        PontoNeuralVoiceRuntime.prewarm(appContext)
+        while (true) {
+            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
+            delay(1_000L)
+        }
     }
 
     DisposableEffect(lifecycleOwner, appContext) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+                voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -263,6 +274,15 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                             )
                         }
                     }
+                }
+                item("voice-status") {
+                    PontoVoiceOperationalStatusCard(
+                        diagnostics = voiceDiagnostics,
+                        onRetry = {
+                            PontoNeuralVoiceRuntime.retryNow(appContext)
+                            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
+                        },
+                    )
                 }
                 alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
                 item("alert-center") {
