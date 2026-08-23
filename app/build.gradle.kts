@@ -133,9 +133,9 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 
     // Voz neural do Ponto: mantém o AAR Android estável publicado no JitPack.
-    // v1.13.6 possui release upstream, mas o artefato JitPack Android ainda não
-    // está publicado de forma resolvível; v1.13.4 é o artefato validado pelo
-    // projeto e preserva a mesma API VITS/Piper usada por este runtime.
+    // v1.13.6 possui release upstream, mas o artefato JitPack Android não está
+    // disponível como coordenada estável neste projeto; v1.13.4 é o artefato
+    // previamente resolvido/validado e preserva a API VITS/Piper usada aqui.
     implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
     implementation("org.apache.commons:commons-compress:1.27.1")
 
