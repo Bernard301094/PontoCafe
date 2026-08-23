@@ -2,14 +2,27 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { auth, requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { query } from '../db.js'
+import { generateTemporaryPassword } from '../supervisor-onboarding.js'
 import { parseJson } from './shared.js'
 
 export const adminRoutes = new Hono<AppEnv>()
 adminRoutes.use('*', requireUser, requireRole('ADMIN'))
 
-async function authUser(userId: string) {
-  const result = await query<{ id: string; name: string; email: string; role: string | null; banned: boolean | null }>(
-    'select id,name,email,role,banned from "user" where id=$1 limit 1',
+type ManagedUser = {
+  id: string
+  name: string
+  email: string
+  role: string | null
+  banned: boolean | null
+  turno: string | null
+  mustChangePassword: boolean
+}
+
+async function authUser(userId: string): Promise<ManagedUser | null> {
+  const result = await query<ManagedUser>(
+    `select id,name,email,role,banned,turno,
+            "mustChangePassword" as "mustChangePassword"
+       from "user" where id=$1 limit 1`,
     [userId],
   )
   return result.rows[0] ?? null
@@ -40,10 +53,13 @@ adminRoutes.get('/usuarios', async (c) => {
     role: string | null
     banned: boolean | null
     createdAt: string
+    turno: string | null
+    mustChangePassword: boolean
   }>(
-    `select id,name,email,role,banned,"createdAt"::text as "createdAt"
-     from "user"
-     order by "createdAt" desc`,
+    `select id,name,email,role,banned,"createdAt"::text as "createdAt",turno,
+            "mustChangePassword" as "mustChangePassword"
+       from "user"
+      order by "createdAt" desc`,
   )
 
   return c.json({
@@ -54,6 +70,8 @@ adminRoutes.get('/usuarios', async (c) => {
       perfil: user.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
       ativo: !user.banned,
       criadoEm: user.createdAt,
+      turno: user.role === 'user' ? user.turno : null,
+      trocaSenhaPendente: user.role === 'user' && user.mustChangePassword,
     })),
   })
 })
@@ -107,30 +125,66 @@ adminRoutes.post('/usuarios/:id/excluir', async (c) => {
     email: target.email,
     nome: target.name,
     perfil: target.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
+    turno: target.turno,
   })
   return c.json({ ok: true, excluido: true })
 })
 
 adminRoutes.put('/usuarios/:id/senha', async (c) => {
   const targetId = c.req.param('id')
-  const body = await parseJson(c, z.object({ novaSenha: z.string().min(10).max(128) }))
+  const body = await parseJson(c, z.object({
+    novaSenha: z.string().min(10).max(128).optional(),
+  }))
   if (!body.ok) return body.response
+
   const target = await authUser(targetId)
   if (!target) return c.json({ erro: 'Conta não encontrada.' }, 404)
 
+  const supervisor = target.role === 'user'
+  const temporaryPassword = supervisor ? generateTemporaryPassword() : null
+  const newPassword = temporaryPassword ?? body.data.novaSenha
+  if (!newPassword) {
+    return c.json({ erro: 'Informe a nova senha do Administrador.' }, 400)
+  }
+
   await auth.api.setUserPassword({
-    body: { userId: targetId, newPassword: body.data.novaSenha },
+    body: { userId: targetId, newPassword },
     headers: c.req.raw.headers,
   })
+  await query(
+    `update "user"
+        set "mustChangePassword"=$2,"updatedAt"=now()
+      where id=$1`,
+    [targetId, supervisor],
+  )
   await auth.api.revokeUserSessions({ body: { userId: targetId }, headers: c.req.raw.headers })
-  await auditUser(c.get('user').id, 'REDEFINIR_SENHA', targetId, { sessoesRevogadas: true })
-  return c.json({ ok: true, sessoesRevogadas: true })
+  await auditUser(c.get('user').id, 'REDEFINIR_SENHA', targetId, {
+    sessoesRevogadas: true,
+    senhaTemporariaGerada: supervisor,
+    trocaSenhaObrigatoria: supervisor,
+  })
+
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    ok: true,
+    sessoesRevogadas: true,
+    trocaSenhaObrigatoria: supervisor,
+    senhaTemporaria: temporaryPassword,
+  })
 })
 
 adminRoutes.put('/usuarios/:id/perfil', async (c) => {
   const targetId = c.req.param('id')
-  const body = await parseJson(c, z.object({ perfil: z.enum(['SUPERVISOR', 'ADMIN']) }))
+  const body = await parseJson(c, z.object({
+    perfil: z.enum(['SUPERVISOR', 'ADMIN']),
+    turno: z.enum(['A', 'B', 'C', 'D']).optional().nullable(),
+  }).superRefine((value, ctx) => {
+    if (value.perfil === 'SUPERVISOR' && !value.turno) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['turno'], message: 'Informe o turno do Supervisor.' })
+    }
+  }))
   if (!body.ok) return body.response
+
   const adminAtual = c.get('user')
   const target = await authUser(targetId)
   if (!target) return c.json({ erro: 'Conta não encontrada.' }, 404)
@@ -142,8 +196,37 @@ adminRoutes.put('/usuarios/:id/perfil', async (c) => {
     return c.json({ erro: 'Não é possível rebaixar o último administrador ativo.' }, 409)
   }
 
-  const role = body.data.perfil === 'ADMIN' ? 'admin' : 'user'
+  const becomingSupervisor = body.data.perfil === 'SUPERVISOR'
+  const role = becomingSupervisor ? 'user' : 'admin'
+  const temporaryPassword = becomingSupervisor ? generateTemporaryPassword() : null
+
   await auth.api.setRole({ body: { userId: targetId, role }, headers: c.req.raw.headers })
-  await auditUser(adminAtual.id, 'ALTERAR_PERFIL', targetId, { perfil: body.data.perfil })
-  return c.json({ ok: true, perfil: body.data.perfil })
+  if (temporaryPassword) {
+    await auth.api.setUserPassword({
+      body: { userId: targetId, newPassword: temporaryPassword },
+      headers: c.req.raw.headers,
+    })
+  }
+  await query(
+    `update "user"
+        set turno=$2,"mustChangePassword"=$3,"updatedAt"=now()
+      where id=$1`,
+    [targetId, becomingSupervisor ? body.data.turno : null, becomingSupervisor],
+  )
+  await auth.api.revokeUserSessions({ body: { userId: targetId }, headers: c.req.raw.headers })
+  await auditUser(adminAtual.id, 'ALTERAR_PERFIL', targetId, {
+    perfil: body.data.perfil,
+    turno: becomingSupervisor ? body.data.turno : null,
+    senhaTemporariaGerada: becomingSupervisor,
+    sessoesRevogadas: true,
+  })
+
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    ok: true,
+    perfil: body.data.perfil,
+    turno: becomingSupervisor ? body.data.turno : null,
+    trocaSenhaObrigatoria: becomingSupervisor,
+    senhaTemporaria: temporaryPassword,
+  })
 })
