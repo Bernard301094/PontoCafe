@@ -1,5 +1,8 @@
 package com.pontocafe.app.data
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.pontocafe.app.BuildConfig
 import com.pontocafe.app.avatar.PontoAvatarRuntime
 import java.security.cert.CertPathValidatorException
@@ -9,7 +12,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.ResponseBody
+import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -83,9 +86,7 @@ data class AvatarMutationResponse(
     val bytes: Int? = null,
 )
 
-data class CancelAuthorizationRequest(
-    val colaboradorId: String,
-)
+data class CancelAuthorizationRequest(val colaboradorId: String)
 
 data class CancelAuthorizationResponse(
     val ok: Boolean,
@@ -93,8 +94,13 @@ data class CancelAuthorizationResponse(
     val id: String,
 )
 
+data class TemporaryPasswordChangeRequest(val newPassword: String)
+data class TemporaryPasswordChangeResponse(val ok: Boolean, val mustChangePassword: Boolean)
+
 interface SupervisorApi {
     @POST("api/auth/sign-in/email") suspend fun signIn(@Body body: SignInRequest): Response<SignInResponse>
+    @POST("api/auth/change-temporary-password")
+    suspend fun changeTemporaryPassword(@Body body: TemporaryPasswordChangeRequest): TemporaryPasswordChangeResponse
     @POST("api/auth/sign-out") suspend fun signOut(): Response<Unit>
     @GET("supervisor/pausas/ativas") suspend fun pausasAtivas(): PausasSupervisorResponse
     @GET("supervisor/pausas") suspend fun historico(@Query("data") data: String? = null): PausasSupervisorResponse
@@ -127,6 +133,66 @@ interface SupervisorApi {
     @POST("gestao/colaboradores/{id}/excluir") suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
+/**
+ * Estado efêmero do primeiro acesso. Não contém senha nem token. A sessão continua
+ * cifrada no SecureAdminSessionStore e a senha temporária existe apenas no campo
+ * digitado pelo usuário.
+ */
+object SupervisorPasswordChangeRuntime {
+    var required by mutableStateOf(false)
+        private set
+    var submitting by mutableStateOf(false)
+        private set
+    var error by mutableStateOf<String?>(null)
+        private set
+    var success by mutableStateOf(false)
+        private set
+
+    private var repository: SupervisorRepository? = null
+
+    internal fun bind(repository: SupervisorRepository) {
+        this.repository = repository
+    }
+
+    internal fun requireChange() {
+        required = true
+        success = false
+        error = null
+    }
+
+    internal fun clear() {
+        required = false
+        submitting = false
+        error = null
+        success = false
+    }
+
+    fun dismissError() {
+        error = null
+    }
+
+    suspend fun submit(newPassword: String): Boolean {
+        val bound = repository ?: run {
+            error = "Não foi possível acessar a sessão do Supervisor."
+            return false
+        }
+        submitting = true
+        error = null
+        success = false
+        return try {
+            bound.changeTemporaryPassword(newPassword)
+            success = true
+            required = false
+            true
+        } catch (throwable: Throwable) {
+            error = SupervisorRepository.message(throwable)
+            false
+        } finally {
+            submitting = false
+        }
+    }
+}
+
 class SupervisorRepository(
     private val api: SupervisorApi,
     private val supervisorSessionStore: SecureAdminSessionStore,
@@ -137,15 +203,6 @@ class SupervisorRepository(
     fun hasSession(): Boolean = supervisorToken() != null
     fun usingAdminSession(): Boolean = false
 
-    /**
-     * O login termina quando o servidor autentica as credenciais e devolve o
-     * bearer token. A carga da Operação acontece depois, no ViewModel.
-     *
-     * O interceptor também garante que /api/auth/sign-in/email nunca reutilize
-     * o bearer de uma conta Supervisor salva anteriormente. Isso é importante no
-     * seletor multi-conta: um token vencido ou pertencente a outra conta não pode
-     * contaminar uma nova tentativa de login.
-     */
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
@@ -154,12 +211,15 @@ class SupervisorRepository(
         supervisorSessionStore.save(bearer)
     }
 
+    suspend fun changeTemporaryPassword(newPassword: String) {
+        api.changeTemporaryPassword(TemporaryPasswordChangeRequest(newPassword))
+        SupervisorPasswordChangeRuntime.clear()
+    }
+
     suspend fun pausasAtivas(): List<PausaSupervisor> {
         val pausas = api.pausasAtivas().pausas
         val atualizadoEm = System.currentTimeMillis()
-        return pausas.map { pausa ->
-            pausa.copy(clienteAtualizadoEmMillis = atualizadoEm)
-        }
+        return pausas.map { pausa -> pausa.copy(clienteAtualizadoEmMillis = atualizadoEm) }
     }
 
     suspend fun historico(data: String? = null) = api.historico(data).pausas
@@ -189,9 +249,7 @@ class SupervisorRepository(
     }
 
     suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse =
-        api.deleteAvatar(collaboratorId).also {
-            PontoAvatarRuntime.avatarUpdated(collaboratorId, null)
-        }
+        api.deleteAvatar(collaboratorId).also { PontoAvatarRuntime.avatarUpdated(collaboratorId, null) }
 
     suspend fun saveBiometric(
         collaboratorId: String,
@@ -217,32 +275,52 @@ class SupervisorRepository(
             runCatching { api.signOut() }
             supervisorSessionStore.clear()
         }
+        SupervisorPasswordChangeRuntime.clear()
     }
 
     fun clearActiveSession() {
         supervisorSessionStore.clear()
+        SupervisorPasswordChangeRuntime.clear()
     }
 
     companion object {
+        private fun apiErrorCode(error: Throwable): String? {
+            if (error !is HttpException) return null
+            val errorBody = error.response()?.errorBody() ?: return null
+            return runCatching {
+                val source = errorBody.source()
+                source.request(Long.MAX_VALUE)
+                val text = source.buffer.clone().readUtf8()
+                JSONObject(text).optString("codigo").takeIf { it.isNotBlank() }
+            }.getOrNull()
+        }
+
         fun isSessionExpired(error: Throwable): Boolean =
             error is HttpException && error.code() == 401
 
-        fun isAccessDenied(error: Throwable): Boolean =
-            error is HttpException && error.code() == 403
+        fun isAccessDenied(error: Throwable): Boolean {
+            if (error !is HttpException || error.code() != 403) return false
+            return when (apiErrorCode(error)) {
+                "PASSWORD_CHANGE_REQUIRED" -> {
+                    SupervisorPasswordChangeRuntime.requireChange()
+                    false
+                }
+                "AUTH_ROLE_DENIED" -> false
+                "AUTH_ACCOUNT_DISABLED", "AUTH_ROLE_INVALID" -> true
+                else -> true
+            }
+        }
 
         fun isAuthFailure(error: Throwable): Boolean =
             isSessionExpired(error) || isAccessDenied(error)
 
-        /**
-         * Mensagem usada somente quando uma sessão que já estava salva falha ao
-         * acessar uma rota protegida. Não use este texto no POST de login: um 401
-         * nessa rota continua significando e-mail ou senha inválidos.
-         */
         fun sessionRecoveryMessage(error: Throwable): String = when {
             isSessionExpired(error) ->
                 "Sua sessão terminou. Digite sua senha novamente para continuar."
-            isAccessDenied(error) ->
-                "Esta conta não possui mais acesso de Supervisor. Entre com uma conta autorizada ou fale com um administrador."
+            apiErrorCode(error) == "AUTH_ACCOUNT_DISABLED" ->
+                "Esta conta de Supervisor está desativada. Fale com um administrador."
+            apiErrorCode(error) == "AUTH_ROLE_INVALID" ->
+                "O perfil desta conta não é válido para Supervisor."
             else ->
                 "Não foi possível validar o acesso de Supervisor. Entre novamente."
         }
@@ -255,9 +333,7 @@ class SupervisorRepository(
                     current is SSLPeerUnverifiedException ||
                     current is CertPathValidatorException ||
                     current.javaClass.name.contains("CertPathValidatorException")
-                ) {
-                    return true
-                }
+                ) return true
                 current = current.cause
             }
             return false
@@ -265,7 +341,10 @@ class SupervisorRepository(
 
         fun message(error: Throwable): String {
             if (isTlsTrustFailure(error)) {
-                return "A conexão segura falhou antes de o servidor validar o e-mail e a senha. A conta Supervisor não foi rejeitada. Verifique data e hora automáticas e tente novamente; se persistir, teste outra rede."
+                return "A conexão segura falhou antes de o servidor validar o e-mail e a senha. Verifique data e hora automáticas e tente novamente."
+            }
+            if (apiErrorCode(error) == "PASSWORD_CHANGE_REQUIRED") {
+                return "Crie uma nova senha para concluir seu primeiro acesso."
             }
             return AdminRepository.message(error)
         }
@@ -286,9 +365,6 @@ object SupervisorApiClient {
             val token = supervisorSessionStore.read()?.takeIf { it.isNotBlank() }
 
             val request = original.newBuilder().apply {
-                // Nunca envie a sessão ativa ao autenticar outra conta. Além de
-                // desnecessário, um bearer antigo pode tornar o comportamento do
-                // login dependente de qual Supervisor estava ativo no aparelho.
                 if (isCredentialSignIn) {
                     removeHeader("Authorization")
                     header("Cache-Control", "no-store")
@@ -310,9 +386,11 @@ object SupervisorApiClient {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
 
-        return SupervisorRepository(
+        val repository = SupervisorRepository(
             api = retrofit.create(SupervisorApi::class.java),
             supervisorSessionStore = supervisorSessionStore,
         )
+        SupervisorPasswordChangeRuntime.bind(repository)
+        return repository
     }
 }
