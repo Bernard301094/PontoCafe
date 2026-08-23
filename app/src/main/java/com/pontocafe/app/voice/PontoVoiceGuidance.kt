@@ -13,12 +13,6 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.delay
-
-private const val DEVICE_AUTH_RECHECK_MILLIS = 10_000L
-private const val NEURAL_RESULT_WAIT_MILLIS = 2_500L
-private const val NEURAL_RESULT_WAIT_STEP_MILLIS = 100L
-private const val DEVICE_REVOKED_ERROR_FRAGMENT = "não está mais autorizado"
 
 enum class PontoVoicePriority {
     LOW,
@@ -299,10 +293,11 @@ internal class PontoVoiceGate {
 }
 
 /**
- * Runtime process-scoped neural-first. A voz Piper/VITS local é preferida
- * quando pronta; Android TextToSpeech pt-BR continua como fallback imediato.
- * Inicialização, download, síntese e reprodução são fail-open e nunca alteram
- * o fluxo biométrico/de ponto.
+ * Runtime process-scoped neural-first. When the neural model is already stored,
+ * PontoNeuralVoiceRuntime queues prompts behind engine preparation so the
+ * Android voice no longer wins merely because initialization was still in
+ * progress. Android TextToSpeech remains the fail-open fallback for first model
+ * installation and genuine synthesis/playback failures.
  */
 object PontoVoiceRuntime {
     private val lock = Any()
@@ -440,6 +435,7 @@ private class PontoTextToSpeech(context: Context) {
         }.getOrDefault(TextToSpeech.ERROR)
         if (result == TextToSpeech.SUCCESS) {
             gate.markSpoken(prompt, now, sessionKey)
+            PontoSpeechBackendTracker.mark(PontoSpeechBackend.ANDROID_TTS_FALLBACK)
         }
     }
 
@@ -455,15 +451,8 @@ private class PontoTextToSpeech(context: Context) {
 }
 
 /**
- * Announces only authoritative point outcomes and blocks. Normal recognition,
- * processing and registration stages intentionally stay silent.
- *
- * Também vigia a credencial do dispositivo enquanto a câmera está ativa. O
- * backend já responde 401 para um token de dispositivo removido/inativo; a
- * checagem periódica reaproveita o fluxo existente de conectividade e, ao
- * receber esse sinal autoritativo, desmonta o modo Ponto e volta ao cadastro de
- * token. Falhas temporárias de rede não revogam o aparelho e preservam o modo
- * offline existente.
+ * Announces only authoritative point outcomes and blocks. Device authorization
+ * is deliberately not owned here; this composable is voice-only.
  */
 @Composable
 fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
@@ -474,22 +463,6 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
 
     LaunchedEffect(Unit) {
         PontoVoiceRuntime.prewarm(context)
-    }
-
-    LaunchedEffect(state.deviceConfigured) {
-        if (!state.deviceConfigured) return@LaunchedEffect
-        while (true) {
-            viewModel.atualizarConectividadeESincronizar()
-            delay(DEVICE_AUTH_RECHECK_MILLIS)
-        }
-    }
-
-    LaunchedEffect(state.deviceConfigured, state.erro) {
-        val revoked = state.deviceConfigured &&
-            state.erro?.contains(DEVICE_REVOKED_ERROR_FRAGMENT, ignoreCase = true) == true
-        if (revoked) {
-            viewModel.removerConfiguracao()
-        }
     }
 
     val prompt = remember(
@@ -510,34 +483,6 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
 
     LaunchedEffect(prompt?.key, prompt?.text) {
         val currentPrompt = prompt ?: return@LaunchedEffect
-
-        // Resultado/bloqueio é curto e importante. Quando o modelo neural já
-        // está instalado, damos ao engine alguns instantes para sair de
-        // PREPARING (ou refazemos uma inicialização que falhou) antes de cair no
-        // TTS do Android. Isso evita ouvir sistematicamente a voz do aparelho só
-        // porque o engine estava a centenas de milissegundos de ficar READY.
-        if (
-            currentPrompt.priority == PontoVoicePriority.RESULT ||
-            currentPrompt.priority == PontoVoicePriority.CRITICAL
-        ) {
-            var diagnostics = PontoNeuralVoiceRuntime.diagnostics(context)
-            if (diagnostics.modelInstalled && diagnostics.availability == PontoNeuralVoiceAvailability.FAILED) {
-                PontoNeuralVoiceRuntime.retryNow(context)
-                diagnostics = PontoNeuralVoiceRuntime.diagnostics(context)
-            }
-
-            var waited = 0L
-            while (
-                diagnostics.modelInstalled &&
-                diagnostics.availability != PontoNeuralVoiceAvailability.READY &&
-                waited < NEURAL_RESULT_WAIT_MILLIS
-            ) {
-                delay(NEURAL_RESULT_WAIT_STEP_MILLIS)
-                waited += NEURAL_RESULT_WAIT_STEP_MILLIS
-                diagnostics = PontoNeuralVoiceRuntime.diagnostics(context)
-            }
-        }
-
         PontoVoiceRuntime.speak(context, currentPrompt)
     }
 }
