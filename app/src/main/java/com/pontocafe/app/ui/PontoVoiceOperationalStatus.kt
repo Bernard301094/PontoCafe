@@ -1,14 +1,25 @@
 package com.pontocafe.app.ui
 
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.pontocafe.app.voice.PontoNeuralSpeechDecision
 import com.pontocafe.app.voice.PontoNeuralVoiceAvailability
 import com.pontocafe.app.voice.PontoNeuralVoiceDiagnostics
+import com.pontocafe.app.voice.PontoNeuralVoiceRuntime
+import com.pontocafe.app.voice.PontoVoicePriority
+import com.pontocafe.app.voice.PontoVoicePrompt
 
 @Composable
 internal fun PontoVoiceOperationalStatusCard(
@@ -16,6 +27,12 @@ internal fun PontoVoiceOperationalStatusCard(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val appContext = context.applicationContext
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    var testMessage by remember { mutableStateOf<String?>(null) }
+    var testSucceeded by remember { mutableStateOf(false) }
+
     val title = when (diagnostics.availability) {
         PontoNeuralVoiceAvailability.READY -> "Voz PontoCafe pronta"
         PontoNeuralVoiceAvailability.PREPARING -> if (diagnostics.modelInstalled) {
@@ -63,14 +80,73 @@ internal fun PontoVoiceOperationalStatusCard(
                 icon = Icons.Default.RecordVoiceOver,
                 tone = tone,
             )
-            if (diagnostics.availability == PontoNeuralVoiceAvailability.FAILED) {
+
+            if (diagnostics.availability == PontoNeuralVoiceAvailability.READY) {
                 PcSecondaryButton(
-                    text = "Tentar voz PontoCafe novamente",
-                    onClick = onRetry,
+                    text = "Testar voz PontoCafe",
+                    onClick = {
+                        testSucceeded = false
+                        testMessage = "Iniciando teste exclusivamente com a voz neural…"
+                        val prompt = PontoVoicePrompt(
+                            key = "neural-self-test:${System.nanoTime()}",
+                            text = "Voz Ponto Café ativada.",
+                            priority = PontoVoicePriority.RESULT,
+                            cooldownMillis = 0L,
+                            interrupt = true,
+                        )
+                        val decision = runCatching {
+                            PontoNeuralVoiceRuntime.speak(
+                                context = appContext,
+                                prompt = prompt,
+                                sessionKey = null,
+                                onFailure = {
+                                    mainHandler.post {
+                                        testSucceeded = false
+                                        val latest = PontoNeuralVoiceRuntime.diagnostics(appContext)
+                                        testMessage = latest.lastFailureReason
+                                            ?: "O teste neural falhou antes de reproduzir o áudio."
+                                    }
+                                },
+                            )
+                        }.getOrDefault(PontoNeuralSpeechDecision.UNAVAILABLE)
+
+                        when (decision) {
+                            PontoNeuralSpeechDecision.ACCEPTED -> {
+                                testSucceeded = true
+                                testMessage = "Teste neural enviado. Você deve ouvir: ‘Voz Ponto Café ativada.’"
+                            }
+                            PontoNeuralSpeechDecision.SUPPRESSED -> {
+                                testSucceeded = false
+                                testMessage = "O teste foi suprimido porque outra fala neural ainda está em reprodução. Tente novamente."
+                            }
+                            PontoNeuralSpeechDecision.UNAVAILABLE -> {
+                                testSucceeded = false
+                                testMessage = "O motor neural deixou de estar disponível. Use ‘Tentar voz PontoCafe novamente’."
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Default.RecordVoiceOver,
                 )
             }
+
+            if (diagnostics.availability == PontoNeuralVoiceAvailability.FAILED) {
+                PcSecondaryButton(
+                    text = "Tentar voz PontoCafe novamente",
+                    onClick = {
+                        testMessage = null
+                        onRetry()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.RecordVoiceOver,
+                )
+            }
+
+            PcFeedbackBanner(
+                message = testMessage,
+                tone = if (testSucceeded) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+                onDismiss = { testMessage = null },
+            )
         }
     }
 }
