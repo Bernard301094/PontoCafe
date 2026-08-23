@@ -55,6 +55,7 @@ export const deviceAuthContractMiddleware = createMiddleware<AppEnv>(async (c, n
 
     const headers = new Headers(response.headers)
     headers.set('content-type', 'application/json; charset=UTF-8')
+    headers.delete('content-length')
     c.res = new Response(
       JSON.stringify({
         ...payload,
