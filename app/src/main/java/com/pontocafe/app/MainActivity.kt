@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
@@ -41,8 +42,10 @@ import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorAreaShell
 import com.pontocafe.app.voice.PontoVoiceGuidanceEffect
 import com.pontocafe.app.voice.PontoVoiceRuntime
+import kotlinx.coroutines.delay
 
 private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
+private const val PONTO_IDLE_AUTH_RECHECK_MILLIS = 120_000L
 
 class MainActivity : FragmentActivity() {
     private lateinit var appHealthMonitor: AppHealthMonitor
@@ -51,7 +54,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        appHealthMonitor = AppHealthMonitor(applicationContext).also { it.start() }
+        appHealthMonitor = AppHealthMonitor(applicationContext).also { it.installCrashHandler() }
         SupervisorAlertNotifier.ensureChannel(applicationContext)
 
         val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
@@ -320,6 +323,40 @@ class MainActivity : FragmentActivity() {
                                 val vm: PontoCafeViewModel = viewModel(key = "ponto", factory = pontoFactory)
                                 val state = vm.state
 
+                                // Re-entering the app foreground is an authoritative
+                                // security boundary. Existing local credentials do
+                                // not regain the operational camera until validated.
+                                DisposableEffect(lifecycleOwner, vm) {
+                                    val observer = LifecycleEventObserver { _, event ->
+                                        if (event == Lifecycle.Event.ON_RESUME) {
+                                            vm.validarAutorizacaoDoDispositivo(bloquearDuranteValidacao = true)
+                                        }
+                                    }
+                                    lifecycleOwner.lifecycle.addObserver(observer)
+                                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                                }
+
+                                // Idle foreground revalidation replaces the old
+                                // voice-layer 10-second network loop. Active Ponto
+                                // requests still revoke immediately through the
+                                // DEVICE_AUTH_INVALID response interceptor.
+                                LaunchedEffect(
+                                    lifecycleOwner,
+                                    vm,
+                                    state.deviceAuthorizationState,
+                                    state.deviceConfigured,
+                                ) {
+                                    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                        val authorized = state.deviceAuthorizationState == DeviceAuthorizationState.AUTHORIZED_ONLINE ||
+                                            state.deviceAuthorizationState == DeviceAuthorizationState.AUTHORIZED_OFFLINE
+                                        if (!state.deviceConfigured || !authorized) return@repeatOnLifecycle
+                                        while (true) {
+                                            delay(PONTO_IDLE_AUTH_RECHECK_MILLIS)
+                                            vm.validarAutorizacaoDoDispositivo(bloquearDuranteValidacao = false)
+                                        }
+                                    }
+                                }
+
                                 LaunchedEffect(state.deviceConfigured) {
                                     if (state.deviceConfigured) {
                                         adminSessionDisponivel = adminSessionStore.hasToken()
@@ -362,9 +399,22 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (::appHealthMonitor.isInitialized) appHealthMonitor.startStallWatchdog()
+    }
+
+    override fun onStop() {
+        if (::appHealthMonitor.isInitialized) appHealthMonitor.stopStallWatchdog()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         PontoVoiceRuntime.shutdown()
-        if (::appHealthMonitor.isInitialized) appHealthMonitor.stop()
+        if (::appHealthMonitor.isInitialized) {
+            appHealthMonitor.stopStallWatchdog()
+            appHealthMonitor.uninstallCrashHandler()
+        }
         super.onDestroy()
     }
 }
