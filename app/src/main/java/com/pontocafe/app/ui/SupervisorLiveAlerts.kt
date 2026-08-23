@@ -1,5 +1,11 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,15 +28,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pontocafe.app.data.OperationalAlertHistoryStore
 import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import java.time.LocalDate
 import kotlinx.coroutines.delay
 
-private enum class SupervisorLiveAlertType { SAIDA, RETORNO, EXCESSO, MISTO }
+private enum class SupervisorLiveAlertType {
+    SAIDA,
+    RETORNO,
+    PROXIMO_LIMITE,
+    CRITICO,
+    EXCESSO,
+    MISTO,
+}
 
 private const val TRANSIENT_ALERT_DURATION_MILLIS = 8_000L
 private const val CURRENT_DAY_REFRESH_MILLIS = 10_000L
+private const val WARNING_THRESHOLD_SECONDS = 60
+private const val CRITICAL_THRESHOLD_SECONDS = 15
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -60,8 +76,11 @@ fun rememberSupervisorLiveActivityAlert(
 ): SupervisorLiveAlert? {
     val context = LocalContext.current
     val accessibilityManager = LocalAccessibilityManager.current
+    val historyStore = remember(context) { OperationalAlertHistoryStore(context.applicationContext) }
     var baseline by remember { mutableStateOf<Map<String, PausaSupervisor>?>(null) }
     var overdueBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var warningBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var criticalBaseline by remember { mutableStateOf<Set<String>>(emptySet()) }
     var transientAlert by remember { mutableStateOf<SupervisorLiveAlert?>(null) }
     var currentDay by remember { mutableStateOf(LocalDate.now().toString()) }
 
@@ -82,6 +101,8 @@ fun rememberSupervisorLiveActivityAlert(
         if (!enabled) {
             baseline = null
             overdueBaseline = emptySet()
+            warningBaseline = emptySet()
+            criticalBaseline = emptySet()
             transientAlert = null
             return@LaunchedEffect
         }
@@ -90,11 +111,25 @@ fun rememberSupervisorLiveActivityAlert(
         val excessosAtuais = atual.values
             .filter { tempoAtualSupervisor(it, agoraEmMillis) > it.limiteSegundos }
             .mapTo(mutableSetOf()) { it.id }
+        val criticosAtuais = atual.values
+            .filter {
+                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
+                remaining in 0..CRITICAL_THRESHOLD_SECONDS
+            }
+            .mapTo(mutableSetOf()) { it.id }
+        val avisosAtuais = atual.values
+            .filter {
+                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
+                remaining in (CRITICAL_THRESHOLD_SECONDS + 1)..WARNING_THRESHOLD_SECONDS
+            }
+            .mapTo(mutableSetOf()) { it.id }
         val anterior = baseline
 
         if (anterior == null) {
             baseline = atual
             overdueBaseline = excessosAtuais
+            warningBaseline = avisosAtuais
+            criticalBaseline = criticosAtuais
             return@LaunchedEffect
         }
 
@@ -103,11 +138,22 @@ fun rememberSupervisorLiveActivityAlert(
         val novosExcessos = excessosAtuais
             .filter { it !in overdueBaseline }
             .mapNotNull(atual::get)
+        val novosCriticos = criticosAtuais
+            .filter { it !in criticalBaseline }
+            .mapNotNull(atual::get)
+        val novosAvisos = avisosAtuais
+            .filter { it !in warningBaseline }
+            .mapNotNull(atual::get)
 
         baseline = atual
         overdueBaseline = excessosAtuais
+        warningBaseline = avisosAtuais
+        criticalBaseline = criticosAtuais
 
-        if (novas.isEmpty() && retornos.isEmpty() && novosExcessos.isEmpty()) return@LaunchedEffect
+        if (
+            novas.isEmpty() && retornos.isEmpty() && novosExcessos.isEmpty() &&
+            novosCriticos.isEmpty() && novosAvisos.isEmpty()
+        ) return@LaunchedEffect
 
         val novoAlerta = when {
             novosExcessos.isNotEmpty() -> {
@@ -115,11 +161,37 @@ fun rememberSupervisorLiveActivityAlert(
                 SupervisorLiveAlert(
                     id = System.nanoTime(),
                     type = SupervisorLiveAlertType.EXCESSO.name,
-                    title = if (novosExcessos.size == 1) "Limite de pausa atingido" else "${novosExcessos.size} pausas acima do limite",
+                    title = if (novosExcessos.size == 1) "Limite de pausa excedido" else "${novosExcessos.size} pausas acima do limite",
                     message = if (novosExcessos.size == 1) {
-                        "$nomes atingiu o limite e ainda não registrou o retorno."
+                        "$nomes ultrapassou o limite e ainda não registrou o retorno."
                     } else {
-                        "$nomes atingiram o limite e ainda não registraram o retorno."
+                        "$nomes ultrapassaram o limite e ainda não registraram o retorno."
+                    },
+                )
+            }
+            novosCriticos.isNotEmpty() -> {
+                val nomes = nomesParaAlerta(novosCriticos)
+                SupervisorLiveAlert(
+                    id = System.nanoTime(),
+                    type = SupervisorLiveAlertType.CRITICO.name,
+                    title = if (novosCriticos.size == 1) "Retorno necessário em até 15 s" else "${novosCriticos.size} pausas em estado crítico",
+                    message = if (novosCriticos.size == 1) {
+                        "$nomes está a poucos segundos do limite da pausa."
+                    } else {
+                        "$nomes estão a poucos segundos do limite da pausa."
+                    },
+                )
+            }
+            novosAvisos.isNotEmpty() -> {
+                val nomes = nomesParaAlerta(novosAvisos)
+                SupervisorLiveAlert(
+                    id = System.nanoTime(),
+                    type = SupervisorLiveAlertType.PROXIMO_LIMITE.name,
+                    title = if (novosAvisos.size == 1) "Pausa próxima do limite" else "${novosAvisos.size} pausas próximas do limite",
+                    message = if (novosAvisos.size == 1) {
+                        "$nomes tem menos de 1 minuto para registrar o retorno."
+                    } else {
+                        "$nomes têm menos de 1 minuto para registrar o retorno."
                     },
                 )
             }
@@ -152,6 +224,12 @@ fun rememberSupervisorLiveActivityAlert(
         }
 
         transientAlert = novoAlerta
+        historyStore.record(
+            id = novoAlerta.id,
+            type = novoAlerta.type,
+            title = novoAlerta.title,
+            message = novoAlerta.message,
+        )
         SupervisorAlertNotifier.notify(
             context = context,
             eventType = novoAlerta.type,
@@ -180,37 +258,56 @@ fun rememberSupervisorLiveActivityAlert(
 
 @Composable
 fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
+    var visible by remember(alert.id) { mutableStateOf(false) }
+    LaunchedEffect(alert.id) { visible = true }
+
     val containerColor = when (alert.type) {
         SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.errorContainer
+        SupervisorLiveAlertType.CRITICO.name,
+        SupervisorLiveAlertType.PROXIMO_LIMITE.name -> LocalPontoCafeSemanticColors.current.warningContainer
         SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.primaryContainer
     }
     val contentColor = when (alert.type) {
         SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.onErrorContainer
+        SupervisorLiveAlertType.CRITICO.name,
+        SupervisorLiveAlertType.PROXIMO_LIMITE.name -> LocalPontoCafeSemanticColors.current.onWarningContainer
         SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onPrimaryContainer
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics {
-                liveRegion = LiveRegionMode.Assertive
-                stateDescription = "${alert.title}. ${alert.message}"
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(PontoCafeMotion.Standard)) + slideInVertically(
+            animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+            initialOffsetY = { -it / 3 },
         ),
-        shape = MaterialTheme.shapes.large,
+        exit = fadeOut(tween(PontoCafeMotion.Quick)) + slideOutVertically(
+            animationSpec = tween(PontoCafeMotion.Quick),
+            targetOffsetY = { -it / 4 },
+        ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(alert.title, fontWeight = FontWeight.Bold)
-            Text(
-                alert.message,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    liveRegion = LiveRegionMode.Assertive
+                    stateDescription = "${alert.title}. ${alert.message}"
+                },
+            colors = CardDefaults.cardColors(
+                containerColor = containerColor,
+                contentColor = contentColor,
+            ),
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(alert.title, fontWeight = FontWeight.Bold)
+                Text(
+                    alert.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
         }
     }
 }
