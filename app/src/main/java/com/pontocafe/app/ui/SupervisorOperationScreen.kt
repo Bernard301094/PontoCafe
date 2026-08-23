@@ -59,6 +59,8 @@ import kotlinx.coroutines.launch
 
 private const val LIVE_PAUSES_REFRESH_MILLIS = 15_000L
 private const val LAST_RETURN_REFRESH_MILLIS = 30_000L
+private const val VOICE_DIAGNOSTICS_REFRESH_MILLIS = 1_000L
+private const val CONNECTION_AGE_REFRESH_MILLIS = 1_000L
 
 @Composable
 fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Unit) {
@@ -99,10 +101,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         SupervisorAlertNotifier.ensureChannel(appContext)
         notificationAvailability = SupervisorAlertNotifier.availability(appContext)
         PontoNeuralVoiceRuntime.prewarm(appContext)
-        while (true) {
-            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
-            delay(1_000L)
-        }
+        voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
     }
 
     DisposableEffect(lifecycleOwner, appContext) {
@@ -116,10 +115,17 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(lifecycleOwner) {
+    LaunchedEffect(lifecycleOwner, appContext) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             viewModel.atualizarPausasAoVivoSilencioso()
             viewModel.atualizarUltimoRetornoSilencioso()
+            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
+            launch {
+                while (true) {
+                    delay(VOICE_DIAGNOSTICS_REFRESH_MILLIS)
+                    voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
+                }
+            }
             launch {
                 while (true) {
                     delay(LIVE_PAUSES_REFRESH_MILLIS)
@@ -377,10 +383,16 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
 
 @Composable
 private fun SupervisorConnectionBanner(connectionOk: Boolean, lastUpdateMillis: Long?) {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var now by remember(lastUpdateMillis) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(lastUpdateMillis, connectionOk) {
-        if (lastUpdateMillis == null) return@LaunchedEffect
-        while (true) { now = System.currentTimeMillis(); delay(1_000) }
+    LaunchedEffect(lifecycleOwner, lastUpdateMillis, connectionOk) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (lastUpdateMillis == null) return@repeatOnLifecycle
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(CONNECTION_AGE_REFRESH_MILLIS)
+            }
+        }
     }
     val seconds = lastUpdateMillis?.let { ((now - it) / 1_000L).coerceAtLeast(0L) }
     PcStateBanner(
