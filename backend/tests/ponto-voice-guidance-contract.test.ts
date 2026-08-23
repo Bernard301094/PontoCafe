@@ -39,7 +39,7 @@ const settings = readFileSync(new URL('../../settings.gradle.kts', import.meta.u
 
 test('voz própria usa sherpa-onnx e Piper pt-BR offline com modelo verificado', () => {
   assert.match(settings, /https:\/\/jitpack\.io/)
-  assert.match(gradle, /com\.github\.k2-fsa:sherpa-onnx:v1\.13\.6/)
+  assert.match(gradle, /com\.github\.k2-fsa:sherpa-onnx:v1\.13\.4/)
   assert.match(gradle, /org\.apache\.commons:commons-compress:1\.27\.1/)
   assert.match(neuralVoice, /OfflineTts/)
   assert.match(neuralVoice, /OfflineTtsVitsModelConfig/)
