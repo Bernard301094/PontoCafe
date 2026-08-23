@@ -347,17 +347,17 @@ class AdminRepository(
         ensureSuccess(api.createFirstAdmin(FirstAdminRequest(nome, email, senha, chave)))
     }
 
+    /**
+     * Authentication ends when the server accepts the credentials and returns
+     * the bearer token. Admin authorization/data loading happens afterwards.
+     * This prevents a 401/403 from /admin/usuarios from being misreported as a
+     * password failure after the credentials were already accepted.
+     */
     suspend fun signIn(email: String, senha: String) {
         val response = api.signIn(SignInRequest(email = email, password = senha))
         if (!response.isSuccessful) throw HttpException(response)
         val bearer = response.headers()["set-auth-token"] ?: error("O servidor não retornou a sessão administrativa.")
         sessionStore.save(bearer)
-        try {
-            usersCache = api.users().usuarios
-        } catch (error: Throwable) {
-            if (isAuthFailure(error)) sessionStore.clear()
-            throw error
-        }
     }
 
     suspend fun signOut() {
@@ -366,7 +366,23 @@ class AdminRepository(
         clearCaches()
     }
 
-    suspend fun users(): List<AdminUser> = usersCache ?: api.users().usuarios.also { usersCache = it }
+    /**
+     * /admin/usuarios is the authoritative Admin-role check after sign-in. If
+     * the freshly authenticated account is not Admin (or its session expired),
+     * discard only that active local session and fail closed. Network failures
+     * keep the session so the UI can recover without asking for the password.
+     */
+    suspend fun users(): List<AdminUser> {
+        try {
+            return usersCache ?: api.users().usuarios.also { usersCache = it }
+        } catch (error: Throwable) {
+            if (isAuthFailure(error)) {
+                sessionStore.clear()
+                clearCaches()
+            }
+            throw error
+        }
+    }
 
     suspend fun createUser(nome: String, email: String, senha: String, perfil: String) {
         ensureSuccess(api.createUser(CreateAdminUserRequest(nome, email, senha, perfil)))
@@ -576,11 +592,20 @@ class AdminRepository(
 }
 
 object AdminApiClient {
+    private const val SIGN_IN_PATH = "/api/auth/sign-in/email"
+
     fun create(sessionStore: SecureAdminSessionStore): AdminRepository {
         val appVersion = safeHttpHeaderValue(BuildConfig.VERSION_NAME, 80)
         val authInterceptor = Interceptor { chain ->
-            val request = chain.request().newBuilder().apply {
-                sessionStore.read()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+            val original = chain.request()
+            val request = original.newBuilder().apply {
+                // A new credential attempt must be independent from any token
+                // left by a previously selected account on this device.
+                if (original.url.encodedPath != SIGN_IN_PATH) {
+                    sessionStore.read()?.takeIf { it.isNotBlank() }?.let {
+                        header("Authorization", "Bearer $it")
+                    }
+                }
                 if (appVersion.isNotBlank()) header("X-App-Version", appVersion)
             }.build()
             chain.proceed(request)
