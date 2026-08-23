@@ -5,6 +5,8 @@ import type { AppEnv, Device } from '../auth-runtime.js'
 import { query } from '../db.js'
 import { hashToken } from '../security.js'
 
+export const DEVICE_AUTH_INVALID_CODE = 'DEVICE_AUTH_INVALID'
+
 export const emailSchema = z.string().email().transform((v) => v.trim().toLowerCase())
 export const passwordSchema = z.string().min(10).max(128)
 export const uuidSchema = z.string().uuid()
@@ -15,6 +17,60 @@ function cleanHeader(value: string | undefined, maxLength: number): string | nul
   const cleaned = value?.trim().slice(0, maxLength)
   return cleaned ? cleaned : null
 }
+
+function deviceAuthInvalidPayload(c: Context<AppEnv>, erro: string) {
+  return {
+    erro,
+    codigo: DEVICE_AUTH_INVALID_CODE,
+    requestId: c.get('requestId'),
+  }
+}
+
+function isLegacyDeviceAuthMessage(value: unknown): value is string {
+  return value === 'Dispositivo não autenticado.' || value === 'Dispositivo inválido.'
+}
+
+/**
+ * Compatibility adapter for legacy /ponto route modules that still own a local
+ * requireDevice implementation. It upgrades only the two credential-rejection
+ * messages to the stable DEVICE_AUTH_INVALID contract and deliberately leaves
+ * every other 401/403 business response untouched.
+ *
+ * This avoids an extra device lookup on every request while the route modules
+ * are progressively migrated to deviceTokenMiddleware.
+ */
+export const deviceAuthContractMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  await next()
+
+  const response = c.res
+  if (response.status !== 401) return
+
+  const contentType = response.headers.get('content-type')?.toLowerCase().orEmpty?.()
+  if (contentType && !contentType.includes('application/json')) return
+
+  try {
+    const payload = await response.clone().json() as Record<string, unknown>
+    if (payload.codigo === DEVICE_AUTH_INVALID_CODE) return
+    if (!isLegacyDeviceAuthMessage(payload.erro)) return
+
+    const headers = new Headers(response.headers)
+    headers.set('content-type', 'application/json; charset=UTF-8')
+    c.res = new Response(
+      JSON.stringify({
+        ...payload,
+        codigo: DEVICE_AUTH_INVALID_CODE,
+        requestId: payload.requestId ?? c.get('requestId'),
+      }),
+      {
+        status: 401,
+        statusText: response.statusText,
+        headers,
+      },
+    )
+  } catch {
+    // A resposta original continua intacta se não for JSON válido.
+  }
+})
 
 async function recordDeviceHeartbeat(
   device: Device,
@@ -58,10 +114,7 @@ async function recordDeviceHeartbeat(
 export const deviceTokenMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const token = c.req.header('X-Device-Token')?.trim()
   if (!token) {
-    return c.json({
-      erro: 'Dispositivo não autenticado.',
-      requestId: c.get('requestId'),
-    }, 401)
+    return c.json(deviceAuthInvalidPayload(c, 'Dispositivo não autenticado.'), 401)
   }
 
   const result = await query<Device>(
@@ -70,10 +123,7 @@ export const deviceTokenMiddleware = createMiddleware<AppEnv>(async (c, next) =>
   )
   const device = result.rows[0]
   if (!device) {
-    return c.json({
-      erro: 'Dispositivo inválido.',
-      requestId: c.get('requestId'),
-    }, 401)
+    return c.json(deviceAuthInvalidPayload(c, 'Dispositivo inválido.'), 401)
   }
 
   c.set('device', device)
