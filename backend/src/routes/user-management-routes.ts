@@ -11,11 +11,14 @@ userManagementRoutes.use('*', requireUser, requireRole('ADMIN'))
 
 type CreateUserStage = 'hash_senha' | 'persistencia'
 
+type SupervisorProfileInput = 'SUPERVISOR' | 'SUPERVISOR_A' | 'SUPERVISOR_B' | 'SUPERVISOR_C' | 'SUPERVISOR_D'
+
 const createUserSchema = z.object({
   nome: z.string().trim().min(2).max(120),
   email: z.string().trim().toLowerCase().email().max(254),
   senha: z.string().min(10).max(128).optional(),
-  perfil: z.enum(['SUPERVISOR', 'ADMIN']).default('SUPERVISOR'),
+  perfil: z.enum(['SUPERVISOR', 'SUPERVISOR_A', 'SUPERVISOR_B', 'SUPERVISOR_C', 'SUPERVISOR_D', 'ADMIN'])
+    .default('SUPERVISOR'),
   turno: z.enum(['A', 'B', 'C', 'D']).optional().nullable(),
 }).superRefine((value, ctx) => {
   if (value.perfil === 'SUPERVISOR' && !value.turno) {
@@ -33,6 +36,17 @@ const createUserSchema = z.object({
     })
   }
 })
+
+function isSupervisorProfile(perfil: string): perfil is SupervisorProfileInput {
+  return perfil === 'SUPERVISOR' || perfil.startsWith('SUPERVISOR_')
+}
+
+function supervisorShift(perfil: SupervisorProfileInput, explicit: string | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
+  if (explicit === 'A' || explicit === 'B' || explicit === 'C' || explicit === 'D') return explicit
+  const suffix = perfil.substringAfterLast?.('_')
+  if (suffix === 'A' || suffix === 'B' || suffix === 'C' || suffix === 'D') return suffix
+  return null
+}
 
 function databaseErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null
@@ -61,22 +75,24 @@ userManagementRoutes.post('/usuarios', async (c) => {
   if (!body.ok) return body.response
 
   const actor = c.get('user')
-  const supervisor = body.data.perfil === 'SUPERVISOR'
+  const supervisor = isSupervisorProfile(body.data.perfil)
   const role = supervisor ? 'user' : 'admin'
-  const temporaryPassword = supervisor ? generateTemporaryPassword() : null
-  const plaintextPassword = temporaryPassword ?? body.data.senha
-  if (!plaintextPassword) {
-    return c.json({ erro: 'Senha inicial ausente.' }, 400)
-  }
+  const normalizedProfile = supervisor ? 'SUPERVISOR' : 'ADMIN'
+  const turno = supervisor ? supervisorShift(body.data.perfil, body.data.turno) : null
+  if (supervisor && !turno) return c.json({ erro: 'Informe o turno do Supervisor.' }, 400)
 
-  const turno = supervisor ? body.data.turno ?? null : null
+  // O Android pode gerar a senha temporária com SecureRandom para exibi-la ao
+  // Admin antes de sair da tela. Se o cliente ainda for antigo, o Worker gera
+  // uma senha segura como fallback. Em ambos os casos só o hash é persistido.
+  const temporaryPassword = supervisor ? (body.data.senha ?? generateTemporaryPassword()) : null
+  const plaintextPassword = temporaryPassword ?? body.data.senha
+  if (!plaintextPassword) return c.json({ erro: 'Senha inicial ausente.' }, 400)
+
   const userId = newId()
   const accountId = newId()
   let stage: CreateUserStage = 'hash_senha'
 
   try {
-    // Criação e login usam exatamente o mesmo provider de senha. A senha
-    // temporária nunca é gravada em texto puro nem incluída em logs/auditoria.
     const authContext = await getAuth().$context
     const passwordHash = await authContext.password.hash(plaintextPassword)
 
@@ -114,7 +130,7 @@ userManagementRoutes.post('/usuarios', async (c) => {
         JSON.stringify({
           email: body.data.email,
           nome: body.data.nome,
-          perfil: body.data.perfil,
+          perfil: normalizedProfile,
           turno,
           senhaTemporariaGerada: supervisor,
           trocaSenhaObrigatoria: supervisor,
@@ -131,12 +147,12 @@ userManagementRoutes.post('/usuarios', async (c) => {
         id: created.id,
         nome: created.name,
         email: created.email,
-        perfil: body.data.perfil,
+        perfil: normalizedProfile,
         turno: created.turno,
         trocaSenhaObrigatoria: supervisor,
       },
-      // Única exposição em texto puro: resposta TLS ao Administrador que acabou
-      // de criar a conta. O cliente deve tratá-la como informação efêmera.
+      // Resposta efêmera para clientes novos. Clientes que já exibiram a senha
+      // gerada localmente podem simplesmente ignorar este campo.
       senhaTemporaria: temporaryPassword,
     }, 201)
   } catch (error) {
