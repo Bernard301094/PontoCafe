@@ -414,8 +414,14 @@ class PontoCafeRepository(
         api.sincronizarOffline(OfflineSyncRequest(eventos))
 
     companion object {
+        /**
+         * Used only where the request itself is a protected device-auth probe
+         * (currently /ponto/horario). Business 403 responses are intentionally
+         * excluded so rules such as "Pausa não liberada" can never revoke a
+         * device session.
+         */
         fun isAuthFailure(error: Throwable): Boolean =
-            error is HttpException && (error.code() == 401 || error.code() == 403)
+            error is HttpException && error.code() == 401
 
         fun isDevicePinNotConfigured(error: Throwable): Boolean =
             error is HttpException && error.code() == 409
@@ -480,7 +486,10 @@ object ApiClient {
             }.build()
             chain.proceed(request)
         }
-        val okHttp = OkHttpClient.Builder().addInterceptor(tokenInterceptor).build()
+        val okHttp = OkHttpClient.Builder()
+            .addInterceptor(tokenInterceptor)
+            .addInterceptor(DeviceAuthResponseInterceptor())
+            .build()
         val retrofit = Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)
             .client(okHttp)
