@@ -22,14 +22,45 @@ class SupervisorRepositoryAuthFailureTest {
     }
 
     @Test
-    fun `403 means supervisor access is no longer allowed`() {
+    fun `generic 403 remains conservative account recovery failure`() {
         val error = httpError(403)
 
         assertTrue(SupervisorRepository.isAccessDenied(error))
         assertTrue(SupervisorRepository.isAuthFailure(error))
         assertTrue(
             SupervisorRepository.sessionRecoveryMessage(error)
-                .contains("não possui mais acesso de Supervisor"),
+                .contains("Não foi possível validar o acesso de Supervisor"),
+        )
+    }
+
+    @Test
+    fun `feature role denial does not invalidate supervisor session`() {
+        val error = httpError(403, "{\"codigo\":\"AUTH_ROLE_DENIED\"}")
+
+        assertFalse(SupervisorRepository.isAccessDenied(error))
+        assertFalse(SupervisorRepository.isAuthFailure(error))
+    }
+
+    @Test
+    fun `mandatory initial password change does not invalidate supervisor session`() {
+        SupervisorPasswordChangeRuntime.clear()
+        val error = httpError(403, "{\"codigo\":\"PASSWORD_CHANGE_REQUIRED\"}")
+
+        assertFalse(SupervisorRepository.isAccessDenied(error))
+        assertFalse(SupervisorRepository.isAuthFailure(error))
+        assertTrue(SupervisorPasswordChangeRuntime.required)
+        SupervisorPasswordChangeRuntime.clear()
+    }
+
+    @Test
+    fun `disabled supervisor account is an account level authorization failure`() {
+        val error = httpError(403, "{\"codigo\":\"AUTH_ACCOUNT_DISABLED\"}")
+
+        assertTrue(SupervisorRepository.isAccessDenied(error))
+        assertTrue(SupervisorRepository.isAuthFailure(error))
+        assertTrue(
+            SupervisorRepository.sessionRecoveryMessage(error)
+                .contains("conta de Supervisor está desativada"),
         )
     }
 
@@ -42,8 +73,8 @@ class SupervisorRepositoryAuthFailureTest {
         assertFalse(SupervisorRepository.isAuthFailure(error))
     }
 
-    private fun httpError(code: Int): HttpException {
-        val body = "{}".toResponseBody("application/json".toMediaType())
+    private fun httpError(code: Int, json: String = "{}"): HttpException {
+        val body = json.toResponseBody("application/json".toMediaType())
         return HttpException(Response.error<Any>(code, body))
     }
 }
