@@ -1,7 +1,8 @@
 package com.pontocafe.app.camera
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PassiveFaceLivenessTest {
@@ -93,25 +94,49 @@ class PassiveFaceLivenessTest {
     }
 
     @Test
-    fun `face aprovada precisa continuar sendo o mesmo tracking`() {
-        val liveness = PassiveFaceLiveness()
-        listOf(
-            sample(at = 0, trackingId = 7, eye = 0.82f),
-            sample(at = 70, trackingId = 7, eye = 0.78f, yaw = 0.4f, centerX = 0.502f),
-            sample(at = 140, trackingId = 7, eye = 0.73f, yaw = 0.7f, centerX = 0.504f),
-            sample(at = 210, trackingId = 7, eye = 0.70f, yaw = 0.9f, centerX = 0.506f),
-            sample(at = 280, trackingId = 7, eye = 0.74f, yaw = 1.0f, centerX = 0.507f),
-        ).forEach(liveness::update)
+    fun `face aprovada rejeita outro tracking`() {
+        val liveness = approvedLiveness(trackingId = 7)
 
-        assertEquals(
-            true,
+        assertTrue(
             liveness.matchesAcceptedFace(sample(at = 350, trackingId = 7, eye = 0.76f, centerX = 0.51f)),
         )
-        assertNotEquals(
-            true,
+        assertFalse(
             liveness.matchesAcceptedFace(sample(at = 350, trackingId = 8, eye = 0.76f, centerX = 0.51f)),
         )
     }
+
+    @Test
+    fun `perda temporaria do tracking preserva mesma face pela geometria`() {
+        val liveness = approvedLiveness(trackingId = 7)
+
+        assertTrue(
+            liveness.matchesAcceptedFace(
+                sample(at = 350, trackingId = null, eye = 0.76f, centerX = 0.512f, faceWidth = 0.405f),
+            ),
+        )
+    }
+
+    @Test
+    fun `salto geometrico grande nao e aceito quando tracking some`() {
+        val liveness = approvedLiveness(trackingId = 7)
+
+        assertFalse(
+            liveness.matchesAcceptedFace(
+                sample(at = 350, trackingId = null, eye = 0.76f, centerX = 0.72f, faceWidth = 0.58f),
+            ),
+        )
+    }
+
+    private fun approvedLiveness(trackingId: Int): PassiveFaceLiveness =
+        PassiveFaceLiveness().also { liveness ->
+            listOf(
+                sample(at = 0, trackingId = trackingId, eye = 0.82f),
+                sample(at = 70, trackingId = trackingId, eye = 0.78f, yaw = 0.4f, centerX = 0.502f),
+                sample(at = 140, trackingId = trackingId, eye = 0.73f, yaw = 0.7f, centerX = 0.504f),
+                sample(at = 210, trackingId = trackingId, eye = 0.70f, yaw = 0.9f, centerX = 0.506f),
+                sample(at = 280, trackingId = trackingId, eye = 0.74f, yaw = 1.0f, centerX = 0.507f),
+            ).forEach(liveness::update)
+        }
 
     private fun sample(
         at: Long,
