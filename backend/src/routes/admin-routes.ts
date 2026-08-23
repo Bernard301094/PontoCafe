@@ -141,7 +141,12 @@ adminRoutes.put('/usuarios/:id/senha', async (c) => {
   if (!target) return c.json({ erro: 'Conta não encontrada.' }, 404)
 
   const supervisor = target.role === 'user'
-  const temporaryPassword = supervisor ? generateTemporaryPassword() : null
+  // Clientes novos geram a senha temporária no Android para que o Admin possa
+  // copiá-la antes de enviar. Clientes antigos continuam seguros: o Worker gera
+  // um fallback criptográfico quando novaSenha não vier no request.
+  const temporaryPassword = supervisor
+    ? (body.data.novaSenha ?? generateTemporaryPassword())
+    : null
   const newPassword = temporaryPassword ?? body.data.novaSenha
   if (!newPassword) {
     return c.json({ erro: 'Informe a nova senha do Administrador.' }, 400)
