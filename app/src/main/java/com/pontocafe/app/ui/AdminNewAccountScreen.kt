@@ -77,7 +77,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
                 AdminAccountForm(
                     draftState = draftState,
                     carregando = state.carregando,
-                    initialProfile = AccountProfile.SUPERVISOR,
+                    initialProfile = AccountProfile.SUPERVISOR_A,
                     showHeader = false,
                     onSubmit = { input ->
                         viewModel.trackAccountDraftSubmission(draftState)
@@ -101,12 +101,12 @@ private fun AccountAccessContextCard() {
             AccountContextRow(
                 icon = Icons.Default.Info,
                 title = "Acesso ao sistema",
-                text = "Crie contas para Supervisor ou Administrador. Colaboradores que apenas registram o Ponto Café são cadastrados em Pessoas.",
+                text = "Para Supervisor, informe nome, e-mail e turno A, B, C ou D. A senha temporária é gerada pelo sistema e deve ser trocada no primeiro acesso.",
             )
             AccountContextRow(
                 icon = Icons.Default.AdminPanelSettings,
-                title = "Supervisor recomendado",
-                text = "Supervisor é o perfil indicado para a operação diária. Use Administrador somente para quem precisa de controle total.",
+                title = "Segurança do primeiro acesso",
+                text = "A senha temporária não é salva em texto puro. Depois da troca obrigatória, somente o hash da nova senha permanece no servidor.",
             )
         }
     }
