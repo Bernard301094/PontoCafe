@@ -181,6 +181,16 @@ fun PontoFlowHost(
             onLoginModeClick = onLoginModeClick,
         )
 
+        PontoConnectivityFeedback(
+            modoOffline = state.modoOffline,
+            sincronizandoPendencias = state.sincronizandoPendencias,
+            eventosPendentes = state.eventosPendentes,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .systemBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        )
+
         when {
             state.comprovante != null -> FastPointReceiptOverlay(
                 viewModel = viewModel,
