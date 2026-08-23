@@ -28,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -141,25 +140,24 @@ internal fun PontoConnectivityFeedback(
     ) {
         val current = message ?: return@AnimatedVisibility
         val semantic = LocalPontoCafeSemanticColors.current
-        val (container, content, icon): Triple<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color, ImageVector> =
-            when (current.type) {
-                PontoConnectivityFeedbackType.OFFLINE -> Triple(
-                    semantic.warningContainer,
-                    semantic.onWarningContainer,
-                    Icons.Default.CloudOff,
-                )
-                PontoConnectivityFeedbackType.RECOVERED,
-                PontoConnectivityFeedbackType.SYNCED -> Triple(
-                    semantic.successContainer,
-                    semantic.onSuccessContainer,
-                    Icons.Default.CloudDone,
-                )
-                PontoConnectivityFeedbackType.SYNCING -> Triple(
-                    semantic.infoContainer,
-                    semantic.onInfoContainer,
-                    Icons.Default.Sync,
-                )
-            }
+        val (container, content, icon) = when (current.type) {
+            PontoConnectivityFeedbackType.OFFLINE -> Triple(
+                semantic.warningContainer,
+                semantic.onWarningContainer,
+                Icons.Default.CloudOff,
+            )
+            PontoConnectivityFeedbackType.RECOVERED,
+            PontoConnectivityFeedbackType.SYNCED -> Triple(
+                semantic.successContainer,
+                semantic.onSuccessContainer,
+                Icons.Default.CloudDone,
+            )
+            PontoConnectivityFeedbackType.SYNCING -> Triple(
+                semantic.infoContainer,
+                semantic.onInfoContainer,
+                Icons.Default.Sync,
+            )
+        }
 
         Surface(
             modifier = Modifier
