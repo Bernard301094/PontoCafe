@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuth, requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { query } from '../db.js'
 import { newId } from '../security.js'
-import { generateTemporaryPassword } from '../supervisor-onboarding.js'
+import { generateTemporaryPassword, isStrongPassword } from '../supervisor-onboarding.js'
 import { parseJson } from './shared.js'
 
 export const userManagementRoutes = new Hono<AppEnv>()
@@ -78,6 +78,12 @@ userManagementRoutes.post('/usuarios', async (c) => {
   const temporaryPassword = supervisor ? (body.data.senha ?? generateTemporaryPassword()) : null
   const plaintextPassword = temporaryPassword ?? body.data.senha
   if (!plaintextPassword) return c.json({ erro: 'Senha inicial ausente.' }, 400)
+  if (supervisor && !isStrongPassword(plaintextPassword)) {
+    return c.json({
+      erro: 'A senha temporária gerada é inválida. Gere uma nova senha e tente novamente.',
+      codigo: 'TEMPORARY_PASSWORD_POLICY',
+    }, 400)
+  }
 
   const userId = newId()
   const accountId = newId()
