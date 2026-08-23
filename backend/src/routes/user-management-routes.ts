@@ -10,7 +10,6 @@ export const userManagementRoutes = new Hono<AppEnv>()
 userManagementRoutes.use('*', requireUser, requireRole('ADMIN'))
 
 type CreateUserStage = 'hash_senha' | 'persistencia'
-
 type SupervisorProfileInput = 'SUPERVISOR' | 'SUPERVISOR_A' | 'SUPERVISOR_B' | 'SUPERVISOR_C' | 'SUPERVISOR_D'
 
 const createUserSchema = z.object({
@@ -22,18 +21,10 @@ const createUserSchema = z.object({
   turno: z.enum(['A', 'B', 'C', 'D']).optional().nullable(),
 }).superRefine((value, ctx) => {
   if (value.perfil === 'SUPERVISOR' && !value.turno) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['turno'],
-      message: 'Informe o turno do Supervisor.',
-    })
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['turno'], message: 'Informe o turno do Supervisor.' })
   }
   if (value.perfil === 'ADMIN' && !value.senha) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['senha'],
-      message: 'Informe a senha inicial do Administrador.',
-    })
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['senha'], message: 'Informe a senha inicial do Administrador.' })
   }
 })
 
@@ -41,9 +32,12 @@ function isSupervisorProfile(perfil: string): perfil is SupervisorProfileInput {
   return perfil === 'SUPERVISOR' || perfil.startsWith('SUPERVISOR_')
 }
 
-function supervisorShift(perfil: SupervisorProfileInput, explicit: string | null | undefined): 'A' | 'B' | 'C' | 'D' | null {
+function supervisorShift(
+  perfil: SupervisorProfileInput,
+  explicit: string | null | undefined,
+): 'A' | 'B' | 'C' | 'D' | null {
   if (explicit === 'A' || explicit === 'B' || explicit === 'C' || explicit === 'D') return explicit
-  const suffix = perfil.substringAfterLast?.('_')
+  const suffix = perfil.split('_').at(-1)
   if (suffix === 'A' || suffix === 'B' || suffix === 'C' || suffix === 'D') return suffix
   return null
 }
@@ -81,9 +75,6 @@ userManagementRoutes.post('/usuarios', async (c) => {
   const turno = supervisor ? supervisorShift(body.data.perfil, body.data.turno) : null
   if (supervisor && !turno) return c.json({ erro: 'Informe o turno do Supervisor.' }, 400)
 
-  // O Android pode gerar a senha temporária com SecureRandom para exibi-la ao
-  // Admin antes de sair da tela. Se o cliente ainda for antigo, o Worker gera
-  // uma senha segura como fallback. Em ambos os casos só o hash é persistido.
   const temporaryPassword = supervisor ? (body.data.senha ?? generateTemporaryPassword()) : null
   const plaintextPassword = temporaryPassword ?? body.data.senha
   if (!plaintextPassword) return c.json({ erro: 'Senha inicial ausente.' }, 400)
@@ -151,8 +142,6 @@ userManagementRoutes.post('/usuarios', async (c) => {
         turno: created.turno,
         trocaSenhaObrigatoria: supervisor,
       },
-      // Resposta efêmera para clientes novos. Clientes que já exibiram a senha
-      // gerada localmente podem simplesmente ignorar este campo.
       senhaTemporaria: temporaryPassword,
     }, 201)
   } catch (error) {
