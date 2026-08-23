@@ -84,8 +84,8 @@ test('estado da voz neural fica diagnosticável sem retirar fallback Android', (
   assert.match(voice, /lastFailureReason/)
   assert.match(voice, /retryAvailableInMillis/)
   assert.match(voice, /retryNow/)
-  assert.match(voice, /RETRY_BASE_MILLIS = 30_000L/)
-  assert.match(voice, /RETRY_MAX_MILLIS = 2L \* 60L \* 1_000L/)
+  assert.match(voice, /RETRY_AFTER_MILLIS = 30_000L/)
+  assert.match(voice, /VOICE_PLAYBACK_FAILED/)
 })
 
 test('feedback operacional não reduz geometria biométrica de identificação', () => {
