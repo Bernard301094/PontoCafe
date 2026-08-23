@@ -15,9 +15,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.pontocafe.app.voice.PontoNeuralSpeechDecision
+import com.pontocafe.app.voice.PontoNeuralSpeechEvent
 import com.pontocafe.app.voice.PontoNeuralVoiceAvailability
 import com.pontocafe.app.voice.PontoNeuralVoiceDiagnostics
 import com.pontocafe.app.voice.PontoNeuralVoiceRuntime
+import com.pontocafe.app.voice.PontoSpeechBackend
 import com.pontocafe.app.voice.PontoVoicePriority
 import com.pontocafe.app.voice.PontoVoicePrompt
 
@@ -43,16 +45,23 @@ internal fun PontoVoiceOperationalStatusCard(
         PontoNeuralVoiceAvailability.FAILED -> "Usando voz do aparelho"
         PontoNeuralVoiceAvailability.IDLE -> "Voz PontoCafe aguardando inicialização"
     }
+    val backendLabel = when (diagnostics.lastSpeechBackend) {
+        PontoSpeechBackend.NEURAL_PONTOCAFE -> "Última fala: voz neural PontoCafe."
+        PontoSpeechBackend.ANDROID_TTS_FALLBACK -> "Última fala: fallback de voz do Android."
+        PontoSpeechBackend.NONE -> "Nenhuma fala concluída nesta sessão."
+    }
     val supporting = when (diagnostics.availability) {
         PontoNeuralVoiceAvailability.READY ->
-            "Síntese neural pt-BR ativa e disponível offline neste aparelho."
+            "Síntese neural pt-BR ativa e disponível offline neste aparelho. $backendLabel"
         PontoNeuralVoiceAvailability.PREPARING -> if (diagnostics.modelInstalled) {
-            "O modelo já está salvo. O motor neural está sendo carregado em segundo plano."
+            "O modelo já está salvo. O motor neural está sendo carregado em segundo plano. $backendLabel"
         } else {
-            "O modelo pt-BR está sendo preparado. Até ficar pronto, o Android TTS continua como fallback."
+            "O modelo pt-BR está sendo preparado. Até ficar pronto, o Android TTS continua como fallback. $backendLabel"
         }
         PontoNeuralVoiceAvailability.FAILED -> buildString {
             append(diagnostics.lastFailureReason ?: "A voz neural ainda não ficou disponível.")
+            append(' ')
+            append(backendLabel)
             if (diagnostics.retryAvailableInMillis > 0L) {
                 append(" Nova tentativa automática em aproximadamente ")
                 append((diagnostics.retryAvailableInMillis / 1_000L).coerceAtLeast(1L))
@@ -60,7 +69,7 @@ internal fun PontoVoiceOperationalStatusCard(
             }
         }
         PontoNeuralVoiceAvailability.IDLE ->
-            "A voz será preparada automaticamente quando o modo Ponto precisar falar."
+            "A voz será preparada automaticamente quando o modo Ponto precisar falar. $backendLabel"
     }
     val tone = when (diagnostics.availability) {
         PontoNeuralVoiceAvailability.READY -> PontoCafeTone.SUCCESS
@@ -99,12 +108,37 @@ internal fun PontoVoiceOperationalStatusCard(
                                 context = appContext,
                                 prompt = prompt,
                                 sessionKey = null,
-                                onFailure = {
+                                onFailure = null,
+                                onEvent = { event ->
                                     mainHandler.post {
-                                        testSucceeded = false
-                                        val latest = PontoNeuralVoiceRuntime.diagnostics(appContext)
-                                        testMessage = latest.lastFailureReason
-                                            ?: "O teste neural falhou antes de reproduzir o áudio."
+                                        when (event) {
+                                            PontoNeuralSpeechEvent.Queued -> {
+                                                testSucceeded = false
+                                                testMessage = "Teste neural enfileirado. Aguardando síntese…"
+                                            }
+                                            PontoNeuralSpeechEvent.Synthesizing -> {
+                                                testSucceeded = false
+                                                testMessage = "Gerando o áudio com a voz neural PontoCafe…"
+                                            }
+                                            PontoNeuralSpeechEvent.SynthesisCompleted -> {
+                                                testSucceeded = false
+                                                testMessage = "Áudio neural gerado. Iniciando reprodução…"
+                                            }
+                                            PontoNeuralSpeechEvent.PlaybackStarted -> {
+                                                testSucceeded = false
+                                                testMessage = "Reprodução neural iniciada. Aguarde a conclusão do teste."
+                                            }
+                                            PontoNeuralSpeechEvent.PlaybackCompleted -> {
+                                                testSucceeded = true
+                                                testMessage = "Teste concluído pela voz neural PontoCafe: ‘Voz Ponto Café ativada.’"
+                                            }
+                                            is PontoNeuralSpeechEvent.Failed -> {
+                                                testSucceeded = false
+                                                val latest = PontoNeuralVoiceRuntime.diagnostics(appContext)
+                                                testMessage = latest.lastFailureReason
+                                                    ?: "O teste neural falhou (${event.stage.name}/${event.diagnosticCode})."
+                                            }
+                                        }
                                     }
                                 },
                             )
@@ -112,8 +146,10 @@ internal fun PontoVoiceOperationalStatusCard(
 
                         when (decision) {
                             PontoNeuralSpeechDecision.ACCEPTED -> {
-                                testSucceeded = true
-                                testMessage = "Teste neural enviado. Você deve ouvir: ‘Voz Ponto Café ativada.’"
+                                // ACCEPTED means queued, never successful playback.
+                                if (testMessage == null) {
+                                    testMessage = "Teste neural enfileirado. Aguardando reprodução completa…"
+                                }
                             }
                             PontoNeuralSpeechDecision.SUPPRESSED -> {
                                 testSucceeded = false
