@@ -1,21 +1,26 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -23,26 +28,40 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AccountRegistrationDraftState
+import java.security.SecureRandom
 
-enum class AccountProfile(val label: String) {
-    SUPERVISOR("Supervisor"),
-    ADMIN("Administrador"),
+enum class AccountProfile(
+    val label: String,
+    val supervisor: Boolean,
+    val shift: String? = null,
+) {
+    SUPERVISOR_A("Supervisor", true, "A"),
+    SUPERVISOR_B("Supervisor", true, "B"),
+    SUPERVISOR_C("Supervisor", true, "C"),
+    SUPERVISOR_D("Supervisor", true, "D"),
+    ADMIN("Administrador", false, null),
+    ;
+
+    companion object {
+        fun supervisorForShift(shift: String): AccountProfile = when (shift.uppercase()) {
+            "B" -> SUPERVISOR_B
+            "C" -> SUPERVISOR_C
+            "D" -> SUPERVISOR_D
+            else -> SUPERVISOR_A
+        }
+    }
 }
 
 data class NewAccountInput(
@@ -52,17 +71,46 @@ data class NewAccountInput(
     val perfil: AccountProfile,
 )
 
+private const val TEMP_PASSWORD_LENGTH = 16
+private const val TEMP_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+private const val TEMP_LOWER = "abcdefghijkmnopqrstuvwxyz"
+private const val TEMP_DIGITS = "23456789"
+private const val TEMP_SYMBOLS = "!@#$%*-_"
+
+private fun generateTemporaryPassword(random: SecureRandom): String {
+    val all = TEMP_UPPER + TEMP_LOWER + TEMP_DIGITS + TEMP_SYMBOLS
+    val chars = mutableListOf(
+        TEMP_UPPER[random.nextInt(TEMP_UPPER.length)],
+        TEMP_LOWER[random.nextInt(TEMP_LOWER.length)],
+        TEMP_DIGITS[random.nextInt(TEMP_DIGITS.length)],
+        TEMP_SYMBOLS[random.nextInt(TEMP_SYMBOLS.length)],
+    )
+    while (chars.size < TEMP_PASSWORD_LENGTH) chars += all[random.nextInt(all.length)]
+    for (index in chars.lastIndex downTo 1) {
+        val swap = random.nextInt(index + 1)
+        val current = chars[index]
+        chars[index] = chars[swap]
+        chars[swap] = current
+    }
+    return chars.joinToString("")
+}
+
 @Composable
 fun AdminAccountForm(
     draftState: AccountRegistrationDraftState,
     carregando: Boolean = false,
-    initialProfile: AccountProfile = AccountProfile.SUPERVISOR,
+    initialProfile: AccountProfile = AccountProfile.SUPERVISOR_A,
     showHeader: Boolean = true,
     onSubmit: (NewAccountInput) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
+    val clipboard = LocalClipboardManager.current
+    val secureRandom = remember { SecureRandom() }
     val draft = draftState.draft
-    val perfil = AccountProfile.entries.firstOrNull { it.name == draft.perfil } ?: initialProfile
+
+    val supervisorSelected = draft.perfil.startsWith("SUPERVISOR") || initialProfile.supervisor && draft.perfil.isBlank()
+    val selectedShift = draft.perfil.substringAfter("SUPERVISOR_", "A").takeIf { it in setOf("A", "B", "C", "D") } ?: "A"
+    val selectedProfile = if (supervisorSelected) AccountProfile.supervisorForShift(selectedShift) else AccountProfile.ADMIN
 
     val cleanName = draft.nome.trim()
     val cleanEmail = draft.email.trim()
@@ -75,22 +123,47 @@ fun AdminAccountForm(
     val validationError = when {
         cleanName.length < 2 -> "Informe o nome completo da pessoa."
         !emailValid -> "Informe um e-mail de acesso válido."
-        !passwordLongEnough -> "A senha deve ter pelo menos 10 caracteres."
+        supervisorSelected && draft.senha.isBlank() -> "Gere a senha temporária para continuar."
+        !passwordLongEnough -> if (supervisorSelected) "Gere novamente a senha temporária." else "A senha deve ter pelo menos 10 caracteres."
         !passwordHasLetter || !passwordHasDigit -> "A senha deve combinar letras e números."
-        !passwordsMatch -> "As senhas não coincidem."
+        !supervisorSelected && !passwordsMatch -> "As senhas não coincidem."
         else -> null
     }
 
-    val completionHint = when {
-        cleanName.length < 2 -> "Informe o nome completo para continuar."
-        cleanEmail.isBlank() -> "Informe o e-mail que será usado para entrar."
-        !emailValid -> "Revise o e-mail de acesso."
-        draft.senha.isBlank() -> "Crie uma senha para esta conta."
-        !passwordLongEnough -> "Use pelo menos 10 caracteres na senha."
-        !passwordHasLetter || !passwordHasDigit -> "Inclua letras e números na senha."
-        draft.confirmarSenha.isBlank() -> "Confirme a senha."
-        !passwordsMatch -> "A confirmação precisa ser igual à senha."
-        else -> "Tudo pronto para criar a conta de ${perfil.label}."
+    fun selectSupervisor(shift: String = selectedShift) {
+        val profile = AccountProfile.supervisorForShift(shift)
+        // Ao mudar perfil/turno descartamos qualquer senha temporária anterior.
+        draftState.update(
+            draft.copy(
+                perfil = profile.name,
+                senha = "",
+                confirmarSenha = "",
+                erroLocal = null,
+            ),
+        )
+    }
+
+    fun selectAdmin() {
+        draftState.update(
+            draft.copy(
+                perfil = AccountProfile.ADMIN.name,
+                senha = "",
+                confirmarSenha = "",
+                erroLocal = null,
+            ),
+        )
+    }
+
+    fun generatePassword() {
+        if (carregando) return
+        val generated = generateTemporaryPassword(secureRandom)
+        draftState.update(
+            draft.copy(
+                senha = generated,
+                confirmarSenha = generated,
+                erroLocal = null,
+            ),
+        )
     }
 
     fun submit() {
@@ -103,7 +176,7 @@ fun AdminAccountForm(
                     nome = cleanName,
                     email = cleanEmail.lowercase(),
                     senha = draft.senha,
-                    perfil = perfil,
+                    perfil = selectedProfile,
                 ),
             )
         }
@@ -116,60 +189,36 @@ fun AdminAccountForm(
         if (showHeader) {
             PontoCafeHeader("Nova conta de acesso")
             Text(
-                "Crie uma conta protegida para Supervisor ou Administrador.",
+                "Cadastre o acesso e defina o turno operacional quando o perfil for Supervisor.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         SectionTitle(
             title = "Perfil de acesso",
-            subtitle = "Supervisor é recomendado para a operação diária. Administrador possui controle total.",
+            subtitle = "Supervisor usa senha temporária e troca obrigatória no primeiro acesso.",
         )
 
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val stackProfiles = maxWidth < 430.dp || LocalDensity.current.fontScale >= 1.3f
-            if (stackProfiles) {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    ProfileChoiceCard(
-                        title = "Supervisor",
-                        description = "Pausas, colaboradores, biometria e autorizações.",
-                        selected = perfil == AccountProfile.SUPERVISOR,
-                        onClick = { draftState.update(draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !carregando,
-                    )
-                    ProfileChoiceCard(
-                        title = "Administrador",
-                        description = "Controle total, acessos, configurações e dispositivos.",
-                        selected = perfil == AccountProfile.ADMIN,
-                        onClick = { draftState.update(draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !carregando,
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    ProfileChoiceCard(
-                        title = "Supervisor",
-                        description = "Pausas, colaboradores, biometria e autorizações.",
-                        selected = perfil == AccountProfile.SUPERVISOR,
-                        onClick = { draftState.update(draft.copy(perfil = AccountProfile.SUPERVISOR.name, erroLocal = null)) },
-                        modifier = Modifier.weight(1f),
-                        enabled = !carregando,
-                    )
-                    ProfileChoiceCard(
-                        title = "Administrador",
-                        description = "Controle total, acessos, configurações e dispositivos.",
-                        selected = perfil == AccountProfile.ADMIN,
-                        onClick = { draftState.update(draft.copy(perfil = AccountProfile.ADMIN.name, erroLocal = null)) },
-                        modifier = Modifier.weight(1f),
-                        enabled = !carregando,
-                    )
-                }
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            ProfileChoiceCard(
+                title = "Supervisor",
+                description = "Operação diária · turno obrigatório",
+                selected = supervisorSelected,
+                onClick = { selectSupervisor() },
+                modifier = Modifier.weight(1f),
+                enabled = !carregando,
+            )
+            ProfileChoiceCard(
+                title = "Administrador",
+                description = "Controle total do sistema",
+                selected = !supervisorSelected,
+                onClick = ::selectAdmin,
+                modifier = Modifier.weight(1f),
+                enabled = !carregando,
+            )
         }
 
         PcSectionSurface {
@@ -184,16 +233,10 @@ fun AdminAccountForm(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Nome completo") },
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                    supportingText = { Text("Nome da pessoa que utilizará este acesso.") },
                     singleLine = true,
                     enabled = !carregando,
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Words,
-                        imeAction = ImeAction.Next,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                    ),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 )
                 OutlinedTextField(
                     value = draft.email,
@@ -201,58 +244,139 @@ fun AdminAccountForm(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("E-mail de acesso") },
                     leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                    supportingText = { Text("Este e-mail será usado para iniciar sessão.") },
                     singleLine = true,
                     enabled = !carregando,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                    ),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
                 )
             }
         }
 
-        PcSectionSurface {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Text("Segurança", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Defina uma senha forte para proteger este perfil.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SecurePasswordField(
-                    value = draft.senha,
-                    onValueChange = { draftState.update(draft.copy(senha = it, erroLocal = null)) },
-                    label = "Senha",
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !carregando,
-                    supportingText = "Mínimo de 10 caracteres",
-                    imeAction = ImeAction.Next,
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                    ),
-                )
-                PasswordRequirement("Pelo menos 10 caracteres", passwordLongEnough)
-                PasswordRequirement("Conter letras e números", passwordHasLetter && passwordHasDigit)
-                SecurePasswordField(
-                    value = draft.confirmarSenha,
-                    onValueChange = { draftState.update(draft.copy(confirmarSenha = it, erroLocal = null)) },
-                    label = "Confirmar senha",
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !carregando,
-                    supportingText = when {
-                        draft.confirmarSenha.isBlank() -> "Repita a mesma senha"
-                        passwordsMatch -> "As senhas coincidem"
-                        else -> "As senhas ainda não coincidem"
-                    },
-                    imeAction = ImeAction.Done,
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                    isError = draft.confirmarSenha.isNotBlank() && !passwordsMatch,
-                )
-                PasswordRequirement("Confirmação igual à senha", passwordsMatch)
+        AnimatedVisibility(
+            visible = supervisorSelected,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md)) {
+                PcSectionSurface {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                            Icon(Icons.Default.Schedule, contentDescription = null)
+                            Text("Turno do Supervisor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                        ) {
+                            listOf("A", "B", "C", "D").forEach { shift ->
+                                val selected = selectedShift == shift
+                                if (selected) {
+                                    PcPrimaryButton(
+                                        text = "Turno $shift",
+                                        onClick = { selectSupervisor(shift) },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !carregando,
+                                    )
+                                } else {
+                                    PcSecondaryButton(
+                                        text = shift,
+                                        onClick = { selectSupervisor(shift) },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = !carregando,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                PcSectionSurface {
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                            Icon(Icons.Default.Key, contentDescription = null)
+                            Text("Senha temporária", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Text(
+                            "O sistema gera uma senha temporária. O Supervisor será obrigado a substituí-la no primeiro login.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        PcPrimaryButton(
+                            text = if (draft.senha.isBlank()) "Gerar senha temporária" else "Gerar outra senha",
+                            icon = Icons.Default.Key,
+                            onClick = ::generatePassword,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !carregando,
+                        )
+
+                        AnimatedVisibility(
+                            visible = draft.senha.isNotBlank(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(PontoCafeSpacing.md),
+                                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                    ) {
+                                        Text("Senha temporária gerada", fontWeight = FontWeight.Bold)
+                                        Text(draft.senha, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            "Copie antes de concluir. Esta senha não será armazenada em texto puro.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        PcSecondaryButton(
+                                            text = "Copiar senha temporária",
+                                            icon = Icons.Default.ContentCopy,
+                                            onClick = { clipboard.setText(AnnotatedString(draft.senha)) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    }
+                                }
+                                PcFeedbackBanner(
+                                    message = "No primeiro acesso, o Supervisor verá obrigatoriamente a tela para criar uma nova senha.",
+                                    tone = PontoCafeTone.WARNING,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !supervisorSelected,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            PcSectionSurface {
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    Text("Segurança do Administrador", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    SecurePasswordField(
+                        value = draft.senha,
+                        onValueChange = { draftState.update(draft.copy(senha = it, erroLocal = null)) },
+                        label = "Senha",
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !carregando,
+                        supportingText = "Mínimo de 10 caracteres, com letras e números",
+                        imeAction = ImeAction.Next,
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    )
+                    SecurePasswordField(
+                        value = draft.confirmarSenha,
+                        onValueChange = { draftState.update(draft.copy(confirmarSenha = it, erroLocal = null)) },
+                        label = "Confirmar senha",
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !carregando,
+                        imeAction = ImeAction.Done,
+                        keyboardActions = KeyboardActions(onDone = { submit() }),
+                        isError = draft.confirmarSenha.isNotBlank() && !passwordsMatch,
+                    )
+                }
             }
         }
 
@@ -262,31 +386,14 @@ fun AdminAccountForm(
             onDismiss = { draftState.setValidationError(null) },
         )
 
-        PcSectionSurface {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Text(
-                    completionHint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (validationError == null) LocalPontoCafeSemanticColors.current.success
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                PcPrimaryButton(
-                    text = if (perfil == AccountProfile.SUPERVISOR) {
-                        "Criar conta de Supervisor"
-                    } else {
-                        "Criar conta de Administrador"
-                    },
-                    icon = Icons.Default.AdminPanelSettings,
-                    onClick = ::submit,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = validationError == null,
-                    loading = carregando,
-                )
-            }
-        }
+        PcPrimaryButton(
+            text = if (supervisorSelected) "Criar Supervisor · Turno $selectedShift" else "Criar Administrador",
+            icon = Icons.Default.AdminPanelSettings,
+            onClick = ::submit,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = validationError == null,
+            loading = carregando,
+        )
     }
 }
 
@@ -300,11 +407,7 @@ private fun ProfileChoiceCard(
     enabled: Boolean,
 ) {
     Card(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            role = Role.RadioButton
-            this.selected = selected
-            stateDescription = if (selected) "Selecionado" else "Não selecionado"
-        },
+        modifier = modifier,
         onClick = onClick,
         enabled = enabled,
         shape = MaterialTheme.shapes.large,
@@ -321,49 +424,12 @@ private fun ProfileChoiceCard(
             modifier = Modifier.padding(PontoCafeSpacing.md),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             StatusPill(
                 text = if (selected) "Selecionado" else "Selecionar",
                 tone = if (selected) PontoCafeTone.SUCCESS else PontoCafeTone.NEUTRAL,
             )
         }
-    }
-}
-
-@Composable
-private fun PasswordRequirement(text: String, fulfilled: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {
-                stateDescription = if (fulfilled) "Atendido" else "Pendente"
-            },
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = if (fulfilled) LocalPontoCafeSemanticColors.current.success
-            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-        )
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (fulfilled) LocalPontoCafeSemanticColors.current.success
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
