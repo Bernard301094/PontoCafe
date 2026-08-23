@@ -1,6 +1,11 @@
 package com.pontocafe.app.ui
 
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,10 +34,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -249,36 +258,38 @@ fun PcEmptyState(
     icon: ImageVector = Icons.Default.Info,
     modifier: Modifier = Modifier,
 ) {
-    PcSectionSurface(
-        modifier.semantics(mergeDescendants = true) {
+    MotionReveal(
+        modifier = modifier.semantics(mergeDescendants = true) {
             contentDescription = "$title. $supportingText"
         },
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = PontoCafeSpacing.md),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-        ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        PcSectionSurface {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = PontoCafeSpacing.md),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
+                Text(
+                    title,
+                    modifier = Modifier.semantics { heading() },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    supportingText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                title,
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                supportingText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -336,14 +347,22 @@ fun PcPrimaryButton(
     icon: ImageVector? = null,
     loading: Boolean = false,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
+    val view = LocalView.current
     Button(
-        onClick = onClick,
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            onClick()
+        },
         modifier = modifier
+            .pcPressScale(pressScale)
             .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
         contentPadding = ButtonDefaults.ContentPadding,
+        interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
     }
@@ -358,13 +377,21 @@ fun PcTonalButton(
     icon: ImageVector? = null,
     loading: Boolean = false,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
+    val view = LocalView.current
     FilledTonalButton(
-        onClick = onClick,
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            onClick()
+        },
         modifier = modifier
+            .pcPressScale(pressScale)
             .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
+        interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
     }
@@ -380,15 +407,23 @@ fun PcSecondaryButton(
     contentColor: Color = MaterialTheme.colorScheme.primary,
     loading: Boolean = false,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
+    val view = LocalView.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            onClick()
+        },
         modifier = modifier
+            .pcPressScale(pressScale)
             .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
     }
@@ -403,9 +438,16 @@ fun PcDangerButton(
     icon: ImageVector? = null,
     loading: Boolean = false,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
+    val view = LocalView.current
     Button(
-        onClick = onClick,
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            onClick()
+        },
         modifier = modifier
+            .pcPressScale(pressScale)
             .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
@@ -414,9 +456,29 @@ fun PcDangerButton(
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
         ),
+        interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
     }
+}
+
+@Composable
+private fun rememberPcPressScale(interactionSource: MutableInteractionSource): Float {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.975f else 1f,
+        animationSpec = tween(
+            durationMillis = if (pressed) PontoCafeMotion.Quick else PontoCafeMotion.Standard,
+            easing = PontoCafeMotion.EmphasizedEasing,
+        ),
+        label = "pc-button-press-scale",
+    )
+    return scale
+}
+
+private fun Modifier.pcPressScale(scale: Float): Modifier = graphicsLayer {
+    scaleX = scale
+    scaleY = scale
 }
 
 @Composable
