@@ -45,7 +45,7 @@ export const deviceAuthContractMiddleware = createMiddleware<AppEnv>(async (c, n
   const response = c.res
   if (response.status !== 401) return
 
-  const contentType = response.headers.get('content-type')?.toLowerCase().orEmpty?.()
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
   if (contentType && !contentType.includes('application/json')) return
 
   try {
