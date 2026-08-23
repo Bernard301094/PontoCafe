@@ -5,6 +5,7 @@ import type { MiddlewareHandler } from 'hono'
 import type { AvatarBucket } from './avatar-storage.js'
 import { config } from './config.js'
 import { getPool, query } from './db.js'
+import { hashPassword, verifyPassword } from './password-crypto.js'
 
 export type Role = 'ADMIN' | 'SUPERVISOR'
 export type AuthUser = { id: string; nome: string; email: string; papel: Role }
@@ -45,6 +46,13 @@ function createAuth() {
       disableSignUp: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
+      // Explicitly bind the password provider instead of relying on conditional
+      // package exports chosen by Wrangler/workerd. The implementation keeps
+      // Better Auth's existing scrypt parameters and persisted hash format.
+      password: {
+        hash: hashPassword,
+        verify: verifyPassword,
+      },
     },
     session: { expiresIn: config.sessionTtlHours * 3600, updateAge: 3600 },
     advanced: { database: { generateId: 'uuid' } },
