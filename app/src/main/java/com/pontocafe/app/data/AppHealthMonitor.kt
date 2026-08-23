@@ -139,10 +139,11 @@ class AppHealthMonitor(context: Context) {
         watchdog = executor
         executor.scheduleAtFixedRate(
             {
-                if (!stallWatchdogRunning.get()) return@scheduleAtFixedRate
-                val duration = System.currentTimeMillis() - lastHeartbeat.get()
-                if (duration >= STALL_THRESHOLD_MS && stallRecorded.compareAndSet(false, true)) {
-                    store.recordStall(duration)
+                if (stallWatchdogRunning.get()) {
+                    val duration = System.currentTimeMillis() - lastHeartbeat.get()
+                    if (duration >= STALL_THRESHOLD_MS && stallRecorded.compareAndSet(false, true)) {
+                        store.recordStall(duration)
+                    }
                 }
             },
             STALL_CHECK_MS,
