@@ -42,6 +42,8 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 
 private const val OPERATIONAL_ATTENTION_SECONDS = 120
+private const val OPERATIONAL_WARNING_SECONDS = 60
+private const val OPERATIONAL_CRITICAL_SECONDS = 15
 
 enum class OperationalPauseFilter(val label: String) {
     TODOS("Todos"),
@@ -95,6 +97,10 @@ fun OperationalPauseOverview(
 ) {
     val now = System.currentTimeMillis()
     val realOverdue = realPauses.count { operationalPauseElapsed(it, now) > it.limiteSegundos }
+    val realCritical = realPauses.count {
+        val remaining = it.limiteSegundos - operationalPauseElapsed(it, now)
+        remaining in 0..OPERATIONAL_CRITICAL_SECONDS
+    }
     val realAttention = realPauses.count {
         val elapsed = operationalPauseElapsed(it, now)
         val remaining = it.limiteSegundos - elapsed
@@ -116,6 +122,7 @@ fun OperationalPauseOverview(
                     Text(
                         text = when {
                             realOverdue > 0 -> "$realOverdue exige(m) atenção agora"
+                            realCritical > 0 -> "$realCritical em estado crítico"
                             realAttention > 0 -> "$realAttention próximo(s) do limite"
                             realPauses.isNotEmpty() -> "Operação sob controle"
                             testActive -> "TESTE visual ativo"
@@ -134,13 +141,14 @@ fun OperationalPauseOverview(
                 StatusPill(
                     text = when {
                         realOverdue > 0 -> "URGENTE"
+                        realCritical > 0 -> "CRÍTICO"
                         realAttention > 0 -> "ATENÇÃO"
                         realPauses.isNotEmpty() -> "OK"
                         else -> "LIVRE"
                     },
                     tone = when {
                         realOverdue > 0 -> PontoCafeTone.DANGER
-                        realAttention > 0 -> PontoCafeTone.WARNING
+                        realCritical > 0 || realAttention > 0 -> PontoCafeTone.WARNING
                         realPauses.isNotEmpty() -> PontoCafeTone.SUCCESS
                         else -> PontoCafeTone.NEUTRAL
                     },
@@ -187,23 +195,29 @@ fun OperationalPauseCompactCard(
     val elapsed = operationalPauseElapsed(pause, now)
     val remaining = (pause.limiteSegundos - elapsed).coerceAtLeast(0)
     val overdue = elapsed > pause.limiteSegundos
-    val attention = !overdue && remaining <= OPERATIONAL_ATTENTION_SECONDS
+    val critical = !overdue && remaining <= OPERATIONAL_CRITICAL_SECONDS
+    val warning = !overdue && !critical && remaining <= OPERATIONAL_WARNING_SECONDS
+    val attention = !overdue && !critical && !warning && remaining <= OPERATIONAL_ATTENTION_SECONDS
     val progress = if (pause.limiteSegundos <= 0) 1f else {
         (elapsed.toFloat() / pause.limiteSegundos.toFloat()).coerceIn(0f, 1f)
     }
+    val semantic = LocalPontoCafeSemanticColors.current
     val semanticColor = when {
         overdue -> MaterialTheme.colorScheme.error
-        attention -> MaterialTheme.colorScheme.tertiary
+        critical || warning || attention -> semantic.warning
         else -> MaterialTheme.colorScheme.primary
     }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .motionScale(active = critical, activeScale = 1.01f)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 stateDescription = when {
                     overdue -> "Pausa acima do limite"
+                    critical -> "Pausa crítica, menos de quinze segundos para retornar"
+                    warning -> "Pausa com menos de um minuto para retornar"
                     attention -> "Pausa próxima do limite"
                     else -> "Pausa dentro do limite"
                 }
@@ -212,6 +226,7 @@ fun OperationalPauseCompactCard(
         colors = CardDefaults.cardColors(
             containerColor = when {
                 overdue -> MaterialTheme.colorScheme.errorContainer
+                critical || warning -> semantic.warningContainer
                 attention -> MaterialTheme.colorScheme.tertiaryContainer
                 else -> MaterialTheme.colorScheme.surfaceContainerLow
             },
@@ -275,12 +290,14 @@ fun OperationalPauseCompactCard(
                     StatusPill(
                         text = when {
                             overdue -> "Excedido +${formatOperationalDuration(elapsed - pause.limiteSegundos)}"
-                            attention -> "Restam ${formatOperationalDuration(remaining)}"
+                            critical -> "Crítico · ${formatOperationalDuration(remaining)}"
+                            warning -> "Restam ${formatOperationalDuration(remaining)}"
+                            attention -> "Atenção · ${formatOperationalDuration(remaining)}"
                             else -> "OK · ${formatOperationalDuration(remaining)}"
                         },
                         tone = when {
                             overdue -> PontoCafeTone.DANGER
-                            attention -> PontoCafeTone.WARNING
+                            critical || warning || attention -> PontoCafeTone.WARNING
                             else -> PontoCafeTone.SUCCESS
                         },
                     )
@@ -401,8 +418,10 @@ private fun operationalPausePriority(pause: PausaSupervisor, nowMillis: Long): I
     val remaining = pause.limiteSegundos - elapsed
     return when {
         elapsed > pause.limiteSegundos -> 0
-        remaining <= OPERATIONAL_ATTENTION_SECONDS -> 1
-        else -> 2
+        remaining <= OPERATIONAL_CRITICAL_SECONDS -> 1
+        remaining <= OPERATIONAL_WARNING_SECONDS -> 2
+        remaining <= OPERATIONAL_ATTENTION_SECONDS -> 3
+        else -> 4
     }
 }
 
