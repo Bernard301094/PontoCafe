@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.pontocafe.app.MainActivity
 import com.pontocafe.app.R
+import kotlin.math.absoluteValue
 
 enum class SupervisorNotificationAvailability(val canPost: Boolean) {
     ENABLED(true),
@@ -33,13 +34,17 @@ enum class SupervisorNotificationAvailability(val canPost: Boolean) {
  * Entrega os alertas operacionais pelo sistema Android. Som e vibração ficam
  * sob controle do canal para respeitar as escolhas do usuário, DND e ajustes do
  * fabricante, inclusive em aparelhos Samsung recentes.
+ *
+ * Cada evento recebe um ID estável próprio para não sobrescrever avisos
+ * diferentes. O Android pode agrupá-los em uma única pilha operacional.
  */
 object SupervisorAlertNotifier {
     const val CHANNEL_ID = "supervisor_live_alerts_v1"
 
     private const val CHANNEL_NAME = "Alertas ao vivo do Supervisor"
-    private const val CHANNEL_DESCRIPTION = "Saídas, retornos e pausas acima do limite"
-    private const val NOTIFICATION_ID = 4_201
+    private const val CHANNEL_DESCRIPTION = "Saídas, retornos e pausas próximas ou acima do limite"
+    private const val GROUP_KEY = "pontocafe.supervisor.live"
+    private const val GROUP_SUMMARY_ID = 4_201
     private const val CONTENT_REQUEST_CODE = 4_201
     private const val LOG_TAG = "SupervisorAlerts"
     private val channelVibrationPattern = longArrayOf(0L, 180L, 90L, 260L)
@@ -130,6 +135,7 @@ object SupervisorAlertNotifier {
             contentIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val individualId = stableNotificationId(eventType, title, message)
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
@@ -139,12 +145,29 @@ object SupervisorAlertNotifier {
             .setCategory(NotificationCompat.CATEGORY_EVENT)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setGroup(GROUP_KEY)
+            .setAutoCancel(true)
+            .build()
+
+        val summary = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Alertas do Supervisor")
+            .setContentText("Acompanhe saídas, retornos e limites de pausa.")
+            .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setGroup(GROUP_KEY)
+            .setGroupSummary(true)
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .build()
 
         return try {
-            NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, notification)
-            Log.i(LOG_TAG, "notify() concluído: event=$eventType channel=$CHANNEL_ID id=$NOTIFICATION_ID")
+            val manager = NotificationManagerCompat.from(appContext)
+            manager.notify(individualId, notification)
+            manager.notify(GROUP_SUMMARY_ID, summary)
+            Log.i(LOG_TAG, "notify() concluído: event=$eventType channel=$CHANNEL_ID id=$individualId")
             true
         } catch (error: SecurityException) {
             Log.e(LOG_TAG, "Permissão recusada ao notificar event=$eventType channel=$CHANNEL_ID", error)
@@ -154,6 +177,13 @@ object SupervisorAlertNotifier {
             false
         }
     }
+
+    fun sendSelfTest(context: Context): Boolean = notify(
+        context = context,
+        eventType = "TESTE",
+        title = "Teste de alertas do Ponto Café",
+        message = "Se você recebeu este aviso, as notificações do Supervisor estão funcionando neste aparelho.",
+    )
 
     fun openSettings(context: Context, channelSpecific: Boolean) {
         val appContext = context.applicationContext
@@ -180,6 +210,11 @@ object SupervisorAlertNotifier {
                         Log.e(LOG_TAG, "Falha ao abrir ajustes do aplicativo.", fallbackError)
                     }
             }
+    }
+
+    private fun stableNotificationId(eventType: String, title: String, message: String): Int {
+        val raw = "$eventType|$title|$message".hashCode().absoluteValue
+        return if (raw == GROUP_SUMMARY_ID || raw == 0) raw + 10_000 else raw
     }
 
     private fun runtimePermissionGranted(context: Context): Boolean =
