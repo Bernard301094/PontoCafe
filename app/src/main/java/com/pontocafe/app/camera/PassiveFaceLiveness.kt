@@ -90,12 +90,16 @@ class PassiveFaceLiveness(
             return PassiveLivenessDecision.OBSERVING
         }
 
-        if (trackingChanged(sample)) {
+        if (continuityChanged(sample)) {
             resetObservationOnly()
         }
 
         if (startedAtMillis == UNSET_TIME) {
             startedAtMillis = sample.capturedAtMillis
+            activeTrackingId = sample.trackingId
+        } else if (activeTrackingId == null && sample.trackingId != null) {
+            // ML Kit pode atribuir o tracking ID alguns frames depois. Adota o
+            // ID sem descartar a continuidade geométrica já observada.
             activeTrackingId = sample.trackingId
         }
 
@@ -113,9 +117,6 @@ class PassiveFaceLiveness(
         val auxiliarySamples = samples.count { it.auxiliaryVisibilityReady }
         val auxiliaryCoverage = auxiliarySamples.toFloat() / samples.size.coerceAtLeast(1)
 
-        // Caminho rápido normal: olhos/landmarks utilizáveis + dois canais de
-        // dinâmica natural. Pequenos movimentos involuntários são suficientes;
-        // ninguém precisa girar a cabeça nem piscar sob comando.
         val quickEvidence =
             samples.size >= minimumSamples &&
                 elapsed >= minimumObservationMillis &&
@@ -128,9 +129,6 @@ class PassiveFaceLiveness(
             return PassiveLivenessDecision.PASSED
         }
 
-        // Caminho passivo um pouco mais longo para pessoas cujos olhos variam
-        // pouco. Exige dinâmica em pose E geometria para não aceitar um único
-        // frame estático repetido.
         val strongEvidence =
             samples.size >= minimumSamples + 2 &&
                 elapsed >= strongObservationMillis &&
@@ -161,22 +159,36 @@ class PassiveFaceLiveness(
     fun matchesAcceptedFace(sample: PassiveLivenessSample): Boolean {
         val accepted = acceptedSample ?: return false
         if (sample.faceCount != 1 || !sample.captureReady || !sample.frontal) return false
-        if (acceptedTrackingId != null || sample.trackingId != null) {
-            if (acceptedTrackingId == null || acceptedTrackingId != sample.trackingId) return false
-        }
+        if (
+            acceptedTrackingId != null && sample.trackingId != null &&
+            acceptedTrackingId != sample.trackingId
+        ) return false
 
-        val centerDistance = hypot(
-            (sample.centerXRatio - accepted.centerXRatio).toDouble(),
-            (sample.centerYRatio - accepted.centerYRatio).toDouble(),
-        ).toFloat()
+        val centerDistance = centerDistance(accepted, sample)
         val scaleDrift = abs(sample.faceWidthRatio - accepted.faceWidthRatio)
         return centerDistance <= MAX_ACCEPTED_CENTER_DRIFT && scaleDrift <= MAX_ACCEPTED_SCALE_DRIFT
     }
 
-    private fun trackingChanged(sample: PassiveLivenessSample): Boolean {
-        val current = activeTrackingId
-        return current != null && sample.trackingId != null && current != sample.trackingId
+    private fun continuityChanged(sample: PassiveLivenessSample): Boolean {
+        val last = samples.lastOrNull() ?: return false
+        if (
+            activeTrackingId != null && sample.trackingId != null &&
+            activeTrackingId != sample.trackingId
+        ) return true
+
+        // Quando um dos frames não tem tracking ID, usa uma barreira geométrica
+        // conservadora. Um salto grande significa nova pessoa/novo enquadramento.
+        return centerDistance(last, sample) > MAX_CONTINUITY_CENTER_JUMP ||
+            abs(last.faceWidthRatio - sample.faceWidthRatio) > MAX_CONTINUITY_SCALE_JUMP
     }
+
+    private fun centerDistance(
+        left: PassiveLivenessSample,
+        right: PassiveLivenessSample,
+    ): Float = hypot(
+        (right.centerXRatio - left.centerXRatio).toDouble(),
+        (right.centerYRatio - left.centerYRatio).toDouble(),
+    ).toFloat()
 
     private fun resetObservationOnly() {
         samples.clear()
@@ -188,15 +200,13 @@ class PassiveFaceLiveness(
 
     private fun addSample(sample: PassiveLivenessSample) {
         val last = samples.lastOrNull()
-        // FaceCamera entrega observações a ~20 Hz. Ignora callbacks duplicados
-        // com o mesmo timestamp para a evidência temporal não ser inflada.
         if (last?.capturedAtMillis == sample.capturedAtMillis) return
         samples.addLast(sample)
         while (samples.size > MAX_SAMPLES) samples.removeFirst()
     }
 
     private fun accept(sample: PassiveLivenessSample) {
-        acceptedTrackingId = sample.trackingId
+        acceptedTrackingId = sample.trackingId ?: activeTrackingId
         acceptedSample = sample
     }
 
@@ -243,6 +253,8 @@ class PassiveFaceLiveness(
         private const val MIN_GEOMETRY_VARIATION = 0.006f
         private const val CLOSED_EYE_SIGNAL = 0.38f
         private const val OPEN_EYE_SIGNAL = 0.66f
+        private const val MAX_CONTINUITY_CENTER_JUMP = 0.18f
+        private const val MAX_CONTINUITY_SCALE_JUMP = 0.15f
         private const val MAX_ACCEPTED_CENTER_DRIFT = 0.14f
         private const val MAX_ACCEPTED_SCALE_DRIFT = 0.12f
     }
