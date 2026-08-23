@@ -7,19 +7,14 @@ alter table "user"
 alter table "user"
   add column if not exists "mustChangePassword" boolean not null default false;
 
-do $$
-begin
-  if not exists (
-    select 1
-      from pg_constraint
-     where conname = 'user_turno_valid_chk'
-       and conrelid = '"user"'::regclass
-  ) then
-    alter table "user"
-      add constraint user_turno_valid_chk
-      check (turno is null or turno in ('A','B','C','D')) not valid;
-  end if;
-end $$;
+-- O DROP IF EXISTS mantém a migração reaplicável sem depender de bloco DO $$,
+-- que alguns executores de migrations dividem incorretamente por ponto e vírgula.
+alter table "user"
+  drop constraint if exists user_turno_valid_chk;
+
+alter table "user"
+  add constraint user_turno_valid_chk
+  check (turno is null or turno in ('A','B','C','D')) not valid;
 
 alter table "user" validate constraint user_turno_valid_chk;
 
