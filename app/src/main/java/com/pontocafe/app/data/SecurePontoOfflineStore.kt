@@ -75,6 +75,9 @@ data class SyncCenterSnapshot(
     val failures: List<OfflineSyncFailure>,
     val lastServerOkMillis: Long,
     val rulesUpdatedAtMillis: Long,
+    val quarantined: Boolean = false,
+    val quarantineReason: String? = null,
+    val quarantinedAtMillis: Long = 0L,
 )
 
 data class PontoOfflineSnapshot(
@@ -85,6 +88,9 @@ data class PontoOfflineSnapshot(
     val ultimoServidorOkEmMillis: Long = 0L,
     val falhasSincronizacao: List<OfflineSyncFailure> = emptyList(),
     val pausasConcluidas: List<LocalCompletedPause>? = emptyList(),
+    val eventosEmQuarentena: Boolean = false,
+    val motivoQuarentena: String? = null,
+    val quarentenaEmMillis: Long = 0L,
 )
 
 class SecurePontoOfflineStore(context: Context) {
@@ -114,6 +120,43 @@ class SecurePontoOfflineStore(context: Context) {
     fun lastServerOkMillis(): Long = readInternal().ultimoServidorOkEmMillis
 
     @Synchronized
+    fun hasQuarantinedPendingEvents(): Boolean {
+        val current = readInternal()
+        return current.eventosEmQuarentena && current.eventos.isNotEmpty()
+    }
+
+    /**
+     * Remote credential revocation must never destroy unsynchronized point
+     * events. Legacy events do not carry an originating device id, so they are
+     * preserved but blocked from automatic replay under a future credential.
+     */
+    @Synchronized
+    fun quarantinePendingEvents(reason: String) {
+        val current = readInternal()
+        if (current.eventos.isEmpty()) {
+            saveInternal(
+                current.copy(
+                    ultimoServidorOkEmMillis = 0L,
+                    eventosEmQuarentena = false,
+                    motivoQuarentena = null,
+                    quarentenaEmMillis = 0L,
+                ),
+                durable = true,
+            )
+            return
+        }
+        saveInternal(
+            current.copy(
+                ultimoServidorOkEmMillis = 0L,
+                eventosEmQuarentena = true,
+                motivoQuarentena = reason.take(160),
+                quarentenaEmMillis = System.currentTimeMillis(),
+            ),
+            durable = true,
+        )
+    }
+
+    @Synchronized
     fun syncCenterSnapshot(): SyncCenterSnapshot {
         val current = readInternal()
         val failureById = current.falhasSincronizacao.associateBy { it.eventId }
@@ -131,12 +174,17 @@ class SecurePontoOfflineStore(context: Context) {
             failures = current.falhasSincronizacao.filter { failure -> current.eventos.any { it.eventId == failure.eventId } },
             lastServerOkMillis = current.ultimoServidorOkEmMillis,
             rulesUpdatedAtMillis = current.regrasAtualizadasEmMillis,
+            quarantined = current.eventosEmQuarentena && current.eventos.isNotEmpty(),
+            quarantineReason = current.motivoQuarentena,
+            quarantinedAtMillis = current.quarentenaEmMillis,
         )
     }
 
     @Synchronized
     fun canOperateOffline(maxOfflineMillis: Long): Boolean {
-        val lastOk = readInternal().ultimoServidorOkEmMillis
+        val current = readInternal()
+        if (current.eventosEmQuarentena && current.eventos.isNotEmpty()) return false
+        val lastOk = current.ultimoServidorOkEmMillis
         return lastOk > 0L && System.currentTimeMillis() - lastOk <= maxOfflineMillis
     }
 
@@ -253,6 +301,9 @@ class SecurePontoOfflineStore(context: Context) {
         rule: RegraCafe,
     ): LocalOpenPause {
         val current = readInternal()
+        require(!current.eventosEmQuarentena) {
+            "Existem registros offline preservados de uma credencial anterior. Conecte este dispositivo ao servidor antes de registrar novos pontos offline."
+        }
         require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
         require(current.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
@@ -335,6 +386,9 @@ class SecurePontoOfflineStore(context: Context) {
         modelVersion: String,
     ): Pair<LocalOpenPause, Int> {
         val current = readInternal()
+        require(!current.eventosEmQuarentena) {
+            "Existem registros offline preservados de uma credencial anterior. Conecte este dispositivo ao servidor antes de registrar novos pontos offline."
+        }
         require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
         val open = current.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
@@ -396,6 +450,7 @@ class SecurePontoOfflineStore(context: Context) {
         val pendingIds = current.eventos.map { it.eventId }.toSet() - processed
         val currentFailures = current.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
         val now = System.currentTimeMillis()
+        val remainingEvents = current.eventos.filterNot { it.eventId in processed }
 
         results.forEach { result ->
             if (result.eventId in processed) {
@@ -416,9 +471,12 @@ class SecurePontoOfflineStore(context: Context) {
 
         saveInternal(
             current.copy(
-                eventos = current.eventos.filterNot { it.eventId in processed },
+                eventos = remainingEvents,
                 falhasSincronizacao = currentFailures.values.filter { it.eventId in pendingIds }.sortedByDescending { it.ultimaTentativaEmMillis },
                 ultimoServidorOkEmMillis = now,
+                eventosEmQuarentena = current.eventosEmQuarentena && remainingEvents.isNotEmpty(),
+                motivoQuarentena = current.motivoQuarentena.takeIf { current.eventosEmQuarentena && remainingEvents.isNotEmpty() },
+                quarentenaEmMillis = current.quarentenaEmMillis.takeIf { current.eventosEmQuarentena && remainingEvents.isNotEmpty() } ?: 0L,
             ),
         )
         processed.forEach(operationJournal::complete)
@@ -429,10 +487,15 @@ class SecurePontoOfflineStore(context: Context) {
         if (eventIds.isEmpty()) return
         val ids = eventIds.toHashSet()
         val current = readInternal()
+        val remainingEvents = current.eventos.filterNot { it.eventId in ids }
+        val keepQuarantine = current.eventosEmQuarentena && remainingEvents.isNotEmpty()
         saveInternal(
             current.copy(
-                eventos = current.eventos.filterNot { it.eventId in ids },
+                eventos = remainingEvents,
                 falhasSincronizacao = current.falhasSincronizacao.filterNot { it.eventId in ids },
+                eventosEmQuarentena = keepQuarantine,
+                motivoQuarentena = current.motivoQuarentena.takeIf { keepQuarantine },
+                quarentenaEmMillis = current.quarentenaEmMillis.takeIf { keepQuarantine } ?: 0L,
             ),
         )
         ids.forEach(operationJournal::complete)
