@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
@@ -45,6 +46,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
+import com.pontocafe.app.data.OperationalAlertHistoryItem
+import com.pontocafe.app.data.OperationalAlertHistoryStore
 import com.pontocafe.app.data.PausaSupervisor
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.notifications.SupervisorAlertNotifier
@@ -72,10 +75,14 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
     val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
     val appContext = context.applicationContext
+    val alertHistoryStore = remember(appContext) { OperationalAlertHistoryStore(appContext) }
+    var alertHistory by remember { mutableStateOf<List<OperationalAlertHistoryItem>>(alertHistoryStore.snapshot()) }
     var notificationAvailability by remember {
         mutableStateOf<SupervisorNotificationAvailability?>(null)
     }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    var notificationTestMessage by remember { mutableStateOf<String?>(null) }
+    var notificationTestSucceeded by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -142,6 +149,10 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         enabled = state.ultimaAtualizacaoAoVivoEmMillis != null,
         latestReturn = state.ultimoRetorno,
     )
+    LaunchedEffect(alert?.id) {
+        alertHistory = alertHistoryStore.snapshot()
+    }
+
     val notificationPrompt = when (notificationAvailability) {
         SupervisorNotificationAvailability.PERMISSION_REQUIRED -> Triple(
             "Ative os alertas do Supervisor",
@@ -182,6 +193,16 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
             )
         }
     }
+    val runNotificationTest = {
+        notificationTestSucceeded = SupervisorAlertNotifier.sendSelfTest(appContext)
+        notificationAvailability = SupervisorAlertNotifier.availability(appContext)
+        notificationTestMessage = if (notificationTestSucceeded) {
+            "Teste enviado. Confirme som, vibração e notificação no Android."
+        } else {
+            "O teste não pôde ser enviado. Revise a permissão e o canal de alertas."
+        }
+    }
+
     val pendingFaces = remember(state.colaboradores) { state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() } }
     val nowSnapshot = System.currentTimeMillis()
     val overdue = state.pausasAtivas.count { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
@@ -222,7 +243,41 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         )
                     }
                 }
+                item("notification-test") {
+                    PcSectionSurface {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            SectionTitle(
+                                "Alertas e notificações",
+                                "Teste o canal deste aparelho sem criar pausa, histórico operacional ou auditoria.",
+                            )
+                            PcSecondaryButton(
+                                text = "Testar alerta",
+                                icon = Icons.Default.Notifications,
+                                onClick = runNotificationTest,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            PcFeedbackBanner(
+                                message = notificationTestMessage,
+                                tone = if (notificationTestSucceeded) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+                                onDismiss = { notificationTestMessage = null },
+                            )
+                        }
+                    }
+                }
                 alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
+                item("alert-center") {
+                    SupervisorOperationalAlertCenter(
+                        history = alertHistory,
+                        onMarkAllRead = {
+                            alertHistoryStore.markAllRead()
+                            alertHistory = alertHistoryStore.snapshot()
+                        },
+                        onClear = {
+                            alertHistoryStore.clear()
+                            alertHistory = emptyList()
+                        },
+                    )
+                }
                 item("attention") {
                     OperationalPauseOverview(
                         realPauses = state.pausasAtivas,
