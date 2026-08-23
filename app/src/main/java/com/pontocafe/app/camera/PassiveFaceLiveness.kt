@@ -271,7 +271,9 @@ fun FaceObservation.toPassiveLivenessSample(
         trackingId = trackingId,
         captureReady = isIdentificationReady,
         frontal = isFrontal,
-        auxiliaryVisibilityReady = isFullyVisible && (hasReliableLandmarks || eyeClassificationAvailable),
+        auxiliaryVisibilityReady = isFullyVisible &&
+            eyesAcceptableForIdentification &&
+            (hasReliableLandmarks || eyeClassificationAvailable),
         yaw = yaw,
         pitch = pitch,
         centerXRatio = centerXRatio,
