@@ -29,12 +29,21 @@ internal enum class PontoNeuralSpeechDecision {
     UNAVAILABLE,
 }
 
-private enum class NeuralVoiceState {
+internal enum class PontoNeuralVoiceAvailability {
     IDLE,
     PREPARING,
     READY,
     FAILED,
 }
+
+internal data class PontoNeuralVoiceDiagnostics(
+    val availability: PontoNeuralVoiceAvailability,
+    val modelInstalled: Boolean,
+    val usingAndroidFallback: Boolean,
+    val lastFailureAtMillis: Long?,
+    val lastFailureReason: String?,
+    val retryAvailableInMillis: Long,
+)
 
 private data class CachedNeuralAudio(
     val samples: ShortArray,
@@ -59,7 +68,8 @@ internal object PontoNeuralVoiceRuntime {
     private const val MODEL_SIZE_BYTES = 63_201_428L
     private const val MAX_ARCHIVE_BYTES = 120L * 1024L * 1024L
     private const val MAX_EXTRACTED_BYTES = 160L * 1024L * 1024L
-    private const val RETRY_AFTER_MILLIS = 15L * 60L * 1_000L
+    private const val RETRY_BASE_MILLIS = 30_000L
+    private const val RETRY_MAX_MILLIS = 2L * 60L * 1_000L
     private const val CACHE_ENTRIES = 24
     private const val VOICE_SPEED = 1.02f
     private const val SILENCE_SCALE = 0.18f
@@ -75,7 +85,7 @@ internal object PontoNeuralVoiceRuntime {
     }
 
     @Volatile
-    private var state = NeuralVoiceState.IDLE
+    private var state = PontoNeuralVoiceAvailability.IDLE
 
     @Volatile
     private var engine: OfflineTts? = null
@@ -84,9 +94,44 @@ internal object PontoNeuralVoiceRuntime {
     private var currentTrack: AudioTrack? = null
 
     private var lastFailureAtMillis = 0L
+    private var lastFailureReason: String? = null
+    private var consecutiveFailures = 0
     private var lifecycleVersion = 0L
 
     fun prewarm(context: Context) {
+        ensurePreparing(context.applicationContext)
+    }
+
+    fun diagnostics(context: Context): PontoNeuralVoiceDiagnostics {
+        val appContext = context.applicationContext
+        val modelDir = File(File(appContext.filesDir, "pontocafe-voice"), MODEL_DIR)
+        val installed = modelReadyOnDisk(modelDir)
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            val retryDelay = currentRetryDelayMillis()
+            val retryIn = if (state == PontoNeuralVoiceAvailability.FAILED && lastFailureAtMillis > 0L) {
+                (retryDelay - (now - lastFailureAtMillis)).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            return PontoNeuralVoiceDiagnostics(
+                availability = state,
+                modelInstalled = installed,
+                usingAndroidFallback = state != PontoNeuralVoiceAvailability.READY || engine == null,
+                lastFailureAtMillis = lastFailureAtMillis.takeIf { it > 0L },
+                lastFailureReason = lastFailureReason,
+                retryAvailableInMillis = retryIn,
+            )
+        }
+    }
+
+    fun retryNow(context: Context) {
+        synchronized(lock) {
+            if (state == PontoNeuralVoiceAvailability.FAILED) {
+                state = PontoNeuralVoiceAvailability.IDLE
+                lastFailureAtMillis = 0L
+            }
+        }
         ensurePreparing(context.applicationContext)
     }
 
@@ -97,7 +142,7 @@ internal object PontoNeuralVoiceRuntime {
         onFailure: (() -> Unit)? = null,
     ): PontoNeuralSpeechDecision {
         val currentEngine = engine
-        if (state != NeuralVoiceState.READY || currentEngine == null) {
+        if (state != PontoNeuralVoiceAvailability.READY || currentEngine == null) {
             ensurePreparing(context.applicationContext)
             return PontoNeuralSpeechDecision.UNAVAILABLE
         }
@@ -132,7 +177,7 @@ internal object PontoNeuralVoiceRuntime {
                     }
                 play(audio, version)
             } catch (_: Throwable) {
-                markRuntimeFailure(currentEngine)
+                markRuntimeFailure(currentEngine, "Falha ao sintetizar ou reproduzir a voz neural.")
                 runCatching { onFailure?.invoke() }
             }
         }
@@ -147,7 +192,7 @@ internal object PontoNeuralVoiceRuntime {
             currentTrack = null
             engineToRelease = engine
             engine = null
-            state = NeuralVoiceState.IDLE
+            state = PontoNeuralVoiceAvailability.IDLE
             cache.clear()
             gate.reset()
         }
@@ -161,19 +206,23 @@ internal object PontoNeuralVoiceRuntime {
         val version: Long
         synchronized(lock) {
             when (state) {
-                NeuralVoiceState.READY,
-                NeuralVoiceState.PREPARING -> return
-                NeuralVoiceState.FAILED -> if (now - lastFailureAtMillis < RETRY_AFTER_MILLIS) return
-                NeuralVoiceState.IDLE -> Unit
+                PontoNeuralVoiceAvailability.READY,
+                PontoNeuralVoiceAvailability.PREPARING -> return
+                PontoNeuralVoiceAvailability.FAILED -> {
+                    if (now - lastFailureAtMillis < currentRetryDelayMillis()) return
+                }
+                PontoNeuralVoiceAvailability.IDLE -> Unit
             }
-            state = NeuralVoiceState.PREPARING
+            state = PontoNeuralVoiceAvailability.PREPARING
             version = lifecycleVersion
         }
 
         worker.execute {
             var prepared: OfflineTts? = null
+            var preparationStage = "Preparação do modelo de voz"
             try {
                 val modelDir = ensureModelInstalled(context)
+                preparationStage = "Inicialização do motor neural"
                 prepared = createEngine(modelDir)
                 synchronized(lock) {
                     if (version != lifecycleVersion) {
@@ -182,20 +231,30 @@ internal object PontoNeuralVoiceRuntime {
                     engine?.let { old -> runCatching { old.release() } }
                     engine = prepared
                     prepared = null
-                    state = NeuralVoiceState.READY
+                    state = PontoNeuralVoiceAvailability.READY
                     lastFailureAtMillis = 0L
+                    lastFailureReason = null
+                    consecutiveFailures = 0
                 }
             } catch (_: Throwable) {
                 synchronized(lock) {
                     if (version == lifecycleVersion) {
-                        state = NeuralVoiceState.FAILED
+                        state = PontoNeuralVoiceAvailability.FAILED
                         lastFailureAtMillis = System.currentTimeMillis()
+                        lastFailureReason = "$preparationStage não foi concluída."
+                        consecutiveFailures = (consecutiveFailures + 1).coerceAtMost(8)
                     }
                 }
             } finally {
                 prepared?.let { runCatching { it.release() } }
             }
         }
+    }
+
+    private fun currentRetryDelayMillis(): Long {
+        if (consecutiveFailures <= 1) return RETRY_BASE_MILLIS
+        val multiplier = 1L shl (consecutiveFailures - 1).coerceAtMost(3)
+        return (RETRY_BASE_MILLIS * multiplier).coerceAtMost(RETRY_MAX_MILLIS)
     }
 
     private fun createEngine(modelDir: File): OfflineTts {
@@ -289,26 +348,30 @@ internal object PontoNeuralVoiceRuntime {
         }
     }
 
-    private fun markRuntimeFailure(failedEngine: OfflineTts) {
+    private fun markRuntimeFailure(failedEngine: OfflineTts, reason: String) {
         synchronized(lock) {
             if (engine !== failedEngine) return
             engine = null
-            state = NeuralVoiceState.FAILED
+            state = PontoNeuralVoiceAvailability.FAILED
             lastFailureAtMillis = System.currentTimeMillis()
+            lastFailureReason = reason
+            consecutiveFailures = (consecutiveFailures + 1).coerceAtMost(8)
             cache.clear()
         }
         runCatching { failedEngine.release() }
     }
 
+    private fun modelReadyOnDisk(modelDir: File): Boolean {
+        val marker = File(modelDir, ".ready-$MODEL_SHA256")
+        val model = File(modelDir, MODEL_FILE)
+        return marker.isFile && model.isFile && model.length() == MODEL_SIZE_BYTES &&
+            File(modelDir, "tokens.txt").isFile && File(modelDir, "espeak-ng-data").isDirectory
+    }
+
     private fun ensureModelInstalled(context: Context): File {
         val parent = File(context.filesDir, "pontocafe-voice").apply { mkdirs() }
         val finalDir = File(parent, MODEL_DIR)
-        val marker = File(finalDir, ".ready-$MODEL_SHA256")
-        val existingModel = File(finalDir, MODEL_FILE)
-        if (
-            marker.isFile && existingModel.isFile && existingModel.length() == MODEL_SIZE_BYTES &&
-            File(finalDir, "tokens.txt").isFile && File(finalDir, "espeak-ng-data").isDirectory
-        ) {
+        if (modelReadyOnDisk(finalDir)) {
             return finalDir
         }
 
