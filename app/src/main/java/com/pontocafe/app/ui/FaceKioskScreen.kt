@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -80,6 +81,9 @@ import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FaceTrackContinuity
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
+import com.pontocafe.app.camera.PassivePresenceDecision
+import com.pontocafe.app.camera.PassivePresenceGate
+import com.pontocafe.app.camera.toPassivePresenceSample
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
@@ -108,9 +112,9 @@ private enum class KioskLivenessChallenge(val instruction: String) {
     }
 }
 
-private const val CHALLENGE_STABLE_FRAMES = 4
-private const val RECOGNITION_STABLE_FRAMES = 4
-private const val BLINK_FALLBACK_FRAMES = 36
+private const val CHALLENGE_STABLE_FRAMES = 3
+private const val RECOGNITION_STABLE_FRAMES = 2
+private const val BLINK_FALLBACK_FRAMES = 24
 
 @Composable
 fun FaceKioskScreen(
@@ -131,13 +135,16 @@ fun FaceKioskScreen(
     val permissionGranted = cameraPermission.granted
 
     val captureController = remember { FrameCaptureController() }
+    val passivePresence = remember { PassivePresenceGate() }
     val liveness = remember { BlinkLiveness() }
     val turnChallengeContinuity = remember { FaceTrackContinuity() }
     var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
-    var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
+    var challenge by remember { mutableStateOf(KioskLivenessChallenge.BLINK) }
     val stableChallengeFrames = remember { intArrayOf(0) }
     val stableRecognitionFrames = remember { intArrayOf(0) }
     val blinkPendingFrames = remember { intArrayOf(0) }
+    var activeFallback by remember { mutableStateOf(false) }
+    var passiveAccepted by remember { mutableStateOf(false) }
     var challengeAdjustedForEyes by remember { mutableStateOf(false) }
     var challengeCompleted by remember { mutableStateOf(false) }
     var captureRequested by remember { mutableStateOf(false) }
@@ -148,6 +155,21 @@ fun FaceKioskScreen(
     var exitPin by remember { mutableStateOf("") }
     var unlockLoading by remember { mutableStateOf(false) }
     var unlockError by remember { mutableStateOf<String?>(null) }
+
+    fun resetLivenessFlow() {
+        passivePresence.reset()
+        liveness.reset()
+        turnChallengeContinuity.reset()
+        challenge = KioskLivenessChallenge.BLINK
+        stableChallengeFrames[0] = 0
+        stableRecognitionFrames[0] = 0
+        blinkPendingFrames[0] = 0
+        activeFallback = false
+        passiveAccepted = false
+        challengeAdjustedForEyes = false
+        challengeCompleted = false
+        livenessState = LivenessState.POSICIONE_ROSTO
+    }
 
     fun fecharSolicitacaoAcesso() {
         restrictedAreaRequest = null
@@ -203,19 +225,11 @@ fun FaceKioskScreen(
     }
 
     LaunchedEffect(state.scanCycle) {
-        liveness.reset()
-        turnChallengeContinuity.reset()
-        challenge = KioskLivenessChallenge.entries.random()
-        stableChallengeFrames[0] = 0
-        stableRecognitionFrames[0] = 0
-        blinkPendingFrames[0] = 0
-        challengeAdjustedForEyes = false
-        challengeCompleted = false
+        resetLivenessFlow()
         captureRequested = false
         detectedFaces = 0
         facePositioned = false
         cameraError = null
-        livenessState = LivenessState.POSICIONE_ROSTO
     }
 
     BoxWithConstraints(
@@ -239,29 +253,48 @@ fun FaceKioskScreen(
                 showPositionGuide = false,
                 onObservation = { observation ->
                     cameraError = null
-                    if (detectedFaces != observation.faceCount) {
-                        detectedFaces = observation.faceCount
-                    }
-                    val positionedNow = observation.faceCount == 1 && observation.isWellPositioned
-                    if (facePositioned != positionedNow) {
-                        facePositioned = positionedNow
-                    }
+                    detectedFaces = observation.faceCount
+                    facePositioned = observation.faceCount == 1 && observation.isIdentificationReady
+
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
                         !state.carregando && !captureRequested
                     ) {
-                        if (!challengeCompleted) {
+                        val now = SystemClock.uptimeMillis()
+                        val passiveSample = observation.toPassivePresenceSample(now)
+
+                        if (!challengeCompleted && !activeFallback) {
+                            when (passivePresence.update(passiveSample)) {
+                                PassivePresenceDecision.READY -> {
+                                    passiveAccepted = true
+                                    challengeCompleted = true
+                                    stableRecognitionFrames[0] = 0
+                                    livenessState = LivenessState.CONCLUIDO
+                                }
+                                PassivePresenceDecision.CHALLENGE_REQUIRED -> {
+                                    activeFallback = true
+                                    passiveAccepted = false
+                                    challenge = if (observation.eyeClassificationAvailable) {
+                                        KioskLivenessChallenge.BLINK
+                                    } else {
+                                        listOf(
+                                            KioskLivenessChallenge.TURN_LEFT,
+                                            KioskLivenessChallenge.TURN_RIGHT,
+                                        ).random()
+                                    }
+                                    liveness.reset()
+                                    turnChallengeContinuity.reset()
+                                    stableChallengeFrames[0] = 0
+                                    blinkPendingFrames[0] = 0
+                                    livenessState = LivenessState.POSICIONE_ROSTO
+                                }
+                                PassivePresenceDecision.WAITING -> Unit
+                            }
+                        } else if (!challengeCompleted && activeFallback) {
                             if (challenge == KioskLivenessChallenge.BLINK) {
                                 val next = liveness.update(observation)
-                                if (livenessState != next) {
-                                    livenessState = next
-                                }
-
-                                if (observation.isFrontal) {
-                                    blinkPendingFrames[0] += 1
-                                } else {
-                                    blinkPendingFrames[0] = 0
-                                }
+                                livenessState = next
+                                if (observation.isFrontal) blinkPendingFrames[0] += 1 else blinkPendingFrames[0] = 0
 
                                 if (next == LivenessState.CONCLUIDO) {
                                     challengeCompleted = true
@@ -279,13 +312,10 @@ fun FaceKioskScreen(
                                     livenessState = LivenessState.POSICIONE_ROSTO
                                 }
                             } else {
-                                val nextState = if (observation.isWellPositioned) {
+                                livenessState = if (observation.isWellPositioned) {
                                     LivenessState.PISQUE
                                 } else {
                                     LivenessState.POSICIONE_ROSTO
-                                }
-                                if (livenessState != nextState) {
-                                    livenessState = nextState
                                 }
                                 if (challenge.accepts(observation)) {
                                     if (stableChallengeFrames[0] == 0) {
@@ -306,21 +336,18 @@ fun FaceKioskScreen(
                                     stableChallengeFrames[0] = 0
                                 }
                             }
-                        } else {
-                            val sameLivenessFace = if (challenge == KioskLivenessChallenge.BLINK) {
+                        } else if (challengeCompleted) {
+                            val sameLivenessFace = if (passiveAccepted) {
+                                passivePresence.matches(passiveSample)
+                            } else if (challenge == KioskLivenessChallenge.BLINK) {
                                 liveness.matchesChallengeFace(observation)
                             } else {
                                 turnChallengeContinuity.matches(observation)
                             }
+
                             if (!sameLivenessFace) {
-                                challengeCompleted = false
-                                stableChallengeFrames[0] = 0
-                                stableRecognitionFrames[0] = 0
-                                blinkPendingFrames[0] = 0
-                                liveness.reset()
-                                turnChallengeContinuity.reset()
-                                livenessState = LivenessState.POSICIONE_ROSTO
-                            } else if (observation.isFrontal) {
+                                resetLivenessFlow()
+                            } else if (observation.isIdentificationReady) {
                                 stableRecognitionFrames[0] += 1
                                 if (stableRecognitionFrames[0] >= RECOGNITION_STABLE_FRAMES) {
                                     captureRequested = true
@@ -338,14 +365,8 @@ fun FaceKioskScreen(
                 },
                 onCaptureRejected = {
                     captureRequested = false
-                    challengeCompleted = false
-                    stableChallengeFrames[0] = 0
-                    stableRecognitionFrames[0] = 0
-                    blinkPendingFrames[0] = 0
                     facePositioned = false
-                    liveness.reset()
-                    turnChallengeContinuity.reset()
-                    livenessState = LivenessState.POSICIONE_ROSTO
+                    resetLivenessFlow()
                 },
                 onError = { cameraError = it },
             )
@@ -395,12 +416,14 @@ fun FaceKioskScreen(
         )
 
         val challengeInstruction = when {
-            challengeCompleted -> "Volte ao centro"
+            !activeFallback -> "Olhe para a câmera"
+            challengeCompleted -> "Olhe para a câmera"
             challenge == KioskLivenessChallenge.BLINK &&
                 livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
             livenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
             else -> challenge.instruction
         }
+        val recognitionBusy = state.recognitionStage != null || captureRequested || state.carregando
         val instructionTitle = when {
             cameraError != null -> "Câmera indisponível"
             !viewModel.faceModelReady -> "Reconhecimento indisponível"
@@ -408,16 +431,11 @@ fun FaceKioskScreen(
             !state.catalogoBiometricoPronto && state.erroSincronizacaoBiometrica != null -> "Rostos indisponíveis"
             state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto -> "Nenhum rosto disponível"
             !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
-            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO -> "Identificando rosto"
-            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA -> "Confirmando o mesmo rosto"
-            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE -> "Confirmando identidade"
-            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO -> "Confirmando seu ponto"
-            captureRequested -> "Capturando rosto"
-            state.carregando -> "Processando reconhecimento"
+            recognitionBusy -> "Reconhecendo…"
             multipleFacesVisible -> "Apenas uma pessoa por vez"
             noFaceVisible -> "Aproxime-se da câmera"
-            challengeCompleted -> "Identidade pronta"
-            else -> challengeInstruction
+            activeFallback && !challengeCompleted -> challengeInstruction
+            else -> "Olhe para a câmera"
         }
         val instructionDetail = when {
             cameraError != null -> cameraError.orEmpty()
@@ -429,22 +447,13 @@ fun FaceKioskScreen(
             state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto ->
                 "O catálogo está sincronizado, mas não contém rostos ativos compatíveis com este modelo."
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
-            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO ->
-                "Comparando a captura com o catálogo seguro deste dispositivo."
-            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA ->
-                "Mantenha o rosto centralizado por mais um instante."
-            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE ->
-                "Validando a correspondência facial de forma autoritativa."
-            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO ->
-                "Identidade confirmada. Aguarde o resultado do registro."
-            captureRequested -> "Mantenha o rosto centralizado por mais um instante."
-            state.carregando -> "Aguarde a conclusão do processamento."
+            recognitionBusy -> "Só mais um instante."
             multipleFacesVisible -> "Deixe somente uma pessoa dentro do enquadramento."
             noFaceVisible -> "Centralize o rosto dentro do guia para começar."
-            challengeCompleted -> "Olhe de frente e mantenha o rosto estável por um instante."
-            challengeAdjustedForEyes -> "Siga o movimento de cabeça indicado."
+            activeFallback && !challengeCompleted ->
+                "Precisamos de uma confirmação rápida. Siga apenas esta instrução."
             state.modoOffline -> "O registro ficará protegido neste aparelho até a conexão voltar."
-            else -> "Siga a instrução acima. O registro acontece automaticamente."
+            else -> "Olhe normalmente para a câmera. O ponto é registrado automaticamente."
         }
 
         val faceRecognitionError = state.erro?.startsWith(
@@ -462,7 +471,8 @@ fun FaceKioskScreen(
                 state.recognitionStage != null -> null
             multipleFacesVisible -> PontoVoiceKioskCue.MULTIPLE_FACES
             noFaceVisible -> PontoVoiceKioskCue.NO_FACE
-            challengeCompleted -> PontoVoiceKioskCue.CENTER_FACE
+            !activeFallback -> PontoVoiceKioskCue.LOOK_AT_CAMERA
+            challengeCompleted -> null
             challenge == KioskLivenessChallenge.BLINK &&
                 livenessState == LivenessState.ABRA_OS_OLHOS -> PontoVoiceKioskCue.OPEN_EYES
             livenessState == LivenessState.POSICIONE_ROSTO -> PontoVoiceKioskCue.LOOK_AT_CAMERA
