@@ -85,14 +85,19 @@ test('auth runtime binds creation reset and login to the explicit provider', () 
   assert.match(admin, /auth\.api\.setUserPassword/)
 })
 
-test('supervisor lookup is role-neutral but inactive accounts remain blocked', () => {
+test('supervisor lookup is role-neutral while inactive and unknown-role accounts remain blocked', () => {
   const login = readFileSync(new URL('../src/routes/auth-routes.ts', import.meta.url), 'utf8')
+  const runtime = readFileSync(new URL('../src/auth-runtime.ts', import.meta.url), 'utf8')
 
   assert.match(login, /where lower\(u\.email\)=lower\(\$1\)/)
   assert.doesNotMatch(login, /where[^`]*(?:role|perfil)[^`]*SUPERVISOR/i)
+  assert.match(login, /account\?\.role === 'admin' \|\| account\?\.role === 'user'/)
   assert.match(login, /if \(account\.banned\)/)
+  assert.match(login, /if \(!roleRecognized\)/)
   assert.match(login, /Esta conta está desativada\./)
+  assert.match(login, /Perfil de acesso inválido\./)
   assert.match(login, /E-mail ou senha inválidos\./)
+  assert.match(runtime, /user\.role !== 'admin' && user\.role !== 'user'/)
 })
 
 test('safe auth diagnostics never log passwords hashes or tokens', () => {
