@@ -134,8 +134,9 @@ dependencies {
 
     // Voz neural do Ponto: síntese 100% local depois que o modelo pt-BR é
     // baixado para o armazenamento privado da aplicação. Android TTS permanece
-    // como fallback e o modelo não é embutido no APK.
-    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
+    // como fallback e o modelo não é embutido no APK. 1.13.6 inclui correções
+    // recentes do runtime Kotlin/Android e mantém o mesmo formato VITS/Piper.
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.6")
     implementation("org.apache.commons:commons-compress:1.27.1")
 
     testImplementation("junit:junit:4.13.2")
