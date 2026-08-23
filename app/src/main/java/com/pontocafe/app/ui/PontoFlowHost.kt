@@ -39,8 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -315,6 +315,8 @@ private fun FastPointBlockedOverlay(
         PointBlockReason.OUTSIDE_WINDOW -> "Solicite uma liberação ao Supervisor quando aplicável."
         PointBlockReason.GENERIC -> "Nenhum novo ponto foi registrado."
     }
+    val accent = if (reason == PointBlockReason.GENERIC) Color(0xFFFFB4AB) else Color(0xFFFFC867)
+    val backdrop = if (reason == PointBlockReason.GENERIC) Color(0xFF180807) else Color(0xFF160B08)
 
     LaunchedEffect(nome, mensagemExibida, reason) {
         runCatching {
@@ -337,97 +339,99 @@ private fun FastPointBlockedOverlay(
     }
 
     PointFeedbackBackdrop(
-        accent = Color(0xFFFFC867),
-        background = Color(0xFF160B08),
+        accent = accent,
+        background = backdrop,
     ) { compactFeedback ->
-        Surface(
+        MotionReveal(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp)
-                .semantics {
-                    paneTitle = title
-                    liveRegion = LiveRegionMode.Assertive
-                    stateDescription = listOfNotNull(title, nome, mensagemExibida, supporting)
-                        .joinToString(". ")
-                },
-            shape = RoundedCornerShape(28.dp),
-            color = Color(0xF51D1714),
-            contentColor = Color.White,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-            shadowElevation = 10.dp,
+                .widthIn(max = 520.dp),
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        horizontal = if (compactFeedback) 16.dp else 24.dp,
-                        vertical = if (compactFeedback) 16.dp else 26.dp,
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .fillMaxWidth()
+                    .semantics {
+                        paneTitle = title
+                        liveRegion = LiveRegionMode.Assertive
+                        stateDescription = listOfNotNull(title, nome, mensagemExibida, supporting)
+                            .joinToString(". ")
+                    },
+                shape = RoundedCornerShape(28.dp),
+                color = Color(0xF51D1714),
+                contentColor = Color.White,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                shadowElevation = 10.dp,
             ) {
-                Surface(
-                    modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
-                    shape = CircleShape,
-                    color = Color(0xFFFFC867).copy(alpha = 0.12f),
-                    border = BorderStroke(
-                        1.dp,
-                        Color(0xFFFFC867).copy(alpha = 0.24f),
-                    ),
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            horizontal = if (compactFeedback) 16.dp else 24.dp,
+                            vertical = if (compactFeedback) 16.dp else 26.dp,
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (reason == PointBlockReason.OUTSIDE_WINDOW) {
-                                Icons.Default.Schedule
-                            } else {
-                                Icons.Default.Warning
-                            },
-                            contentDescription = null,
-                            modifier = Modifier.size(if (compactFeedback) 26.dp else 34.dp),
-                            tint = Color(0xFFFFC867),
+                    Surface(
+                        modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
+                        shape = CircleShape,
+                        color = accent.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (reason == PointBlockReason.OUTSIDE_WINDOW) {
+                                    Icons.Default.Schedule
+                                } else {
+                                    Icons.Default.Warning
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(if (compactFeedback) 26.dp else 34.dp),
+                                tint = accent,
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = title,
+                        modifier = Modifier.semantics { heading() },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    if (!nome.isNullOrBlank()) {
+                        Text(
+                            text = nome,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
                         )
                     }
-                }
 
-                Text(
-                    text = title,
-                    modifier = Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White.copy(alpha = 0.055f),
+                    ) {
+                        Text(
+                            text = mensagemExibida,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center,
+                            color = Color.White.copy(alpha = 0.84f),
+                        )
+                    }
 
-                if (!nome.isNullOrBlank()) {
                     Text(
-                        text = nome,
-                        style = MaterialTheme.typography.titleLarge,
+                        text = supporting,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.72f),
                         textAlign = TextAlign.Center,
                     )
                 }
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color.White.copy(alpha = 0.055f),
-                ) {
-                    Text(
-                        text = mensagemExibida,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                        color = Color.White.copy(alpha = 0.84f),
-                    )
-                }
-
-                Text(
-                    text = supporting,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White.copy(alpha = 0.72f),
-                    textAlign = TextAlign.Center,
-                )
             }
         }
     }
@@ -463,6 +467,7 @@ private fun FastPointReceiptOverlay(
     val accessibilityManager = LocalAccessibilityManager.current
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val warning = !start && comprovante.excedeuLimite
+    val offline = comprovante.pendenteSincronizacao
 
     LaunchedEffect(comprovante) {
         runCatching {
@@ -482,7 +487,21 @@ private fun FastPointReceiptOverlay(
         viewModel.concluirComprovante()
     }
 
-    val accent = if (warning) Color(0xFFFFC867) else Color(0xFF72DCBC)
+    val accent = when {
+        warning -> Color(0xFFFFC867)
+        offline -> Color(0xFFA5CDFF)
+        else -> Color(0xFF72DCBC)
+    }
+    val background = when {
+        warning -> Color(0xFF160B08)
+        offline -> Color(0xFF06111B)
+        else -> Color(0xFF04110E)
+    }
+    val primaryIcon = when {
+        warning -> Icons.Default.Warning
+        offline -> Icons.Default.CloudDone
+        else -> Icons.Default.CheckCircle
+    }
     val title = if (start) "Pausa iniciada" else "Retorno registrado"
     val detail = if (start) {
         "${comprovante.horarioRegistrado} · retorne até ${comprovante.retornoAte ?: "--:--"}"
@@ -492,137 +511,146 @@ private fun FastPointReceiptOverlay(
 
     PointFeedbackBackdrop(
         accent = accent,
-        background = Color(0xFF04110E),
+        background = background,
     ) { compactFeedback ->
-        Surface(
+        MotionReveal(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp)
-                .semantics {
-                    paneTitle = title
-                    liveRegion = LiveRegionMode.Assertive
-                    stateDescription = "$title. ${comprovante.nome}. $detail"
-                },
-            shape = RoundedCornerShape(28.dp),
-            color = Color(0xF5121C19),
-            contentColor = Color.White,
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-            shadowElevation = 10.dp,
+                .widthIn(max = 520.dp),
         ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        horizontal = if (compactFeedback) 16.dp else 24.dp,
-                        vertical = if (compactFeedback) 16.dp else 26.dp,
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .fillMaxWidth()
+                    .semantics {
+                        paneTitle = title
+                        liveRegion = LiveRegionMode.Assertive
+                        stateDescription = buildString {
+                            append("$title. ${comprovante.nome}. $detail")
+                            if (offline) append(". Registro salvo offline neste aparelho")
+                            if (warning) append(". Limite excedido")
+                        }
+                    },
+                shape = RoundedCornerShape(28.dp),
+                color = Color(0xF5121C19),
+                contentColor = Color.White,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                shadowElevation = 10.dp,
             ) {
-                Surface(
-                    modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
-                    shape = CircleShape,
-                    color = accent.copy(alpha = 0.13f),
-                    border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            horizontal = if (compactFeedback) 16.dp else 24.dp,
+                            vertical = if (compactFeedback) 16.dp else 26.dp,
+                        ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (warning) Icons.Default.Warning else Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
-                            tint = accent,
-                        )
-                    }
-                }
-
-                Text(
-                    text = title,
-                    modifier = Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                )
-
-                Text(
-                    text = comprovante.nome,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                )
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color.White.copy(alpha = 0.055f),
-                ) {
-                    Text(
-                        text = detail,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.Center,
-                        color = Color.White.copy(alpha = 0.86f),
-                    )
-                }
-
-                when {
-                    comprovante.pendenteSincronizacao -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                    Surface(
+                        modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
+                        shape = CircleShape,
+                        color = accent.copy(alpha = 0.13f),
+                        border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                Icons.Default.CloudDone,
+                                imageVector = primaryIcon,
                                 contentDescription = null,
+                                modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
                                 tint = accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                "Salvo com segurança neste aparelho",
-                                modifier = Modifier.weight(1f),
-                                color = Color.White.copy(alpha = 0.76f),
-                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     }
 
-                    warning -> {
+                    Text(
+                        text = title,
+                        modifier = Modifier.semantics { heading() },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    Text(
+                        text = comprovante.nome,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White.copy(alpha = 0.055f),
+                    ) {
                         Text(
-                            "Registro confirmado · limite excedido",
-                            color = accent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            text = detail,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center,
+                            color = Color.White.copy(alpha = 0.86f),
                         )
                     }
 
-                    comprovante.foraHorario -> {
-                        Text(
-                            "Registro validado pelo fluxo autorizado",
-                            color = accent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                    when {
+                        offline -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudDone,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    "Salvo com segurança neste aparelho · sincronização automática pendente",
+                                    modifier = Modifier.weight(1f),
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+
+                        warning -> {
+                            Text(
+                                "Registro confirmado · limite excedido",
+                                color = accent,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+
+                        comprovante.foraHorario -> {
+                            Text(
+                                "Registro validado pelo fluxo autorizado",
+                                color = accent,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+
+                        else -> {
+                            Text(
+                                "Registro confirmado",
+                                color = accent,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
 
-                    else -> {
-                        Text(
-                            "Registro confirmado",
-                            color = accent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+                    Text(
+                        "Próxima pessoa em instantes",
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.68f),
+                        textAlign = TextAlign.Center,
+                    )
                 }
-
-                Text(
-                    "Próxima pessoa em instantes",
-                    modifier = Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White.copy(alpha = 0.68f),
-                    textAlign = TextAlign.Center,
-                )
             }
         }
     }
