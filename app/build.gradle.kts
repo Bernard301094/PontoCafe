@@ -132,6 +132,12 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 
+    // Voz neural do Ponto: síntese 100% local depois que o modelo pt-BR é
+    // baixado para o armazenamento privado da aplicação. Android TTS permanece
+    // como fallback e o modelo não é embutido no APK.
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
+    implementation("org.apache.commons:commons-compress:1.27.1")
+
     testImplementation("junit:junit:4.13.2")
     // Unit tests run on the JVM, where Android's org.json is only a stub.
     // Use the real implementation so authorization error bodies are parsed
