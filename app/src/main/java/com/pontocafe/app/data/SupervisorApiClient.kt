@@ -12,6 +12,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
@@ -133,11 +134,6 @@ interface SupervisorApi {
     @POST("gestao/colaboradores/{id}/excluir") suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
-/**
- * Estado efêmero do primeiro acesso. Não contém senha nem token. A sessão continua
- * cifrada no SecureAdminSessionStore e a senha temporária existe apenas no campo
- * digitado pelo usuário.
- */
 object SupervisorPasswordChangeRuntime {
     var required by mutableStateOf(false)
         private set
