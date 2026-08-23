@@ -1,32 +1,22 @@
 package com.pontocafe.app.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Face
@@ -39,7 +29,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,14 +42,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -68,18 +53,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FaceCapturePurpose
+import com.pontocafe.app.camera.FaceCaptureRejectionReason
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FaceTrackContinuity
 import com.pontocafe.app.camera.FrameCaptureController
 import com.pontocafe.app.camera.LivenessState
+import com.pontocafe.app.camera.PassiveFaceLiveness
+import com.pontocafe.app.camera.PassiveLivenessDecision
+import com.pontocafe.app.camera.toPassiveLivenessSample
 import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.PontoCafeRepository
 import com.pontocafe.app.data.SecureDeviceTokenStore
@@ -92,7 +79,11 @@ import kotlin.math.abs
 
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
-private enum class KioskLivenessChallenge(val instruction: String) {
+/**
+ * Challenge ativo legado. Ele não é mais executado no fluxo normal: só entra
+ * quando o liveness passivo RGB considera a sequência inconclusiva.
+ */
+private enum class KioskFallbackChallenge(val instruction: String) {
     BLINK("Pisque uma vez"),
     TURN_LEFT("Vire levemente para a esquerda"),
     TURN_RIGHT("Vire levemente para a direita"),
@@ -108,9 +99,8 @@ private enum class KioskLivenessChallenge(val instruction: String) {
     }
 }
 
-private const val CHALLENGE_STABLE_FRAMES = 4
-private const val RECOGNITION_STABLE_FRAMES = 4
-private const val BLINK_FALLBACK_FRAMES = 36
+private const val FALLBACK_CHALLENGE_STABLE_FRAMES = 3
+private const val RECOGNITION_STABLE_FRAMES_AFTER_LIVENESS = 1
 
 @Composable
 fun FaceKioskScreen(
@@ -131,23 +121,75 @@ fun FaceKioskScreen(
     val permissionGranted = cameraPermission.granted
 
     val captureController = remember { FrameCaptureController() }
-    val liveness = remember { BlinkLiveness() }
-    val turnChallengeContinuity = remember { FaceTrackContinuity() }
-    var livenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
-    var challenge by remember { mutableStateOf(KioskLivenessChallenge.entries.random()) }
-    val stableChallengeFrames = remember { intArrayOf(0) }
-    val stableRecognitionFrames = remember { intArrayOf(0) }
-    val blinkPendingFrames = remember { intArrayOf(0) }
-    var challengeAdjustedForEyes by remember { mutableStateOf(false) }
-    var challengeCompleted by remember { mutableStateOf(false) }
+    val passiveLiveness = remember { PassiveFaceLiveness() }
+    val blinkLiveness = remember { BlinkLiveness() }
+    val fallbackContinuity = remember { FaceTrackContinuity() }
+
+    var verificationCompleted by remember { mutableStateOf(false) }
+    var completedByFallback by remember { mutableStateOf(false) }
+    var activeFallback by remember { mutableStateOf(false) }
+    var fallbackChallenge by remember { mutableStateOf(KioskFallbackChallenge.BLINK) }
+    var fallbackLivenessState by remember { mutableStateOf(LivenessState.POSICIONE_ROSTO) }
+    val fallbackStableFrames = remember { intArrayOf(0) }
+    val recognitionStableFrames = remember { intArrayOf(0) }
+
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
     var facePositioned by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
     var unlockLoading by remember { mutableStateOf(false) }
     var unlockError by remember { mutableStateOf<String?>(null) }
+
+    fun resetLiveness() {
+        passiveLiveness.reset()
+        blinkLiveness.reset()
+        fallbackContinuity.reset()
+        verificationCompleted = false
+        completedByFallback = false
+        activeFallback = false
+        fallbackChallenge = KioskFallbackChallenge.BLINK
+        fallbackLivenessState = LivenessState.POSICIONE_ROSTO
+        fallbackStableFrames[0] = 0
+        recognitionStableFrames[0] = 0
+        captureRequested = false
+    }
+
+    fun startFallback(observation: FaceObservation) {
+        activeFallback = true
+        verificationCompleted = false
+        completedByFallback = false
+        fallbackStableFrames[0] = 0
+        recognitionStableFrames[0] = 0
+        blinkLiveness.reset()
+        fallbackContinuity.reset()
+        fallbackChallenge = if (observation.eyeClassificationAvailable) {
+            KioskFallbackChallenge.BLINK
+        } else {
+            listOf(KioskFallbackChallenge.TURN_LEFT, KioskFallbackChallenge.TURN_RIGHT).random()
+        }
+        fallbackLivenessState = LivenessState.POSICIONE_ROSTO
+    }
+
+    fun completeVerification(byFallback: Boolean) {
+        verificationCompleted = true
+        completedByFallback = byFallback
+        recognitionStableFrames[0] = 0
+        fallbackLivenessState = LivenessState.CONCLUIDO
+    }
+
+    fun sameVerifiedFace(observation: FaceObservation): Boolean {
+        val sample = observation.toPassiveLivenessSample()
+        return if (!completedByFallback) {
+            passiveLiveness.matchesAcceptedFace(sample)
+        } else if (fallbackChallenge == KioskFallbackChallenge.BLINK) {
+            blinkLiveness.matchesChallengeFace(observation)
+        } else {
+            fallbackContinuity.matches(observation)
+        }
+    }
 
     fun fecharSolicitacaoAcesso() {
         restrictedAreaRequest = null
@@ -203,19 +245,10 @@ fun FaceKioskScreen(
     }
 
     LaunchedEffect(state.scanCycle) {
-        liveness.reset()
-        turnChallengeContinuity.reset()
-        challenge = KioskLivenessChallenge.entries.random()
-        stableChallengeFrames[0] = 0
-        stableRecognitionFrames[0] = 0
-        blinkPendingFrames[0] = 0
-        challengeAdjustedForEyes = false
-        challengeCompleted = false
-        captureRequested = false
+        resetLiveness()
         detectedFaces = 0
         facePositioned = false
         cameraError = null
-        livenessState = LivenessState.POSICIONE_ROSTO
     }
 
     BoxWithConstraints(
@@ -239,113 +272,110 @@ fun FaceKioskScreen(
                 showPositionGuide = false,
                 onObservation = { observation ->
                     cameraError = null
-                    if (detectedFaces != observation.faceCount) {
-                        detectedFaces = observation.faceCount
+                    detectedFaces = observation.faceCount
+                    facePositioned = observation.faceCount == 1 && observation.isIdentificationReady
+
+                    if (observation.faceCount != 1) {
+                        if (verificationCompleted || activeFallback) resetLiveness()
+                        return@FaceCameraPreview
                     }
-                    val positionedNow = observation.faceCount == 1 && observation.isWellPositioned
-                    if (facePositioned != positionedNow) {
-                        facePositioned = positionedNow
-                    }
+
                     if (
-                        state.scanning && state.catalogoBiometricoPronto &&
-                        !state.carregando && !captureRequested
+                        !state.scanning || !state.catalogoBiometricoPronto ||
+                        state.carregando || captureRequested
                     ) {
-                        if (!challengeCompleted) {
-                            if (challenge == KioskLivenessChallenge.BLINK) {
-                                val next = liveness.update(observation)
-                                if (livenessState != next) {
-                                    livenessState = next
-                                }
+                        return@FaceCameraPreview
+                    }
 
-                                if (observation.isFrontal) {
-                                    blinkPendingFrames[0] += 1
-                                } else {
-                                    blinkPendingFrames[0] = 0
-                                }
+                    if (!verificationCompleted && !activeFallback) {
+                        when (passiveLiveness.update(observation.toPassiveLivenessSample())) {
+                            PassiveLivenessDecision.PASSED -> completeVerification(byFallback = false)
+                            PassiveLivenessDecision.ACTIVE_CHALLENGE_REQUIRED -> startFallback(observation)
+                            PassiveLivenessDecision.WAITING_FOR_FACE,
+                            PassiveLivenessDecision.OBSERVING -> Unit
+                        }
+                    }
 
+                    if (!verificationCompleted && activeFallback) {
+                        when (fallbackChallenge) {
+                            KioskFallbackChallenge.BLINK -> {
+                                val next = blinkLiveness.update(observation)
+                                fallbackLivenessState = next
                                 if (next == LivenessState.CONCLUIDO) {
-                                    challengeCompleted = true
-                                    stableRecognitionFrames[0] = 0
-                                    blinkPendingFrames[0] = 0
-                                } else if (blinkPendingFrames[0] >= BLINK_FALLBACK_FRAMES) {
-                                    challenge = listOf(
-                                        KioskLivenessChallenge.TURN_LEFT,
-                                        KioskLivenessChallenge.TURN_RIGHT,
-                                    ).random()
-                                    stableChallengeFrames[0] = 0
-                                    blinkPendingFrames[0] = 0
-                                    challengeAdjustedForEyes = true
-                                    liveness.reset()
-                                    livenessState = LivenessState.POSICIONE_ROSTO
+                                    completeVerification(byFallback = true)
                                 }
-                            } else {
-                                val nextState = if (observation.isWellPositioned) {
+                            }
+
+                            KioskFallbackChallenge.TURN_LEFT,
+                            KioskFallbackChallenge.TURN_RIGHT -> {
+                                fallbackLivenessState = if (observation.isWellPositioned) {
                                     LivenessState.PISQUE
                                 } else {
                                     LivenessState.POSICIONE_ROSTO
                                 }
-                                if (livenessState != nextState) {
-                                    livenessState = nextState
-                                }
-                                if (challenge.accepts(observation)) {
-                                    if (stableChallengeFrames[0] == 0) {
-                                        turnChallengeContinuity.bind(observation)
-                                        stableChallengeFrames[0] = 1
-                                    } else if (turnChallengeContinuity.matches(observation)) {
-                                        stableChallengeFrames[0] += 1
+                                if (fallbackChallenge.accepts(observation)) {
+                                    if (fallbackStableFrames[0] == 0) {
+                                        fallbackContinuity.bind(observation)
+                                        fallbackStableFrames[0] = 1
+                                    } else if (fallbackContinuity.matches(observation)) {
+                                        fallbackStableFrames[0] += 1
                                     } else {
-                                        turnChallengeContinuity.bind(observation)
-                                        stableChallengeFrames[0] = 1
+                                        fallbackContinuity.bind(observation)
+                                        fallbackStableFrames[0] = 1
                                     }
-                                    if (stableChallengeFrames[0] >= CHALLENGE_STABLE_FRAMES) {
-                                        challengeCompleted = true
-                                        stableRecognitionFrames[0] = 0
-                                        livenessState = LivenessState.CONCLUIDO
+                                    if (fallbackStableFrames[0] >= FALLBACK_CHALLENGE_STABLE_FRAMES) {
+                                        completeVerification(byFallback = true)
                                     }
                                 } else {
-                                    stableChallengeFrames[0] = 0
+                                    fallbackStableFrames[0] = 0
                                 }
+                            }
+                        }
+                    }
+
+                    if (verificationCompleted) {
+                        val sameFace = sameVerifiedFace(observation)
+                        if (!sameFace) {
+                            resetLiveness()
+                            return@FaceCameraPreview
+                        }
+                        if (observation.isIdentificationReady) {
+                            recognitionStableFrames[0] += 1
+                            if (recognitionStableFrames[0] >= RECOGNITION_STABLE_FRAMES_AFTER_LIVENESS) {
+                                captureRequested = true
+                                captureController.request(observation, FaceCapturePurpose.IDENTIFICATION)
                             }
                         } else {
-                            val sameLivenessFace = if (challenge == KioskLivenessChallenge.BLINK) {
-                                liveness.matchesChallengeFace(observation)
-                            } else {
-                                turnChallengeContinuity.matches(observation)
-                            }
-                            if (!sameLivenessFace) {
-                                challengeCompleted = false
-                                stableChallengeFrames[0] = 0
-                                stableRecognitionFrames[0] = 0
-                                blinkPendingFrames[0] = 0
-                                liveness.reset()
-                                turnChallengeContinuity.reset()
-                                livenessState = LivenessState.POSICIONE_ROSTO
-                            } else if (observation.isFrontal) {
-                                stableRecognitionFrames[0] += 1
-                                if (stableRecognitionFrames[0] >= RECOGNITION_STABLE_FRAMES) {
-                                    captureRequested = true
-                                    captureController.request(observation, FaceCapturePurpose.IDENTIFICATION)
-                                }
-                            } else {
-                                stableRecognitionFrames[0] = 0
-                            }
+                            recognitionStableFrames[0] = 0
                         }
                     }
                 },
                 onFrame = { frame ->
                     viewModel.processarFrame(frame)
                     captureRequested = false
+                    recognitionStableFrames[0] = 0
                 },
-                onCaptureRejected = {
+                onCaptureRejected = { reason ->
                     captureRequested = false
-                    challengeCompleted = false
-                    stableChallengeFrames[0] = 0
-                    stableRecognitionFrames[0] = 0
-                    blinkPendingFrames[0] = 0
-                    facePositioned = false
-                    liveness.reset()
-                    turnChallengeContinuity.reset()
-                    livenessState = LivenessState.POSICIONE_ROSTO
+                    recognitionStableFrames[0] = 0
+                    when (reason) {
+                        FaceCaptureRejectionReason.REQUEST_EXPIRED,
+                        FaceCaptureRejectionReason.POSE_CHANGED,
+                        FaceCaptureRejectionReason.NOT_CENTERED,
+                        FaceCaptureRejectionReason.FACE_TOO_SMALL,
+                        FaceCaptureRejectionReason.FACE_TOO_LARGE,
+                        FaceCaptureRejectionReason.EXTREME_POSE -> {
+                            // Variação transitória: preserva o liveness já concluído
+                            // e tenta outro frame útil da mesma pessoa imediatamente.
+                        }
+
+                        FaceCaptureRejectionReason.NO_FACE,
+                        FaceCaptureRejectionReason.MULTIPLE_FACES,
+                        FaceCaptureRejectionReason.PARTIAL_FACE,
+                        FaceCaptureRejectionReason.TRACK_CHANGED,
+                        FaceCaptureRejectionReason.LANDMARKS_MISSING,
+                        FaceCaptureRejectionReason.EYES_NOT_VISIBLE -> resetLiveness()
+                    }
                 },
                 onError = { cameraError = it },
             )
@@ -361,14 +391,10 @@ fun FaceKioskScreen(
             )
         }
 
-        if (permissionGranted) {
-            KioskCameraScrims(compactHeight = compactHeight)
-        }
-
         val noFaceVisible = state.scanning && state.catalogoBiometricoPronto &&
             !state.carregando && detectedFaces == 0
         val multipleFacesVisible = state.scanning && detectedFaces > 1
-        val recognitionReady = challengeCompleted && !captureRequested &&
+        val recognitionReady = verificationCompleted && !captureRequested &&
             !state.carregando && !multipleFacesVisible
 
         if (permissionGranted) {
@@ -394,13 +420,13 @@ fun FaceKioskScreen(
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
-        val challengeInstruction = when {
-            challengeCompleted -> "Volte ao centro"
-            challenge == KioskLivenessChallenge.BLINK &&
-                livenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
-            livenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
-            else -> challenge.instruction
+        val fallbackInstruction = when {
+            fallbackChallenge == KioskFallbackChallenge.BLINK &&
+                fallbackLivenessState == LivenessState.ABRA_OS_OLHOS -> "Agora abra os olhos"
+            fallbackLivenessState == LivenessState.POSICIONE_ROSTO -> "Olhe para a câmera"
+            else -> fallbackChallenge.instruction
         }
+
         val instructionTitle = when {
             cameraError != null -> "Câmera indisponível"
             !viewModel.faceModelReady -> "Reconhecimento indisponível"
@@ -408,49 +434,45 @@ fun FaceKioskScreen(
             !state.catalogoBiometricoPronto && state.erroSincronizacaoBiometrica != null -> "Rostos indisponíveis"
             state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto -> "Nenhum rosto disponível"
             !state.catalogoBiometricoPronto -> "Rostos ainda não sincronizados"
-            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO -> "Identificando rosto"
-            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA -> "Confirmando o mesmo rosto"
-            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE -> "Confirmando identidade"
-            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO -> "Confirmando seu ponto"
-            captureRequested -> "Capturando rosto"
-            state.carregando -> "Processando reconhecimento"
+            state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO -> "Registrando ponto…"
+            state.recognitionStage != null || state.carregando || captureRequested -> "Reconhecendo…"
             multipleFacesVisible -> "Apenas uma pessoa por vez"
-            noFaceVisible -> "Aproxime-se da câmera"
-            challengeCompleted -> "Identidade pronta"
-            else -> challengeInstruction
+            activeFallback && !verificationCompleted -> "Só mais uma verificação"
+            noFaceVisible -> "Olhe para a câmera"
+            !facePositioned && detectedFaces == 1 -> "Centralize o rosto"
+            else -> "Olhe para a câmera"
         }
+
         val instructionDetail = when {
             cameraError != null -> cameraError.orEmpty()
             !viewModel.faceModelReady -> "O modelo facial precisa estar disponível neste APK."
             state.sincronizandoBiometrias && !state.catalogoBiometricoPronto ->
-                "Carregando o catálogo facial seguro deste dispositivo."
+                "Carregando os rostos deste dispositivo."
             !state.catalogoBiometricoPronto && state.erroSincronizacaoBiometrica != null ->
                 state.erroSincronizacaoBiometrica.orEmpty()
             state.catalogoBiometricoCarregado && !state.catalogoBiometricoPronto ->
-                "O catálogo está sincronizado, mas não contém rostos ativos compatíveis com este modelo."
+                "O catálogo está sincronizado, mas não contém rostos ativos compatíveis."
             !state.catalogoBiometricoPronto -> "Abra Admin ou Supervisor para cadastrar e sincronizar os rostos."
-            state.recognitionStage == PontoRecognitionStage.IDENTIFICANDO ->
-                "Comparando a captura com o catálogo seguro deste dispositivo."
-            state.recognitionStage == PontoRecognitionStage.VALIDANDO_CONSISTENCIA ->
-                "Mantenha o rosto centralizado por mais um instante."
-            state.recognitionStage == PontoRecognitionStage.CONFIRMANDO_IDENTIDADE ->
-                "Validando a correspondência facial de forma autoritativa."
             state.recognitionStage == PontoRecognitionStage.REGISTRANDO_PONTO ->
-                "Identidade confirmada. Aguarde o resultado do registro."
-            captureRequested -> "Mantenha o rosto centralizado por mais um instante."
-            state.carregando -> "Aguarde a conclusão do processamento."
-            multipleFacesVisible -> "Deixe somente uma pessoa dentro do enquadramento."
-            noFaceVisible -> "Centralize o rosto dentro do guia para começar."
-            challengeCompleted -> "Olhe de frente e mantenha o rosto estável por um instante."
-            challengeAdjustedForEyes -> "Siga o movimento de cabeça indicado."
-            state.modoOffline -> "O registro ficará protegido neste aparelho até a conexão voltar."
-            else -> "Siga a instrução acima. O registro acontece automaticamente."
+                "Identidade confirmada. Aguarde o resultado."
+            state.recognitionStage != null || state.carregando || captureRequested ->
+                "Mantenha-se olhando para a câmera por um instante."
+            multipleFacesVisible -> "Deixe somente uma pessoa diante da câmera."
+            activeFallback && !verificationCompleted ->
+                "$fallbackInstruction. Esta etapa só aparece quando a verificação automática precisa de confirmação extra."
+            noFaceVisible -> "Aproxime-se. O reconhecimento começa automaticamente."
+            detectedFaces == 1 && !facePositioned ->
+                "Deixe olhos, nariz e o centro do rosto visíveis. Touca ou boné podem permanecer se não cobrirem o rosto."
+            state.modoOffline ->
+                "Não é preciso piscar nem virar a cabeça. O registro será sincronizado quando a conexão voltar."
+            else -> "Não é preciso piscar nem virar a cabeça. Apenas olhe de frente; o registro é automático."
         }
 
         val faceRecognitionError = state.erro?.startsWith(
             "ROSTO NÃO RECONHECIDO",
             ignoreCase = true,
         ) == true
+
         val voiceCue = when {
             !permissionGranted -> PontoVoiceKioskCue.CAMERA_PERMISSION_REQUIRED
             restrictedAreaRequest != null -> null
@@ -461,22 +483,23 @@ fun FaceKioskScreen(
             !state.catalogoBiometricoPronto || state.carregando || captureRequested ||
                 state.recognitionStage != null -> null
             multipleFacesVisible -> PontoVoiceKioskCue.MULTIPLE_FACES
+            activeFallback && !verificationCompleted -> when (fallbackChallenge) {
+                KioskFallbackChallenge.BLINK -> if (fallbackLivenessState == LivenessState.ABRA_OS_OLHOS) {
+                    PontoVoiceKioskCue.OPEN_EYES
+                } else {
+                    PontoVoiceKioskCue.BLINK
+                }
+                KioskFallbackChallenge.TURN_LEFT -> PontoVoiceKioskCue.TURN_LEFT
+                KioskFallbackChallenge.TURN_RIGHT -> PontoVoiceKioskCue.TURN_RIGHT
+            }
             noFaceVisible -> PontoVoiceKioskCue.NO_FACE
-            challengeCompleted -> PontoVoiceKioskCue.CENTER_FACE
-            challenge == KioskLivenessChallenge.BLINK &&
-                livenessState == LivenessState.ABRA_OS_OLHOS -> PontoVoiceKioskCue.OPEN_EYES
-            livenessState == LivenessState.POSICIONE_ROSTO -> PontoVoiceKioskCue.LOOK_AT_CAMERA
-            challenge == KioskLivenessChallenge.BLINK -> PontoVoiceKioskCue.BLINK
-            challenge == KioskLivenessChallenge.TURN_LEFT -> PontoVoiceKioskCue.TURN_LEFT
-            else -> PontoVoiceKioskCue.TURN_RIGHT
+            else -> PontoVoiceKioskCue.LOOK_AT_CAMERA
         }
 
         LaunchedEffect(state.scanCycle, voiceCue) {
             voiceCue?.let { cue ->
                 val prompt = PontoVoicePromptPolicy.kiosk(cue)
-                if (prompt.stabilityDelayMillis > 0L) {
-                    delay(prompt.stabilityDelayMillis)
-                }
+                if (prompt.stabilityDelayMillis > 0L) delay(prompt.stabilityDelayMillis)
                 PontoVoiceRuntime.speak(
                     context = context,
                     prompt = prompt,
@@ -486,30 +509,161 @@ fun FaceKioskScreen(
         }
 
         if (permissionGranted) {
-            KioskInstructionSheet(
+            KioskInstructionPanel(
                 title = instructionTitle,
                 detail = instructionDetail,
-                loading = state.carregando,
-                noFace = noFaceVisible,
                 multipleFaces = multipleFacesVisible,
-                ready = challengeCompleted,
-                offline = state.modoOffline,
-                updateRequired = state.atualizacaoObrigatoria,
-                updateAvailable = state.atualizacaoDisponivel,
-                latestVersion = state.versaoMaisRecente,
-                catalogReady = state.catalogoBiometricoPronto,
-                syncingCatalog = state.sincronizandoBiometrias,
-                modelReady = viewModel.faceModelReady,
-                pendingEvents = state.eventosPendentes,
-                syncingPending = state.sincronizandoPendencias,
-                catalogSyncError = state.erroSincronizacaoBiometrica,
+                ready = recognitionReady,
                 error = cameraError ?: state.erro ?:
                     state.erroSincronizacaoBiometrica.takeIf { !state.catalogoBiometricoPronto },
-                onSyncCatalog = { viewModel.sincronizarBiometrias(force = true) },
-                onSyncPending = viewModel::sincronizarPendenciasOffline,
-                compactHeight = compactHeight,
+                compact = compactHeight,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+    }
+}
+
+@Composable
+private fun KioskTopBar(
+    offline: Boolean,
+    pendingEvents: Int,
+    hasAdminSession: Boolean,
+    hasSupervisorSession: Boolean,
+    onAdmin: () -> Unit,
+    onSupervisor: () -> Unit,
+    onAccess: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .widthIn(max = 720.dp)
+            .fillMaxWidth(),
+        color = Color(0xE7161B19),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = MaterialTheme.shapes.large,
+                color = Color.White.copy(alpha = 0.08f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFF72DCBC))
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Ponto Café", fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    "Reconhecimento facial automático",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.64f),
+                )
+            }
+
+            Surface(
+                color = if (offline) Color(0x33FFC867) else Color(0x3372DCBC),
+                shape = MaterialTheme.shapes.large,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Text(
+                        if (offline && pendingEvents > 0) "Offline · $pendingEvents" else if (offline) "Offline" else "Online",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                    )
+                }
+            }
+
+            if (hasAdminSession) {
+                IconButton(onClick = onAdmin) {
+                    Icon(Icons.Default.AdminPanelSettings, contentDescription = "Abrir Administrador")
+                }
+            }
+            if (hasSupervisorSession) {
+                IconButton(onClick = onSupervisor) {
+                    Icon(Icons.Default.SupervisorAccount, contentDescription = "Abrir Supervisor")
+                }
+            }
+            if (!hasAdminSession && !hasSupervisorSession) {
+                IconButton(onClick = onAccess) {
+                    Icon(Icons.Default.Lock, contentDescription = "Acesso restrito")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KioskInstructionPanel(
+    title: String,
+    detail: String,
+    multipleFaces: Boolean,
+    ready: Boolean,
+    error: String?,
+    compact: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val accent = when {
+        error != null || multipleFaces -> Color(0xFFFFB4AB)
+        ready -> Color(0xFF72DCBC)
+        else -> Color.White
+    }
+
+    Surface(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .widthIn(max = 620.dp)
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = listOf(title, detail).filter(String::isNotBlank).joinToString(". ")
+            },
+        color = Color(0xF3161B19),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Column(
+            modifier = Modifier
+                .heightIn(max = if (compact) 170.dp else 260.dp)
+                .padding(horizontal = 18.dp, vertical = 15.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+            )
+            Text(
+                if (error != null && !error.startsWith("ROSTO NÃO RECONHECIDO", ignoreCase = true)) error else detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.78f),
+            )
+            if (error?.startsWith("ROSTO NÃO RECONHECIDO", ignoreCase = true) == true) {
+                Text(
+                    "Rosto não reconhecido. Olhe de frente e tente novamente.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFFDAD6),
+                )
+            }
         }
     }
 }
@@ -531,40 +685,15 @@ private fun RestrictedAccessDialog(
         RestrictedAreaRequest.SUPERVISOR -> "Supervisor"
         RestrictedAreaRequest.LOGIN -> "Início de sessão"
     }
-    val instruction = when (target) {
-        RestrictedAreaRequest.ADMIN -> "Use o PIN deste dispositivo para abrir a sessão de Administrador já salva."
-        RestrictedAreaRequest.SUPERVISOR -> "Use o PIN deste dispositivo para abrir a sessão de Supervisor já salva."
-        RestrictedAreaRequest.LOGIN -> "Use o PIN deste dispositivo para sair do modo Ponto e abrir o início de sessão."
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = {
-            Surface(
-                modifier = Modifier.size(46.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
-        },
+        icon = { Icon(Icons.Default.Lock, contentDescription = null) },
         title = { Text("Acesso restrito · $destinationName") },
         text = {
-            PcDialogBody {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 Text(
-                    instruction,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "Se este aparelho não tiver PIN configurado, use Entrar com conta para autenticar um Administrador ou Supervisor.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Digite o PIN deste dispositivo ou use Entrar com conta.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
@@ -589,363 +718,18 @@ private fun RestrictedAccessDialog(
             }
         },
         confirmButton = {
-            PcPrimaryButton(
-                text = "Desbloquear",
-                enabled = !loading && pin.length in 4..12,
+            Button(
                 onClick = onConfirm,
-                loading = loading,
-            )
+                enabled = !loading && pin.length in 4..12,
+            ) {
+                Text(if (loading) "Validando…" else "Desbloquear")
+            }
         },
         dismissButton = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                TextButton(
-                    onClick = onDismiss,
-                    enabled = !loading,
-                ) {
-                    Text("Cancelar")
-                }
-                TextButton(
-                    onClick = onLogin,
-                    enabled = !loading,
-                ) {
-                    Text("Entrar com conta")
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onDismiss, enabled = !loading) { Text("Cancelar") }
+                TextButton(onClick = onLogin, enabled = !loading) { Text("Entrar com conta") }
             }
         },
     )
-}
-
-@Composable
-private fun KioskCameraScrims(compactHeight: Boolean) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (compactHeight) 104.dp else 180.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.68f),
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (compactHeight) 176.dp else 260.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.78f),
-                        ),
-                    ),
-                ),
-        )
-    }
-}
-
-@Composable
-private fun KioskTopBar(
-    offline: Boolean,
-    pendingEvents: Int,
-    hasAdminSession: Boolean,
-    hasSupervisorSession: Boolean,
-    onAdmin: () -> Unit,
-    onSupervisor: () -> Unit,
-    onAccess: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier
-            .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .widthIn(max = 720.dp)
-            .fillMaxWidth(),
-        color = Color(0xE7161B19),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Surface(
-                modifier = Modifier.size(38.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.08f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Face,
-                        contentDescription = null,
-                        tint = Color(0xFF72DCBC),
-                        modifier = Modifier.size(21.dp),
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                Text(
-                    "Ponto Café",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-                Text(
-                    "Bater ponto por reconhecimento facial",
-                    color = Color.White.copy(alpha = 0.62f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                )
-            }
-
-            Surface(
-                shape = CircleShape,
-                color = if (offline) {
-                    Color(0xFFFFC867).copy(alpha = 0.14f)
-                } else {
-                    Color(0xFF72DCBC).copy(alpha = 0.14f)
-                },
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Icon(
-                        imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Text(
-                        if (offline) {
-                            if (pendingEvents > 0) "Offline · $pendingEvents" else "Offline"
-                        } else {
-                            "Online"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
-                    )
-                }
-            }
-
-            if (hasAdminSession) {
-                IconButton(onClick = onAdmin, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.AdminPanelSettings,
-                        contentDescription = "Abrir Administrador",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            if (hasSupervisorSession) {
-                IconButton(onClick = onSupervisor, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.SupervisorAccount,
-                        contentDescription = "Abrir Supervisor",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            if (!hasAdminSession && !hasSupervisorSession) {
-                IconButton(onClick = onAccess, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription = "Acesso restrito",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun KioskInstructionSheet(
-    title: String,
-    detail: String,
-    loading: Boolean,
-    noFace: Boolean,
-    multipleFaces: Boolean,
-    ready: Boolean,
-    offline: Boolean,
-    updateRequired: Boolean,
-    updateAvailable: Boolean,
-    latestVersion: String?,
-    catalogReady: Boolean,
-    syncingCatalog: Boolean,
-    modelReady: Boolean,
-    pendingEvents: Int,
-    syncingPending: Boolean,
-    catalogSyncError: String?,
-    error: String?,
-    onSyncCatalog: () -> Unit,
-    onSyncPending: () -> Unit,
-    compactHeight: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val accent = when {
-        multipleFaces -> Color(0xFFFFB4AB)
-        ready -> Color(0xFF72DCBC)
-        noFace -> Color(0xFFFFC867)
-        loading -> Color(0xFFA5CDFF)
-        else -> Color.White
-    }
-
-    Surface(
-        modifier = modifier
-            .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .widthIn(max = 620.dp)
-            .fillMaxWidth()
-            .semantics {
-                liveRegion = LiveRegionMode.Polite
-                stateDescription = listOf(title, detail).filter(String::isNotBlank).joinToString(". ")
-            },
-        color = Color(0xF3161B19),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 2.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .heightIn(max = if (compactHeight) 196.dp else 420.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.size(42.dp),
-                    shape = CircleShape,
-                    color = accent.copy(alpha = 0.13f),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Face,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(21.dp),
-                        )
-                    }
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = accent,
-                    )
-                    if (detail.isNotBlank()) {
-                        Text(
-                            detail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.70f),
-                        )
-                    }
-                }
-            }
-
-            if (updateRequired) {
-                StatusPill(
-                    "Atualização obrigatória · ${latestVersion ?: "nova versão"}",
-                    PontoCafeTone.DANGER,
-                )
-            } else if (updateAvailable) {
-                StatusPill("Nova versão · $latestVersion", PontoCafeTone.INFO)
-            }
-            if (offline) {
-                StatusPill("Modo offline seguro", PontoCafeTone.WARNING)
-            }
-            if (catalogReady && catalogSyncError != null) {
-                StatusPill("Catálogo local ativo · atualização pendente", PontoCafeTone.WARNING)
-            }
-
-            if (!catalogReady && !syncingCatalog && modelReady) {
-                Button(
-                    onClick = onSyncCatalog,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Sincronizar rostos")
-                }
-            }
-
-            if (pendingEvents > 0 && !offline) {
-                OutlinedButton(
-                    onClick = onSyncPending,
-                    enabled = !syncingPending,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        if (syncingPending) {
-                            "Sincronizando..."
-                        } else {
-                            "Sincronizar $pendingEvents pendente(s)"
-                        },
-                    )
-                }
-            }
-
-            error?.let { message ->
-                val faceNotRecognized = message.startsWith(
-                    "ROSTO NÃO RECONHECIDO",
-                    ignoreCase = true,
-                )
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFF3A1D1A),
-                    contentColor = Color(0xFFFFDAD6),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            if (faceNotRecognized) {
-                                "Rosto não reconhecido"
-                            } else {
-                                "Não foi possível registrar"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            if (faceNotRecognized) {
-                                "Olhe de frente, centralize o rosto e tente novamente."
-                            } else {
-                                message
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFFFDAD6).copy(alpha = 0.82f),
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
