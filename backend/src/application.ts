@@ -28,6 +28,7 @@ import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
 import { reliabilityRoutes } from './routes/reliability-routes.js'
 import { reportRoutes } from './routes/report-routes.js'
+import { deviceAuthContractMiddleware } from './routes/shared.js'
 import { setupRoutes } from './routes/setup-routes.js'
 import { userManagementRoutes } from './routes/user-management-routes.js'
 import { workforceRoutes } from './routes/workforce-routes.js'
@@ -161,6 +162,12 @@ app.get('/health', async (c) => {
     requestId: c.get('requestId'),
   })
 })
+
+// Every /ponto route is a device route. Legacy route modules still own local
+// requireDevice middleware, so this adapter normalizes only device-credential
+// 401 responses to the stable machine-readable contract without adding another
+// token lookup to successful requests.
+app.use('/ponto/*', deviceAuthContractMiddleware)
 
 app.route('/setup', deviceSetupRoutes)
 app.route('/setup', setupRoutes)
