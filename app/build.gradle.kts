@@ -133,6 +133,10 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 
     testImplementation("junit:junit:4.13.2")
+    // Unit tests run on the JVM, where Android's org.json is only a stub.
+    // Use the real implementation so authorization error bodies are parsed
+    // exactly as they are on-device, without changing production APK behavior.
+    testImplementation("org.json:json:20240303")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
