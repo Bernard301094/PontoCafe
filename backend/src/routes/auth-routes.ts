@@ -134,6 +134,14 @@ authRoutes.post('/sign-in/email', async (c) => {
     return c.json({ erro: 'Esta conta está desativada.' }, 403)
   }
 
+  if (!roleRecognized) {
+    safeAuthLog(requestId, 'account_state', {
+      accountActive: true,
+      roleRecognized: false,
+    })
+    return c.json({ erro: 'Perfil de acesso inválido.' }, 403)
+  }
+
   const now = new Date()
   const lifetimeSeconds = body.data.rememberMe === false
     ? 24 * 60 * 60
@@ -160,7 +168,7 @@ authRoutes.post('/sign-in/email', async (c) => {
   safeAuthLog(requestId, 'session_creation', {
     sessionCreated: true,
     accountActive: true,
-    roleRecognized,
+    roleRecognized: true,
   })
 
   c.header('set-auth-token', token)
@@ -172,7 +180,7 @@ authRoutes.post('/sign-in/email', async (c) => {
       id: account.id,
       name: account.name,
       email: account.email,
-      role: account.role ?? 'user',
+      role: account.role,
     },
   })
 })
