@@ -47,8 +47,8 @@ enum class PontoVoiceKioskCue {
 }
 
 /**
- * Pure phrase policy. Keeping copy and cadence outside TextToSpeech makes voice
- * behavior deterministic and testable without an Android speech engine.
+ * Pure phrase policy. Keeping copy and cadence outside the speech engines makes
+ * voice behavior deterministic and testable.
  */
 object PontoVoicePromptPolicy {
     fun kiosk(cue: PontoVoiceKioskCue): PontoVoicePrompt = when (cue) {
@@ -293,9 +293,10 @@ internal class PontoVoiceGate {
 }
 
 /**
- * Process-scoped TTS runtime using only the Android speech engine. It is
- * deliberately fail-open: initialization, locale or playback failures never
- * alter the biometric/point flow.
+ * Runtime process-scoped neural-first. A voz Piper/VITS local é preferida
+ * quando pronta; Android TextToSpeech pt-BR continua como fallback imediato.
+ * Inicialização, download, síntese e reprodução são fail-open e nunca alteram
+ * o fluxo biométrico/de ponto.
  */
 object PontoVoiceRuntime {
     private val lock = Any()
@@ -303,23 +304,49 @@ object PontoVoiceRuntime {
     @Volatile
     private var speaker: PontoTextToSpeech? = null
 
+    fun prewarm(context: Context) {
+        if (screenReaderOwnsSpeech(context)) return
+        val appContext = context.applicationContext
+        PontoNeuralVoiceRuntime.prewarm(appContext)
+        fallbackSpeaker(appContext)
+    }
+
     fun speak(
         context: Context,
         prompt: PontoVoicePrompt,
         sessionKey: String? = null,
     ) {
         if (screenReaderOwnsSpeech(context)) return
-        val current = speaker ?: synchronized(lock) {
-            speaker ?: PontoTextToSpeech(context.applicationContext).also { speaker = it }
+        val appContext = context.applicationContext
+        val normalizedPrompt = prompt.copy(text = PontoVoiceTextNormalizer.normalize(prompt.text))
+        val decision = runCatching {
+            PontoNeuralVoiceRuntime.speak(
+                context = appContext,
+                prompt = normalizedPrompt,
+                sessionKey = sessionKey,
+                onFailure = { speakFallback(appContext, normalizedPrompt, sessionKey) },
+            )
+        }.getOrDefault(PontoNeuralSpeechDecision.UNAVAILABLE)
+
+        if (decision == PontoNeuralSpeechDecision.UNAVAILABLE) {
+            speakFallback(appContext, normalizedPrompt, sessionKey)
         }
-        runCatching { current.speak(prompt, sessionKey) }
     }
 
     fun shutdown() {
+        PontoNeuralVoiceRuntime.shutdown()
         synchronized(lock) {
             runCatching { speaker?.shutdown() }
             speaker = null
         }
+    }
+
+    private fun speakFallback(context: Context, prompt: PontoVoicePrompt, sessionKey: String?) {
+        runCatching { fallbackSpeaker(context).speak(prompt, sessionKey) }
+    }
+
+    private fun fallbackSpeaker(context: Context): PontoTextToSpeech = speaker ?: synchronized(lock) {
+        speaker ?: PontoTextToSpeech(context.applicationContext).also { speaker = it }
     }
 
     private fun screenReaderOwnsSpeech(context: Context): Boolean {
@@ -431,6 +458,10 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
     val state = viewModel.state
     val identificacao = state.identificacao
     val comprovante = state.comprovante
+
+    LaunchedEffect(Unit) {
+        PontoVoiceRuntime.prewarm(context)
+    }
 
     val prompt = remember(
         comprovante,
