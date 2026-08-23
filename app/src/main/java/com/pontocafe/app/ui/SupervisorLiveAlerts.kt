@@ -230,12 +230,19 @@ fun rememberSupervisorLiveActivityAlert(
             title = novoAlerta.title,
             message = novoAlerta.message,
         )
-        SupervisorAlertNotifier.notify(
-            context = context,
-            eventType = novoAlerta.type,
-            title = novoAlerta.title,
-            message = novoAlerta.message,
-        )
+
+        // O estágio crítico de 15 s é deliberadamente visual e permanece no
+        // centro de alertas. A notificação do Android já ocorre em ~60 s e volta
+        // a ocorrer somente se o limite for efetivamente excedido, evitando
+        // ruído excessivo sem esconder a urgência na tela do Supervisor.
+        if (novoAlerta.type != SupervisorLiveAlertType.CRITICO.name) {
+            SupervisorAlertNotifier.notify(
+                context = context,
+                eventType = novoAlerta.type,
+                title = novoAlerta.title,
+                message = novoAlerta.message,
+            )
+        }
     }
 
     LaunchedEffect(transientAlert?.id) {
