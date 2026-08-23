@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuth, type AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query } from '../db.js'
+import { isRecognizedPasswordHash } from '../password-crypto.js'
 import { newId, newToken } from '../security.js'
 import { parseJson } from './shared.js'
 
@@ -23,14 +24,29 @@ function bearerToken(value: string | undefined): string | null {
   return match?.[1]?.trim() || null
 }
 
+function safeAuthLog(
+  requestId: string,
+  stage: string,
+  details: Record<string, boolean | string | null>,
+) {
+  console.info(JSON.stringify({
+    evento: 'auth_login_stage',
+    requestId,
+    etapa: stage,
+    ...details,
+  }))
+}
+
 async function consumeComparablePasswordWork(password: string) {
-  // Better Auth hace lo mismo para evitar diferencias de tiempo evidentes
-  // entre un e-mail existente y uno inexistente.
+  // Keep comparable work for unknown accounts without leaking whether an e-mail
+  // exists. The configured provider is the same native scrypt implementation
+  // used for account creation and normal password verification.
   const authContext = await getAuth().$context
   await authContext.password.hash(password)
 }
 
 authRoutes.post('/sign-in/email', async (c) => {
+  const requestId = c.get('requestId')
   const body = await parseJson(c, z.object({
     email: z.string().trim().toLowerCase().email().max(254),
     password: z.string().min(1).max(128),
@@ -48,22 +64,73 @@ authRoutes.post('/sign-in/email', async (c) => {
     [body.data.email],
   )
   const account = result.rows[0]
+  const hashPresent = Boolean(account?.password)
+  const hashFormatSupported = isRecognizedPasswordHash(account?.password)
+  const roleRecognized = account?.role === 'admin' || account?.role === 'user'
+
+  safeAuthLog(requestId, 'account_lookup', {
+    accountFound: Boolean(account),
+    accountActive: account ? !Boolean(account.banned) : null,
+    roleRecognized: account ? roleRecognized : null,
+    passwordHashPresent: account ? hashPresent : null,
+    hashFormatSupported: account ? hashFormatSupported : null,
+  })
 
   if (!account?.password) {
-    await consumeComparablePasswordWork(body.data.password)
+    try {
+      await consumeComparablePasswordWork(body.data.password)
+    } catch (error) {
+      console.error(JSON.stringify({
+        evento: 'auth_login_crypto_failure',
+        requestId,
+        etapa: 'comparable_password_work',
+        tipo: error instanceof Error ? error.name : typeof error,
+      }))
+      return c.json({ erro: 'Autenticação temporariamente indisponível.', codigo: 'AUTH_PASSWORD_RUNTIME' }, 503)
+    }
     return c.json({ erro: 'E-mail ou senha inválidos.' }, 401)
   }
 
-  const authContext = await getAuth().$context
-  const validPassword = await authContext.password.verify({
-    hash: account.password,
-    password: body.data.password,
+  if (!hashFormatSupported) {
+    safeAuthLog(requestId, 'password_verification', {
+      passwordVerified: false,
+      hashFormatSupported: false,
+    })
+    return c.json({ erro: 'E-mail ou senha inválidos.' }, 401)
+  }
+
+  let validPassword = false
+  try {
+    const authContext = await getAuth().$context
+    validPassword = await authContext.password.verify({
+      hash: account.password,
+      password: body.data.password,
+    })
+  } catch (error) {
+    console.error(JSON.stringify({
+      evento: 'auth_login_crypto_failure',
+      requestId,
+      etapa: 'password_verification',
+      hashFormatSupported: true,
+      tipo: error instanceof Error ? error.name : typeof error,
+    }))
+    return c.json({ erro: 'Autenticação temporariamente indisponível.', codigo: 'AUTH_PASSWORD_RUNTIME' }, 503)
+  }
+
+  safeAuthLog(requestId, 'password_verification', {
+    passwordVerified: validPassword,
+    hashFormatSupported: true,
   })
+
   if (!validPassword) {
     return c.json({ erro: 'E-mail ou senha inválidos.' }, 401)
   }
 
   if (account.banned) {
+    safeAuthLog(requestId, 'account_state', {
+      accountActive: false,
+      roleRecognized,
+    })
     return c.json({ erro: 'Esta conta está desativada.' }, 403)
   }
 
@@ -89,6 +156,12 @@ authRoutes.post('/sign-in/email', async (c) => {
       account.id,
     ],
   )
+
+  safeAuthLog(requestId, 'session_creation', {
+    sessionCreated: true,
+    accountActive: true,
+    roleRecognized,
+  })
 
   c.header('set-auth-token', token)
   c.header('Cache-Control', 'no-store')
