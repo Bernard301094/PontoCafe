@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -81,34 +82,64 @@ class AppHealthStore(context: Context) {
     }
 }
 
+/**
+ * Crash capture and foreground stall detection have deliberately different
+ * lifetimes. The uncaught-exception hook remains installed for the Activity
+ * lifetime, while the recurring canary/observer pair runs only when the Activity
+ * is STARTED. The heartbeat and watchdog remain on different threads; merging
+ * them would make main-thread stalls impossible to observe.
+ */
 class AppHealthMonitor(context: Context) {
     private val store = AppHealthStore(context.applicationContext)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val watchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "PontoCafe-AppHealth").apply { isDaemon = true }
-    }
     private val lastHeartbeat = AtomicLong(System.currentTimeMillis())
     private val stallRecorded = AtomicBoolean(false)
+    private val crashHandlerInstalled = AtomicBoolean(false)
+    private val stallWatchdogRunning = AtomicBoolean(false)
+
+    @Volatile
+    private var watchdog: ScheduledExecutorService? = null
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
 
     private val heartbeat = object : Runnable {
         override fun run() {
+            if (!stallWatchdogRunning.get()) return
             lastHeartbeat.set(System.currentTimeMillis())
             stallRecorded.set(false)
             mainHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
         }
     }
 
-    fun start() {
+    fun installCrashHandler() {
+        if (!crashHandlerInstalled.compareAndSet(false, true)) return
         store.markStart()
         previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching { store.recordCrash(error) }
             previousHandler?.uncaughtException(thread, error)
         }
+    }
+
+    fun uninstallCrashHandler() {
+        if (!crashHandlerInstalled.compareAndSet(true, false)) return
+        previousHandler?.let { Thread.setDefaultUncaughtExceptionHandler(it) }
+        previousHandler = null
+    }
+
+    fun startStallWatchdog() {
+        if (!stallWatchdogRunning.compareAndSet(false, true)) return
+        lastHeartbeat.set(System.currentTimeMillis())
+        stallRecorded.set(false)
+        mainHandler.removeCallbacks(heartbeat)
         mainHandler.post(heartbeat)
-        watchdog.scheduleAtFixedRate(
+
+        val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "PontoCafe-AppHealth").apply { isDaemon = true }
+        }
+        watchdog = executor
+        executor.scheduleAtFixedRate(
             {
+                if (!stallWatchdogRunning.get()) return@scheduleAtFixedRate
                 val duration = System.currentTimeMillis() - lastHeartbeat.get()
                 if (duration >= STALL_THRESHOLD_MS && stallRecorded.compareAndSet(false, true)) {
                     store.recordStall(duration)
@@ -120,15 +151,31 @@ class AppHealthMonitor(context: Context) {
         )
     }
 
-    fun stop() {
+    fun stopStallWatchdog() {
+        if (!stallWatchdogRunning.compareAndSet(true, false)) return
         mainHandler.removeCallbacks(heartbeat)
-        watchdog.shutdownNow()
-        previousHandler?.let { Thread.setDefaultUncaughtExceptionHandler(it) }
+        watchdog?.shutdownNow()
+        watchdog = null
+        stallRecorded.set(false)
+    }
+
+    /** Compatibility wrapper for callers that still want the original API. */
+    fun start() {
+        installCrashHandler()
+        startStallWatchdog()
+    }
+
+    /** Compatibility wrapper for callers that still want the original API. */
+    fun stop() {
+        stopStallWatchdog()
+        uninstallCrashHandler()
     }
 
     companion object {
-        private const val HEARTBEAT_INTERVAL_MS = 1_000L
-        private const val STALL_CHECK_MS = 2_000L
-        private const val STALL_THRESHOLD_MS = 5_000L
+        // 2s remains comfortably below the 5s stall threshold while halving the
+        // previous main-looper heartbeat cadence.
+        internal const val HEARTBEAT_INTERVAL_MS = 2_000L
+        internal const val STALL_CHECK_MS = 2_000L
+        internal const val STALL_THRESHOLD_MS = 5_000L
     }
 }
