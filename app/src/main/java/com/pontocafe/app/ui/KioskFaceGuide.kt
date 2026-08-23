@@ -21,13 +21,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
-private const val FACE_GUIDE_READY_STABILITY_MILLIS = 350L
+private const val FACE_GUIDE_READY_STABILITY_MILLIS = 180L
 
 /**
  * Visual positioning guide. Neutral means no usable face yet, red means the
  * current face is outside the accepted capture geometry, and green means the
  * face has remained correctly positioned long enough to avoid frame-to-frame
- * color flicker.
+ * color flicker. The short stabilization window keeps the visual feedback in
+ * sync with the passive fast path instead of making the UI feel slower than the
+ * recognizer.
  */
 @Composable
 internal fun KioskFaceGuide(
