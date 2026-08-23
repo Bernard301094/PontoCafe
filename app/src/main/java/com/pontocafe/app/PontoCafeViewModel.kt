@@ -10,6 +10,7 @@ import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AppStatusResponse
 import com.pontocafe.app.data.BiometricRuntimeDiagnostics
 import com.pontocafe.app.data.CachedFaceCatalog
+import com.pontocafe.app.data.DeviceAuthInvalidationBus
 import com.pontocafe.app.data.FinalizarPausaResponse
 import com.pontocafe.app.data.IdentificarBiometriaResponse
 import com.pontocafe.app.data.IniciarPausaResponse
@@ -35,6 +36,7 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -42,6 +44,15 @@ import kotlinx.coroutines.withContext
 
 
 enum class TipoComprovantePonto { INICIO, RETORNO }
+
+enum class DeviceAuthorizationState {
+    NO_TOKEN,
+    CHECKING,
+    AUTHORIZED_ONLINE,
+    AUTHORIZED_OFFLINE,
+    TEMPORARY_FAILURE,
+    REVOKED,
+}
 
 enum class PontoRecognitionStage {
     IDENTIFICANDO,
@@ -64,6 +75,7 @@ data class ComprovantePonto(
 
 data class PontoCafeUiState(
     val deviceConfigured: Boolean = false,
+    val deviceAuthorizationState: DeviceAuthorizationState = DeviceAuthorizationState.NO_TOKEN,
     val carregando: Boolean = false,
     val scanning: Boolean = false,
     val recognitionStage: PontoRecognitionStage? = null,
@@ -101,6 +113,7 @@ class PontoCafeViewModel(
     private val offlineGraceMillis = 12 * 60 * 60 * 1000L
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+    private val hasStoredCredentialAtLaunch = tokenStore.hasToken()
     private var pendingOfflineEmbedding: FloatArray? = null
     private var lastCatalogMissRefreshMillis: Long = 0L
     private var lastAvatarCatalogAttemptMillis: Long = 0L
@@ -108,6 +121,7 @@ class PontoCafeViewModel(
     private var lastRegisteredCollaboratorId: String? = null
     private var lastRegisteredAtMillis: Long = 0L
     private val recognitionInFlight = AtomicBoolean(false)
+    private val authorizationValidationInFlight = AtomicBoolean(false)
     private val temporalConsensus = TemporalFaceConsensus()
     private val transactionCoordinator = RecognitionTransactionCoordinator()
     private var temporalInferenceCount: Int = 0
@@ -117,8 +131,14 @@ class PontoCafeViewModel(
 
     var state by mutableStateOf(
         PontoCafeUiState(
-            deviceConfigured = tokenStore.hasToken(),
-            scanning = tokenStore.hasToken(),
+            deviceConfigured = false,
+            deviceAuthorizationState = if (hasStoredCredentialAtLaunch) {
+                DeviceAuthorizationState.CHECKING
+            } else {
+                DeviceAuthorizationState.NO_TOKEN
+            },
+            carregando = hasStoredCredentialAtLaunch,
+            scanning = false,
         ),
     )
         private set
@@ -134,12 +154,19 @@ class PontoCafeViewModel(
     }
 
     init {
-        if (tokenStore.hasToken() && embeddingEngine.isReady) {
-            viewModelScope.launch {
-                runCatching { embeddingEngine.warmUp() }
+        viewModelScope.launch {
+            DeviceAuthInvalidationBus.events.collect {
+                handleRemoteRevocation()
             }
-            sincronizarBiometrias(force = false)
-            atualizarConectividadeESincronizar()
+        }
+
+        if (hasStoredCredentialAtLaunch) {
+            if (embeddingEngine.isReady) {
+                viewModelScope.launch {
+                    runCatching { embeddingEngine.warmUp() }
+                }
+            }
+            validarAutorizacaoDoDispositivo(bloquearDuranteValidacao = true)
         }
     }
 
@@ -167,6 +194,7 @@ class PontoCafeViewModel(
                     state = state.copy(
                         carregando = false,
                         deviceConfigured = false,
+                        deviceAuthorizationState = DeviceAuthorizationState.NO_TOKEN,
                         scanning = false,
                         erro = "A ativação foi aceita, mas a credencial segura não pôde ser salva neste aparelho. Gere um novo token no Administrador e tente novamente.",
                     )
@@ -177,15 +205,23 @@ class PontoCafeViewModel(
                 runCatching { withContext(Dispatchers.IO) { faceCatalogStore.clear() } }
                 avatarCatalogGeneration += 1L
                 runCatching { PontoAvatarRuntime.clearCatalog() }
-                runCatching { withContext(Dispatchers.IO) { offlineStore.clear() } }
                 pendingOfflineEmbedding = null
                 lastRegisteredCollaboratorId = null
                 lastRegisteredAtMillis = 0L
+                val offlineStatus = withContext(Dispatchers.IO) {
+                    offlineStore.pendingCount() to offlineStore.hasQuarantinedPendingEvents()
+                }
                 state = PontoCafeUiState(
                     deviceConfigured = true,
+                    deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_ONLINE,
                     scanning = true,
                     scanCycle = state.scanCycle + 1,
-                    mensagem = "Dispositivo configurado com sucesso.",
+                    eventosPendentes = offlineStatus.first,
+                    mensagem = if (offlineStatus.second) {
+                        "Dispositivo configurado. Há registros offline preservados de uma credencial anterior; eles não serão reenviados automaticamente."
+                    } else {
+                        "Dispositivo configurado com sucesso."
+                    },
                 )
                 viewModelScope.launch { runCatching { embeddingEngine.warmUp() } }
                 sincronizarBiometrias(force = true)
@@ -201,6 +237,7 @@ class PontoCafeViewModel(
         }
     }
 
+    /** Explicit local reset requested by the user/admin. This remains destructive. */
     fun removerConfiguracao() {
         invalidateRecognitionSession()
         tokenStore.clear()
@@ -211,7 +248,144 @@ class PontoCafeViewModel(
         pendingOfflineEmbedding = null
         lastRegisteredCollaboratorId = null
         lastRegisteredAtMillis = 0L
-        state = PontoCafeUiState(deviceConfigured = false)
+        state = PontoCafeUiState(
+            deviceConfigured = false,
+            deviceAuthorizationState = DeviceAuthorizationState.NO_TOKEN,
+        )
+    }
+
+    /**
+     * Authoritative credential validation. At process start / foreground resume
+     * the operational camera is withheld until the server accepts the token (or
+     * the existing offline grace policy explicitly allows operation).
+     */
+    fun validarAutorizacaoDoDispositivo(bloquearDuranteValidacao: Boolean) {
+        if (!tokenStore.hasToken()) {
+            state = PontoCafeUiState(
+                deviceConfigured = false,
+                deviceAuthorizationState = DeviceAuthorizationState.NO_TOKEN,
+            )
+            return
+        }
+        if (!authorizationValidationInFlight.compareAndSet(false, true)) return
+
+        val wasOperational = state.deviceConfigured
+        val previousScanning = state.scanning
+        if (bloquearDuranteValidacao) {
+            invalidateRecognitionSession()
+            state = state.copy(
+                deviceConfigured = false,
+                deviceAuthorizationState = DeviceAuthorizationState.CHECKING,
+                scanning = false,
+                carregando = true,
+                erro = null,
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val horario = repository.consultarHorario()
+                    offlineStore.saveRules(horario.regras)
+                    val appStatus = runCatching { repository.appStatus() }.getOrNull()
+                    appStatus
+                }
+                val pending = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
+                state = state.copy(
+                    deviceConfigured = true,
+                    deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_ONLINE,
+                    scanning = if (wasOperational) previousScanning else true,
+                    carregando = false,
+                    modoOffline = false,
+                    eventosPendentes = pending,
+                    erro = null,
+                )
+                marcarServidorOnline(result)
+                if (!wasOperational && embeddingEngine.isReady) {
+                    viewModelScope.launch { runCatching { embeddingEngine.warmUp() } }
+                    sincronizarBiometrias(force = false)
+                }
+                sincronizarPendenciasOfflineInterno()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (PontoCafeRepository.isAuthFailure(error)) {
+                    handleRemoteRevocation()
+                } else {
+                    val offlineStatus = withContext(Dispatchers.IO) {
+                        offlineStore.canOperateOffline(offlineGraceMillis) to offlineStore.pendingCount()
+                    }
+                    when {
+                        offlineStatus.first -> {
+                            state = state.copy(
+                                deviceConfigured = true,
+                                deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_OFFLINE,
+                                scanning = if (wasOperational) previousScanning else true,
+                                carregando = false,
+                                modoOffline = true,
+                                eventosPendentes = offlineStatus.second,
+                                erro = null,
+                            )
+                            if (!wasOperational && embeddingEngine.isReady) {
+                                sincronizarBiometrias(force = false)
+                            }
+                        }
+                        !bloquearDuranteValidacao && wasOperational -> {
+                            // A transient watchdog failure must not revoke a session
+                            // that was already authoritatively accepted.
+                            state = state.copy(
+                                carregando = false,
+                                eventosPendentes = offlineStatus.second,
+                            )
+                        }
+                        else -> {
+                            state = state.copy(
+                                deviceConfigured = false,
+                                deviceAuthorizationState = DeviceAuthorizationState.TEMPORARY_FAILURE,
+                                scanning = false,
+                                carregando = false,
+                                modoOffline = false,
+                                eventosPendentes = offlineStatus.second,
+                                erro = "Não foi possível validar este dispositivo agora. Verifique a conexão e tente novamente.",
+                            )
+                        }
+                    }
+                }
+            } finally {
+                authorizationValidationInFlight.set(false)
+            }
+        }
+    }
+
+    private suspend fun handleRemoteRevocation() {
+        if (state.deviceAuthorizationState == DeviceAuthorizationState.REVOKED && !tokenStore.hasToken()) return
+        invalidateRecognitionSession()
+        recognitionInFlight.set(false)
+        pendingOfflineEmbedding = null
+        lastRegisteredCollaboratorId = null
+        lastRegisteredAtMillis = 0L
+
+        val pending = withContext(Dispatchers.IO) {
+            runCatching { offlineStore.quarantinePendingEvents("DEVICE_AUTH_INVALID") }
+            runCatching { tokenStore.clear() }
+            runCatching { faceCatalogStore.clear() }
+            offlineStore.pendingCount()
+        }
+        avatarCatalogGeneration += 1L
+        runCatching { PontoAvatarRuntime.clearCatalog() }
+
+        state = PontoCafeUiState(
+            deviceConfigured = false,
+            deviceAuthorizationState = DeviceAuthorizationState.REVOKED,
+            scanning = false,
+            eventosPendentes = pending,
+            mensagem = if (pending > 0) {
+                "$pending registro(s) offline foram preservados neste aparelho e colocados em quarentena para evitar atribuição a outra credencial."
+            } else {
+                null
+            },
+            erro = "Este dispositivo não está mais autorizado. Solicite uma nova ativação ao Administrador.",
+        )
     }
 
     fun atualizarConectividadeESincronizar() {
@@ -231,19 +405,22 @@ class PontoCafeViewModel(
                     runCatching { repository.appStatus() }.getOrNull()
                 }
             }.onSuccess { appStatus ->
+                state = state.copy(deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_ONLINE)
                 marcarServidorOnline(appStatus)
                 sincronizarPendenciasOfflineInterno()
             }.onFailure { error ->
                 if (PontoCafeRepository.isAuthFailure(error)) {
-                    state = state.copy(
-                        modoOffline = false,
-                        erro = "Este dispositivo não está mais autorizado. Solicite uma nova ativação ao Administrador.",
-                    )
+                    handleRemoteRevocation()
                 } else {
                     val offlineStatus = withContext(Dispatchers.IO) {
                         offlineStore.canOperateOffline(offlineGraceMillis) to offlineStore.pendingCount()
                     }
                     state = state.copy(
+                        deviceAuthorizationState = if (offlineStatus.first) {
+                            DeviceAuthorizationState.AUTHORIZED_OFFLINE
+                        } else {
+                            state.deviceAuthorizationState
+                        },
                         modoOffline = offlineStatus.first,
                         eventosPendentes = offlineStatus.second,
                         erro = if (offlineStatus.first) null else state.erro,
@@ -353,6 +530,7 @@ class PontoCafeViewModel(
     }
 
     fun ativarCamera() {
+        if (!state.deviceConfigured) return
         invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
@@ -376,6 +554,7 @@ class PontoCafeViewModel(
      * sincronizadas em background depois dos registros.
      */
     fun concluirComprovante() {
+        if (!state.deviceConfigured) return
         invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
@@ -393,7 +572,7 @@ class PontoCafeViewModel(
 
     fun processarFrame(frame: FaceFrame) {
         sincronizarAvatares(force = false)
-        if (!state.scanning || state.carregando) {
+        if (!state.deviceConfigured || !state.scanning || state.carregando) {
             if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
             return
         }
@@ -781,7 +960,7 @@ class PontoCafeViewModel(
                 pendingOfflineEmbedding = null
                 state = state.copy(
                     carregando = false,
-                    scanning = true,
+                    scanning = state.deviceConfigured,
                     recognitionStage = null,
                     temporalConsensusCount = 0,
                     scanCycle = state.scanCycle + 1,
@@ -1118,6 +1297,7 @@ class PontoCafeViewModel(
     }
 
     fun rejeitarIdentidade() {
+        if (!state.deviceConfigured) return
         invalidateRecognitionSession()
         pendingOfflineEmbedding = null
         state = state.copy(
@@ -1223,6 +1403,7 @@ class PontoCafeViewModel(
             identificacao = null,
             comprovante = comprovanteInicio(nome, pausa),
             modoOffline = false,
+            deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_ONLINE,
             eventosPendentes = offlineStatus.first,
             ultimaConexaoEmMillis = offlineStatus.second,
             mensagem = null,
@@ -1252,6 +1433,7 @@ class PontoCafeViewModel(
             identificacao = null,
             comprovante = comprovanteRetorno(nome, pausa),
             modoOffline = false,
+            deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_ONLINE,
             eventosPendentes = offlineStatus.first,
             ultimaConexaoEmMillis = offlineStatus.second,
             mensagem = null,
@@ -1303,6 +1485,7 @@ class PontoCafeViewModel(
                         recognitionStage = null,
                         identificacao = null,
                         modoOffline = true,
+                        deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_OFFLINE,
                         eventosPendentes = pendingCount,
                         comprovante = ComprovantePonto(
                             tipo = TipoComprovantePonto.INICIO,
@@ -1361,6 +1544,7 @@ class PontoCafeViewModel(
                     recognitionStage = null,
                     identificacao = null,
                     modoOffline = true,
+                    deviceAuthorizationState = DeviceAuthorizationState.AUTHORIZED_OFFLINE,
                     eventosPendentes = pendingCount,
                     comprovante = ComprovantePonto(
                         tipo = TipoComprovantePonto.RETORNO,
@@ -1392,6 +1576,17 @@ class PontoCafeViewModel(
     }
 
     private suspend fun sincronizarPendenciasOfflineInterno() {
+        val quarantined = withContext(Dispatchers.IO) { offlineStore.hasQuarantinedPendingEvents() }
+        if (quarantined) {
+            val pending = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
+            state = state.copy(
+                sincronizandoPendencias = false,
+                eventosPendentes = pending,
+                mensagem = "$pending registro(s) offline estão preservados em quarentena e não serão enviados com esta credencial.",
+            )
+            return
+        }
+
         val initialPendingCount = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
         if (state.sincronizandoPendencias || initialPendingCount == 0) return
         state = state.copy(sincronizandoPendencias = true, eventosPendentes = initialPendingCount)
@@ -1429,6 +1624,11 @@ class PontoCafeViewModel(
                 sincronizandoPendencias = false,
                 eventosPendentes = offlineStatus.first,
                 modoOffline = offlineStatus.second,
+                deviceAuthorizationState = if (offlineStatus.second) {
+                    DeviceAuthorizationState.AUTHORIZED_OFFLINE
+                } else {
+                    state.deviceAuthorizationState
+                },
             )
         }
     }
