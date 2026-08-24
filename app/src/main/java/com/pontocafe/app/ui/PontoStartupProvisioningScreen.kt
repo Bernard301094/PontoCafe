@@ -201,7 +201,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                                 completed = true
                                 verificationFailed = false
                                 verificationMessage = "Voz natural instalada, testada e ativada."
-                                mainHandler.postDelayed(onReady, 650L)
+                                mainHandler.postDelayed({ onReady() }, 650L)
                             }
                             is PontoNeuralSpeechEvent.Failed -> {
                                 verificationStarted = false
