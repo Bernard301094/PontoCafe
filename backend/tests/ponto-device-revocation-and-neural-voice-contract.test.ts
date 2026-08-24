@@ -103,6 +103,17 @@ test('instalação do Ponto baixa voz natural, valida playback real e só então
   assert.match(neuralVoice, /VOICE_MODEL_INSTALLED/)
 })
 
+test('instalador neural tolera links TAR internos, valida download e repete falhas transitórias', () => {
+  assert.match(neuralVoice, /MODEL_INSTALL_ATTEMPTS = 3/)
+  assert.match(neuralVoice, /VOICE_DOWNLOAD_LENGTH_MISMATCH/)
+  assert.match(neuralVoice, /materializeArchiveLinks/)
+  assert.match(neuralVoice, /archiveLinkTarget/)
+  assert.match(neuralVoice, /VOICE_ARCHIVE_LINK_OUTSIDE_ROOT/)
+  assert.doesNotMatch(neuralVoice, /VOICE_ARCHIVE_LINK_REJECTED/)
+  assert.match(neuralVoice, /lastFailureCode/)
+  assert.match(startupProvisioning, /Código técnico:/)
+})
+
 test('modelo neural instalado pode enfileirar fala atrás de PREPARING', () => {
   assert.match(neuralVoice, /canQueueBehindPreparation/)
   assert.match(neuralVoice, /state == NeuralVoiceState\.PREPARING/)
