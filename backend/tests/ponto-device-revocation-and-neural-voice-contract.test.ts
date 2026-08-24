@@ -9,6 +9,7 @@ function read(path: string): string {
 const guidance = read('../../app/src/main/java/com/pontocafe/app/voice/PontoVoiceGuidance.kt')
 const neuralVoice = read('../../app/src/main/java/com/pontocafe/app/voice/PontoNeuralVoice.kt')
 const voiceStatus = read('../../app/src/main/java/com/pontocafe/app/ui/PontoVoiceOperationalStatus.kt')
+const startupProvisioning = read('../../app/src/main/java/com/pontocafe/app/ui/PontoStartupProvisioningScreen.kt')
 const viewModel = read('../../app/src/main/java/com/pontocafe/app/PontoCafeViewModel.kt')
 const apiClient = read('../../app/src/main/java/com/pontocafe/app/data/ApiClient.kt')
 const authRuntime = read('../../app/src/main/java/com/pontocafe/app/data/DeviceAuthorizationRuntime.kt')
@@ -47,6 +48,19 @@ test('token local não autoriza câmera antes da validação autoritativa', () =
   assert.doesNotMatch(guidance, /removerConfiguracao\(\)/)
 })
 
+test('CHECKING usa tela de validação e nunca pisca formulário de token', () => {
+  const checkingBranch = mainActivity.indexOf(
+    'state.deviceAuthorizationState == DeviceAuthorizationState.CHECKING',
+  )
+  const setupBranch = mainActivity.indexOf('!state.deviceConfigured')
+
+  assert.ok(checkingBranch >= 0, 'branch CHECKING precisa existir')
+  assert.ok(setupBranch > checkingBranch, 'CHECKING precisa ser resolvido antes do DeviceSetupScreen')
+  assert.match(mainActivity, /DeviceAuthorizationState\.CHECKING[\s\S]*PontoDeviceAuthorizationScreen/)
+  assert.match(startupProvisioning, /Validando dispositivo/)
+  assert.match(startupProvisioning, /código de ativação não será solicitado/)
+})
+
 test('revogação remota preserva e quarentena pendências offline', () => {
   assert.match(viewModel, /handleRemoteRevocation\(\)/)
   assert.match(viewModel, /offlineStore\.quarantinePendingEvents\("DEVICE_AUTH_INVALID"\)/)
@@ -72,6 +86,21 @@ test('teste neural só confirma sucesso após PlaybackCompleted', () => {
   assert.match(voiceStatus, /ACCEPTED means queued, never successful playback/)
   assert.doesNotMatch(voiceStatus, /TextToSpeech/)
   assert.doesNotMatch(voiceStatus, /PontoVoiceRuntime\.speak/)
+})
+
+test('instalação do Ponto baixa voz natural, valida playback real e só então libera uso persistente', () => {
+  assert.match(mainActivity, /!naturalVoiceReadyForSession[\s\S]*PontoNaturalVoiceProvisioningScreen/)
+  assert.match(startupProvisioning, /PontoNeuralVoiceRuntime\.prewarm\(appContext\)/)
+  assert.match(startupProvisioning, /PontoNeuralVoiceRuntime\.speak\(/)
+  assert.match(
+    startupProvisioning,
+    /PontoNeuralSpeechEvent\.PlaybackCompleted[\s\S]*markNaturalVoiceProvisioned\(appContext\)/,
+  )
+  assert.match(startupProvisioning, /verified_voice_version/)
+  assert.match(startupProvisioning, /Usar Ponto temporariamente com voz do Android/)
+  assert.doesNotMatch(startupProvisioning, /PontoVoiceRuntime\.speak/)
+  assert.match(neuralVoice, /ensureModelInstalled\(context\)/)
+  assert.match(neuralVoice, /VOICE_MODEL_INSTALLED/)
 })
 
 test('modelo neural instalado pode enfileirar fala atrás de PREPARING', () => {
