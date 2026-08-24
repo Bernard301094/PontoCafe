@@ -52,7 +52,7 @@ test('CHECKING usa tela de validação e nunca pisca formulário de token', () =
   const checkingBranch = mainActivity.indexOf(
     'state.deviceAuthorizationState == DeviceAuthorizationState.CHECKING',
   )
-  const setupBranch = mainActivity.indexOf('!state.deviceConfigured')
+  const setupBranch = mainActivity.indexOf('!state.deviceConfigured -> {')
 
   assert.ok(checkingBranch >= 0, 'branch CHECKING precisa existir')
   assert.ok(setupBranch > checkingBranch, 'CHECKING precisa ser resolvido antes do DeviceSetupScreen')
