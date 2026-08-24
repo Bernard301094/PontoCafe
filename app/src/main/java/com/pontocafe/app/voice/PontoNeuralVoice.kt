@@ -85,6 +85,7 @@ internal data class PontoNeuralVoiceDiagnostics(
     val lastFailureAtMillis: Long?,
     val lastFailureReason: String?,
     val retryAvailableInMillis: Long,
+    val lastFailureCode: String? = null,
 )
 
 private enum class NeuralVoiceState {
@@ -97,6 +98,12 @@ private enum class NeuralVoiceState {
 private data class CachedNeuralAudio(
     val samples: ShortArray,
     val sampleRate: Int,
+)
+
+private data class PendingArchiveLink(
+    val destination: File,
+    val linkName: String,
+    val symbolic: Boolean,
 )
 
 /**
@@ -119,6 +126,10 @@ internal object PontoNeuralVoiceRuntime {
     private const val MODEL_SIZE_BYTES = 63_201_428L
     private const val MAX_ARCHIVE_BYTES = 120L * 1024L * 1024L
     private const val MAX_EXTRACTED_BYTES = 160L * 1024L * 1024L
+    private const val MODEL_INSTALL_ATTEMPTS = 3
+    private const val MODEL_INSTALL_RETRY_BASE_MILLIS = 750L
+    private const val DOWNLOAD_CONNECT_TIMEOUT_MILLIS = 20_000
+    private const val DOWNLOAD_READ_TIMEOUT_MILLIS = 120_000
     private const val RETRY_AFTER_MILLIS = 30_000L
     private const val CACHE_ENTRIES = 24
     private const val VOICE_SPEED = 1.02f
@@ -146,6 +157,7 @@ internal object PontoNeuralVoiceRuntime {
 
     private var lastFailureAtMillis = 0L
     private var lastFailureReason: String? = null
+    private var lastFailureCode: String? = null
     private var lifecycleVersion = 0L
     private var utteranceVersion = 0L
 
@@ -172,6 +184,7 @@ internal object PontoNeuralVoiceRuntime {
                 lastFailureAtMillis = lastFailureAtMillis.takeIf { it > 0L },
                 lastFailureReason = lastFailureReason,
                 retryAvailableInMillis = retryIn,
+                lastFailureCode = lastFailureCode,
             )
         }
     }
@@ -181,6 +194,8 @@ internal object PontoNeuralVoiceRuntime {
             if (state == NeuralVoiceState.FAILED) {
                 state = NeuralVoiceState.IDLE
                 lastFailureAtMillis = 0L
+                lastFailureReason = null
+                lastFailureCode = null
             }
         }
         ensurePreparing(context.applicationContext)
@@ -397,15 +412,18 @@ internal object PontoNeuralVoiceRuntime {
                     state = NeuralVoiceState.READY
                     lastFailureAtMillis = 0L
                     lastFailureReason = null
+                    lastFailureCode = null
                 }
                 Log.i(TAG, "VOICE_ENGINE_READY")
             } catch (error: Throwable) {
-                Log.e(TAG, "VOICE_PREPARE_FAILED", error)
+                val code = diagnosticCode(error, "VOICE_PREPARE_FAILED")
+                Log.e(TAG, "$code VOICE_PREPARE_FAILED", error)
                 synchronized(lock) {
                     if (version == lifecycleVersion) {
                         state = NeuralVoiceState.FAILED
                         lastFailureAtMillis = System.currentTimeMillis()
                         lastFailureReason = classifyVoiceFailure(error)
+                        lastFailureCode = code
                     }
                 }
             } finally {
@@ -542,15 +560,17 @@ internal object PontoNeuralVoiceRuntime {
     }
 
     private fun markEngineFailure(failedEngine: OfflineTts, error: Throwable) {
+        val code = diagnosticCode(error, "VOICE_ENGINE_FAILED")
         synchronized(lock) {
             if (engine !== failedEngine) return
             engine = null
             state = NeuralVoiceState.FAILED
             lastFailureAtMillis = System.currentTimeMillis()
             lastFailureReason = classifyVoiceFailure(error)
+            lastFailureCode = code
             cache.clear()
         }
-        Log.e(TAG, "VOICE_ENGINE_FAILED", error)
+        Log.e(TAG, "$code VOICE_ENGINE_FAILED", error)
         runCatching { failedEngine.release() }
     }
 
@@ -585,125 +605,359 @@ internal object PontoNeuralVoiceRuntime {
             }
         }
 
+        // Uma instalação incompleta nunca é reaproveitada. Cada tentativa usa
+        // cache próprio e só promove o diretório depois de tamanho + SHA-256.
         finalDir.deleteRecursively()
-        val workRoot = File(context.cacheDir, "pontocafe-voice-install").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val archive = File(workRoot, "$MODEL_DIR.tar.bz2")
-        val extracted = File(workRoot, "extracted").apply { mkdirs() }
+        var lastError: Throwable? = null
 
-        try {
-            Log.i(TAG, "VOICE_DOWNLOAD_START")
-            downloadModel(archive)
-            Log.i(TAG, "VOICE_DOWNLOAD_DONE bytes=${archive.length()}")
-            extractArchive(archive, extracted)
-
-            val extractedModel = extracted.walkTopDown()
-                .firstOrNull { it.isFile && it.name == MODEL_FILE }
-                ?: error("VOICE_MODEL_NOT_FOUND_AFTER_EXTRACT")
-            val extractedModelDir = extractedModel.parentFile
-                ?: error("VOICE_MODEL_PARENT_MISSING")
-            val model = File(extractedModelDir, MODEL_FILE)
-            val tokens = File(extractedModelDir, "tokens.txt")
-            val dataDir = File(extractedModelDir, "espeak-ng-data")
-
-            check(model.isFile && model.length() == MODEL_SIZE_BYTES) {
-                "VOICE_MODEL_SIZE_INVALID:${model.length()}"
+        for (attempt in 1..MODEL_INSTALL_ATTEMPTS) {
+            val workRoot = File(context.cacheDir, "pontocafe-voice-install-$attempt").apply {
+                deleteRecursively()
+                mkdirs()
             }
-            check(tokens.isFile) { "VOICE_TOKENS_MISSING_AFTER_EXTRACT" }
-            check(dataDir.isDirectory) { "VOICE_ESPEAK_DATA_MISSING_AFTER_EXTRACT" }
-            check(sha256(model).equals(MODEL_SHA256, ignoreCase = true)) {
-                "VOICE_MODEL_HASH_INVALID"
-            }
+            val archive = File(workRoot, "$MODEL_DIR.tar.bz2")
+            val extracted = File(workRoot, "extracted").apply { mkdirs() }
 
-            parent.mkdirs()
-            if (!extractedModelDir.renameTo(finalDir)) {
-                check(extractedModelDir.copyRecursively(finalDir, overwrite = true)) {
-                    "VOICE_MODEL_INSTALL_COPY_FAILED"
+            try {
+                Log.i(TAG, "VOICE_DOWNLOAD_START attempt=$attempt/$MODEL_INSTALL_ATTEMPTS")
+                downloadModel(archive)
+                Log.i(TAG, "VOICE_DOWNLOAD_DONE attempt=$attempt bytes=${archive.length()}")
+                extractArchive(archive, extracted)
+
+                val extractedModel = extracted.walkTopDown()
+                    .firstOrNull { it.isFile && it.name == MODEL_FILE }
+                    ?: error("VOICE_MODEL_NOT_FOUND_AFTER_EXTRACT")
+                val extractedModelDir = extractedModel.parentFile
+                    ?: error("VOICE_MODEL_PARENT_MISSING")
+                val model = File(extractedModelDir, MODEL_FILE)
+                val tokens = File(extractedModelDir, "tokens.txt")
+                val dataDir = File(extractedModelDir, "espeak-ng-data")
+
+                check(model.isFile && model.length() == MODEL_SIZE_BYTES) {
+                    "VOICE_MODEL_SIZE_INVALID:${model.length()}"
                 }
+                check(tokens.isFile) { "VOICE_TOKENS_MISSING_AFTER_EXTRACT" }
+                check(dataDir.isDirectory) { "VOICE_ESPEAK_DATA_MISSING_AFTER_EXTRACT" }
+                check(sha256(model).equals(MODEL_SHA256, ignoreCase = true)) {
+                    "VOICE_MODEL_HASH_INVALID"
+                }
+
+                parent.mkdirs()
+                finalDir.deleteRecursively()
+                if (!extractedModelDir.renameTo(finalDir)) {
+                    check(extractedModelDir.copyRecursively(finalDir, overwrite = true)) {
+                        "VOICE_MODEL_INSTALL_COPY_FAILED"
+                    }
+                }
+                File(finalDir, ".ready-$MODEL_SHA256").writeText("$MODEL_SHA256\n")
+                Log.i(TAG, "VOICE_MODEL_INSTALLED attempt=$attempt")
+                return finalDir
+            } catch (error: Throwable) {
+                lastError = error
+                val code = diagnosticCode(error, "VOICE_MODEL_INSTALL_FAILED")
+                Log.w(TAG, "$code attempt=$attempt/$MODEL_INSTALL_ATTEMPTS", error)
+                finalDir.deleteRecursively()
+
+                if (attempt >= MODEL_INSTALL_ATTEMPTS || !isRetriableModelInstallFailure(error)) {
+                    throw error
+                }
+                Thread.sleep(MODEL_INSTALL_RETRY_BASE_MILLIS * attempt)
+            } finally {
+                workRoot.deleteRecursively()
             }
-            File(finalDir, ".ready-$MODEL_SHA256").writeText("$MODEL_SHA256\n")
-            Log.i(TAG, "VOICE_MODEL_INSTALLED")
-            return finalDir
-        } finally {
-            workRoot.deleteRecursively()
         }
+
+        throw lastError ?: IllegalStateException("VOICE_MODEL_INSTALL_FAILED")
     }
 
     private fun downloadModel(destination: File) {
         destination.parentFile?.mkdirs()
         val connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 60_000
+            connectTimeout = DOWNLOAD_CONNECT_TIMEOUT_MILLIS
+            readTimeout = DOWNLOAD_READ_TIMEOUT_MILLIS
             instanceFollowRedirects = true
+            useCaches = false
             requestMethod = "GET"
             setRequestProperty("User-Agent", "PontoCafe-Android/1.0")
             setRequestProperty("Accept", "application/octet-stream,*/*")
+            // Evita que proxies/camadas HTTP transformem o corpo binário e
+            // tornem Content-Length incompatível com os bytes persistidos.
+            setRequestProperty("Accept-Encoding", "identity")
         }
-        try {
-            connection.connect()
-            check(connection.responseCode in 200..299) {
-                "VOICE_DOWNLOAD_HTTP_${connection.responseCode}"
-            }
-            val advertisedSize = connection.contentLengthLong
-            check(advertisedSize <= 0L || advertisedSize <= MAX_ARCHIVE_BYTES) {
-                "VOICE_ARCHIVE_TOO_LARGE:$advertisedSize"
-            }
 
-            var total = 0L
-            BufferedInputStream(connection.inputStream).use { input ->
-                BufferedOutputStream(FileOutputStream(destination)).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count <= 0) break
-                        total += count
-                        check(total <= MAX_ARCHIVE_BYTES) { "VOICE_ARCHIVE_LIMIT_EXCEEDED" }
-                        output.write(buffer, 0, count)
+        try {
+            try {
+                connection.connect()
+                check(connection.responseCode in 200..299) {
+                    "VOICE_DOWNLOAD_HTTP_${connection.responseCode}"
+                }
+
+                val contentType = connection.contentType.orEmpty().lowercase()
+                check(!contentType.contains("text/html")) {
+                    "VOICE_DOWNLOAD_UNEXPECTED_CONTENT_TYPE"
+                }
+
+                val advertisedSize = connection.contentLengthLong
+                check(advertisedSize <= 0L || advertisedSize <= MAX_ARCHIVE_BYTES) {
+                    "VOICE_ARCHIVE_TOO_LARGE:$advertisedSize"
+                }
+
+                var total = 0L
+                BufferedInputStream(connection.inputStream).use { input ->
+                    BufferedOutputStream(FileOutputStream(destination)).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count <= 0) break
+                            total += count
+                            check(total <= MAX_ARCHIVE_BYTES) {
+                                "VOICE_ARCHIVE_LIMIT_EXCEEDED"
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                        output.flush()
                     }
                 }
+
+                check(total > 0L) { "VOICE_DOWNLOAD_EMPTY" }
+                check(advertisedSize <= 0L || total == advertisedSize) {
+                    "VOICE_DOWNLOAD_LENGTH_MISMATCH:$total:$advertisedSize"
+                }
+            } catch (error: Throwable) {
+                if (isVoiceDiagnostic(error)) throw error
+                throw IllegalStateException("VOICE_DOWNLOAD_IO_FAILED", error)
             }
-            check(total > 0L) { "VOICE_DOWNLOAD_EMPTY" }
         } finally {
             connection.disconnect()
         }
     }
 
     private fun extractArchive(archive: File, destinationRoot: File) {
-        val safeRoot = destinationRoot.canonicalFile
-        var extractedBytes = 0L
-        BZip2CompressorInputStream(BufferedInputStream(FileInputStream(archive))).use { bzip ->
-            TarArchiveInputStream(bzip).use { tar ->
-                while (true) {
-                    val entry = tar.nextEntry ?: break
-                    check(!entry.isSymbolicLink && !entry.isLink) { "VOICE_ARCHIVE_LINK_REJECTED" }
-                    val destination = File(safeRoot, entry.name).canonicalFile
-                    check(
-                        destination.path == safeRoot.path ||
-                            destination.path.startsWith(safeRoot.path + File.separator),
-                    ) { "VOICE_ARCHIVE_PATH_REJECTED" }
-                    if (entry.isDirectory) {
-                        check(destination.mkdirs() || destination.isDirectory)
-                        continue
-                    }
-                    destination.parentFile?.let { parent -> check(parent.mkdirs() || parent.isDirectory) }
-                    BufferedOutputStream(FileOutputStream(destination)).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val count = tar.read(buffer)
-                            if (count <= 0) break
-                            extractedBytes += count
-                            check(extractedBytes <= MAX_EXTRACTED_BYTES) {
-                                "VOICE_EXTRACTED_LIMIT_EXCEEDED"
+        try {
+            val safeRoot = destinationRoot.canonicalFile
+            var extractedBytes = 0L
+            val pendingLinks = mutableListOf<PendingArchiveLink>()
+
+            BZip2CompressorInputStream(BufferedInputStream(FileInputStream(archive))).use { bzip ->
+                TarArchiveInputStream(bzip).use { tar ->
+                    while (true) {
+                        val entry = tar.nextEntry ?: break
+                        val destination = safeArchiveDestination(safeRoot, entry.name)
+
+                        if (entry.isSymbolicLink || entry.isLink) {
+                            // Os pacotes oficiais podem preservar links internos.
+                            // Em vez de rejeitar o arquivo inteiro, validamos o
+                            // alvo e materializamos o conteúdo dentro do sandbox.
+                            pendingLinks += PendingArchiveLink(
+                                destination = destination,
+                                linkName = entry.linkName.orEmpty(),
+                                symbolic = entry.isSymbolicLink,
+                            )
+                            continue
+                        }
+
+                        if (entry.isDirectory) {
+                            check(destination.mkdirs() || destination.isDirectory) {
+                                "VOICE_ARCHIVE_DIRECTORY_CREATE_FAILED"
                             }
-                            output.write(buffer, 0, count)
+                            continue
+                        }
+
+                        // Cabeçalhos/metadados TAR que não representam arquivo
+                        // comum não são necessários para o modelo.
+                        if (!entry.isFile) continue
+
+                        destination.parentFile?.let { parent ->
+                            check(parent.mkdirs() || parent.isDirectory) {
+                                "VOICE_ARCHIVE_PARENT_CREATE_FAILED"
+                            }
+                        }
+                        BufferedOutputStream(FileOutputStream(destination)).use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val count = tar.read(buffer)
+                                if (count <= 0) break
+                                extractedBytes += count
+                                check(extractedBytes <= MAX_EXTRACTED_BYTES) {
+                                    "VOICE_EXTRACTED_LIMIT_EXCEEDED"
+                                }
+                                output.write(buffer, 0, count)
+                            }
                         }
                     }
                 }
             }
+
+            extractedBytes += materializeArchiveLinks(
+                safeRoot = safeRoot,
+                pendingLinks = pendingLinks,
+                remainingBudget = MAX_EXTRACTED_BYTES - extractedBytes,
+            )
+            check(extractedBytes <= MAX_EXTRACTED_BYTES) {
+                "VOICE_EXTRACTED_LIMIT_EXCEEDED"
+            }
+        } catch (error: Throwable) {
+            if (isVoiceDiagnostic(error)) throw error
+            throw IllegalStateException("VOICE_ARCHIVE_READ_FAILED", error)
         }
     }
+
+    private fun materializeArchiveLinks(
+        safeRoot: File,
+        pendingLinks: List<PendingArchiveLink>,
+        remainingBudget: Long,
+    ): Long {
+        if (pendingLinks.isEmpty()) return 0L
+        check(remainingBudget >= 0L) { "VOICE_EXTRACTED_LIMIT_EXCEEDED" }
+
+        val unresolved = pendingLinks.toMutableList()
+        var copiedBytes = 0L
+
+        while (unresolved.isNotEmpty()) {
+            var progressed = false
+            val iterator = unresolved.iterator()
+
+            while (iterator.hasNext()) {
+                val link = iterator.next()
+                val target = archiveLinkTarget(safeRoot, link)
+                if (!target.exists()) continue
+
+                val remaining = remainingBudget - copiedBytes
+                check(remaining >= 0L) { "VOICE_EXTRACTED_LIMIT_EXCEEDED" }
+                copiedBytes += materializeArchiveTarget(
+                    source = target,
+                    destination = link.destination,
+                    byteBudget = remaining,
+                )
+                check(copiedBytes <= remainingBudget) {
+                    "VOICE_EXTRACTED_LIMIT_EXCEEDED"
+                }
+                iterator.remove()
+                progressed = true
+            }
+
+            check(progressed) {
+                val first = unresolved.firstOrNull()?.linkName.orEmpty().take(80)
+                "VOICE_ARCHIVE_LINK_TARGET_MISSING:$first"
+            }
+        }
+
+        Log.i(TAG, "VOICE_ARCHIVE_LINKS_MATERIALIZED count=${pendingLinks.size} bytes=$copiedBytes")
+        return copiedBytes
+    }
+
+    private fun archiveLinkTarget(safeRoot: File, link: PendingArchiveLink): File {
+        val name = link.linkName.trim()
+        check(name.isNotEmpty()) { "VOICE_ARCHIVE_LINK_NAME_EMPTY" }
+        check(!File(name).isAbsolute) { "VOICE_ARCHIVE_LINK_OUTSIDE_ROOT" }
+
+        val base = if (link.symbolic) {
+            link.destination.parentFile ?: safeRoot
+        } else {
+            safeRoot
+        }
+        val target = File(base, name).canonicalFile
+        check(isInsideRoot(safeRoot, target)) { "VOICE_ARCHIVE_LINK_OUTSIDE_ROOT" }
+        check(target.path != link.destination.path) { "VOICE_ARCHIVE_LINK_CYCLE" }
+        return target
+    }
+
+    private fun materializeArchiveTarget(
+        source: File,
+        destination: File,
+        byteBudget: Long,
+    ): Long {
+        check(byteBudget >= 0L) { "VOICE_EXTRACTED_LIMIT_EXCEEDED" }
+        destination.parentFile?.let { parent ->
+            check(parent.mkdirs() || parent.isDirectory) {
+                "VOICE_ARCHIVE_PARENT_CREATE_FAILED"
+            }
+        }
+        destination.deleteRecursively()
+
+        if (source.isFile) {
+            return copyFileWithBudget(source, destination, byteBudget)
+        }
+
+        check(source.isDirectory) { "VOICE_ARCHIVE_LINK_TARGET_INVALID" }
+        val sourcePath = source.canonicalPath
+        val destinationPath = destination.canonicalPath
+        check(
+            !destinationPath.startsWith(sourcePath + File.separator) &&
+                !sourcePath.startsWith(destinationPath + File.separator),
+        ) { "VOICE_ARCHIVE_LINK_CYCLE" }
+
+        // Snapshot antes de criar o destino evita que uma cópia de diretório
+        // passe a enxergar os próprios arquivos recém-criados.
+        val snapshot = source.walkTopDown().toList()
+        var copied = 0L
+        for (item in snapshot) {
+            val relative = item.relativeTo(source).path
+            val target = if (relative.isBlank()) destination else File(destination, relative)
+            if (item.isDirectory) {
+                check(target.mkdirs() || target.isDirectory) {
+                    "VOICE_ARCHIVE_DIRECTORY_CREATE_FAILED"
+                }
+            } else if (item.isFile) {
+                val remaining = byteBudget - copied
+                check(remaining >= 0L) { "VOICE_EXTRACTED_LIMIT_EXCEEDED" }
+                target.parentFile?.let { parent ->
+                    check(parent.mkdirs() || parent.isDirectory) {
+                        "VOICE_ARCHIVE_PARENT_CREATE_FAILED"
+                    }
+                }
+                copied += copyFileWithBudget(item, target, remaining)
+            }
+        }
+        return copied
+    }
+
+    private fun copyFileWithBudget(source: File, destination: File, byteBudget: Long): Long {
+        var copied = 0L
+        BufferedInputStream(FileInputStream(source)).use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    copied += count
+                    check(copied <= byteBudget) { "VOICE_EXTRACTED_LIMIT_EXCEEDED" }
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+        return copied
+    }
+
+    private fun safeArchiveDestination(safeRoot: File, entryName: String): File {
+        val destination = File(safeRoot, entryName).canonicalFile
+        check(isInsideRoot(safeRoot, destination)) { "VOICE_ARCHIVE_PATH_REJECTED" }
+        return destination
+    }
+
+    private fun isInsideRoot(root: File, candidate: File): Boolean =
+        candidate.path == root.path || candidate.path.startsWith(root.path + File.separator)
+
+    private fun isRetriableModelInstallFailure(error: Throwable): Boolean {
+        val code = error.message.orEmpty().uppercase()
+        if (
+            "PATH_REJECTED" in code ||
+            "LINK_OUTSIDE_ROOT" in code ||
+            "LINK_CYCLE" in code ||
+            "LINK_TARGET_MISSING" in code
+        ) {
+            return false
+        }
+        return error is java.io.IOException ||
+            "DOWNLOAD" in code ||
+            "HTTP_" in code ||
+            "ARCHIVE" in code ||
+            "HASH" in code ||
+            "SIZE" in code
+    }
+
+    private fun isVoiceDiagnostic(error: Throwable): Boolean =
+        error.message.orEmpty().trim().uppercase().startsWith("VOICE_")
 
     private fun emitEvent(
         listener: ((PontoNeuralSpeechEvent) -> Unit)?,
@@ -715,7 +969,7 @@ internal object PontoNeuralVoiceRuntime {
     private fun diagnosticCode(error: Throwable, fallback: String): String {
         val raw = error.message?.trim().orEmpty()
         return raw
-            .takeIf { it.matches(Regex("[A-Z0-9_:-]{3,120}")) }
+            .takeIf { it.matches(Regex("[A-Z0-9_:-]{3,160}")) }
             ?: fallback
     }
 
@@ -723,9 +977,9 @@ internal object PontoNeuralVoiceRuntime {
         val code = error.message.orEmpty().uppercase()
         return when {
             "DOWNLOAD" in code || "HTTP_" in code ->
-                "Não foi possível baixar o modelo neural de voz."
+                "Não foi possível baixar completamente o modelo neural de voz."
             "HASH" in code || "SIZE" in code || "ARCHIVE" in code ->
-                "O modelo de voz não passou na validação de integridade."
+                "A instalação recebeu arquivos incompletos ou incompatíveis e foi interrompida com segurança."
             "TOKENS" in code || "ESPEAK" in code || "MODEL" in code ->
                 "Os arquivos necessários da voz neural estão incompletos."
             "AUDIO" in code ->
