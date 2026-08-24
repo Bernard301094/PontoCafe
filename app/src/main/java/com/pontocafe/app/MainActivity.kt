@@ -36,10 +36,13 @@ import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import com.pontocafe.app.ui.AdminArea
 import com.pontocafe.app.ui.DeviceSetupScreen
 import com.pontocafe.app.ui.PontoCafeTheme
+import com.pontocafe.app.ui.PontoDeviceAuthorizationScreen
 import com.pontocafe.app.ui.PontoFlowHost
+import com.pontocafe.app.ui.PontoNaturalVoiceProvisioningScreen
 import com.pontocafe.app.ui.RestrictedAreaLockScreen
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorAreaShell
+import com.pontocafe.app.ui.isNaturalVoiceProvisioned
 import com.pontocafe.app.voice.PontoVoiceGuidanceEffect
 import com.pontocafe.app.voice.PontoVoiceRuntime
 import kotlinx.coroutines.delay
@@ -137,6 +140,9 @@ class MainActivity : FragmentActivity() {
                     }
                     var adminKioskOpenPersisted by remember {
                         mutableStateOf(initialAdminSession && navigationStore.isAdminKioskOpen())
+                    }
+                    var naturalVoiceReadyForSession by remember {
+                        mutableStateOf(isNaturalVoiceProvisioned(applicationContext))
                     }
 
                     LaunchedEffect(protectedSessionAtLaunch) {
@@ -374,22 +380,59 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
 
-                                if (!state.deviceConfigured) {
-                                    DeviceSetupScreen(
-                                        viewModel = vm,
-                                        onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
-                                        onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
-                                    )
-                                } else {
-                                    PontoVoiceGuidanceEffect(viewModel = vm)
-                                    PontoFlowHost(
-                                        viewModel = vm,
-                                        hasAdminSession = adminSessionDisponivel,
-                                        hasSupervisorSession = supervisorSessionDisponivel,
-                                        onAdminClick = ::openAccountSelector,
-                                        onSupervisorClick = ::openAccountSelector,
-                                        onLoginModeClick = ::openAccountSelector,
-                                    )
+                                when {
+                                    state.deviceAuthorizationState == DeviceAuthorizationState.CHECKING -> {
+                                        PontoDeviceAuthorizationScreen(
+                                            checking = true,
+                                            error = null,
+                                            onRetry = {
+                                                vm.validarAutorizacaoDoDispositivo(bloquearDuranteValidacao = true)
+                                            },
+                                            onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
+                                            onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
+                                        )
+                                    }
+
+                                    state.deviceAuthorizationState == DeviceAuthorizationState.TEMPORARY_FAILURE -> {
+                                        PontoDeviceAuthorizationScreen(
+                                            checking = false,
+                                            error = state.erro,
+                                            onRetry = {
+                                                vm.validarAutorizacaoDoDispositivo(bloquearDuranteValidacao = true)
+                                            },
+                                            onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
+                                            onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
+                                        )
+                                    }
+
+                                    !state.deviceConfigured -> {
+                                        DeviceSetupScreen(
+                                            viewModel = vm,
+                                            onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
+                                            onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
+                                        )
+                                    }
+
+                                    !naturalVoiceReadyForSession -> {
+                                        PontoNaturalVoiceProvisioningScreen(
+                                            onReady = { naturalVoiceReadyForSession = true },
+                                            onContinueWithAndroidVoice = { naturalVoiceReadyForSession = true },
+                                            onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
+                                            onSupervisorClick = { enterRestricted(AreaRestrita.SUPERVISOR) },
+                                        )
+                                    }
+
+                                    else -> {
+                                        PontoVoiceGuidanceEffect(viewModel = vm)
+                                        PontoFlowHost(
+                                            viewModel = vm,
+                                            hasAdminSession = adminSessionDisponivel,
+                                            hasSupervisorSession = supervisorSessionDisponivel,
+                                            onAdminClick = ::openAccountSelector,
+                                            onSupervisorClick = ::openAccountSelector,
+                                            onLoginModeClick = ::openAccountSelector,
+                                        )
+                                    }
                                 }
                             }
                         }
