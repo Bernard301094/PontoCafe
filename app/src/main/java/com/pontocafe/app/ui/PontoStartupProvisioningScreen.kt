@@ -62,6 +62,12 @@ private fun markNaturalVoiceProvisioned(context: Context) {
         .apply()
 }
 
+private fun PontoNeuralVoiceDiagnostics.failureText(defaultText: String): String {
+    val reason = lastFailureReason ?: defaultText
+    val code = lastFailureCode?.takeIf { it.isNotBlank() }
+    return if (code == null) reason else "$reason Código técnico: $code."
+}
+
 @Composable
 internal fun PontoDeviceAuthorizationScreen(
     checking: Boolean,
@@ -208,8 +214,9 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                                 verificationFailed = true
                                 val latest = PontoNeuralVoiceRuntime.diagnostics(appContext)
                                 diagnostics = latest
-                                verificationMessage = latest.lastFailureReason
-                                    ?: "A voz natural foi instalada, mas o teste de áudio falhou (${event.stage.name}/${event.diagnosticCode})."
+                                verificationMessage = latest.failureText(
+                                    "A voz natural foi instalada, mas o teste de áudio falhou (${event.stage.name}/${event.diagnosticCode}).",
+                                )
                             }
                         }
                     }
@@ -224,7 +231,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                 PontoNeuralSpeechDecision.SUPPRESSED ->
                     "Outra fala ainda está em execução. Tente o teste novamente."
                 PontoNeuralSpeechDecision.UNAVAILABLE ->
-                    "O motor da voz natural ainda não está disponível. Tente novamente."
+                    diagnostics.failureText("O motor da voz natural ainda não está disponível. Tente novamente.")
                 PontoNeuralSpeechDecision.ACCEPTED -> null
             }
         }
@@ -268,7 +275,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
     val supporting = when {
         completed -> "A voz neural pt-BR foi reproduzida com sucesso e será usada automaticamente no Ponto."
         diagnostics.availability == PontoNeuralVoiceAvailability.FAILED ->
-            diagnostics.lastFailureReason ?: "A preparação da voz natural falhou neste aparelho."
+            diagnostics.failureText("A preparação da voz natural falhou neste aparelho.")
         diagnostics.availability == PontoNeuralVoiceAvailability.READY ->
             verificationMessage ?: "O modelo foi instalado. Estamos validando a reprodução antes de liberar o Ponto."
         diagnostics.modelInstalled ->
