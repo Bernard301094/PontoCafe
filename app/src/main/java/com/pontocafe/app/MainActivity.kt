@@ -42,12 +42,14 @@ import com.pontocafe.app.ui.PontoNaturalVoiceProvisioningScreen
 import com.pontocafe.app.ui.RestrictedAreaLockScreen
 import com.pontocafe.app.ui.RestrictedLoginModeScreen
 import com.pontocafe.app.ui.SupervisorAreaShell
+import com.pontocafe.app.ui.invalidateNaturalVoiceProvisioning
 import com.pontocafe.app.ui.isNaturalVoiceProvisioned
+import com.pontocafe.app.voice.PontoNeuralVoiceRuntime
 import com.pontocafe.app.voice.PontoVoiceGuidanceEffect
 import com.pontocafe.app.voice.PontoVoiceRuntime
 import kotlinx.coroutines.delay
 
-private enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
+internal enum class AreaRestrita { ADMIN, SUPERVISOR, LOGIN }
 private const val PONTO_IDLE_AUTH_RECHECK_MILLIS = 120_000L
 
 class MainActivity : FragmentActivity() {
@@ -126,7 +128,10 @@ class MainActivity : FragmentActivity() {
                             (savedArea == AreaRestrita.SUPERVISOR && initialSupervisorSession)
                     }
 
-                    var areaRestrita by remember { mutableStateOf(savedArea) }
+                    val initialArea = remember(savedArea, protectedSessionAtLaunch) {
+                        resolveInitialArea(savedArea, protectedSessionAtLaunch)
+                    }
+                    var areaRestrita by remember { mutableStateOf(initialArea) }
                     var restrictedLocked by remember {
                         mutableStateOf(navigationStore.isRestrictedLocked() || protectedSessionAtLaunch)
                     }
@@ -145,8 +150,40 @@ class MainActivity : FragmentActivity() {
                         mutableStateOf(isNaturalVoiceProvisioned(applicationContext))
                     }
 
+                    // A past session verified the neural voice and persisted
+                    // that fact, but the engine itself always rebuilds fresh
+                    // per process. Confirm it actually comes back up in THIS
+                    // process before trusting the old flag for the rest of
+                    // this session; on a confirmed failure, drop back into
+                    // setup so the kiosk operator sees it immediately instead
+                    // of silently and permanently running on the Android
+                    // fallback voice.
+                    LaunchedEffect(Unit) {
+                        if (naturalVoiceReadyForSession) {
+                            val confirmedHealthy = PontoNeuralVoiceRuntime.awaitStartupHealthCheck(applicationContext)
+                            if (!confirmedHealthy) {
+                                invalidateNaturalVoiceProvisioning(applicationContext)
+                                naturalVoiceReadyForSession = false
+                            }
+                        }
+                    }
+
                     LaunchedEffect(protectedSessionAtLaunch) {
                         if (protectedSessionAtLaunch) navigationStore.setRestrictedLocked(true)
+                    }
+
+                    // A stale persisted area (process died in Admin/Supervisor/
+                    // the login chooser without a real session, or without the
+                    // user tapping "voltar ao Ponto") must not linger in
+                    // storage: it would keep resolving away from Ponto on every
+                    // future cold start. Correctness doesn't depend on this —
+                    // resolveInitialArea() already re-derives the right value
+                    // every time — this is cleanup only.
+                    LaunchedEffect(savedArea, initialArea) {
+                        if (savedArea != null && initialArea == null) {
+                            navigationStore.saveArea(null)
+                            if (savedArea == AreaRestrita.ADMIN) navigationStore.clearAdminNavigation()
+                        }
                     }
 
                     fun hasSessionFor(area: AreaRestrita?): Boolean = when (area) {
@@ -380,8 +417,14 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
 
-                                when {
-                                    state.deviceAuthorizationState == DeviceAuthorizationState.CHECKING -> {
+                                when (
+                                    determinePontoScreenRoute(
+                                        deviceAuthorizationState = state.deviceAuthorizationState,
+                                        deviceConfigured = state.deviceConfigured,
+                                        naturalVoiceReadyForSession = naturalVoiceReadyForSession,
+                                    )
+                                ) {
+                                    PontoScreenRoute.CHECKING_DEVICE -> {
                                         PontoDeviceAuthorizationScreen(
                                             checking = true,
                                             error = null,
@@ -393,7 +436,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
 
-                                    state.deviceAuthorizationState == DeviceAuthorizationState.TEMPORARY_FAILURE -> {
+                                    PontoScreenRoute.DEVICE_CHECK_FAILED -> {
                                         PontoDeviceAuthorizationScreen(
                                             checking = false,
                                             error = state.erro,
@@ -405,7 +448,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
 
-                                    !state.deviceConfigured -> {
+                                    PontoScreenRoute.NEEDS_TOKEN_SETUP -> {
                                         DeviceSetupScreen(
                                             viewModel = vm,
                                             onAdminClick = { enterRestricted(AreaRestrita.ADMIN) },
@@ -413,7 +456,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
 
-                                    !naturalVoiceReadyForSession -> {
+                                    PontoScreenRoute.NEEDS_VOICE_SETUP -> {
                                         PontoNaturalVoiceProvisioningScreen(
                                             onReady = { naturalVoiceReadyForSession = true },
                                             onContinueWithAndroidVoice = { naturalVoiceReadyForSession = true },
@@ -422,7 +465,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
 
-                                    else -> {
+                                    PontoScreenRoute.READY -> {
                                         PontoVoiceGuidanceEffect(viewModel = vm)
                                         PontoFlowHost(
                                             viewModel = vm,

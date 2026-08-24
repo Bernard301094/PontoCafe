@@ -62,6 +62,21 @@ private fun markNaturalVoiceProvisioned(context: Context) {
         .apply()
 }
 
+/**
+ * Called when a device previously marked as provisioned fails a fresh-process
+ * health check (see [PontoNeuralVoiceRuntime.awaitStartupHealthCheck]). Clears
+ * the persisted "verified" flag so [isNaturalVoiceProvisioned] correctly
+ * reports false again and the setup/repair screen is re-surfaced instead of
+ * silently, permanently trusting a stale success.
+ */
+internal fun invalidateNaturalVoiceProvisioning(context: Context) {
+    context.applicationContext
+        .getSharedPreferences(NATURAL_VOICE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(NATURAL_VOICE_KEY)
+        .apply()
+}
+
 private fun PontoNeuralVoiceDiagnostics.failureText(defaultText: String): String {
     val reason = lastFailureReason ?: defaultText
     val code = lastFailureCode?.takeIf { it.isNotBlank() }

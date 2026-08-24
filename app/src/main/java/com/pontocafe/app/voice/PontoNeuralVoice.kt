@@ -10,6 +10,7 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
+import kotlinx.coroutines.delay
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.BufferedInputStream
@@ -88,6 +89,34 @@ internal data class PontoNeuralVoiceDiagnostics(
     val lastFailureCode: String? = null,
 )
 
+internal enum class NaturalVoiceHealthCheckStep {
+    STILL_CHECKING,
+    CONFIRMED_READY,
+    CONFIRMED_FAILED,
+    TIMED_OUT_ASSUME_READY,
+}
+
+/**
+ * Pure decision used by [PontoNeuralVoiceRuntime.awaitStartupHealthCheck]. A
+ * cold-start engine rebuild that is merely slow (e.g. mmap'ing the model on a
+ * low-RAM kiosk) must never be misclassified as broken: only a definite
+ * FAILED availability should trigger recovery, otherwise a previously
+ * verified device would be re-prompted for no real reason.
+ */
+internal fun nextNaturalVoiceHealthCheckStep(
+    availability: PontoNeuralVoiceAvailability,
+    elapsedMillis: Long,
+    timeoutMillis: Long,
+): NaturalVoiceHealthCheckStep = when (availability) {
+    PontoNeuralVoiceAvailability.READY -> NaturalVoiceHealthCheckStep.CONFIRMED_READY
+    PontoNeuralVoiceAvailability.FAILED -> NaturalVoiceHealthCheckStep.CONFIRMED_FAILED
+    else -> if (elapsedMillis >= timeoutMillis) {
+        NaturalVoiceHealthCheckStep.TIMED_OUT_ASSUME_READY
+    } else {
+        NaturalVoiceHealthCheckStep.STILL_CHECKING
+    }
+}
+
 private enum class NeuralVoiceState {
     IDLE,
     PREPARING,
@@ -131,6 +160,8 @@ internal object PontoNeuralVoiceRuntime {
     private const val DOWNLOAD_CONNECT_TIMEOUT_MILLIS = 20_000
     private const val DOWNLOAD_READ_TIMEOUT_MILLIS = 120_000
     private const val RETRY_AFTER_MILLIS = 30_000L
+    private const val STARTUP_HEALTH_CHECK_TIMEOUT_MILLIS = 4_000L
+    private const val STARTUP_HEALTH_CHECK_POLL_INTERVAL_MILLIS = 200L
     private const val CACHE_ENTRIES = 24
     private const val VOICE_SPEED = 1.02f
     private const val SILENCE_SCALE = 0.18f
@@ -199,6 +230,39 @@ internal object PontoNeuralVoiceRuntime {
             }
         }
         ensurePreparing(context.applicationContext)
+    }
+
+    /**
+     * Awaits a fresh-process confirmation that a previously verified engine
+     * is actually usable again, instead of trusting a persisted "verified"
+     * flag forever. Returns true when the engine reaches READY within
+     * [timeoutMillis] (or is still merely initializing once the timeout
+     * elapses — a slow load is not a broken one), false only on a definite
+     * FAILED. Callers should invalidate any persisted provisioning flag and
+     * re-surface setup UI when this returns false.
+     */
+    suspend fun awaitStartupHealthCheck(
+        context: Context,
+        timeoutMillis: Long = STARTUP_HEALTH_CHECK_TIMEOUT_MILLIS,
+    ): Boolean {
+        val appContext = context.applicationContext
+        prewarm(appContext)
+        val startedAtMillis = System.currentTimeMillis()
+        while (true) {
+            val elapsed = System.currentTimeMillis() - startedAtMillis
+            when (
+                nextNaturalVoiceHealthCheckStep(
+                    availability = diagnostics(appContext).availability,
+                    elapsedMillis = elapsed,
+                    timeoutMillis = timeoutMillis,
+                )
+            ) {
+                NaturalVoiceHealthCheckStep.CONFIRMED_READY,
+                NaturalVoiceHealthCheckStep.TIMED_OUT_ASSUME_READY -> return true
+                NaturalVoiceHealthCheckStep.CONFIRMED_FAILED -> return false
+                NaturalVoiceHealthCheckStep.STILL_CHECKING -> delay(STARTUP_HEALTH_CHECK_POLL_INTERVAL_MILLIS)
+            }
+        }
     }
 
     /**
@@ -598,7 +662,11 @@ internal object PontoNeuralVoiceRuntime {
             existingModel.isFile && existingModel.length() == MODEL_SIZE_BYTES &&
             existingTokens.isFile && existingDataDir.isDirectory
         ) {
-            if (marker.isFile || sha256(existingModel).equals(MODEL_SHA256, ignoreCase = true)) {
+            // The hash is always recomputed on reuse, even when a marker file
+            // is present: a marker byte can survive disk corruption that the
+            // model weights themselves do not, and trusting it blindly would
+            // let a broken install look "installed" forever across restarts.
+            if (sha256(existingModel).equals(MODEL_SHA256, ignoreCase = true)) {
                 if (!marker.isFile) marker.writeText("$MODEL_SHA256\n")
                 Log.i(TAG, "VOICE_MODEL_REUSED")
                 return finalDir
@@ -1003,7 +1071,7 @@ internal object PontoNeuralVoiceRuntime {
     private fun isCurrentLocked(lifecycle: Long, utterance: Long): Boolean =
         lifecycle == lifecycleVersion && utterance == utteranceVersion
 
-    private fun sha256(file: File): String {
+    internal fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->
             val buffer = ByteArray(64 * 1024)
