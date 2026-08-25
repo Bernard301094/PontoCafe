@@ -156,7 +156,11 @@ internal object PontoNeuralVoiceRuntime {
     private const val STARTUP_HEALTH_CHECK_TIMEOUT_MILLIS = 4_000L
     private const val STARTUP_HEALTH_CHECK_POLL_INTERVAL_MILLIS = 200L
     private const val CACHE_ENTRIES = 24
-    private const val VOICE_SPEED = 1.02f
+    // sherpa-onnx's GenerationConfig.speed is a rate multiplier: 1.0 is the
+    // model's native pace, higher is faster, lower is slower. 1.02f (barely
+    // above native) read as too fast for a kiosk announcement in practice;
+    // slowed down for calmer, easier-to-follow speech at a distance.
+    private const val VOICE_SPEED = 0.85f
     private const val SILENCE_SCALE = 0.18f
     private const val WRITE_CHUNK_SAMPLES = 8_192
 
