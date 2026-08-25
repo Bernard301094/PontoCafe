@@ -28,6 +28,13 @@ import kotlinx.coroutines.delay
 private const val FACE_GUIDE_READY_STABILITY_MILLIS = 180L
 
 /**
+ * Histerese na descida. Sem ela, um único frame fora da política já pintava o guia
+ * de vermelho enquanto o verde exigia 180 ms — assimetria que, somada ao jitter de
+ * pose do ML Kit em PERFORMANCE_MODE_FAST, produzia piscada verde/vermelho contínua.
+ */
+private const val FACE_GUIDE_LOST_STABILITY_MILLIS = 420L
+
+/**
  * Visual positioning guide. Neutral means no usable face yet, red means the
  * current face is outside the accepted capture geometry, and green means the
  * face has remained correctly positioned long enough to avoid frame-to-frame
@@ -48,11 +55,14 @@ internal fun KioskFaceGuide(
     var stablePositioned by remember { mutableStateOf(false) }
 
     LaunchedEffect(active, faceDetected, warning, positioned) {
-        if (!active || !faceDetected || warning || !positioned) {
+        if (!active || !faceDetected || warning) {
             stablePositioned = false
-        } else {
+        } else if (positioned) {
             delay(FACE_GUIDE_READY_STABILITY_MILLIS)
             stablePositioned = true
+        } else {
+            delay(FACE_GUIDE_LOST_STABILITY_MILLIS)
+            stablePositioned = false
         }
     }
 

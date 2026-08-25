@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pontocafe.app.camera.FaceCapturePolicy
 import com.pontocafe.app.camera.FaceEmbeddingEngine
 import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AppStatusResponse
@@ -613,12 +614,18 @@ class PontoCafeViewModel(
                 var resolvedDuringInference: LocalFaceResolvedMatch? = null
                 var strongestEvaluation: LocalFaceEvaluation? = null
 
+                // Pose fora da faixa nominal nao afrouxa nada: apenas eleva o
+                // limiar e a margem exigidos deste frame no matcher local.
+                val poseStringency = FaceCapturePolicy
+                    .identificationPoseStringency(frame.observation.toCaptureFacts())
+                    .toDouble()
+
                 val embeddings = embeddingEngine.embedForIdentification(frame) { candidate, candidateIndex ->
                     val currentCatalog = catalogo
                     if (currentCatalog == null || currentCatalog.templates.isEmpty()) {
                         true
                     } else {
-                        val evaluation = LocalFaceMatcher.evaluateDetailed(candidate, currentCatalog)
+                        val evaluation = LocalFaceMatcher.evaluateDetailed(candidate, currentCatalog, poseStringency)
                         if ((evaluation.bestScore ?: -1.0) > (strongestEvaluation?.bestScore ?: -1.0)) {
                             strongestEvaluation = evaluation
                         }

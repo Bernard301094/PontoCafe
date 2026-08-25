@@ -76,6 +76,7 @@ import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.PontoRecognitionStage
 import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
+import com.pontocafe.app.camera.FaceCaptureRejectionReason
 import com.pontocafe.app.camera.FaceCapturePurpose
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FaceTrackContinuity
@@ -150,6 +151,7 @@ fun FaceKioskScreen(
     var captureRequested by remember { mutableStateOf(false) }
     var detectedFaces by remember { mutableStateOf(0) }
     var facePositioned by remember { mutableStateOf(false) }
+    var lastCaptureRejection by remember { mutableStateOf<FaceCaptureRejectionReason?>(null) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
@@ -255,6 +257,7 @@ fun FaceKioskScreen(
                     cameraError = null
                     detectedFaces = observation.faceCount
                     facePositioned = observation.faceCount == 1 && observation.isIdentificationReady
+                    if (facePositioned) lastCaptureRejection = null
 
                     if (
                         state.scanning && state.catalogoBiometricoPronto &&
@@ -363,9 +366,13 @@ fun FaceKioskScreen(
                     viewModel.processarFrame(frame)
                     captureRequested = false
                 },
-                onCaptureRejected = {
+                onCaptureRejected = { reason ->
                     captureRequested = false
                     facePositioned = false
+                    // O motivo do rejeite era descartado aqui e a tela mostrava
+                    // sempre a mesma frase generica. A pessoa via vermelho sem
+                    // saber se devia aproximar, centralizar ou endireitar a cabeca.
+                    lastCaptureRejection = reason
                     resetLivenessFlow()
                 },
                 onError = { cameraError = it },
@@ -435,6 +442,14 @@ fun FaceKioskScreen(
             multipleFacesVisible -> "Apenas uma pessoa por vez"
             noFaceVisible -> "Aproxime-se da câmera"
             activeFallback && !challengeCompleted -> challengeInstruction
+            lastCaptureRejection != null -> when (lastCaptureRejection) {
+                FaceCaptureRejectionReason.FACE_TOO_SMALL -> "Aproxime-se um pouco"
+                FaceCaptureRejectionReason.FACE_TOO_LARGE -> "Afaste-se um pouco"
+                FaceCaptureRejectionReason.NOT_CENTERED -> "Centralize o rosto no guia"
+                FaceCaptureRejectionReason.PARTIAL_FACE -> "Mostre o rosto inteiro"
+                FaceCaptureRejectionReason.EXTREME_POSE -> "Olhe de frente para a tela"
+                else -> "Olhe para a câmera"
+            }
             else -> "Olhe para a câmera"
         }
         val instructionDetail = when {

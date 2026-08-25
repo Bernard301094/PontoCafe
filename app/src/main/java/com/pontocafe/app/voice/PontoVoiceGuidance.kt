@@ -398,7 +398,9 @@ private class PontoTextToSpeech(context: Context) {
         }
 
         runCatching {
-            current.setSpeechRate(0.96f)
+            // Fallback do TTS do Android. Mantido em paridade com VOICE_SPEED da voz
+            // neural para que trocar de motor nao mude o ritmo percebido no quiosque.
+            current.setSpeechRate(0.88f)
             current.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)

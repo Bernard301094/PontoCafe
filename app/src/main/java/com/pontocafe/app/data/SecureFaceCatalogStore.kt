@@ -362,7 +362,18 @@ object LocalFaceMatcher {
         return bestFallback
     }
 
-    fun evaluateDetailed(embedding: FloatArray, catalog: CachedFaceCatalog): LocalFaceEvaluation {
+    /**
+     * Rigor compensatório por pose, em 0.0..1.0, tal como devolvido por
+     * [FaceCapturePolicy.identificationPoseStringency]. Zero reproduz exatamente o
+     * comportamento anterior — é o padrão, para que nenhum chamador existente mude.
+     * Acima de zero, ele apenas **sobe** o limiar e a margem exigidos: um rosto
+     * fora da pose nominal precisa de evidência mais forte, nunca mais fraca.
+     */
+    fun evaluateDetailed(
+        embedding: FloatArray,
+        catalog: CachedFaceCatalog,
+        poseStringency: Double = 0.0,
+    ): LocalFaceEvaluation {
         if (catalog.templates.isEmpty()) {
             return rejected(LocalFaceRejectionReason.EMPTY_CATALOG)
         }
@@ -417,14 +428,20 @@ object LocalFaceMatcher {
         )
         val secondScore = second?.score
         val margin = secondScore?.let { winner.score - it }
+        // A penalidade é limitada e monotônica: no máximo +0.06 de limiar e +0.03
+        // de margem na borda da banda estendida, nunca ultrapassando 1.0. Um frame
+        // em pose nominal (stringency 0.0) enfrenta exatamente o limiar do catálogo.
+        val stringency = poseStringency.coerceIn(0.0, 1.0)
+        val requiredThreshold = (catalog.limiar + 0.06 * stringency).coerceAtMost(1.0)
+        val requiredMargin = (catalog.margem + 0.03 * stringency).coerceAtMost(1.0)
         val match = LocalFaceMatch(
             colaborador = winner.template.colaborador,
             score = winner.score,
             segundoScore = secondScore,
         )
         val reason = when {
-            winner.score < catalog.limiar -> LocalFaceRejectionReason.BELOW_THRESHOLD
-            secondScore != null && winner.score - secondScore < catalog.margem ->
+            winner.score < requiredThreshold -> LocalFaceRejectionReason.BELOW_THRESHOLD
+            secondScore != null && winner.score - secondScore < requiredMargin ->
                 LocalFaceRejectionReason.AMBIGUOUS
             else -> null
         }

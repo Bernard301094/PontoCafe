@@ -159,8 +159,10 @@ internal object PontoNeuralVoiceRuntime {
     // sherpa-onnx's GenerationConfig.speed is a rate multiplier: 1.0 is the
     // model's native pace, higher is faster, lower is slower. 1.02f (barely
     // above native) read as too fast for a kiosk announcement in practice;
-    // slowed down for calmer, easier-to-follow speech at a distance.
-    private const val VOICE_SPEED = 0.85f
+    // slowed down for calmer, easier-to-follow speech at a distance. 0.85f still
+    // read as rushed on the shop floor, where ambient noise and distance cost
+    // intelligibility; 0.78f keeps the prosody natural without sounding dragged.
+    private const val VOICE_SPEED = 0.78f
     private const val SILENCE_SCALE = 0.18f
     private const val WRITE_CHUNK_SAMPLES = 8_192
 

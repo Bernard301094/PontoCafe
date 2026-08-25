@@ -10,6 +10,7 @@ import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -311,21 +312,42 @@ class BlinkLiveness {
 private fun Face.landmarkPoint(type: Int): PointF? =
     getLandmark(type)?.position?.let { PointF(it.x, it.y) }
 
-private fun Face.toObservation(total: Int, imageWidth: Int, imageHeight: Int) = FaceObservation(
+/**
+ * Converte o cropRect do frame (coordenadas do buffer, ainda sem rotação) para o
+ * referencial "de pé" usado pelo ML Kit. Sem ViewPort ativo o cropRect é o buffer
+ * inteiro e o resultado é a imagem completa, preservando o comportamento anterior.
+ */
+private fun ImageProxy.uprightCropRect(rotation: Int, uprightWidth: Int, uprightHeight: Int): Rect {
+    val full = Rect(0, 0, uprightWidth, uprightHeight)
+    val crop = cropRect
+    if (crop.isEmpty || (crop.width() == width && crop.height() == height)) return full
+    val mapped = when (((rotation % 360) + 360) % 360) {
+        90 -> Rect(height - crop.bottom, crop.left, height - crop.top, crop.right)
+        180 -> Rect(width - crop.right, height - crop.bottom, width - crop.left, height - crop.top)
+        270 -> Rect(crop.top, width - crop.right, crop.bottom, width - crop.left)
+        else -> Rect(crop)
+    }
+    if (!mapped.intersect(full) || mapped.width() <= 0 || mapped.height() <= 0) return full
+    return mapped
+}
+
+private fun PointF.translatedInto(region: Rect) = PointF(x - region.left, y - region.top)
+
+private fun Face.toObservation(total: Int, region: Rect) = FaceObservation(
     faceCount = total,
-    bounds = boundingBox,
+    bounds = Rect(boundingBox).also { it.offset(-region.left, -region.top) },
     leftEyeOpen = leftEyeOpenProbability,
     rightEyeOpen = rightEyeOpenProbability,
     pitch = headEulerAngleX,
     yaw = headEulerAngleY,
     roll = headEulerAngleZ,
-    imageWidth = imageWidth,
-    imageHeight = imageHeight,
+    imageWidth = region.width(),
+    imageHeight = region.height(),
     trackingId = trackingId,
-    leftEye = landmarkPoint(FaceLandmark.LEFT_EYE),
-    rightEye = landmarkPoint(FaceLandmark.RIGHT_EYE),
-    noseBase = landmarkPoint(FaceLandmark.NOSE_BASE),
-    mouthBottom = landmarkPoint(FaceLandmark.MOUTH_BOTTOM),
+    leftEye = landmarkPoint(FaceLandmark.LEFT_EYE)?.translatedInto(region),
+    rightEye = landmarkPoint(FaceLandmark.RIGHT_EYE)?.translatedInto(region),
+    noseBase = landmarkPoint(FaceLandmark.NOSE_BASE)?.translatedInto(region),
+    mouthBottom = landmarkPoint(FaceLandmark.MOUTH_BOTTOM)?.translatedInto(region),
 )
 
 private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
@@ -362,15 +384,26 @@ private fun analyzer(
             val rotation = imageProxy.imageInfo.rotationDegrees
             val uprightWidth = if (rotation % 180 == 0) imageProxy.width else imageProxy.height
             val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
+            // O ViewPort compartilhado (UseCaseGroup) NÃO recorta o buffer entregue ao
+            // ImageAnalysis: ele apenas publica a região visível em imageProxy.cropRect.
+            // Enquanto a geometria continuava sendo medida contra o buffer inteiro, o
+            // guia na tela e o analisador seguiam em referenciais diferentes — mesmo com
+            // o ViewPort correto. Convertemos o cropRect para o referencial "de pé" e
+            // passamos a medir enquadramento e centralização dentro dele.
+            val visibleRegion = imageProxy.uprightCropRect(rotation, uprightWidth, uprightHeight)
             val image = InputImage.fromMediaImage(mediaImage, rotation)
 
             val detectionStartedAtNanos = System.nanoTime()
             val faces = Tasks.await(detector.process(image))
             BiometricRuntimeDiagnostics.recordDetectionLatency((System.nanoTime() - detectionStartedAtNanos) / 1_000_000L)
             val observation = if (faces.size == 1) {
-                faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
+                faces.first().toObservation(faces.size, visibleRegion)
             } else {
-                FaceObservation(faceCount = faces.size, imageWidth = uprightWidth, imageHeight = uprightHeight)
+                FaceObservation(
+                    faceCount = faces.size,
+                    imageWidth = visibleRegion.width(),
+                    imageHeight = visibleRegion.height(),
+                )
             }
             FacePresenceMonitor.faceCount = observation.faceCount
 
