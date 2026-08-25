@@ -30,11 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.OperationalAlertHistoryStore
 import com.pontocafe.app.data.PausaSupervisor
-import com.pontocafe.app.notifications.SupervisorAlertNotifier
 import java.time.LocalDate
 import kotlinx.coroutines.delay
 
-private enum class SupervisorLiveAlertType {
+internal enum class SupervisorLiveAlertType {
     SAIDA,
     RETORNO,
     PROXIMO_LIMITE,
@@ -45,8 +44,8 @@ private enum class SupervisorLiveAlertType {
 
 private const val TRANSIENT_ALERT_DURATION_MILLIS = 8_000L
 private const val CURRENT_DAY_REFRESH_MILLIS = 10_000L
-private const val WARNING_THRESHOLD_SECONDS = 60
-private const val CRITICAL_THRESHOLD_SECONDS = 15
+internal const val SUPERVISOR_LIVE_ALERT_WARNING_THRESHOLD_SECONDS = 60
+internal const val SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS = 15
 
 data class SupervisorLiveAlert(
     val id: Long,
@@ -54,6 +53,94 @@ data class SupervisorLiveAlert(
     val title: String,
     val message: String,
 )
+
+/**
+ * Pure alert-priority selection, shared by the on-screen banner
+ * ([rememberSupervisorLiveActivityAlert]) and [com.pontocafe.app.SupervisorViewModel]'s
+ * tab-independent background monitor, so both agree on which single alert
+ * wins when several conditions change in the same polling cycle. Each caller
+ * owns its own baseline/diffing state independently; only the priority
+ * ordering and message wording live here.
+ */
+internal fun selectSupervisorLiveAlert(
+    novas: List<PausaSupervisor>,
+    retornos: List<PausaSupervisor>,
+    novosExcessos: List<PausaSupervisor>,
+    novosCriticos: List<PausaSupervisor>,
+    novosAvisos: List<PausaSupervisor>,
+    alertId: Long,
+): SupervisorLiveAlert? {
+    if (
+        novas.isEmpty() && retornos.isEmpty() && novosExcessos.isEmpty() &&
+        novosCriticos.isEmpty() && novosAvisos.isEmpty()
+    ) return null
+
+    return when {
+        novosExcessos.isNotEmpty() -> {
+            val nomes = nomesParaAlerta(novosExcessos)
+            SupervisorLiveAlert(
+                id = alertId,
+                type = SupervisorLiveAlertType.EXCESSO.name,
+                title = if (novosExcessos.size == 1) "Limite de pausa excedido" else "${novosExcessos.size} pausas acima do limite",
+                message = if (novosExcessos.size == 1) {
+                    "$nomes ultrapassou o limite e ainda não registrou o retorno."
+                } else {
+                    "$nomes ultrapassaram o limite e ainda não registraram o retorno."
+                },
+            )
+        }
+        novosCriticos.isNotEmpty() -> {
+            val nomes = nomesParaAlerta(novosCriticos)
+            SupervisorLiveAlert(
+                id = alertId,
+                type = SupervisorLiveAlertType.CRITICO.name,
+                title = if (novosCriticos.size == 1) "Retorno necessário em até 15 s" else "${novosCriticos.size} pausas em estado crítico",
+                message = if (novosCriticos.size == 1) {
+                    "$nomes está a poucos segundos do limite da pausa."
+                } else {
+                    "$nomes estão a poucos segundos do limite da pausa."
+                },
+            )
+        }
+        novosAvisos.isNotEmpty() -> {
+            val nomes = nomesParaAlerta(novosAvisos)
+            SupervisorLiveAlert(
+                id = alertId,
+                type = SupervisorLiveAlertType.PROXIMO_LIMITE.name,
+                title = if (novosAvisos.size == 1) "Pausa próxima do limite" else "${novosAvisos.size} pausas próximas do limite",
+                message = if (novosAvisos.size == 1) {
+                    "$nomes tem menos de 1 minuto para registrar o retorno."
+                } else {
+                    "$nomes têm menos de 1 minuto para registrar o retorno."
+                },
+            )
+        }
+        novas.isNotEmpty() && retornos.isEmpty() -> {
+            val nomes = nomesParaAlerta(novas)
+            SupervisorLiveAlert(
+                id = alertId,
+                type = SupervisorLiveAlertType.SAIDA.name,
+                title = if (novas.size == 1) "Saída para o café" else "${novas.size} saídas para o café",
+                message = if (novas.size == 1) "$nomes bateu o ponto e saiu para o café." else "$nomes bateram o ponto e saíram para o café.",
+            )
+        }
+        retornos.isNotEmpty() && novas.isEmpty() -> {
+            val nomes = nomesParaAlerta(retornos)
+            SupervisorLiveAlert(
+                id = alertId,
+                type = SupervisorLiveAlertType.RETORNO.name,
+                title = if (retornos.size == 1) "Retorno do café" else "${retornos.size} retornos do café",
+                message = if (retornos.size == 1) "$nomes bateu o ponto de retorno." else "$nomes bateram o ponto de retorno.",
+            )
+        }
+        else -> SupervisorLiveAlert(
+            id = alertId,
+            type = SupervisorLiveAlertType.MISTO.name,
+            title = "Movimentação no Ponto Café",
+            message = "${novas.size} saída(s) e ${retornos.size} retorno(s) detectado(s).",
+        )
+    }
+}
 
 @Composable
 fun rememberSupervisorLiveActivityAlert(
@@ -114,13 +201,13 @@ fun rememberSupervisorLiveActivityAlert(
         val criticosAtuais = atual.values
             .filter {
                 val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
-                remaining in 0..CRITICAL_THRESHOLD_SECONDS
+                remaining in 0..SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS
             }
             .mapTo(mutableSetOf()) { it.id }
         val avisosAtuais = atual.values
             .filter {
                 val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
-                remaining in (CRITICAL_THRESHOLD_SECONDS + 1)..WARNING_THRESHOLD_SECONDS
+                remaining in (SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS + 1)..SUPERVISOR_LIVE_ALERT_WARNING_THRESHOLD_SECONDS
             }
             .mapTo(mutableSetOf()) { it.id }
         val anterior = baseline
@@ -150,99 +237,28 @@ fun rememberSupervisorLiveActivityAlert(
         warningBaseline = avisosAtuais
         criticalBaseline = criticosAtuais
 
-        if (
-            novas.isEmpty() && retornos.isEmpty() && novosExcessos.isEmpty() &&
-            novosCriticos.isEmpty() && novosAvisos.isEmpty()
-        ) return@LaunchedEffect
-
-        val novoAlerta = when {
-            novosExcessos.isNotEmpty() -> {
-                val nomes = nomesParaAlerta(novosExcessos)
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.EXCESSO.name,
-                    title = if (novosExcessos.size == 1) "Limite de pausa excedido" else "${novosExcessos.size} pausas acima do limite",
-                    message = if (novosExcessos.size == 1) {
-                        "$nomes ultrapassou o limite e ainda não registrou o retorno."
-                    } else {
-                        "$nomes ultrapassaram o limite e ainda não registraram o retorno."
-                    },
-                )
-            }
-            novosCriticos.isNotEmpty() -> {
-                val nomes = nomesParaAlerta(novosCriticos)
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.CRITICO.name,
-                    title = if (novosCriticos.size == 1) "Retorno necessário em até 15 s" else "${novosCriticos.size} pausas em estado crítico",
-                    message = if (novosCriticos.size == 1) {
-                        "$nomes está a poucos segundos do limite da pausa."
-                    } else {
-                        "$nomes estão a poucos segundos do limite da pausa."
-                    },
-                )
-            }
-            novosAvisos.isNotEmpty() -> {
-                val nomes = nomesParaAlerta(novosAvisos)
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.PROXIMO_LIMITE.name,
-                    title = if (novosAvisos.size == 1) "Pausa próxima do limite" else "${novosAvisos.size} pausas próximas do limite",
-                    message = if (novosAvisos.size == 1) {
-                        "$nomes tem menos de 1 minuto para registrar o retorno."
-                    } else {
-                        "$nomes têm menos de 1 minuto para registrar o retorno."
-                    },
-                )
-            }
-            novas.isNotEmpty() && retornos.isEmpty() -> {
-                val nomes = nomesParaAlerta(novas)
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.SAIDA.name,
-                    title = if (novas.size == 1) "Saída para o café" else "${novas.size} saídas para o café",
-                    message = if (novas.size == 1) "$nomes bateu o ponto e saiu para o café." else "$nomes bateram o ponto e saíram para o café.",
-                )
-            }
-            retornos.isNotEmpty() && novas.isEmpty() -> {
-                val nomes = nomesParaAlerta(retornos)
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.RETORNO.name,
-                    title = if (retornos.size == 1) "Retorno do café" else "${retornos.size} retornos do café",
-                    message = if (retornos.size == 1) "$nomes bateu o ponto de retorno." else "$nomes bateram o ponto de retorno.",
-                )
-            }
-            else -> {
-                SupervisorLiveAlert(
-                    id = System.nanoTime(),
-                    type = SupervisorLiveAlertType.MISTO.name,
-                    title = "Movimentação no Ponto Café",
-                    message = "${novas.size} saída(s) e ${retornos.size} retorno(s) detectado(s).",
-                )
-            }
-        }
+        val novoAlerta = selectSupervisorLiveAlert(
+            novas = novas,
+            retornos = retornos,
+            novosExcessos = novosExcessos,
+            novosCriticos = novosCriticos,
+            novosAvisos = novosAvisos,
+            alertId = System.nanoTime(),
+        ) ?: return@LaunchedEffect
 
         transientAlert = novoAlerta
+        // Recorded here for the on-screen history panel only. System
+        // notification delivery is owned exclusively by
+        // SupervisorViewModel.startLiveAlertMonitoring(), which keeps running
+        // across Supervisor tabs instead of only while this composable (the
+        // "Ao Vivo" tab specifically) is on screen — see that function for
+        // the single source of truth on "was this event notified".
         historyStore.record(
             id = novoAlerta.id,
             type = novoAlerta.type,
             title = novoAlerta.title,
             message = novoAlerta.message,
         )
-
-        // O estágio crítico de 15 s é deliberadamente visual e permanece no
-        // centro de alertas. A notificação do Android já ocorre em ~60 s e volta
-        // a ocorrer somente se o limite for efetivamente excedido, evitando
-        // ruído excessivo sem esconder a urgência na tela do Supervisor.
-        if (novoAlerta.type != SupervisorLiveAlertType.CRITICO.name) {
-            SupervisorAlertNotifier.notify(
-                context = context,
-                eventType = novoAlerta.type,
-                title = novoAlerta.title,
-                message = novoAlerta.message,
-            )
-        }
     }
 
     LaunchedEffect(transientAlert?.id) {
@@ -344,7 +360,7 @@ private fun formatAlertDuration(totalSeconds: Int): String {
     }
 }
 
-private fun tempoAtualSupervisor(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
+internal fun tempoAtualSupervisor(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
     val base = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0
     if (pausa.fimLocal != null || pausa.clienteAtualizadoEmMillis <= 0L) return base
     val adicional = ((agoraEmMillis - pausa.clienteAtualizadoEmMillis) / 1000L)

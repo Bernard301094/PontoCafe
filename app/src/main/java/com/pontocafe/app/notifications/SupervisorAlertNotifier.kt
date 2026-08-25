@@ -110,6 +110,7 @@ object SupervisorAlertNotifier {
         eventType: String,
         title: String,
         message: String,
+        uniqueKey: Long? = null,
     ): Boolean {
         val appContext = context.applicationContext
         val availability = availability(appContext)
@@ -135,7 +136,7 @@ object SupervisorAlertNotifier {
             contentIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val individualId = stableNotificationId(eventType, title, message)
+        val individualId = stableNotificationId(eventType, title, message, uniqueKey)
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
@@ -212,8 +213,20 @@ object SupervisorAlertNotifier {
             }
     }
 
-    private fun stableNotificationId(eventType: String, title: String, message: String): Int {
-        val raw = "$eventType|$title|$message".hashCode().absoluteValue
+    /**
+     * Content-only hashing would let two genuinely distinct events with
+     * identical recurring text (e.g. the same daily phrasing) silently
+     * replace each other in the notification shade instead of both showing.
+     * [uniqueKey] (the caller's own event id, when available) is folded in so
+     * that only truly repeated posts of the exact same event collapse.
+     */
+    internal fun stableNotificationId(
+        eventType: String,
+        title: String,
+        message: String,
+        uniqueKey: Long? = null,
+    ): Int {
+        val raw = "$eventType|$title|$message|${uniqueKey ?: ""}".hashCode().absoluteValue
         return if (raw == GROUP_SUMMARY_ID || raw == 0) raw + 10_000 else raw
     }
 

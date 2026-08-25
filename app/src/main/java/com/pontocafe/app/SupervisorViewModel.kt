@@ -1,5 +1,6 @@
 package com.pontocafe.app
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,13 +15,24 @@ import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.BiometricTemplateAggregator
 import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.FaceEmbeddingIntegrity
+import com.pontocafe.app.data.LocalFaceMatcher
+import com.pontocafe.app.data.OperationalAlertHistoryStore
 import com.pontocafe.app.data.PausaSupervisor
+import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SupervisorReportResponse
 import com.pontocafe.app.data.SupervisorRepository
+import com.pontocafe.app.notifications.SupervisorAlertNotifier
+import com.pontocafe.app.ui.SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS
+import com.pontocafe.app.ui.SUPERVISOR_LIVE_ALERT_WARNING_THRESHOLD_SECONDS
+import com.pontocafe.app.ui.SupervisorLiveAlertType
+import com.pontocafe.app.ui.selectSupervisorLiveAlert
+import com.pontocafe.app.ui.tempoAtualSupervisor
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -67,11 +79,19 @@ data class SupervisorUiState(
     val conexaoAoVivoOk: Boolean = true,
     val mensagem: String? = null,
     val erro: String? = null,
+    val enrollmentDuplicateWarning: EnrollmentDuplicateWarning? = null,
+)
+
+data class EnrollmentDuplicateWarning(
+    val matchedCollaboradorName: String,
+    val score: Double,
 )
 
 class SupervisorViewModel(
     private val repository: SupervisorRepository,
     private val embeddingEngine: FaceEmbeddingEngine,
+    private val faceCatalogStore: SecureFaceCatalogStore,
+    private val applicationContext: Context,
 ) : ViewModel() {
     var state by mutableStateOf(
         SupervisorUiState(
@@ -83,6 +103,13 @@ class SupervisorViewModel(
 
     private val biometricSamples = mutableListOf<FloatArray>()
     private val enrollmentAvatarCapture = EnrollmentAvatarCaptureSession()
+    private var pendingDuplicateEnrollment: PendingDuplicateEnrollment? = null
+    private val liveAlertHistoryStore by lazy { OperationalAlertHistoryStore(applicationContext) }
+    private var liveAlertMonitoringJob: Job? = null
+    private var liveAlertBaseline: Map<String, PausaSupervisor>? = null
+    private var liveAlertOverdueBaseline: Set<String> = emptySet()
+    private var liveAlertWarningBaseline: Set<String> = emptySet()
+    private var liveAlertCriticalBaseline: Set<String> = emptySet()
     private var atualizacaoAoVivoEmAndamento = false
     private var atualizacaoPausasEmAndamento = false
     private var atualizacaoRetornoEmAndamento = false
@@ -186,6 +213,110 @@ class SupervisorViewModel(
                 atualizacaoRetornoEmAndamento = false
             }
         }
+    }
+
+    /**
+     * Tab-independent live-alert monitor: system notifications for departures,
+     * returns and pause-limit crossings must keep working while the
+     * supervisor is on any tab (Pessoas/Relatórios), not only the "Ao Vivo"
+     * screen. Deliberately separate from [atualizarPausasAoVivoSilencioso] —
+     * that method (and its AO_VIVO gate) is untouched and keeps driving the
+     * Live tab's own on-screen display; this owns notification delivery only,
+     * as the single source of truth for "was this event notified". Intended
+     * to be started/stopped from SupervisorAreaShell's composition lifetime
+     * (any tab open -> running; back to Ponto -> stopped) — it does not, by
+     * itself, survive the app being backgrounded or the process dying.
+     */
+    fun startLiveAlertMonitoring() {
+        if (liveAlertMonitoringJob?.isActive == true) return
+        liveAlertBaseline = null
+        liveAlertOverdueBaseline = emptySet()
+        liveAlertWarningBaseline = emptySet()
+        liveAlertCriticalBaseline = emptySet()
+        liveAlertMonitoringJob = viewModelScope.launch {
+            while (true) {
+                runCatching { pollLiveAlertsOnce() }
+                delay(LIVE_ALERT_MONITOR_INTERVAL_MILLIS)
+            }
+        }
+    }
+
+    fun stopLiveAlertMonitoring() {
+        liveAlertMonitoringJob?.cancel()
+        liveAlertMonitoringJob = null
+    }
+
+    private suspend fun pollLiveAlertsOnce() {
+        if (!repository.hasSession()) return
+        val pausas = withContext(Dispatchers.IO) { repository.pausasAtivas() }
+        val agora = System.currentTimeMillis()
+        val atual = pausas.associateBy { it.id }
+        val excessosAtuais = atual.values
+            .filter { tempoAtualSupervisor(it, agora) > it.limiteSegundos }
+            .mapTo(mutableSetOf()) { it.id }
+        val criticosAtuais = atual.values
+            .filter {
+                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agora)
+                remaining in 0..SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS
+            }
+            .mapTo(mutableSetOf()) { it.id }
+        val avisosAtuais = atual.values
+            .filter {
+                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agora)
+                remaining in (SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS + 1)..SUPERVISOR_LIVE_ALERT_WARNING_THRESHOLD_SECONDS
+            }
+            .mapTo(mutableSetOf()) { it.id }
+        val anterior = liveAlertBaseline
+
+        if (anterior == null) {
+            liveAlertBaseline = atual
+            liveAlertOverdueBaseline = excessosAtuais
+            liveAlertWarningBaseline = avisosAtuais
+            liveAlertCriticalBaseline = criticosAtuais
+            return
+        }
+
+        val novas = atual.filterKeys { it !in anterior }.values.toList()
+        val retornos = anterior.filterKeys { it !in atual }.values.toList()
+        val novosExcessos = excessosAtuais.filter { it !in liveAlertOverdueBaseline }.mapNotNull(atual::get)
+        val novosCriticos = criticosAtuais.filter { it !in liveAlertCriticalBaseline }.mapNotNull(atual::get)
+        val novosAvisos = avisosAtuais.filter { it !in liveAlertWarningBaseline }.mapNotNull(atual::get)
+
+        liveAlertBaseline = atual
+        liveAlertOverdueBaseline = excessosAtuais
+        liveAlertWarningBaseline = avisosAtuais
+        liveAlertCriticalBaseline = criticosAtuais
+
+        val alert = selectSupervisorLiveAlert(
+            novas = novas,
+            retornos = retornos,
+            novosExcessos = novosExcessos,
+            novosCriticos = novosCriticos,
+            novosAvisos = novosAvisos,
+            alertId = System.nanoTime(),
+        ) ?: return
+
+        // O estágio crítico de 15 s é deliberadamente visual e permanece no
+        // centro de alertas da tela Ao Vivo; a notificação do Android já
+        // ocorre em ~60 s (aviso) e volta a ocorrer somente se o limite for
+        // efetivamente excedido, evitando ruído excessivo.
+        if (alert.type == SupervisorLiveAlertType.CRITICO.name) return
+
+        val wasDuplicate = liveAlertHistoryStore.record(
+            id = alert.id,
+            type = alert.type,
+            title = alert.title,
+            message = alert.message,
+        )
+        if (wasDuplicate) return
+
+        SupervisorAlertNotifier.notify(
+            context = applicationContext,
+            eventType = alert.type,
+            title = alert.title,
+            message = alert.message,
+            uniqueKey = alert.id,
+        )
     }
 
     private suspend fun atualizarAoVivoInterno() {
@@ -547,74 +678,33 @@ class SupervisorViewModel(
 
                 val samplesForValidation = biometricSamples.map { it.copyOf() }
                 val combined = combineBiometricSamples(samplesForValidation)
-                repository.saveBiometric(
-                    collaboratorId = colaborador.id,
-                    embedding = combined,
-                    model = embeddingEngine.modelName,
-                    modelVersion = embeddingEngine.modelVersion,
-                    samples = samplesForValidation,
-                )
 
-                biometricSamples.clear()
-                val avatarBytes = enrollmentAvatarCapture.takeBestWebp()
-                val existingAvatarAvailable = !colaborador.avatarUrl.isNullOrBlank()
-                val biometricCollaborator = colaborador.copy(rostoCadastrado = true)
-                state = state.copy(
-                    carregando = true,
-                    colaboradorSelecionado = biometricCollaborator,
-                    biometricEnrollmentCompleted = true,
-                    enrollmentAvatarCaptured = avatarBytes != null,
-                    enrollmentAvatarPreview = avatarBytes,
-                    enrollmentAvatarStatus = when {
-                        avatarBytes != null -> EnrollmentAvatarUploadStatus.UPLOADING
-                        existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
-                        else -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
-                    },
-                    enrollmentAvatarUrl = colaborador.avatarUrl,
-                    enrollmentAvatarError = null,
-                    mensagem = "Biometria de ${colaborador.nome} salva com segurança.",
-                    erro = null,
-                )
-
-                var avatarUrl = colaborador.avatarUrl
-                var avatarFailure: Throwable? = null
-                if (avatarBytes != null) {
-                    try {
-                        avatarUrl = repository.uploadAvatar(colaborador.id, avatarBytes).avatarUrl
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Throwable) {
-                        avatarFailure = error
+                val duplicate = runCatching {
+                    faceCatalogStore.read()?.let { catalog ->
+                        LocalFaceMatcher.evaluateEnrollmentDuplicate(
+                            candidateEmbedding = combined,
+                            catalog = catalog,
+                            excludeCollaboratorId = colaborador.id,
+                        )
                     }
+                }.getOrNull()
+
+                if (duplicate?.duplicate == true) {
+                    pendingDuplicateEnrollment = PendingDuplicateEnrollment(colaborador, combined, samplesForValidation)
+                    state = state.copy(
+                        carregando = false,
+                        enrollmentDuplicateWarning = EnrollmentDuplicateWarning(
+                            matchedCollaboradorName = duplicate.matchedCollaborador?.nome
+                                ?: "outro colaborador já cadastrado",
+                            score = duplicate.score ?: 0.0,
+                        ),
+                        mensagem = null,
+                        erro = null,
+                    )
+                    return@launch
                 }
 
-                val updatedCollaborator = biometricCollaborator.copy(avatarUrl = avatarUrl)
-                state = state.copy(
-                    carregando = false,
-                    colaboradores = upsertCollaborator(state.colaboradores, updatedCollaborator),
-                    colaboradorSelecionado = updatedCollaborator,
-                    enrollmentAvatarStatus = when {
-                        avatarBytes == null && existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
-                        avatarBytes == null -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
-                        avatarFailure == null -> EnrollmentAvatarUploadStatus.SAVED
-                        else -> EnrollmentAvatarUploadStatus.FAILED
-                    },
-                    enrollmentAvatarUrl = avatarUrl,
-                    enrollmentAvatarError = avatarFailure?.let {
-                        "A biometria foi salva, mas a foto de perfil não. ${SupervisorRepository.message(it)}"
-                    },
-                    mensagem = when {
-                        avatarBytes == null && existingAvatarAvailable ->
-                            "Rosto de ${colaborador.nome} cadastrado. A foto de perfil existente foi mantida."
-                        avatarBytes == null ->
-                            "Rosto de ${colaborador.nome} cadastrado. Você pode adicionar a foto de perfil sem repetir a biometria."
-                        avatarFailure == null ->
-                            "Rosto e foto de perfil de ${colaborador.nome} cadastrados com sucesso."
-                        else ->
-                            "Rosto de ${colaborador.nome} cadastrado. Falta apenas salvar a foto de perfil."
-                    },
-                    erro = null,
-                )
+                salvarBiometriaConsolidada(colaborador, combined, samplesForValidation)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 val completedSequence = biometricSamples.size >= BIOMETRIC_SAMPLE_COUNT
@@ -634,6 +724,130 @@ class SupervisorViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * The candidate embedding looked like a likely duplicate of another
+     * collaborator's already-enrolled face (best-effort, local-catalog-only
+     * check). A supervisor explicitly confirmed this is a false positive
+     * (e.g. identical twins) and the enrollment should proceed anyway, using
+     * the same samples already captured — no need to re-scan.
+     */
+    fun confirmarCadastroApesarDeDuplicidade() {
+        val pending = pendingDuplicateEnrollment ?: return
+        pendingDuplicateEnrollment = null
+        state = state.copy(enrollmentDuplicateWarning = null, carregando = true)
+        viewModelScope.launch {
+            try {
+                salvarBiometriaConsolidada(pending.colaborador, pending.combined, pending.samples)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                biometricSamples.clear()
+                enrollmentAvatarCapture.clear()
+                state = state.copy(
+                    carregando = false,
+                    biometricStepIndex = 0,
+                    biometricSamplesCaptured = 0,
+                    biometricScanCycle = state.biometricScanCycle + 1,
+                    enrollmentAvatarCaptured = false,
+                    mensagem = null,
+                    erro = SupervisorRepository.message(error),
+                )
+            }
+        }
+    }
+
+    /** Discards the pending duplicate-flagged enrollment; the sequence must be redone. */
+    fun cancelarCadastroPorDuplicidade() {
+        pendingDuplicateEnrollment = null
+        biometricSamples.clear()
+        enrollmentAvatarCapture.clear()
+        state = state.copy(
+            carregando = false,
+            biometricStepIndex = 0,
+            biometricSamplesCaptured = 0,
+            biometricScanCycle = state.biometricScanCycle + 1,
+            enrollmentAvatarCaptured = false,
+            enrollmentDuplicateWarning = null,
+            mensagem = "Cadastro cancelado. Você pode tentar novamente.",
+            erro = null,
+        )
+    }
+
+    private suspend fun salvarBiometriaConsolidada(
+        colaborador: Colaborador,
+        combined: FloatArray,
+        samplesForValidation: List<FloatArray>,
+    ) {
+        repository.saveBiometric(
+            collaboratorId = colaborador.id,
+            embedding = combined,
+            model = embeddingEngine.modelName,
+            modelVersion = embeddingEngine.modelVersion,
+            samples = samplesForValidation,
+        )
+
+        biometricSamples.clear()
+        val avatarBytes = enrollmentAvatarCapture.takeBestWebp()
+        val existingAvatarAvailable = !colaborador.avatarUrl.isNullOrBlank()
+        val biometricCollaborator = colaborador.copy(rostoCadastrado = true)
+        state = state.copy(
+            carregando = true,
+            colaboradorSelecionado = biometricCollaborator,
+            biometricEnrollmentCompleted = true,
+            enrollmentAvatarCaptured = avatarBytes != null,
+            enrollmentAvatarPreview = avatarBytes,
+            enrollmentAvatarStatus = when {
+                avatarBytes != null -> EnrollmentAvatarUploadStatus.UPLOADING
+                existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
+                else -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
+            },
+            enrollmentAvatarUrl = colaborador.avatarUrl,
+            enrollmentAvatarError = null,
+            enrollmentDuplicateWarning = null,
+            mensagem = "Biometria de ${colaborador.nome} salva com segurança.",
+            erro = null,
+        )
+
+        var avatarUrl = colaborador.avatarUrl
+        var avatarFailure: Throwable? = null
+        if (avatarBytes != null) {
+            try {
+                avatarUrl = repository.uploadAvatar(colaborador.id, avatarBytes).avatarUrl
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                avatarFailure = error
+            }
+        }
+
+        val updatedCollaborator = biometricCollaborator.copy(avatarUrl = avatarUrl)
+        state = state.copy(
+            carregando = false,
+            colaboradores = upsertCollaborator(state.colaboradores, updatedCollaborator),
+            colaboradorSelecionado = updatedCollaborator,
+            enrollmentAvatarStatus = when {
+                avatarBytes == null && existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
+                avatarBytes == null -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
+                avatarFailure == null -> EnrollmentAvatarUploadStatus.SAVED
+                else -> EnrollmentAvatarUploadStatus.FAILED
+            },
+            enrollmentAvatarUrl = avatarUrl,
+            enrollmentAvatarError = avatarFailure?.let {
+                "A biometria foi salva, mas a foto de perfil não. ${SupervisorRepository.message(it)}"
+            },
+            mensagem = when {
+                avatarBytes == null && existingAvatarAvailable ->
+                    "Rosto de ${colaborador.nome} cadastrado. A foto de perfil existente foi mantida."
+                avatarBytes == null ->
+                    "Rosto de ${colaborador.nome} cadastrado. Você pode adicionar a foto de perfil sem repetir a biometria."
+                avatarFailure == null ->
+                    "Rosto e foto de perfil de ${colaborador.nome} cadastrados com sucesso."
+                else ->
+                    "Rosto de ${colaborador.nome} cadastrado. Falta apenas salvar a foto de perfil."
+            },
+            erro = null,
+        )
     }
 
     fun tentarNovamenteAvatarDoCadastro() {
@@ -813,6 +1027,7 @@ class SupervisorViewModel(
     }
 
     override fun onCleared() {
+        stopLiveAlertMonitoring()
         releaseEnrollmentAvatarArtifacts()
         biometricSamples.clear()
         super.onCleared()
@@ -820,8 +1035,15 @@ class SupervisorViewModel(
 
     companion object {
         private const val BIOMETRIC_SAMPLE_COUNT = 5
+        private const val LIVE_ALERT_MONITOR_INTERVAL_MILLIS = 15_000L
     }
 }
+
+private data class PendingDuplicateEnrollment(
+    val colaborador: Colaborador,
+    val combined: FloatArray,
+    val samples: List<FloatArray>,
+)
 
 class SupervisorViewModelFactory(private val creator: () -> SupervisorViewModel) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

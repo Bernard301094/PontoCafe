@@ -363,7 +363,9 @@ private fun analyzer(
             val uprightHeight = if (rotation % 180 == 0) imageProxy.height else imageProxy.width
             val image = InputImage.fromMediaImage(mediaImage, rotation)
 
+            val detectionStartedAtNanos = System.nanoTime()
             val faces = Tasks.await(detector.process(image))
+            BiometricRuntimeDiagnostics.recordDetectionLatency((System.nanoTime() - detectionStartedAtNanos) / 1_000_000L)
             val observation = if (faces.size == 1) {
                 faces.first().toObservation(faces.size, uprightWidth, uprightHeight)
             } else {

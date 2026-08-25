@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -115,6 +116,29 @@ fun SupervisorBiometricEnrollmentScreenV2(viewModel: SupervisorViewModel) {
             onDone = viewModel::voltarColaboradores,
         )
         return
+    }
+    state.enrollmentDuplicateWarning?.let { warning ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelarCadastroPorDuplicidade,
+            title = { Text("Possível cadastro duplicado") },
+            text = {
+                Text(
+                    "Este rosto ficou muito parecido com o de ${warning.matchedCollaboradorName} " +
+                        "já cadastrado neste aparelho. Confirme apenas se tiver certeza de que são " +
+                        "pessoas diferentes (por exemplo, gêmeos).",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmarCadastroApesarDeDuplicidade) {
+                    Text("Cadastrar mesmo assim")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelarCadastroPorDuplicidade) {
+                    Text("Cancelar")
+                }
+            },
+        )
     }
     val poses = remember(collaborator.id) { SupervisorEnrollmentPoseV2.entries.shuffled() }
     val stepIndex = state.biometricStepIndex.coerceIn(0, poses.lastIndex)

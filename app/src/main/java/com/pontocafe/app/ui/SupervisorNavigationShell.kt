@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,15 @@ fun SupervisorAreaShell(
 ) {
     val state = viewModel.state
     var pendingPrimaryDestination by remember { mutableStateOf<SupervisorPrimaryDestination?>(null) }
+
+    // Live-alert notifications must keep working across any Supervisor tab
+    // (not only "Ao Vivo"), for as long as the Supervisor area itself is
+    // open. Started once per entry into this area, stopped when the
+    // supervisor returns to Ponto — see SupervisorViewModel.startLiveAlertMonitoring().
+    DisposableEffect(Unit) {
+        viewModel.startLiveAlertMonitoring()
+        onDispose { viewModel.stopLiveAlertMonitoring() }
+    }
 
     // Esta barreira é intencionalmente anterior a qualquer tela operacional.
     // Enquanto o backend marcar PASSWORD_CHANGE_REQUIRED, nenhuma área protegida

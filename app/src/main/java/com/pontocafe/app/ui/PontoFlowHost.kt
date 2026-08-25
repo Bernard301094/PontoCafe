@@ -3,7 +3,7 @@ package com.pontocafe.app.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.core.view.HapticFeedbackConstantsCompat
+import com.pontocafe.app.haptics.PontoHaptics
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -329,9 +329,7 @@ private fun FastPointBlockedOverlay(
     val backdrop = if (reason == PointBlockReason.GENERIC) Color(0xFF180807) else Color(0xFF160B08)
 
     LaunchedEffect(nome, mensagemExibida, reason) {
-        runCatching {
-            view.performHapticFeedback(HapticFeedbackConstantsCompat.REJECT)
-        }
+        PontoHaptics.warning(view.context)
         val baseTimeout = if (repeatedPause) {
             USED_BREAK_WARNING_VISIBLE_MILLIS
         } else {
@@ -480,11 +478,7 @@ private fun FastPointReceiptOverlay(
     val offline = comprovante.pendenteSincronizacao
 
     LaunchedEffect(comprovante) {
-        runCatching {
-            view.performHapticFeedback(
-                if (warning) HapticFeedbackConstantsCompat.REJECT else HapticFeedbackConstantsCompat.CONFIRM,
-            )
-        }
+        if (warning) PontoHaptics.warning(view.context) else PontoHaptics.success(view.context)
 
         delay(
             accessibilityManager?.calculateRecommendedTimeoutMillis(

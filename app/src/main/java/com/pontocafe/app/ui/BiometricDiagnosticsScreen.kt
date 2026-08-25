@@ -275,6 +275,26 @@ fun BiometricDiagnosticsScreen(
                             ),
                         )
                     }
+
+                    item("local-runtime-stages") {
+                        PcKeyValueCard(
+                            title = "Latência por etapa (última medição)",
+                            rows = listOf(
+                                "Detecção facial" to
+                                    (localRuntime.detectionLatencyMillis?.let { "$it ms" } ?: "—"),
+                                "Recorte (crop)" to
+                                    (localRuntime.cropLatencyMillis?.let { "$it ms" } ?: "—"),
+                                "Validação de qualidade" to
+                                    (localRuntime.qualityCheckLatencyMillis?.let { "$it ms" } ?: "—"),
+                                "Inferência do embedding" to
+                                    (localRuntime.embeddingInferenceLatencyMillis?.let { "$it ms" } ?: "—"),
+                                "Comparação local (1:N)" to
+                                    (localRuntime.localMatchLatencyMillis?.let { "$it ms" } ?: "—"),
+                                "Confirmação no servidor" to
+                                    (localRuntime.backendConfirmationLatencyMillis?.let { "$it ms" } ?: "—"),
+                            ),
+                        )
+                    }
                 }
 
                 metrics?.let { calibration ->

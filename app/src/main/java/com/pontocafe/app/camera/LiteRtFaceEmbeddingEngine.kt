@@ -6,6 +6,7 @@ import android.graphics.Matrix
 import android.graphics.Rect
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.tflite.java.TfLite
+import com.pontocafe.app.data.BiometricRuntimeDiagnostics
 import com.pontocafe.app.data.FaceEmbeddingIntegrity
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -217,9 +218,12 @@ class LiteRtFaceEmbeddingEngine(
             // Mantemos sempre a mesma operação de resize usada na versão estável.
             val scaled = Bitmap.createScaledBitmap(face, INPUT_SIZE, INPUT_SIZE, true)
             resized = scaled
+            val qualityStartedAtNanos = System.nanoTime()
             FaceImageQualityAnalyzer.requireAcceptable(scaled)
+            BiometricRuntimeDiagnostics.recordQualityCheckLatency((System.nanoTime() - qualityStartedAtNanos) / 1_000_000L)
 
             val runtime = getInterpreter()
+            val inferenceStartedAtNanos = System.nanoTime()
             val output = inferenceMutex.withLock {
                 val workspace = inferenceWorkspace
                 val input = toStandardizedBuffer(scaled, workspace)
@@ -229,6 +233,7 @@ class LiteRtFaceEmbeddingEngine(
                 inferencePrimed = true
                 workspace.output[0].copyOf()
             }
+            BiometricRuntimeDiagnostics.recordEmbeddingInferenceLatency((System.nanoTime() - inferenceStartedAtNanos) / 1_000_000L)
             return l2Normalize(output)
         } finally {
             resized?.takeIf { it !== face && !it.isRecycled }?.recycle()
@@ -316,8 +321,12 @@ class LiteRtFaceEmbeddingEngine(
         return rect
     }
 
-    private fun crop(bitmap: Bitmap, rect: Rect): Bitmap =
-        Bitmap.createBitmap(bitmap, rect.left, rect.top, rect.width(), rect.height())
+    private fun crop(bitmap: Bitmap, rect: Rect): Bitmap {
+        val startedAtNanos = System.nanoTime()
+        val result = Bitmap.createBitmap(bitmap, rect.left, rect.top, rect.width(), rect.height())
+        BiometricRuntimeDiagnostics.recordCropLatency((System.nanoTime() - startedAtNanos) / 1_000_000L)
+        return result
+    }
 
     /**
      * Prewhitening original do projeto. Não "otimizar" esta matemática sem uma

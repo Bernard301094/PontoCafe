@@ -26,6 +26,7 @@ class OperationalAlertHistoryStore(context: Context) {
         Context.MODE_PRIVATE,
     )
 
+    /** Returns false when this event was a duplicate within [DEDUP_WINDOW_MILLIS] and was NOT recorded. */
     @Synchronized
     fun record(
         id: Long,
@@ -33,13 +34,13 @@ class OperationalAlertHistoryStore(context: Context) {
         title: String,
         message: String,
         createdAtMillis: Long = System.currentTimeMillis(),
-    ) {
+    ): Boolean {
         val current = snapshot().toMutableList()
         val duplicate = current.any {
             it.type == type && it.title == title && it.message == message &&
                 createdAtMillis - it.createdAtMillis in 0..DEDUP_WINDOW_MILLIS
         }
-        if (duplicate) return
+        if (duplicate) return false
 
         current.add(
             0,
@@ -53,6 +54,7 @@ class OperationalAlertHistoryStore(context: Context) {
             ),
         )
         save(current.take(MAX_ITEMS))
+        return true
     }
 
     @Synchronized

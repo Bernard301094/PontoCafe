@@ -771,9 +771,13 @@ class PontoCafeViewModel(
                 }
 
                 consensusDecision as TemporalConsensusDecision.Confirmed
+                val localMatchStartedAtNanos = System.nanoTime()
                 val aggregateEvaluation = LocalFaceMatcher.evaluateDetailed(
                     consensusDecision.embedding,
                     consensusCatalog,
+                )
+                BiometricRuntimeDiagnostics.recordLocalMatchLatency(
+                    (System.nanoTime() - localMatchStartedAtNanos) / 1_000_000L,
                 )
                 val aggregateMatch = aggregateEvaluation.match
                 if (
@@ -833,6 +837,7 @@ class PontoCafeViewModel(
                 if (fastEligible) {
                     if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     state = state.copy(recognitionStage = PontoRecognitionStage.REGISTRANDO_PONTO)
+                    val backendStartedAtNanos = System.nanoTime()
                     val fastResult = withContext(Dispatchers.IO) {
                         repository.registrarRapido(
                             colaboradorId = match.colaborador.id,
@@ -841,6 +846,9 @@ class PontoCafeViewModel(
                             versaoModelo = embeddingEngine.modelVersion,
                         )
                     }
+                    BiometricRuntimeDiagnostics.recordBackendConfirmationLatency(
+                        (System.nanoTime() - backendStartedAtNanos) / 1_000_000L,
+                    )
                     if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
 
                     if (fastResult == null) {
@@ -877,6 +885,7 @@ class PontoCafeViewModel(
                 state = state.copy(recognitionStage = PontoRecognitionStage.CONFIRMANDO_IDENTIDADE)
                 val identificacao = try {
                     if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
+                    val backendStartedAtNanos = System.nanoTime()
                     val confirmed = withContext(Dispatchers.IO) {
                         repository.confirmarIdentidadeLocal(
                             colaboradorId = match.colaborador.id,
@@ -885,6 +894,9 @@ class PontoCafeViewModel(
                             versaoModelo = embeddingEngine.modelVersion,
                         )
                     }
+                    BiometricRuntimeDiagnostics.recordBackendConfirmationLatency(
+                        (System.nanoTime() - backendStartedAtNanos) / 1_000_000L,
+                    )
                     if (!transactionCoordinator.isCurrent(recognitionEpoch)) return@launch
                     pendingOfflineEmbedding = null
                     val lastServerOk = withContext(Dispatchers.IO) {

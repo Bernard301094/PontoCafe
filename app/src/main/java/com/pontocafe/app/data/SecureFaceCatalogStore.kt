@@ -69,6 +69,12 @@ data class LocalFaceEvaluation(
     val rejectionReason: LocalFaceRejectionReason?,
 )
 
+data class EnrollmentDuplicateCheck(
+    val duplicate: Boolean,
+    val matchedCollaborador: Colaborador? = null,
+    val score: Double? = null,
+)
+
 class SecureFaceCatalogStore(context: Context) {
     private val prefs = context.getSharedPreferences("pontocafe_face_catalog_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_face_catalog_key"
@@ -431,6 +437,53 @@ object LocalFaceMatcher {
             candidateCount = candidateCount,
             validTemplateCount = compatibleTemplateCount,
             rejectionReason = reason,
+        )
+    }
+
+    /**
+     * Best-effort pre-enrollment duplicate check against the catalog cached on
+     * *this* device. Reuses [catalog]'s own server-calibrated recognition
+     * threshold as the warning floor by default: a new template that would
+     * already clear the bar that makes recognition accept a match is
+     * definitionally a duplicate-recognition risk, not an arbitrary new
+     * number. This only sees this device's local catalog snapshot — it is not
+     * a replacement for a server-side authoritative check across all devices.
+     */
+    fun evaluateEnrollmentDuplicate(
+        candidateEmbedding: FloatArray,
+        catalog: CachedFaceCatalog,
+        excludeCollaboratorId: String,
+        warningThreshold: Double = catalog.limiar,
+    ): EnrollmentDuplicateCheck {
+        val integrity = FaceEmbeddingIntegrity.inspect(candidateEmbedding, FACE_EMBEDDING_DIMENSION)
+        if (!integrity.valid || catalog.templates.isEmpty()) {
+            return EnrollmentDuplicateCheck(duplicate = false)
+        }
+        val currentNorm = requireNotNull(integrity.norm)
+        val index = preparedIndex(catalog)
+        var best: BestTemplate? = null
+
+        for (collaborator in index.collaborators) {
+            for (prepared in collaborator.templates) {
+                if (prepared.template.colaborador.id == excludeCollaboratorId) continue
+                if (
+                    prepared.template.modelo != catalog.modelo ||
+                    prepared.template.versaoModelo != catalog.versaoModelo
+                ) continue
+                if (prepared.embedding.size != candidateEmbedding.size) continue
+                val score = cosine(prepared, candidateEmbedding, currentNorm)
+                if (!score.isFinite()) continue
+                if (best == null || score > best!!.score) {
+                    best = BestTemplate(prepared.template, score)
+                }
+            }
+        }
+
+        val winner = best ?: return EnrollmentDuplicateCheck(duplicate = false)
+        return EnrollmentDuplicateCheck(
+            duplicate = winner.score >= warningThreshold,
+            matchedCollaborador = winner.template.colaborador,
+            score = winner.score,
         )
     }
 

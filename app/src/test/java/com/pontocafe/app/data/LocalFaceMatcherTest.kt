@@ -221,6 +221,64 @@ class LocalFaceMatcherTest {
         assertTrue(evaluation.validTemplateCount == 2)
     }
 
+    @Test
+    fun `cadastro duplicado e detectado quando o score alcanca o limiar de reconhecimento`() {
+        val existente = collaborator("a", "Pessoa A")
+        val novo = collaborator("b", "Pessoa B")
+        val currentCatalog = catalog(
+            limiar = 0.80,
+            margem = 0.05,
+            templates = listOf(template(existente, vectorList(1f, 0f), "BASE")),
+        )
+
+        val result = LocalFaceMatcher.evaluateEnrollmentDuplicate(
+            candidateEmbedding = vector(1f, 0f),
+            catalog = currentCatalog,
+            excludeCollaboratorId = novo.id,
+        )
+
+        assertTrue(result.duplicate)
+        assertEquals(existente.id, result.matchedCollaborador?.id)
+    }
+
+    @Test
+    fun `cadastro duplicado nao dispara abaixo do limiar de reconhecimento`() {
+        val existente = collaborator("a", "Pessoa A")
+        val novo = collaborator("b", "Pessoa B")
+        val currentCatalog = catalog(
+            limiar = 0.80,
+            margem = 0.05,
+            templates = listOf(template(existente, vectorList(1f, 0f), "BASE")),
+        )
+
+        val result = LocalFaceMatcher.evaluateEnrollmentDuplicate(
+            candidateEmbedding = vector(0.70f, 0.70f),
+            catalog = currentCatalog,
+            excludeCollaboratorId = novo.id,
+        )
+
+        assertTrue(!result.duplicate)
+    }
+
+    @Test
+    fun `cadastro duplicado ignora os proprios templates do colaborador sendo recadastrado`() {
+        val pessoa = collaborator("a", "Pessoa A")
+        val currentCatalog = catalog(
+            limiar = 0.80,
+            margem = 0.05,
+            templates = listOf(template(pessoa, vectorList(1f, 0f), "BASE")),
+        )
+
+        val result = LocalFaceMatcher.evaluateEnrollmentDuplicate(
+            candidateEmbedding = vector(1f, 0f),
+            catalog = currentCatalog,
+            excludeCollaboratorId = pessoa.id,
+        )
+
+        assertTrue(!result.duplicate)
+        assertNull(result.matchedCollaborador)
+    }
+
     private fun collaborator(id: String, name: String) = Colaborador(
         id = id,
         nome = name,

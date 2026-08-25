@@ -93,7 +93,7 @@ class MainActivity : FragmentActivity() {
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore = supervisorSessionStore)
         val supervisorFactory = SupervisorViewModelFactory {
-            SupervisorViewModel(supervisorRepository, faceEmbeddingEngine)
+            SupervisorViewModel(supervisorRepository, faceEmbeddingEngine, faceCatalogStore, applicationContext)
         }
 
         setContent {

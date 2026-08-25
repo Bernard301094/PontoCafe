@@ -1,6 +1,6 @@
 package com.pontocafe.app.ui
 
-import android.view.HapticFeedbackConstants
+import com.pontocafe.app.haptics.PontoHaptics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -352,7 +352,7 @@ fun PcPrimaryButton(
     val view = LocalView.current
     Button(
         onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            PontoHaptics.tap(view)
             onClick()
         },
         modifier = modifier
@@ -382,7 +382,7 @@ fun PcTonalButton(
     val view = LocalView.current
     FilledTonalButton(
         onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            PontoHaptics.tap(view)
             onClick()
         },
         modifier = modifier
@@ -412,7 +412,7 @@ fun PcSecondaryButton(
     val view = LocalView.current
     OutlinedButton(
         onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            PontoHaptics.tap(view)
             onClick()
         },
         modifier = modifier
@@ -443,7 +443,7 @@ fun PcDangerButton(
     val view = LocalView.current
     Button(
         onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            PontoHaptics.reject(view)
             onClick()
         },
         modifier = modifier

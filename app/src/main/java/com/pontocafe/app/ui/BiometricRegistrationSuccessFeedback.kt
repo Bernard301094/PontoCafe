@@ -1,6 +1,5 @@
 package com.pontocafe.app.ui
 
-import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -43,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.pontocafe.app.haptics.PontoHaptics
 import kotlinx.coroutines.delay
 
 private const val BIOMETRIC_SUCCESS_VISIBLE_MILLIS = 6_500L
@@ -66,7 +66,7 @@ fun BiometricRegistrationSuccessFeedback(
 
     LaunchedEffect(successMessage) {
         if (successMessage == null) return@LaunchedEffect
-        view.performHapticFeedback(HapticFeedbackConstantsCompat.CONFIRM)
+        PontoHaptics.success(view.context)
         delay(
             accessibilityManager?.calculateRecommendedTimeoutMillis(
                 originalTimeoutMillis = BIOMETRIC_SUCCESS_VISIBLE_MILLIS,

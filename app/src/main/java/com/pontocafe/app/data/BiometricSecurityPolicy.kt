@@ -336,6 +336,16 @@ data class BiometricRuntimeSnapshot(
     val modelVersion: String? = null,
     val catalogVersion: String? = null,
     val quarantinedTemplateCount: Int = 0,
+    // Per-stage breakdown of recognitionLatencyMillis, so a slow attempt can be
+    // attributed to a specific stage instead of only seeing the total. Each
+    // field reflects the most recently measured occurrence of that stage, the
+    // same "latest snapshot" convention already used by the fields above.
+    val detectionLatencyMillis: Long? = null,
+    val cropLatencyMillis: Long? = null,
+    val qualityCheckLatencyMillis: Long? = null,
+    val embeddingInferenceLatencyMillis: Long? = null,
+    val localMatchLatencyMillis: Long? = null,
+    val backendConfirmationLatencyMillis: Long? = null,
 )
 
 /** Process-local, non-sensitive diagnostics. No images, vectors, IDs or names are retained. */
@@ -349,6 +359,36 @@ object BiometricRuntimeDiagnostics {
     fun recordQualityRejection(reason: String) {
         val total = rejectedFrames.incrementAndGet()
         current = current.copy(rejectedFrameCount = total, lastQualityRejection = reason)
+    }
+
+    @Synchronized
+    fun recordDetectionLatency(latencyMillis: Long) {
+        current = current.copy(detectionLatencyMillis = latencyMillis)
+    }
+
+    @Synchronized
+    fun recordCropLatency(latencyMillis: Long) {
+        current = current.copy(cropLatencyMillis = latencyMillis)
+    }
+
+    @Synchronized
+    fun recordQualityCheckLatency(latencyMillis: Long) {
+        current = current.copy(qualityCheckLatencyMillis = latencyMillis)
+    }
+
+    @Synchronized
+    fun recordEmbeddingInferenceLatency(latencyMillis: Long) {
+        current = current.copy(embeddingInferenceLatencyMillis = latencyMillis)
+    }
+
+    @Synchronized
+    fun recordLocalMatchLatency(latencyMillis: Long) {
+        current = current.copy(localMatchLatencyMillis = latencyMillis)
+    }
+
+    @Synchronized
+    fun recordBackendConfirmationLatency(latencyMillis: Long) {
+        current = current.copy(backendConfirmationLatencyMillis = latencyMillis)
     }
 
     @Synchronized
