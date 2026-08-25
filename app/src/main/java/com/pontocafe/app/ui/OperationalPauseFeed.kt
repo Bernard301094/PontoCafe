@@ -203,7 +203,7 @@ fun OperationalPauseCompactCard(
     }
     val semantic = LocalPontoCafeSemanticColors.current
     val semanticColor = when {
-        overdue -> MaterialTheme.colorScheme.error
+        overdue -> semantic.critical
         critical || warning || attention -> semantic.warning
         else -> MaterialTheme.colorScheme.primary
     }
@@ -225,7 +225,7 @@ fun OperationalPauseCompactCard(
         onClick = onClick,
         colors = CardDefaults.cardColors(
             containerColor = when {
-                overdue -> MaterialTheme.colorScheme.errorContainer
+                overdue -> semantic.criticalContainer
                 critical || warning -> semantic.warningContainer
                 attention -> MaterialTheme.colorScheme.tertiaryContainer
                 else -> MaterialTheme.colorScheme.surfaceContainerLow

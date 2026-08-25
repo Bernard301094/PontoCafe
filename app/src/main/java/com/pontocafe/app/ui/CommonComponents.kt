@@ -59,7 +59,7 @@ private fun toneColors(tone: PontoCafeTone): Pair<Color, Color> {
         PontoCafeTone.SUCCESS -> semantic.successContainer to semantic.onSuccessContainer
         PontoCafeTone.WARNING -> semantic.warningContainer to semantic.onWarningContainer
         PontoCafeTone.INFO -> semantic.infoContainer to semantic.onInfoContainer
-        PontoCafeTone.DANGER -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        PontoCafeTone.DANGER -> semantic.criticalContainer to semantic.onCriticalContainer
     }
 }
 
@@ -219,8 +219,8 @@ fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier)
         color = container,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val icon = when (tone) {

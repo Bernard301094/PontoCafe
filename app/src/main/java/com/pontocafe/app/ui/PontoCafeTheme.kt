@@ -133,6 +133,12 @@ data class PontoCafeSemanticColors(
     val info: Color,
     val infoContainer: Color,
     val onInfoContainer: Color,
+    // Antes o "crítico" (pausa excedida) caía direto em MaterialTheme.colorScheme.error
+    // — a cor genérica de erro de formulário do Material, sem relação de matiz/croma
+    // com success/warning/info. Agora é a quarta cor da mesma família semântica.
+    val critical: Color,
+    val criticalContainer: Color,
+    val onCriticalContainer: Color,
 )
 
 private val DarkSemanticColors = PontoCafeSemanticColors(
@@ -145,6 +151,9 @@ private val DarkSemanticColors = PontoCafeSemanticColors(
     info = Color(0xFFA5CDFF),
     infoContainer = Color(0xFF244A6E),
     onInfoContainer = Color(0xFFD3E5FF),
+    critical = Color(0xFFFF7A6E),
+    criticalContainer = Color(0xFF5C231D),
+    onCriticalContainer = Color(0xFFFFDAD3),
 )
 
 private val LightSemanticColors = PontoCafeSemanticColors(
@@ -157,6 +166,9 @@ private val LightSemanticColors = PontoCafeSemanticColors(
     info = Color(0xFF35618D),
     infoContainer = Color(0xFFD1E4FF),
     onInfoContainer = Color(0xFF001D35),
+    critical = Color(0xFFA23F32),
+    criticalContainer = Color(0xFFFFDAD3),
+    onCriticalContainer = Color(0xFF410F08),
 )
 
 val LocalPontoCafeSemanticColors = staticCompositionLocalOf { DarkSemanticColors }

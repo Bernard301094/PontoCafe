@@ -624,13 +624,14 @@ private fun AdminHomeNowMetric(
     attention: Boolean = false,
     danger: Boolean = false,
 ) {
+    val semantic = LocalPontoCafeSemanticColors.current
     val container = when {
-        danger -> MaterialTheme.colorScheme.errorContainer
+        danger -> semantic.criticalContainer
         attention -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.surface
     }
     val content = when {
-        danger -> MaterialTheme.colorScheme.onErrorContainer
+        danger -> semantic.onCriticalContainer
         attention -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }

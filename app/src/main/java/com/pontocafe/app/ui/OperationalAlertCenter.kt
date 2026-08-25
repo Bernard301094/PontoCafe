@@ -116,7 +116,7 @@ private fun AlertHistoryRow(item: OperationalAlertHistoryItem) {
     }
     val semantic = LocalPontoCafeSemanticColors.current
     val accent = when (tone) {
-        PontoCafeTone.DANGER -> MaterialTheme.colorScheme.error
+        PontoCafeTone.DANGER -> semantic.critical
         PontoCafeTone.WARNING -> semantic.warning
         PontoCafeTone.SUCCESS -> semantic.success
         PontoCafeTone.INFO -> semantic.info

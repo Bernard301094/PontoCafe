@@ -71,14 +71,14 @@ fun PcHeroCard(
     val accent = when (tone) {
         PontoCafeTone.SUCCESS -> semantic.success
         PontoCafeTone.WARNING -> semantic.warning
-        PontoCafeTone.DANGER -> MaterialTheme.colorScheme.error
+        PontoCafeTone.DANGER -> semantic.critical
         PontoCafeTone.INFO -> MaterialTheme.colorScheme.tertiary
         PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.primary
     }
     val container = when (tone) {
         PontoCafeTone.SUCCESS -> semantic.successContainer
         PontoCafeTone.WARNING -> semantic.warningContainer
-        PontoCafeTone.DANGER -> MaterialTheme.colorScheme.errorContainer
+        PontoCafeTone.DANGER -> semantic.criticalContainer
         PontoCafeTone.INFO -> MaterialTheme.colorScheme.tertiaryContainer
         PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceContainer
     }
@@ -305,7 +305,7 @@ fun PcStateBanner(
     val (container, content, icon) = when (tone) {
         PontoCafeTone.SUCCESS -> Triple(semantic.successContainer, semantic.onSuccessContainer, Icons.Default.CheckCircle)
         PontoCafeTone.WARNING -> Triple(semantic.warningContainer, semantic.onWarningContainer, Icons.Default.Warning)
-        PontoCafeTone.DANGER -> Triple(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer, Icons.Default.Warning)
+        PontoCafeTone.DANGER -> Triple(semantic.criticalContainer, semantic.onCriticalContainer, Icons.Default.Warning)
         PontoCafeTone.INFO -> Triple(semantic.infoContainer, semantic.onInfoContainer, Icons.Default.Info)
         PontoCafeTone.NEUTRAL -> Triple(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant, Icons.Default.Info)
     }
