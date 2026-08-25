@@ -11,6 +11,7 @@ import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -624,12 +625,35 @@ fun FaceCameraPreview(
                     }
 
                 provider.unbindAll()
-                provider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
-                    preview,
-                    analysis,
-                )
+                // Preview and ImageAnalysis were bound as independent use cases, with
+                // no shared field of view. CameraX is then free to crop each one from
+                // the sensor differently (Preview additionally gets FILL_CENTER-zoomed
+                // by PreviewView to cover the screen, while ImageAnalysis keeps its own
+                // fixed 640x480 crop) — so the region the kiosk guide visually shows is
+                // not the region actually analyzed for face position, and a centered
+                // face can land outside the analyzer's accepted area (or vice versa).
+                // A shared ViewPort makes both use cases represent the same FOV, taken
+                // straight from the PreviewView so it matches what is on screen exactly.
+                val viewPort = view.viewPort
+                if (viewPort != null) {
+                    val useCaseGroup = UseCaseGroup.Builder()
+                        .setViewPort(viewPort)
+                        .addUseCase(preview)
+                        .addUseCase(analysis)
+                        .build()
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_FRONT_CAMERA,
+                        useCaseGroup,
+                    )
+                } else {
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_FRONT_CAMERA,
+                        preview,
+                        analysis,
+                    )
+                }
             }.onFailure { error ->
                 if (cameraAlive.get()) {
                     FacePresenceMonitor.faceCount = 0
