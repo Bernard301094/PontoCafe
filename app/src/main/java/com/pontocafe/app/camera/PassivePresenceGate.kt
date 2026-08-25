@@ -36,7 +36,14 @@ data class PassivePresenceSample(
 class PassivePresenceGate(
     private val minimumStableFrames: Int = 4,
     private val minimumElapsedMillis: Long = 220L,
-    private val challengeAfterMillis: Long = 1_200L,
+    // Uma pessoa genuinamente parada nunca produz o jitter mínimo exigido por
+    // hasNaturalTemporalSignal (é assim que o gate distingue de uma foto estática
+    // parada) e só sai da espera quando cai no desafio ativo. 1200ms fazia essa
+    // pessoa esperar quase mais um segundo só para então ainda ter que piscar.
+    // Encurtar não afrouxa a detecção de foto estática (o piso do sinal natural
+    // continua exigido) — só chega mais rápido no desafio que de qualquer forma
+    // seria pedido.
+    private val challengeAfterMillis: Long = 700L,
 ) {
     private var firstSampleAtMillis = 0L
     private var boundTrackingId: Int? = null

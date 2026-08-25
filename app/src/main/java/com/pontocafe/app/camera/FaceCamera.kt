@@ -237,8 +237,16 @@ class FrameCaptureController {
     }
 
     companion object {
-        private const val CAPTURE_REQUEST_TTL_MILLIS = 1_500L
-        private const val MAX_CAPTURE_POSE_DRIFT = 8f
+        // ACCURATE mode (ver FaceCameraPreview) é mais lento por frame que FAST;
+        // 1500ms deixava pouca folga para um frame válido chegar dentro do prazo.
+        private const val CAPTURE_REQUEST_TTL_MILLIS = 2_000L
+        // 8° não tolerava o jitter de pose já documentado do ML Kit em
+        // PERFORMANCE_MODE_FAST (mesmo jitter que motivou alargar as bandas
+        // absolutas de identificação para 22°/26°): um micro-movimento natural
+        // entre "decidiu capturar" e "capturou de fato" bastava para cair em
+        // POSE_CHANGED e reiniciar todo o fluxo, exigindo a pessoa parada quase
+        // imóvel. 16° acompanha a tolerância já adotada no restante do pipeline.
+        private const val MAX_CAPTURE_POSE_DRIFT = 16f
     }
 }
 
@@ -569,7 +577,11 @@ fun FaceCameraPreview(
     val detector = remember {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                // FAST produzia o jitter de pose frame a frame que forçava bandas de
+                // tolerância mais largas em todo o pipeline (identificação, drift de
+                // captura). Um quiosque é estacionário — não precisa da velocidade
+                // extra de FAST — e ACCURATE dá pose/landmarks bem mais estáveis.
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                 .setMinFaceSize(0.15f)
@@ -629,7 +641,11 @@ fun FaceCameraPreview(
                     it.setSurfaceProvider(view.surfaceProvider)
                 }
                 val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(640, 480))
+                    // 640x480 entregava poucos pixels por rosto a distâncias normais de
+                    // quiosque, prejudicando a precisão de landmarks/pose. 960x720 dá mais
+                    // resolução sem custo de fila: STRATEGY_KEEP_ONLY_LATEST já descarta
+                    // frames quando o hardware não acompanha.
+                    .setTargetResolution(Size(960, 720))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
