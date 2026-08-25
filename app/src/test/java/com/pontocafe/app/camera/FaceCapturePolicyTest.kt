@@ -2,6 +2,7 @@ package com.pontocafe.app.camera
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FaceCapturePolicyTest {
@@ -17,9 +18,13 @@ class FaceCapturePolicyTest {
             FaceCaptureRejectionReason.PARTIAL_FACE,
             FaceCapturePolicy.evaluate(readyFacts().copy(fullyVisible = false), FaceCapturePurpose.IDENTIFICATION),
         )
+        // yaw=13 excede o nominal (12) mas segue dentro da banda estendida (22): o
+        // matcher recebe o frame, não um rechaço — com rigor proporcional ao desvio.
+        assertNull(FaceCapturePolicy.evaluate(readyFacts().copy(yaw = 13f), FaceCapturePurpose.IDENTIFICATION))
+        assertTrue(FaceCapturePolicy.identificationPoseStringency(readyFacts().copy(yaw = 13f)) > 0f)
         assertEquals(
             FaceCaptureRejectionReason.EXTREME_POSE,
-            FaceCapturePolicy.evaluate(readyFacts().copy(yaw = 13f), FaceCapturePurpose.IDENTIFICATION),
+            FaceCapturePolicy.evaluate(readyFacts().copy(yaw = 25f), FaceCapturePurpose.IDENTIFICATION),
         )
     }
 
@@ -46,10 +51,13 @@ class FaceCapturePolicyTest {
                 FaceCapturePurpose.DIAGNOSTIC,
             ),
         )
+        assertNull(
+            FaceCapturePolicy.evaluate(accessoryFacts.copy(yaw = 13f), FaceCapturePurpose.IDENTIFICATION),
+        )
         assertEquals(
             FaceCaptureRejectionReason.EXTREME_POSE,
             FaceCapturePolicy.evaluate(
-                accessoryFacts.copy(yaw = 13f),
+                accessoryFacts.copy(yaw = 25f),
                 FaceCapturePurpose.IDENTIFICATION,
             ),
         )

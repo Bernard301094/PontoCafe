@@ -77,6 +77,15 @@ data class FaceObservation(
     val roll: Float = 0f,
     val imageWidth: Int = 0,
     val imageHeight: Int = 0,
+    // Dimensões do buffer completo (antes do recorte do ViewPort), usadas apenas
+    // para o tamanho do rosto. O recorte visível varia por aparelho/tela do
+    // quiosque (largura da PreviewView com FILL_CENTER) — se o gate de tamanho
+    // medisse contra ele, a mesma distância física exigiria enquadramentos
+    // diferentes em cada quiosque. O que de fato limita a qualidade é o recorte
+    // que alimenta o FaceNet (FaceFrame.faceBounds, sempre relativo ao buffer
+    // completo), então o gate de tamanho mede contra o mesmo referencial.
+    val fullImageWidth: Int = imageWidth,
+    val fullImageHeight: Int = imageHeight,
     val trackingId: Int? = null,
     val leftEye: PointF? = null,
     val rightEye: PointF? = null,
@@ -84,10 +93,10 @@ data class FaceObservation(
     val mouthBottom: PointF? = null,
 ) {
     val faceWidthRatio: Float
-        get() = if (imageWidth > 0 && bounds != null) bounds.width().toFloat() / imageWidth else 0f
+        get() = if (fullImageWidth > 0 && bounds != null) bounds.width().toFloat() / fullImageWidth else 0f
 
     val faceHeightRatio: Float
-        get() = if (imageHeight > 0 && bounds != null) bounds.height().toFloat() / imageHeight else 0f
+        get() = if (fullImageHeight > 0 && bounds != null) bounds.height().toFloat() / fullImageHeight else 0f
 
     val isCentered: Boolean
         get() {
@@ -333,7 +342,7 @@ private fun ImageProxy.uprightCropRect(rotation: Int, uprightWidth: Int, upright
 
 private fun PointF.translatedInto(region: Rect) = PointF(x - region.left, y - region.top)
 
-private fun Face.toObservation(total: Int, region: Rect) = FaceObservation(
+private fun Face.toObservation(total: Int, region: Rect, fullWidth: Int, fullHeight: Int) = FaceObservation(
     faceCount = total,
     bounds = Rect(boundingBox).also { it.offset(-region.left, -region.top) },
     leftEyeOpen = leftEyeOpenProbability,
@@ -343,6 +352,8 @@ private fun Face.toObservation(total: Int, region: Rect) = FaceObservation(
     roll = headEulerAngleZ,
     imageWidth = region.width(),
     imageHeight = region.height(),
+    fullImageWidth = fullWidth,
+    fullImageHeight = fullHeight,
     trackingId = trackingId,
     leftEye = landmarkPoint(FaceLandmark.LEFT_EYE)?.translatedInto(region),
     rightEye = landmarkPoint(FaceLandmark.RIGHT_EYE)?.translatedInto(region),
@@ -397,12 +408,14 @@ private fun analyzer(
             val faces = Tasks.await(detector.process(image))
             BiometricRuntimeDiagnostics.recordDetectionLatency((System.nanoTime() - detectionStartedAtNanos) / 1_000_000L)
             val observation = if (faces.size == 1) {
-                faces.first().toObservation(faces.size, visibleRegion)
+                faces.first().toObservation(faces.size, visibleRegion, uprightWidth, uprightHeight)
             } else {
                 FaceObservation(
                     faceCount = faces.size,
                     imageWidth = visibleRegion.width(),
                     imageHeight = visibleRegion.height(),
+                    fullImageWidth = uprightWidth,
+                    fullImageHeight = uprightHeight,
                 )
             }
             FacePresenceMonitor.faceCount = observation.faceCount
