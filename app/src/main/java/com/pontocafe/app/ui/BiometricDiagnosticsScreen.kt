@@ -418,7 +418,7 @@ fun BiometricDiagnosticsScreen(
                                 InitialAvatar(collaborator.nome)
                                 Column(
                                     modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
                                 ) {
                                     Text(
                                         collaborator.nome,

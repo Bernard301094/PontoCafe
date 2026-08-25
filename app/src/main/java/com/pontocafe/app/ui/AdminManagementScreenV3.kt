@@ -280,7 +280,7 @@ fun AdminManagementScreenV3(
                     ) {
                         Column(
                             modifier = Modifier.padding(PontoCafeSpacing.lg),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                         ) {
                             Text("Carregando regras…", style = MaterialTheme.typography.titleMedium)
                             Text(
@@ -341,7 +341,7 @@ fun AdminManagementScreenV3(
                                     Icon(
                                         imageVector = Icons.Default.Timer,
                                         contentDescription = null,
-                                        modifier = Modifier.padding(9.dp).size(20.dp),
+                                        modifier = Modifier.padding(PontoCafeSpacing.xs).size(20.dp),
                                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                     )
                                 }
@@ -406,7 +406,7 @@ private fun ManagementOverviewCard(
             modifier = Modifier.padding(PontoCafeSpacing.md),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                 Text(
                     "Central de gestão",
                     style = MaterialTheme.typography.titleLarge,
@@ -514,8 +514,8 @@ private fun ManagementStatusCell(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
         ) {
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             StatusPill(label, tone)
@@ -528,7 +528,7 @@ private fun ManagementSectionHeader(
     title: String,
     subtitle: String,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
             subtitle,
@@ -590,7 +590,7 @@ private fun ManagementActionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(if (compact) 13.dp else 15.dp),
+                .padding(if (compact) PontoCafeSpacing.sm else PontoCafeSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
@@ -601,11 +601,11 @@ private fun ManagementActionCard(
                 Icon(
                     imageVector = action.icon,
                     contentDescription = null,
-                    modifier = Modifier.padding(9.dp).size(20.dp),
+                    modifier = Modifier.padding(PontoCafeSpacing.xs).size(20.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                 Text(
                     action.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -635,7 +635,7 @@ private fun ManagementRulesHeader(rules: List<CoffeeRuleV2>) {
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
             Text(
                 "Horários e tempo de café",
                 style = MaterialTheme.typography.titleLarge,
@@ -652,9 +652,9 @@ private fun ManagementRulesHeader(rules: List<CoffeeRuleV2>) {
             color = MaterialTheme.colorScheme.primaryContainer,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
                 Icon(
                     Icons.Default.Timer,
@@ -835,11 +835,11 @@ private fun CoffeeRuleEditorV3(
                     Icon(
                         Icons.Default.Schedule,
                         contentDescription = null,
-                        modifier = Modifier.padding(9.dp).size(20.dp),
+                        modifier = Modifier.padding(PontoCafeSpacing.xs).size(20.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                     Text(
                         if (rule.periodo == "MANHA") "Período da manhã" else if (rule.periodo == "TARDE") "Período da tarde" else rule.periodo,
                         style = MaterialTheme.typography.titleMedium,
@@ -853,7 +853,7 @@ private fun CoffeeRuleEditorV3(
                 }
             }
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 item {
                     StatusPill(windowState.label, windowState.tone)
                 }
@@ -1247,8 +1247,8 @@ private fun RuleTimeSelectorV3(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
         ) {
             Text(
                 label,

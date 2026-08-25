@@ -131,8 +131,8 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
             .navigationBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
     ) {
         PontoCafeScreenHeader(
             title = "Gerenciar conta",
@@ -145,15 +145,15 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(PontoCafeSpacing.md),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
                 InitialAvatar(user.nome)
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                     Text(user.nome, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(user.email, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                         ProfilePill(user.perfil)
                         StatusPill(if (user.ativo) "Ativo" else "Desativado", user.ativo)
                     }
@@ -314,7 +314,7 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
             ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                         verticalAlignment = Alignment.CenterVertically,

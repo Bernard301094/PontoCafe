@@ -339,7 +339,7 @@ fun AdminDevicesScreenV2(
                                     ) {
                                         Column(
                                             modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
                                         ) {
                                             Text(
                                                 "Configurar PIN agora",
@@ -656,7 +656,7 @@ private fun DeviceCardV2(
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
                 ) {
                     Text(
                         device.nome,

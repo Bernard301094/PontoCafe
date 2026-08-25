@@ -564,9 +564,9 @@ private fun AdminHomeOverviewCard(
                     color = if (online) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                     ) {
                         Icon(
                             imageVector = if (online) Icons.Default.Security else Icons.Default.Devices,
@@ -648,12 +648,12 @@ private fun AdminHomeNowMetric(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp), tint = content)
                 Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = content)
@@ -684,15 +684,15 @@ private fun AdminHomeQuickAction(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+                .padding(horizontal = PontoCafeSpacing.xs, vertical = PontoCafeSpacing.sm),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    modifier = Modifier.padding(8.dp).size(19.dp),
+                    modifier = Modifier.padding(PontoCafeSpacing.xs).size(19.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
@@ -873,9 +873,9 @@ private fun AdminHomeMiniStat(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             Column {
@@ -891,7 +891,7 @@ private fun AdminHomeSectionHeader(
     title: String,
     subtitle: String,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
         Text(
             title,
             modifier = Modifier.semantics { heading() },

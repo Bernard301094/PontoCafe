@@ -478,7 +478,7 @@ fun AdminPeopleScreenV4(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                         ) {
