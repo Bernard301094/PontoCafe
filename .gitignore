@@ -6,6 +6,7 @@ local.properties
 build/
 app/build/
 app/src/main/assets/facenet.tflite
+app/src/main/assets/voice/
 *.jks
 *.keystore
 keystore.properties

@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -259,8 +259,9 @@ internal fun PontoNaturalVoiceProvisioningScreen(
             return@LaunchedEffect
         }
 
-        // A entrada neste passo inicia automaticamente download, validação,
-        // instalação e inicialização. Nada é baixado silenciosamente antes daqui.
+        // A entrada neste passo inicia automaticamente a instalação (a partir
+        // dos arquivos de voz já embutidos no aplicativo, sem rede) e a
+        // inicialização do motor neural.
         PontoNeuralVoiceRuntime.prewarm(appContext)
         while (!completed) {
             diagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
@@ -285,7 +286,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
         diagnostics.availability == PontoNeuralVoiceAvailability.FAILED -> "Não foi possível instalar a voz natural"
         diagnostics.availability == PontoNeuralVoiceAvailability.READY && verificationStarted -> "Testando voz natural"
         diagnostics.modelInstalled -> "Inicializando voz natural"
-        else -> "Baixando voz natural PontoCafe"
+        else -> "Instalando voz natural PontoCafe"
     }
     val supporting = when {
         completed -> "A voz neural pt-BR foi reproduzida com sucesso e será usada automaticamente no Ponto."
@@ -296,7 +297,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
         diagnostics.modelInstalled ->
             "O modelo já está salvo no aparelho. Inicializando o motor neural para uso offline."
         else ->
-            "O modelo pt-BR será baixado, validado e instalado automaticamente. Depois, a própria app fará um teste real de reprodução."
+            "O modelo de voz pt-BR, já incluído neste aplicativo, será validado e instalado automaticamente. Depois, a própria app fará um teste real de reprodução."
     }
 
     PontoCafeResponsivePage(maxContentWidth = 640.dp) { responsive ->
@@ -323,7 +324,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                     PcHeroCard(
                         title = title,
                         supportingText = supporting,
-                        icon = if (diagnostics.modelInstalled) Icons.Default.RecordVoiceOver else Icons.Default.CloudDownload,
+                        icon = if (diagnostics.modelInstalled) Icons.Default.RecordVoiceOver else Icons.Default.Settings,
                         tone = when {
                             completed -> PontoCafeTone.SUCCESS
                             diagnostics.availability == PontoNeuralVoiceAvailability.FAILED || verificationFailed -> PontoCafeTone.WARNING
@@ -339,7 +340,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
 
                     if (diagnostics.availability == PontoNeuralVoiceAvailability.FAILED) {
                         PcPrimaryButton(
-                            text = "Tentar baixar e instalar novamente",
+                            text = "Tentar instalar novamente",
                             onClick = {
                                 verificationStarted = false
                                 verificationFailed = false
@@ -347,7 +348,7 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                                 PontoNeuralVoiceRuntime.retryNow(appContext)
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            icon = Icons.Default.CloudDownload,
+                            icon = Icons.Default.Settings,
                         )
                     } else if (diagnostics.availability == PontoNeuralVoiceAvailability.READY && verificationFailed) {
                         PcPrimaryButton(

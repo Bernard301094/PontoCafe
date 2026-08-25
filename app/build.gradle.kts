@@ -54,7 +54,98 @@ val prepareFaceModel by tasks.registering {
     }
 }
 
-tasks.named("preBuild").configure { dependsOn(prepareFaceModel) }
+// A voz neural pt-BR era baixada em tempo de execução em cada aparelho (ver
+// histórico de PontoNeuralVoiceRuntime.kt). Isso expôs o Ponto a corrupção de
+// download em redes de quiosque reais (ex.: VOICE_MODEL_SIZE_INVALID quando
+// um proxy/rede altera o corpo binário). Mesmo padrão do FaceNet acima:
+// baixa, valida e empacota uma única vez em tempo de build, dentro do APK
+// assinado — nenhum aparelho depende mais de rede para ter a voz pronta.
+val voiceModelDirName = "vits-piper-pt_BR-faber-medium"
+val voiceModelFileName = "pt_BR-faber-medium.onnx"
+val voiceModelUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2"
+// Re-pinned 2026-08-25: the previous constants (size 63_201_428, a different
+// SHA-256) no longer match what k2-fsa/sherpa-onnx's GitHub release actually
+// serves at this URL — every install attempt against the real file failed
+// VOICE_MODEL_SIZE_INVALID, on every network, deterministically (reproduced
+// here independently of any device/kiosk network). Verified by downloading
+// directly over HTTPS from the official release URL.
+val voiceModelSha256 = "956b4f1733903891c4ba0973d0603b2a3d8c09c8432fb3bb5203a90a7431daca"
+val voiceModelSizeBytes = 63_201_457L
+val voiceModelAssetsDir = layout.projectDirectory.dir("src/main/assets/voice/$voiceModelDirName").asFile
+val voiceModelFile = File(voiceModelAssetsDir, voiceModelFileName)
+
+fun sha256Hex(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count <= 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+}
+
+val prepareVoiceModel by tasks.registering {
+    group = "build setup"
+    description = "Baixa, valida e empacota o modelo de voz neural pt-BR usado pelo APK."
+    outputs.dir(voiceModelAssetsDir)
+
+    doLast {
+        val currentValid = voiceModelFile.isFile &&
+            voiceModelFile.length() == voiceModelSizeBytes &&
+            sha256Hex(voiceModelFile).equals(voiceModelSha256, ignoreCase = true)
+
+        if (!currentValid) {
+            voiceModelAssetsDir.deleteRecursively()
+            val workDir = File(temporaryDir, "voice-model-download").apply {
+                deleteRecursively()
+                mkdirs()
+            }
+            val archive = File(workDir, "$voiceModelDirName.tar.bz2")
+            val extracted = File(workDir, "extracted").apply { mkdirs() }
+
+            URI(voiceModelUrl).toURL().openStream().use { input ->
+                archive.outputStream().use { output -> input.copyTo(output) }
+            }
+
+            project.exec {
+                commandLine("tar", "-xjf", archive.absolutePath, "-C", extracted.absolutePath)
+            }
+
+            val extractedModel = extracted.walkTopDown()
+                .firstOrNull { it.isFile && it.name == voiceModelFileName }
+                ?: error("Modelo de voz não encontrado dentro do arquivo baixado.")
+            val extractedModelDir = extractedModel.parentFile
+                ?: error("Diretório do modelo de voz ausente após a extração.")
+
+            voiceModelAssetsDir.parentFile.mkdirs()
+            voiceModelAssetsDir.deleteRecursively()
+            if (!extractedModelDir.renameTo(voiceModelAssetsDir)) {
+                check(extractedModelDir.copyRecursively(voiceModelAssetsDir, overwrite = true)) {
+                    "Não foi possível copiar o modelo de voz para os assets do app."
+                }
+            }
+            workDir.deleteRecursively()
+        }
+
+        check(voiceModelFile.isFile && voiceModelFile.length() == voiceModelSizeBytes) {
+            "O arquivo de voz baixado não corresponde ao tamanho fixado pelo projeto."
+        }
+        check(sha256Hex(voiceModelFile).equals(voiceModelSha256, ignoreCase = true)) {
+            "O arquivo de voz baixado não corresponde ao SHA-256 fixado pelo projeto."
+        }
+        check(File(voiceModelAssetsDir, "tokens.txt").isFile) {
+            "tokens.txt ausente no modelo de voz empacotado."
+        }
+        check(File(voiceModelAssetsDir, "espeak-ng-data").isDirectory) {
+            "espeak-ng-data ausente no modelo de voz empacotado."
+        }
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn(prepareFaceModel, prepareVoiceModel) }
 
 android {
     namespace = "com.pontocafe.app"
@@ -168,7 +259,6 @@ dependencies {
     // disponível como coordenada estável neste projeto; v1.13.4 é o artefato
     // previamente resolvido/validado e preserva a API VITS/Piper usada aqui.
     implementation("com.github.k2-fsa:sherpa-onnx:v1.13.4")
-    implementation("org.apache.commons:commons-compress:1.27.1")
 
     testImplementation("junit:junit:4.13.2")
     // Unit tests run on the JVM, where Android's org.json is only a stub.
