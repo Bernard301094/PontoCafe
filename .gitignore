@@ -8,6 +8,7 @@ app/build/
 app/src/main/assets/facenet.tflite
 *.jks
 *.keystore
+keystore.properties
 .env
 .env.local
 .dev.vars

@@ -1,6 +1,7 @@
 import java.io.File
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -70,16 +71,29 @@ android {
 
     signingConfigs {
         create("release") {
-            // Credentials are never stored in this repo. Set
-            // RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
-            // as environment variables in your own shell before running
-            // `assembleRelease`; this file only reads them, never writes them.
-            val releaseKeystoreFile = rootProject.file("release.jks")
-            if (releaseKeystoreFile.exists()) {
-                storeFile = releaseKeystoreFile
-                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            // Credentials are never stored in this repo (app/keystore.properties
+            // and every *.jks/*.keystore file are gitignored). Two supported
+            // sources, checked in order:
+            //   1. app/keystore.properties (storeFile/storePassword/keyAlias/keyPassword)
+            //   2. RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
+            //      env vars, against release.jks at the repo root.
+            val propsFile = project.file("keystore.properties")
+            if (propsFile.exists()) {
+                val props = Properties().apply {
+                    propsFile.inputStream().use { load(it) }
+                }
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            } else {
+                val releaseKeystoreFile = rootProject.file("release.jks")
+                if (releaseKeystoreFile.exists()) {
+                    storeFile = releaseKeystoreFile
+                    storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                    keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                    keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+                }
             }
         }
     }
