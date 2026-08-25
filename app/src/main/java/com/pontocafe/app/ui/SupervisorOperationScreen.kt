@@ -230,7 +230,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         filterOperationalPauseItems(operationItems, pauseFilter, System.currentTimeMillis())
     }
 
-    PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
+    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.detailContentWidth) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
@@ -259,36 +259,6 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                             tone = PontoCafeTone.WARNING,
                         )
                     }
-                }
-                item("notification-test") {
-                    PcSectionSurface {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            SectionTitle(
-                                "Alertas e notificações",
-                                "Teste o canal deste aparelho sem criar pausa, histórico operacional ou auditoria.",
-                            )
-                            PcSecondaryButton(
-                                text = "Testar alerta",
-                                icon = Icons.Default.Notifications,
-                                onClick = runNotificationTest,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            PcFeedbackBanner(
-                                message = notificationTestMessage,
-                                tone = if (notificationTestSucceeded) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                                onDismiss = { notificationTestMessage = null },
-                            )
-                        }
-                    }
-                }
-                item("voice-status") {
-                    PontoVoiceOperationalStatusCard(
-                        diagnostics = voiceDiagnostics,
-                        onRetry = {
-                            PontoNeuralVoiceRuntime.retryNow(appContext)
-                            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
-                        },
-                    )
                 }
                 alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
                 item("alert-center") {
@@ -349,6 +319,36 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     items(filteredItems, key = { "compact-${it.pause.id}-${it.isTest}" }) { item ->
                         OperationalPauseCompactCard(item = item, onClick = { selectedPause = item })
                     }
+                }
+                item("notification-test") {
+                    PcSectionSurface {
+                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                            SectionTitle(
+                                "Alertas e notificações",
+                                "Teste o canal deste aparelho sem criar pausa, histórico operacional ou auditoria.",
+                            )
+                            PcSecondaryButton(
+                                text = "Testar alerta",
+                                icon = Icons.Default.Notifications,
+                                onClick = runNotificationTest,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            PcFeedbackBanner(
+                                message = notificationTestMessage,
+                                tone = if (notificationTestSucceeded) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
+                                onDismiss = { notificationTestMessage = null },
+                            )
+                        }
+                    }
+                }
+                item("voice-status") {
+                    PontoVoiceOperationalStatusCard(
+                        diagnostics = voiceDiagnostics,
+                        onRetry = {
+                            PontoNeuralVoiceRuntime.retryNow(appContext)
+                            voiceDiagnostics = PontoNeuralVoiceRuntime.diagnostics(appContext)
+                        },
+                    )
                 }
                 item("actions-title") { SectionTitle("Ações rápidas", "Tarefas mais usadas durante a operação.") }
                 item("actions") {

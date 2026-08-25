@@ -61,7 +61,9 @@ internal fun KioskFaceGuide(
         warning -> Color(0xFFFF5C5C)
         !faceDetected -> Color.White.copy(alpha = 0.78f)
         !stablePositioned -> Color(0xFFFF5C5C)
-        else -> Color(0xFF49E39A)
+        // Same "ready" accent FaceKioskScreen already uses (DarkSemanticColors.success) —
+        // two different greens signaling the same ready state was an inconsistency.
+        else -> Color(0xFF72DCBC)
     }
     val guideColor by animateColorAsState(
         targetValue = targetColor,

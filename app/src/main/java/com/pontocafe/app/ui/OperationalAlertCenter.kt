@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -94,7 +95,10 @@ fun SupervisorOperationalAlertCenter(
                     if (unread > 0) {
                         TextButton(onClick = onMarkAllRead) { Text("Marcar como lidos") }
                     }
-                    TextButton(onClick = onClear) { Text("Limpar avisos") }
+                    TextButton(
+                        onClick = onClear,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Limpar avisos") }
                 }
             }
         }

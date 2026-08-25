@@ -323,7 +323,12 @@ fun OperationalAlertCard(
 ) {
     val (container, content) = toneColors(tone)
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                liveRegion = if (tone == PontoCafeTone.DANGER) LiveRegionMode.Assertive else LiveRegionMode.Polite
+                stateDescription = title
+            },
         colors = CardDefaults.cardColors(containerColor = container),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = MaterialTheme.shapes.large,

@@ -60,7 +60,7 @@ fun SupervisorInitialPasswordChangeScreen(
         viewModel.atualizarAoVivo()
     }
 
-    PontoCafeResponsivePage(maxContentWidth = 640.dp) { responsive ->
+    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.compactContentWidth) { responsive ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

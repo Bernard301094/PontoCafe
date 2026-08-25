@@ -165,7 +165,7 @@ fun SupervisorAreaShell(
             AnimatedContent(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .widthIn(max = 1080.dp)
+                    .widthIn(max = PontoCafeDimensions.dashboardContentWidth)
                     .fillMaxWidth(),
                 targetState = current,
                 transitionSpec = {

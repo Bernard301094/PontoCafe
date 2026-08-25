@@ -303,7 +303,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
                             Text(
                                 "Nenhum colaborador encontrado.",
@@ -415,8 +415,8 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         if (!liberacaoAtiva && selecionado != null) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = PontoCafePremium.glassStrong,
-                border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shadowElevation = 12.dp,
             ) {
                 Column(
@@ -464,7 +464,7 @@ private fun AuthorizationContextCard() {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -642,7 +642,7 @@ private fun AuthorizationEmployeeRow(
         onClick = onClick,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Row(
@@ -754,8 +754,8 @@ private fun AuthorizationReviewCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = PontoCafePremium.glassSoft,
-        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -864,13 +864,12 @@ private fun AuthorizationReleasedCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            PcSecondaryButton(
+            PcDangerButton(
                 text = "Cancelar liberação",
                 onClick = onCancel,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading,
                 loading = loading,
-                contentColor = MaterialTheme.colorScheme.error,
             )
 
             PcPrimaryButton(

@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -32,11 +33,19 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /**
  * Feedback compacto e animado para ações administrativas e de autenticação.
  * A mensagem entra em uma live region para que TalkBack também receba a mudança
  * de estado sem depender apenas de cor ou movimento.
+ *
+ * Única implementação canônica: este componente já existiu duplicado (uma
+ * segunda `fun PcFeedbackBanner` vivia em `OperationalUxComponents.kt`, sem
+ * tokens de movimento e sem `autoDismissMillis`), e a resolução de sobrecarga
+ * do Kotlin escolhia uma ou outra silenciosamente conforme os parâmetros
+ * passados em cada chamada. `autoDismissMillis` existe aqui como superconjunto
+ * das duas versões anteriores para que nenhum chamador precise mudar.
  */
 @Composable
 fun PcFeedbackBanner(
@@ -44,7 +53,15 @@ fun PcFeedbackBanner(
     tone: PontoCafeTone,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
+    autoDismissMillis: Long? = null,
 ) {
+    LaunchedEffect(message, autoDismissMillis) {
+        if (!message.isNullOrBlank() && autoDismissMillis != null) {
+            delay(autoDismissMillis)
+            onDismiss?.invoke()
+        }
+    }
+
     AnimatedVisibility(
         visible = !message.isNullOrBlank(),
         modifier = modifier,
@@ -105,7 +122,10 @@ fun PcFeedbackBanner(
                     Text(text, style = MaterialTheme.typography.bodySmall, color = content.copy(alpha = 0.9f))
                 }
                 if (onDismiss != null) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
+                    ) {
                         Icon(Icons.Default.Close, contentDescription = "Fechar aviso", tint = content)
                     }
                 }
