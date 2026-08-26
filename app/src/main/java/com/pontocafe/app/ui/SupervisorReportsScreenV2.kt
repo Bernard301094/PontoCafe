@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -265,13 +266,30 @@ fun SupervisorReportsScreenV2(
         }
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneTopBar(
+                title = "Relatórios",
+                eyebrow = accountProfileLabel,
+                account = activeAccount,
+                fallbackName = accountFallbackName,
+                onProfileClick = { showAccountSheet = true },
+                onBackToPonto = onClose,
+            )
+            Text(
+                "Métricas e tendências do período selecionado",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 1080.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding(),
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
@@ -281,17 +299,6 @@ fun SupervisorReportsScreenV2(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
-                item("header") {
-                    PcAreaTopBar(
-                        title = "Relatórios",
-                        eyebrow = accountProfileLabel,
-                        account = activeAccount,
-                        fallbackName = accountFallbackName,
-                        onProfileClick = { showAccountSheet = true },
-                        onBackToPonto = onClose,
-                    )
-                }
-
                 item("period-title") {
                     SectionTitle(
                         title = "Período do relatório",
@@ -427,6 +434,7 @@ fun SupervisorReportsScreenV2(
                             ReportDayCardV2(
                                 day = day,
                                 onClick = { viewModel.abrirHistorico(day.data) },
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }
@@ -447,9 +455,12 @@ fun SupervisorReportsScreenV2(
                         }
                     } else {
                         items(report.maioresAtrasos, key = { "delay-${it.colaboradorId}" }) { delay ->
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val pressScale = rememberPcPressScale(interactionSource)
                             androidx.compose.material3.Card(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().animateItem().pcPressScale(pressScale),
                                 onClick = { selectedDelay = delay },
+                                interactionSource = interactionSource,
                                 colors = androidx.compose.material3.CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                                 ),
@@ -497,6 +508,7 @@ fun SupervisorReportsScreenV2(
                     .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
             )
         }
+    }
     }
 }
 
@@ -669,10 +681,13 @@ private fun androidx.compose.foundation.layout.RowScope.ReportMetricTiles(
 }
 
 @Composable
-private fun ReportDayCardV2(day: ReportDay, onClick: () -> Unit) {
+private fun ReportDayCardV2(day: ReportDay, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
     androidx.compose.material3.Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().pcPressScale(pressScale),
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = androidx.compose.material3.CardDefaults.cardColors(
             containerColor = if (day.acimaLimite > 0) {
                 LocalPontoCafeSemanticColors.current.warningContainer

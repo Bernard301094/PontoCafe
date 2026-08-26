@@ -207,7 +207,7 @@ fun CollaboratorHistoryScreen(
         if (history.biometria.eventos.isNotEmpty()) {
             item("bio-audit-title") { SectionTitle("Auditoria biométrica", "Quem cadastrou, testou ou excluiu a biometria.") }
             items(history.biometria.eventos, key = { "bio-${it.criadoEm}-${it.acao}" }) { event ->
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth().animateItem()) {
                     Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(event.acao.replace('_', ' '), style = MaterialTheme.typography.titleSmall)
                         Text(event.atorNome ?: event.atorTipo, style = MaterialTheme.typography.bodySmall)
@@ -230,6 +230,7 @@ fun CollaboratorHistoryScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .animateItem()
                         .semantics {
                             stateDescription = if (pause.excedeuLimite) {
                                 "Pausa acima do limite"

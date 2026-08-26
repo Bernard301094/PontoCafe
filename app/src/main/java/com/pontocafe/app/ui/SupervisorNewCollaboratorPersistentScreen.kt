@@ -68,11 +68,28 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
     val cleanShift = draft.turno.trim().uppercase()
     val ready = cleanName.length >= 2 && cleanSector.isNotBlank() && cleanShift in SupervisorShiftOptions
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Novo colaborador",
+                eyebrow = "Supervisor",
+                onBack = {
+                    draftState.reset()
+                    viewModel.voltarColaboradores()
+                },
+                backLabel = "Pessoas",
+            )
+            Text(
+                "Cadastro para reconhecimento facial no modo Ponto",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
             contentPadding = PaddingValues(
@@ -83,18 +100,6 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            item("header") {
-                PontoCafeScreenHeader(
-                    title = "Novo colaborador",
-                    eyebrow = "Supervisor",
-                    onBack = {
-                        draftState.reset()
-                        viewModel.voltarColaboradores()
-                    },
-                    backLabel = "Pessoas",
-                )
-            }
-
             item("hero") {
                 PcHeroCard(
                     title = "Cadastro para o modo Ponto",
@@ -245,5 +250,6 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                 )
             }
         }
+    }
     }
 }

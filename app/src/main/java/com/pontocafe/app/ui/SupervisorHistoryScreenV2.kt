@@ -1,6 +1,7 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -231,6 +232,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                         HistoryPauseCard(
                             pause = pause,
                             onClick = { selectedPause = pause },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -251,6 +253,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
 internal fun HistoryPauseCard(
     pause: PausaSupervisor,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
     val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
@@ -269,14 +272,18 @@ internal fun HistoryPauseCard(
         pause.setor?.takeIf { it.isNotBlank() },
         pause.periodo.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .pcPressScale(pressScale)
             .semantics {
                 stateDescription = "$statusText. $meta. Duração ${formatHistoryDuration(duration)}"
             },
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = if (exceeded) {
                 LocalPontoCafeSemanticColors.current.criticalContainer.copy(alpha = 0.58f)

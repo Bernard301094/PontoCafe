@@ -325,7 +325,11 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     }
                 } else {
                     items(filteredItems, key = { "compact-${it.pause.id}-${it.isTest}" }) { item ->
-                        OperationalPauseCompactCard(item = item, onClick = { selectedPause = item })
+                        OperationalPauseCompactCard(
+                            item = item,
+                            onClick = { selectedPause = item },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
                 item("notification-test") {

@@ -17,8 +17,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -51,6 +54,7 @@ internal fun KioskFaceGuide(
     recognitionReady: Boolean,
     guideWidth: Dp,
     modifier: Modifier = Modifier,
+    turnProgress: Float = 0f,
 ) {
     var stablePositioned by remember { mutableStateOf(false) }
 
@@ -68,12 +72,12 @@ internal fun KioskFaceGuide(
 
     val targetColor = when {
         !active -> Color.White.copy(alpha = 0.32f)
-        warning -> Color(0xFFFF5C5C)
+        warning -> DarkSemanticColors.critical
         !faceDetected -> Color.White.copy(alpha = 0.78f)
-        !stablePositioned -> Color(0xFFFF5C5C)
+        !stablePositioned -> DarkSemanticColors.critical
         // Same "ready" accent FaceKioskScreen already uses (DarkSemanticColors.success) —
         // two different greens signaling the same ready state was an inconsistency.
-        else -> Color(0xFF72DCBC)
+        else -> DarkSemanticColors.success
     }
     val guideColor by animateColorAsState(
         targetValue = targetColor,
@@ -129,5 +133,24 @@ internal fun KioskFaceGuide(
         drawLine(drawColor, Offset(left, bottom), Offset(left + cornerLength, bottom), stroke, cap = StrokeCap.Round)
         drawLine(drawColor, Offset(right - cornerLength, bottom), Offset(right, bottom), stroke, cap = StrokeCap.Round)
         drawLine(drawColor, Offset(right, bottom), Offset(right, bottom - cornerLength), stroke, cap = StrokeCap.Round)
+
+        // Anel de progresso do desafio de virar o rosto: cresce de vermelho a verde
+        // conforme os frames estáveis se acumulam, em vez de só alternar de cor no final.
+        if (turnProgress > 0f) {
+            val progress = turnProgress.coerceIn(0f, 1f)
+            val ringColor = lerp(DarkSemanticColors.critical, DarkSemanticColors.success, progress)
+            val ringStroke = 3.dp.toPx()
+            val ringRadius = size.width * 0.40f
+            val ringCenter = Offset(size.width / 2f, size.height / 2f)
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = 360f * progress,
+                useCenter = false,
+                topLeft = Offset(ringCenter.x - ringRadius, ringCenter.y - ringRadius),
+                size = Size(ringRadius * 2f, ringRadius * 2f),
+                style = Stroke(width = ringStroke, cap = StrokeCap.Round),
+            )
+        }
     }
 }

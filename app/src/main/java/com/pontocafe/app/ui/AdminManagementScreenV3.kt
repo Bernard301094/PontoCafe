@@ -147,6 +147,37 @@ fun AdminManagementScreenV3(
         )
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneTopBar(
+                title = "Gestão",
+                eyebrow = "Administrador",
+                account = activeAccount,
+                fallbackName = adminName,
+                onProfileClick = { showAccountSheet = true },
+                onBackToPonto = onClose,
+            )
+            Text(
+                "Configuração operacional, segurança e saúde do sistema",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcHeroStat(
+                    value = if (reliability.rules.isEmpty()) "—" else "${reliability.rules.count { it.ativo }}/${reliability.rules.size}",
+                    label = "Períodos ativos",
+                    modifier = Modifier.weight(1f),
+                )
+                PcHeroStat(
+                    value = if (reliabilityViewModel.faceModelReady) "Pronta" else "Atenção",
+                    label = "Biometria local",
+                    modifier = Modifier.weight(1f),
+                )
+                PcHeroStat(value = durationSummary, label = "Tempo configurado", modifier = Modifier.weight(1f))
+            }
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 1180.dp) { responsive ->
         val operationActions = remember(onDevicesClick, onSyncClick, onKioskClick, viewModel) {
             listOf(
@@ -202,7 +233,6 @@ fun AdminManagementScreenV3(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
             contentPadding = PaddingValues(
@@ -213,27 +243,6 @@ fun AdminManagementScreenV3(
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
         ) {
-            item("header") {
-                PcAreaTopBar(
-                    title = "Gestão",
-                    eyebrow = "Administrador",
-                    account = activeAccount,
-                    fallbackName = adminName,
-                    onProfileClick = { showAccountSheet = true },
-                    onBackToPonto = onClose,
-                )
-            }
-
-            item("overview") {
-                ManagementOverviewCard(
-                    activeRules = reliability.rules.count { it.ativo },
-                    totalRules = reliability.rules.size,
-                    durationSummary = durationSummary,
-                    faceModelReady = reliabilityViewModel.faceModelReady,
-                    responsive = responsive,
-                )
-            }
-
             item("feedback") {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
@@ -397,142 +406,9 @@ fun AdminManagementScreenV3(
             }
         }
     }
-}
-
-@Composable
-private fun ManagementOverviewCard(
-    activeRules: Int,
-    totalRules: Int,
-    durationSummary: String,
-    faceModelReady: Boolean,
-    responsive: PontoCafeResponsiveInfo,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(0.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-                Text(
-                    "Central de gestão",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Configuração operacional, segurança e saúde do sistema em um só lugar.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            val statusCells: @Composable RowScope.() -> Unit = {
-                ManagementStatusCell(
-                    value = if (totalRules == 0) "—" else "$activeRules/$totalRules",
-                    label = "Períodos ativos",
-                    positive = totalRules > 0 && activeRules == totalRules,
-                    modifier = Modifier.weight(1f),
-                )
-                ManagementStatusCell(
-                    value = if (faceModelReady) "Pronta" else "Atenção",
-                    label = "Biometria local",
-                    positive = faceModelReady,
-                    modifier = Modifier.weight(1f),
-                )
-                ManagementStatusCell(
-                    value = durationSummary,
-                    label = "Tempo configurado",
-                    positive = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            if (responsive.usesLargeText) {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    ManagementStatusCell(
-                        value = if (totalRules == 0) "—" else "$activeRules/$totalRules",
-                        label = "Períodos ativos",
-                        positive = totalRules > 0 && activeRules == totalRules,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    ManagementStatusCell(
-                        value = if (faceModelReady) "Pronta" else "Atenção",
-                        label = "Biometria local",
-                        positive = faceModelReady,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    ManagementStatusCell(
-                        value = durationSummary,
-                        label = "Tempo configurado",
-                        positive = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            } else if (responsive.isCompact) {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        ManagementStatusCell(
-                            value = if (totalRules == 0) "—" else "$activeRules/$totalRules",
-                            label = "Períodos ativos",
-                            positive = totalRules > 0 && activeRules == totalRules,
-                            modifier = Modifier.weight(1f),
-                        )
-                        ManagementStatusCell(
-                            value = if (faceModelReady) "Pronta" else "Atenção",
-                            label = "Biometria local",
-                            positive = faceModelReady,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    ManagementStatusCell(
-                        value = durationSummary,
-                        label = "Tempo configurado",
-                        positive = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    statusCells()
-                }
-            }
-        }
     }
 }
 
-@Composable
-private fun ManagementStatusCell(
-    value: String,
-    label: String,
-    positive: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val tone = if (positive) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
-        ) {
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            StatusPill(label, tone)
-        }
-    }
-}
 
 @Composable
 private fun ManagementSectionHeader(

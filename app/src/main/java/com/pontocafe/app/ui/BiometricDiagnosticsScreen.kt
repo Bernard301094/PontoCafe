@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -125,13 +126,27 @@ fun BiometricDiagnosticsScreen(
         }
         .sortedBy { it.nome.lowercase() }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(title = "Biometria", eyebrow = "Precisão e governança", onBack = onBack)
+            Text(
+                if (summary != null) {
+                    "${summary.biometriaCadastrada} cadastrado(s) · ${summary.biometriaPendente} pendente(s)"
+                } else {
+                    "Cobertura e calibração do reconhecimento facial"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 880.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding(),
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
@@ -141,14 +156,6 @@ fun BiometricDiagnosticsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item("header") {
-                    PontoCafeScreenHeader(
-                        title = "Biometria",
-                        eyebrow = "Precisão e governança",
-                        onBack = onBack,
-                    )
-                }
-
                 item("feedback") { ReliabilityFeedback(viewModel) }
 
                 if (summary != null) {
@@ -400,12 +407,15 @@ fun BiometricDiagnosticsScreen(
                     }
                 } else {
                     items(candidates, key = { "cal-${it.id}" }) { collaborator ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val pressScale = rememberPcPressScale(interactionSource)
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().animateItem().pcPressScale(pressScale),
                             onClick = {
                                 selected = collaborator
                                 cameraOpen = true
                             },
+                            interactionSource = interactionSource,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                             shape = MaterialTheme.shapes.large,
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -472,6 +482,7 @@ fun BiometricDiagnosticsScreen(
                     .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
             )
         }
+    }
     }
 }
 

@@ -263,7 +263,6 @@ fun SupervisorPeopleScreenV3(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
     ) {
@@ -310,6 +309,24 @@ fun SupervisorPeopleScreenV3(
             )
         }
 
+        PcHeroPage(
+            heroContent = {
+                PcHeroZoneTopBar(
+                    title = "Pessoas",
+                    eyebrow = accountProfileLabel,
+                    account = activeAccount,
+                    fallbackName = accountFallbackName,
+                    onProfileClick = { showAccountSheet = true },
+                    onBackToPonto = onClose,
+                )
+                if (!compactHeight) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcHeroStat(value = "${all.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
+                        PcHeroStat(value = "$pending", label = "Rosto pendente", modifier = Modifier.weight(1f))
+                    }
+                }
+            },
+        ) {
         // Mesmo limite do dashboard -- em telas muito largas o conteúdo
         // mestre-detalhe não deve esticar até a borda.
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -324,22 +341,6 @@ fun SupervisorPeopleScreenV3(
                     .padding(horizontal = pagePadding),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                PcAreaTopBar(
-                    title = "Pessoas",
-                    eyebrow = accountProfileLabel,
-                    account = activeAccount,
-                    fallbackName = accountFallbackName,
-                    onProfileClick = { showAccountSheet = true },
-                    onBackToPonto = onClose,
-                )
-
-                if (!compactHeight) {
-                    PeopleCompactSummary(
-                        total = all.size,
-                        pending = pending,
-                    )
-                }
-
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     state.mensagem?.let { message ->
                         PcStateBanner(
@@ -415,6 +416,7 @@ fun SupervisorPeopleScreenV3(
                                         onClick = { selectedPersonId = person.id },
                                         onSelected = {},
                                         onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                        modifier = Modifier.animateItem(),
                                     )
                                 }
                             }
@@ -458,6 +460,7 @@ fun SupervisorPeopleScreenV3(
                                     onClick = { selectedPersonId = person.id },
                                     onSelected = {},
                                     onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                    modifier = Modifier.animateItem(),
                                 )
                             }
                         }
@@ -474,6 +477,7 @@ fun SupervisorPeopleScreenV3(
                 text = { Text("Novo colaborador") },
                 expanded = true,
             )
+        }
         }
         }
     }

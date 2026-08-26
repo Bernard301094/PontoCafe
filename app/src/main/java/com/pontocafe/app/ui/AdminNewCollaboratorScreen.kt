@@ -87,6 +87,24 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
         else -> "Tudo pronto. O próximo passo será o cadastro facial."
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Novo colaborador",
+                eyebrow = "Administrador",
+                onBack = {
+                    draftState.reset()
+                    viewModel.voltarColaboradores()
+                },
+                backLabel = "Pessoas",
+            )
+            Text(
+                "Cadastro para reconhecimento facial no modo Ponto",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
         Scaffold(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -108,7 +126,6 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .imePadding()
                     .padding(innerPadding),
                 contentPadding = PaddingValues(
@@ -119,18 +136,6 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
-                item("header") {
-                    PontoCafeScreenHeader(
-                        title = "Novo colaborador",
-                        eyebrow = "Administrador",
-                        onBack = {
-                            draftState.reset()
-                            viewModel.voltarColaboradores()
-                        },
-                        backLabel = "Pessoas",
-                    )
-                }
-
                 item("context") {
                     PcHeroCard(
                         title = "Cadastro para o modo Ponto",
@@ -246,6 +251,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                 }
             }
         }
+    }
     }
 }
 

@@ -141,7 +141,11 @@ data class PontoCafeSemanticColors(
     val onCriticalContainer: Color,
 )
 
-private val DarkSemanticColors = PontoCafeSemanticColors(
+// Visível no módulo (não privada) porque o kiosco (FaceKioskScreen/PontoFlowHost/
+// KioskFaceGuide) força fundo escuro sempre, independente do tema do sistema --
+// ele precisa dos valores fixos de "escuro", não do CompositionLocal que segue
+// o tema ambiente.
+internal val DarkSemanticColors = PontoCafeSemanticColors(
     success = Color(0xFF72DCBC),
     successContainer = Color(0xFF164D40),
     onSuccessContainer = Color(0xFFB0F2DD),

@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -310,10 +311,13 @@ internal fun PeoplePersonCard(
         !person.rostoCadastrado -> semantic.warning.copy(alpha = .28f)
         else -> MaterialTheme.colorScheme.outlineVariant
     }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
 
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .pcPressScale(pressScale)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 stateDescription = buildString {
@@ -322,6 +326,7 @@ internal fun PeoplePersonCard(
                 }
             },
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {

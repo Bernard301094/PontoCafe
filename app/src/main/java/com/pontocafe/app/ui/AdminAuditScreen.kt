@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -137,13 +138,29 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
         filtered.groupBy { it.criadoLocal.substringBefore(' ').ifBlank { "Sem data" } }
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Auditoria e segurança",
+                onBack = viewModel::voltarHome,
+                backLabel = "Painel",
+                eyebrow = "Administrador",
+            )
+            Text(
+                "Rastreabilidade operacional",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            PcHeroStat(value = "${filtered.size}", label = "Evento(s) encontrado(s)")
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding(),
             contentPadding = PaddingValues(
                 start = responsive.pagePadding,
@@ -153,24 +170,6 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
         ) {
-            item(key = "header") {
-                PontoCafeScreenHeader(
-                    title = "Auditoria e segurança",
-                    onBack = viewModel::voltarHome,
-                    backLabel = "Painel",
-                    eyebrow = "Administrador",
-                )
-            }
-
-            item(key = "hero") {
-                PcHeroCard(
-                    title = "Rastreabilidade operacional",
-                    supportingText = "Pesquise ações administrativas, filtre por área ou escolha uma data para investigar o que aconteceu.",
-                    icon = Icons.Default.Security,
-                    tone = PontoCafeTone.INFO,
-                )
-            }
-
             item(key = "feedback") { AdminFeedback(viewModel) }
 
             item(key = "search") {
@@ -249,11 +248,15 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
 
             item(key = "summary") {
                 PcStateBanner(
-                    title = "${filtered.size} evento(s) encontrado(s)",
+                    title = when {
+                        selectedDate != null -> "Filtrado por data"
+                        query.isNotBlank() || category != AuditCategory.ALL -> "Filtros ativos"
+                        else -> "Eventos recentes"
+                    },
                     supportingText = when {
                         selectedDate != null -> "Exibindo somente $selectedDate. Toque em qualquer evento para abrir todos os detalhes."
-                        query.isNotBlank() || category != AuditCategory.ALL -> "Filtros ativos. Toque em qualquer evento para abrir todos os detalhes."
-                        else -> "Eventos recentes agrupados por data."
+                        query.isNotBlank() || category != AuditCategory.ALL -> "Toque em qualquer evento para abrir todos os detalhes."
+                        else -> "Agrupados por data. Toque em qualquer evento para abrir todos os detalhes."
                     },
                     tone = PontoCafeTone.NEUTRAL,
                 )
@@ -290,7 +293,11 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                     )
                 }
                 items(events, key = { "audit-${it.id}" }) { event ->
-                    AuditEventCard(event = event, onClick = { selectedEvent = event })
+                    AuditEventCard(
+                        event = event,
+                        onClick = { selectedEvent = event },
+                        modifier = Modifier.animateItem(),
+                    )
                 }
             }
             }
@@ -304,20 +311,25 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
             )
         }
     }
+    }
 }
 
 @Composable
-private fun AuditEventCard(event: AuditEvent, onClick: () -> Unit) {
+private fun AuditEventCard(event: AuditEvent, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val icon = auditActionIcon(event.acao)
     val tone = auditActionTone(event.acao)
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .pcPressScale(pressScale)
             .semantics {
                 stateDescription = "${auditActionLabel(event.acao)}. ${auditCategory(event).label}. ${event.criadoLocal}"
             },
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = MaterialTheme.shapes.large,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

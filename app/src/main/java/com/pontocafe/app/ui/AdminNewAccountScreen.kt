@@ -44,11 +44,28 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
         if (state.erro != null) draftState.markServerFailure()
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Nova conta de acesso",
+                eyebrow = "Administrador",
+                onBack = {
+                    draftState.reset()
+                    viewModel.voltarHome()
+                },
+                backLabel = "Painel",
+            )
+            Text(
+                "Contas de Supervisor e Administrador, separadas do cadastro facial",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 760.dp) { responsive ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
             contentPadding = PaddingValues(
@@ -59,18 +76,6 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            item("header") {
-                PontoCafeScreenHeader(
-                    title = "Nova conta de acesso",
-                    eyebrow = "Administrador",
-                    onBack = {
-                        draftState.reset()
-                        viewModel.voltarHome()
-                    },
-                    backLabel = "Painel",
-                )
-            }
-
             item("context") { AccountAccessContextCard() }
 
             item("form") {
@@ -89,6 +94,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
 
             item("feedback") { AdminFeedback(viewModel) }
         }
+    }
     }
 }
 

@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -202,13 +203,34 @@ fun AdminDevicesScreenV2(
         )
     }
 
+    val devicesHealthy = state.health?.let { it.status == "ok" && it.banco == "ok" } == true
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Dispositivos",
+                onBack = onBack,
+                backLabel = "Gestão",
+                eyebrow = "Segurança do Ponto",
+            )
+            Text(
+                if (devicesHealthy) "Dispositivos protegidos" else "Verifique a conexão do sistema",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcHeroStat(value = "${state.dispositivos.count { it.ativo }}", label = "Ativos", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "${state.dispositivos.count { it.alertaSaude }}", label = "Com alerta", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "${state.dispositivos.count { !it.pinConfigurado }}", label = "Sem PIN", modifier = Modifier.weight(1f))
+            }
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 920.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding()
                     .imePadding(),
                 contentPadding = PaddingValues(
@@ -219,17 +241,6 @@ fun AdminDevicesScreenV2(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item(key = "header") {
-                    PontoCafeScreenHeader(
-                        title = "Dispositivos",
-                        onBack = onBack,
-                        backLabel = "Gestão",
-                        eyebrow = "Segurança do Ponto",
-                    )
-                }
-
-                item(key = "health") { DeviceHealthOverviewV2(viewModel) }
-
                 state.mensagem?.let { message ->
                     item(key = "message") {
                         PcStateBanner(
@@ -450,6 +461,7 @@ fun AdminDevicesScreenV2(
                             viewModel = viewModel,
                             device = device,
                             activationToken = activationTokens[device.id],
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -464,22 +476,7 @@ fun AdminDevicesScreenV2(
             )
         }
     }
-}
-
-@Composable
-private fun DeviceHealthOverviewV2(viewModel: AdminDeviceViewModel) {
-    val state = viewModel.state
-    val healthy = state.health?.let { it.status == "ok" && it.banco == "ok" } == true
-
-    PcHeroCard(
-        title = if (healthy) "Dispositivos protegidos" else "Verifique a conexão do sistema",
-        supportingText = buildString {
-            append("App ${BuildConfig.VERSION_NAME} · servidor ${if (healthy) "online" else "sem confirmação"}")
-            state.appStatus?.let { append(" · versão atual ${it.latestAndroidVersion}") }
-        },
-        icon = if (healthy) Icons.Default.Security else Icons.Default.Devices,
-        tone = if (healthy) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-    )
+    }
 }
 
 @Composable
@@ -487,6 +484,7 @@ private fun DeviceCardV2(
     viewModel: AdminDeviceViewModel,
     device: AdminDevice,
     activationToken: String?,
+    modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
     var expanded by remember(device.id) { mutableStateOf(false) }
@@ -639,7 +637,7 @@ private fun DeviceCardV2(
     }
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .semantics { stateDescription = statusLabel },
         colors = CardDefaults.cardColors(

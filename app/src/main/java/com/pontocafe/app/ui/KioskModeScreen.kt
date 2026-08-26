@@ -58,13 +58,26 @@ fun KioskModeScreen(
         }
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Modo terminal",
+                eyebrow = "Este dispositivo",
+                onBack = onBack,
+            )
+            Text(
+                if (settings.enabled) "Terminal dedicado ativo" else "Modo terminal desativado",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 840.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding(),
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
@@ -74,14 +87,6 @@ fun KioskModeScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item("header") {
-                    PontoCafeScreenHeader(
-                        title = "Modo terminal",
-                        eyebrow = "Este dispositivo",
-                        onBack = onBack,
-                    )
-                }
-
                 item("hero") {
                     PcHeroCard(
                         title = if (settings.enabled) "Terminal dedicado ativo" else "Modo terminal desativado",
@@ -219,6 +224,7 @@ fun KioskModeScreen(
                     .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
             )
         }
+    }
     }
 }
 

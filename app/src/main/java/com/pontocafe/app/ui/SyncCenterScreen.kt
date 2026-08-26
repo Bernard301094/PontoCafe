@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import java.time.Instant
@@ -48,13 +49,27 @@ fun SyncCenterScreen(
         if (snapshot == null) viewModel.openSyncCenter()
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(title = "Sincronização", eyebrow = "Modo offline", onBack = onBack)
+            Text(
+                "Acompanhe o que falta chegar ao servidor",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcHeroStat(value = snapshot?.pending?.size?.toString() ?: "—", label = "Pendentes", modifier = Modifier.weight(1f))
+                PcHeroStat(value = snapshot?.failures?.size?.toString() ?: "—", label = "Com atenção", modifier = Modifier.weight(1f))
+            }
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 840.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding(),
                 contentPadding = PaddingValues(
                     start = responsive.pagePadding,
@@ -64,64 +79,7 @@ fun SyncCenterScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item("header") {
-                    PontoCafeScreenHeader(
-                        title = "Sincronização",
-                        eyebrow = "Modo offline",
-                        onBack = onBack,
-                    )
-                }
-
                 item("feedback") { ReliabilityFeedback(viewModel) }
-
-                item("summary-title") {
-                    SectionTitle(
-                        "Resumo local",
-                        "Acompanhe o que ainda precisa chegar ao servidor sem perder os registros feitos offline.",
-                    )
-                }
-
-                item("summary") {
-                    if (responsive.isNarrow || responsive.usesLargeText) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                        ) {
-                            PcMetricTile(
-                                value = snapshot?.pending?.size?.toString() ?: "—",
-                                label = "Pendentes",
-                                icon = Icons.Default.Refresh,
-                                modifier = Modifier.fillMaxWidth(),
-                                attention = (snapshot?.pending?.size ?: 0) > 0,
-                            )
-                            PcMetricTile(
-                                value = snapshot?.failures?.size?.toString() ?: "—",
-                                label = "Com atenção",
-                                icon = Icons.Default.Warning,
-                                modifier = Modifier.fillMaxWidth(),
-                                attention = (snapshot?.failures?.size ?: 0) > 0,
-                            )
-                        }
-                    } else Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                    ) {
-                        PcMetricTile(
-                            value = snapshot?.pending?.size?.toString() ?: "—",
-                            label = "Pendentes",
-                            icon = Icons.Default.Refresh,
-                            modifier = Modifier.weight(1f),
-                            attention = (snapshot?.pending?.size ?: 0) > 0,
-                        )
-                        PcMetricTile(
-                            value = snapshot?.failures?.size?.toString() ?: "—",
-                            label = "Com atenção",
-                            icon = Icons.Default.Warning,
-                            modifier = Modifier.weight(1f),
-                            attention = (snapshot?.failures?.size ?: 0) > 0,
-                        )
-                    }
-                }
 
                 item("status") {
                     PcKeyValueCard(
@@ -209,6 +167,7 @@ fun SyncCenterScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .animateItem()
                                 .semantics {
                                     stateDescription = if (failure == null) {
                                         "Registro aguardando sincronização"
@@ -286,6 +245,7 @@ fun SyncCenterScreen(
                     .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
             )
         }
+    }
     }
 }
 

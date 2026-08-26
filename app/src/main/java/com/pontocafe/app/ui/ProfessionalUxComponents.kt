@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.StopCircle
@@ -178,7 +179,9 @@ fun PcHeroPage(
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             color = MaterialTheme.colorScheme.background,
         ) {
-            Box(modifier = Modifier.fillMaxSize()) { sheetContent() }
+            Box(modifier = Modifier.fillMaxSize()) {
+                MotionReveal { sheetContent() }
+            }
         }
     }
 }
@@ -243,6 +246,55 @@ fun PcHeroZoneTopBar(
     }
 }
 
+/**
+ * Variante de PontoCafeScreenHeader para a zona colorida de PcHeroPage --
+ * telas secundárias (com botão "voltar" em vez do seletor Ponto/conta) usam
+ * esta em vez de PcHeroZoneTopBar.
+ */
+@Composable
+fun PcHeroZoneScreenHeader(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    backLabel: String = "Voltar",
+    eyebrow: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    val onColor = MaterialTheme.colorScheme.onPrimary
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+    ) {
+        if (onBack != null) {
+            Surface(
+                modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
+                shape = CircleShape,
+                color = onColor.copy(alpha = 0.16f),
+                contentColor = onColor,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = backLabel,
+                    )
+                }
+            }
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (!eyebrow.isNullOrBlank()) {
+                Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelMedium, color = onColor.copy(alpha = 0.78f), fontWeight = FontWeight.SemiBold)
+            }
+            Text(
+                title,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+                color = onColor,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
 /** Um número da tira de estatísticas na zona colorida -- texto puro, sem cartão. */
 @Composable
 fun PcHeroStat(
@@ -252,7 +304,7 @@ fun PcHeroStat(
     tint: Color = MaterialTheme.colorScheme.onPrimary,
 ) {
     Column(modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" }) {
-        Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = tint)
+        Text(animatedMetricValue(value), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = tint)
         Text(label, style = MaterialTheme.typography.bodySmall, color = tint.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

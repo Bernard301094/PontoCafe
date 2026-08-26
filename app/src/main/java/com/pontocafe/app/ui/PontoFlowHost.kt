@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import com.pontocafe.app.haptics.PontoHaptics
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -63,6 +67,7 @@ import java.time.ZonedDateTime
 import kotlinx.coroutines.delay
 
 private const val POINT_RECEIPT_VISIBLE_MILLIS = 3_000L
+private const val POINT_GREETING_VISIBLE_MILLIS = 450L
 private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 private const val USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L
 private val PONTO_TIMEZONE: ZoneId = ZoneId.of("America/Fortaleza")
@@ -325,7 +330,7 @@ private fun FastPointBlockedOverlay(
         PointBlockReason.OUTSIDE_WINDOW -> "Solicite uma liberação ao Supervisor quando aplicável."
         PointBlockReason.GENERIC -> "Nenhum novo ponto foi registrado."
     }
-    val accent = if (reason == PointBlockReason.GENERIC) Color(0xFFFFB4AB) else Color(0xFFFFC867)
+    val accent = if (reason == PointBlockReason.GENERIC) DarkSemanticColors.critical else DarkSemanticColors.warning
     val backdrop = if (reason == PointBlockReason.GENERIC) Color(0xFF180807) else Color(0xFF160B08)
 
     LaunchedEffect(nome, mensagemExibida, reason) {
@@ -476,6 +481,13 @@ private fun FastPointReceiptOverlay(
     val start = comprovante.tipo == TipoComprovantePonto.INICIO
     val warning = !start && comprovante.excedeuLimite
     val offline = comprovante.pendenteSincronizacao
+    var showGreeting by remember { mutableStateOf(true) }
+
+    LaunchedEffect(comprovante) {
+        showGreeting = true
+        delay(POINT_GREETING_VISIBLE_MILLIS)
+        showGreeting = false
+    }
 
     LaunchedEffect(comprovante) {
         if (warning) PontoHaptics.warning(view.context) else PontoHaptics.success(view.context)
@@ -492,9 +504,9 @@ private fun FastPointReceiptOverlay(
     }
 
     val accent = when {
-        warning -> Color(0xFFFFC867)
-        offline -> Color(0xFFA5CDFF)
-        else -> Color(0xFF72DCBC)
+        warning -> DarkSemanticColors.warning
+        offline -> DarkSemanticColors.info
+        else -> DarkSemanticColors.success
     }
     val background = when {
         warning -> Color(0xFF160B08)
@@ -540,120 +552,145 @@ private fun FastPointReceiptOverlay(
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
                 shadowElevation = 10.dp,
             ) {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(
-                            horizontal = if (compactFeedback) 16.dp else 24.dp,
-                            vertical = if (compactFeedback) 16.dp else 26.dp,
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
-                        shape = CircleShape,
-                        color = accent.copy(alpha = 0.13f),
-                        border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = primaryIcon,
-                                contentDescription = null,
-                                modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
-                                tint = accent,
+                Crossfade(targetState = showGreeting, label = "kiosk-receipt-phase") { greeting ->
+                    if (greeting) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = if (compactFeedback) 28.dp else 48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = "Olá,",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White.copy(alpha = 0.70f),
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = comprovante.nome.substringBefore(' '),
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
                             )
                         }
-                    }
-
-                    Text(
-                        text = title,
-                        modifier = Modifier.semantics { heading() },
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    Text(
-                        text = comprovante.nome,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = Color.White.copy(alpha = 0.055f),
-                    ) {
-                        Text(
-                            text = detail,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center,
-                            color = Color.White.copy(alpha = 0.86f),
-                        )
-                    }
-
-                    when {
-                        offline -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(
+                                    horizontal = if (compactFeedback) 16.dp else 24.dp,
+                                    vertical = if (compactFeedback) 16.dp else 26.dp,
+                                ),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
+                                shape = CircleShape,
+                                color = accent.copy(alpha = 0.13f),
+                                border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
                             ) {
-                                Icon(
-                                    Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = accent,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = primaryIcon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
+                                        tint = accent,
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = title,
+                                modifier = Modifier.semantics { heading() },
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+
+                            Text(
+                                text = comprovante.nome,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                            )
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(18.dp),
+                                color = Color.White.copy(alpha = 0.055f),
+                            ) {
                                 Text(
-                                    "Salvo com segurança neste aparelho · sincronização automática pendente",
-                                    modifier = Modifier.weight(1f),
-                                    color = Color.White.copy(alpha = 0.78f),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = detail,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    textAlign = TextAlign.Center,
+                                    color = Color.White.copy(alpha = 0.86f),
                                 )
                             }
-                        }
 
-                        warning -> {
+                            when {
+                                offline -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CloudDone,
+                                            contentDescription = null,
+                                            tint = accent,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Text(
+                                            "Salvo com segurança neste aparelho · sincronização automática pendente",
+                                            modifier = Modifier.weight(1f),
+                                            color = Color.White.copy(alpha = 0.78f),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                    }
+                                }
+
+                                warning -> {
+                                    Text(
+                                        "Registro confirmado · limite excedido",
+                                        color = accent,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+
+                                comprovante.foraHorario -> {
+                                    Text(
+                                        "Registro validado pelo fluxo autorizado",
+                                        color = accent,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+
+                                else -> {
+                                    Text(
+                                        "Registro confirmado",
+                                        color = accent,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+
                             Text(
-                                "Registro confirmado · limite excedido",
-                                color = accent,
+                                "Próxima pessoa em instantes",
+                                modifier = Modifier.padding(top = 4.dp),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-
-                        comprovante.foraHorario -> {
-                            Text(
-                                "Registro validado pelo fluxo autorizado",
-                                color = accent,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-
-                        else -> {
-                            Text(
-                                "Registro confirmado",
-                                color = accent,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White.copy(alpha = 0.68f),
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
-
-                    Text(
-                        "Próxima pessoa em instantes",
-                        modifier = Modifier.padding(top = 4.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White.copy(alpha = 0.68f),
-                        textAlign = TextAlign.Center,
-                    )
                 }
             }
         }

@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -338,7 +339,6 @@ fun AdminPeopleScreenV4(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
     ) {
@@ -393,6 +393,25 @@ fun AdminPeopleScreenV4(
             )
         }
 
+        PcHeroPage(
+            heroContent = {
+                PcHeroZoneTopBar(
+                    title = "Pessoas",
+                    eyebrow = "Administrador",
+                    account = activeAccount,
+                    fallbackName = adminDisplayName,
+                    onProfileClick = { showAccountSheet = true },
+                    onBackToPonto = onClose,
+                )
+                if (!compactHeight) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcHeroStat(value = "${allCollaborators.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
+                        PcHeroStat(value = "$pendingFaces", label = "Rosto pendente", modifier = Modifier.weight(1f))
+                        PcHeroStat(value = "${state.usuarios.size}", label = "Acessos", modifier = Modifier.weight(1f))
+                    }
+                }
+            },
+        ) {
         // Em telas muito largas (desktop-like/tablet grande), o conteúdo
         // mestre-detalhe não deve simplesmente esticar até a borda -- mesmo
         // limite usado no dashboard, para manter linhas de texto e o painel
@@ -409,30 +428,8 @@ fun AdminPeopleScreenV4(
                     .padding(horizontal = pagePadding),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                PcAreaTopBar(
-                    title = "Pessoas",
-                    eyebrow = "Administrador",
-                    account = activeAccount,
-                    fallbackName = adminDisplayName,
-                    onProfileClick = { showAccountSheet = true },
-                    onBackToPonto = onClose,
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                ) {
-                    if (!compactHeight) {
-                        PeopleCompactSummary(
-                            total = allCollaborators.size,
-                            pending = pendingFaces,
-                            accessCount = state.usuarios.size,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    if (section == AdminPeopleSection.COLLABORATORS) {
+                if (section == AdminPeopleSection.COLLABORATORS) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Box {
                             IconButton(onClick = { showToolsMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "Mais ações")
@@ -624,6 +621,7 @@ fun AdminPeopleScreenV4(
                                                 selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
                                             },
                                             onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                            modifier = Modifier.animateItem(),
                                         )
                                     }
                                 }
@@ -686,6 +684,7 @@ fun AdminPeopleScreenV4(
                                             selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
                                         },
                                         onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                        modifier = Modifier.animateItem(),
                                     )
                                 }
                             }
@@ -709,9 +708,12 @@ fun AdminPeopleScreenV4(
                             }
                         } else {
                             items(accounts, key = { "access-v5-${it.id}" }) { user ->
+                                val interactionSource = remember { MutableInteractionSource() }
+                                val pressScale = rememberPcPressScale(interactionSource)
                                 Card(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().animateItem().pcPressScale(pressScale),
                                     onClick = { viewModel.selecionarUsuario(user) },
+                                    interactionSource = interactionSource,
                                     shape = MaterialTheme.shapes.large,
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -788,6 +790,7 @@ fun AdminPeopleScreenV4(
                     },
                 )
             }
+        }
         }
         }
     }

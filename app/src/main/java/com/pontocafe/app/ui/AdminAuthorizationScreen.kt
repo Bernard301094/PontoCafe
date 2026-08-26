@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -145,11 +146,29 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
         )
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Autorizar pausa",
+                onBack = viewModel::voltarHome,
+                backLabel = "Painel",
+                eyebrow = "Fora do horário",
+            )
+            Text(
+                when {
+                    state.authorizationId != null -> "Autorização concedida"
+                    selecionado == null -> "Passo 1 de 2 · Escolha o colaborador"
+                    else -> "Passo 2 de 2 · Informe o motivo"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 840.dp) { responsive ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
@@ -164,15 +183,6 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item(key = "header") {
-                    PontoCafeScreenHeader(
-                        title = "Autorizar pausa",
-                        onBack = viewModel::voltarHome,
-                        backLabel = "Painel",
-                        eyebrow = "Fora do horário",
-                    )
-                }
-
                 item(key = "context") {
                     PcHeroCard(
                         title = "Autorização direta e temporária",
@@ -266,13 +276,15 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             }
                         } else {
                             items(filtrados, key = { "authorization-${it.id}" }) { colaborador ->
-                                CollaboratorAuthorizationRow(
-                                    collaborator = colaborador,
-                                    onClick = {
-                                        selecionado = colaborador
-                                        busca = ""
-                                    },
-                                )
+                                Box(modifier = Modifier.animateItem()) {
+                                    CollaboratorAuthorizationRow(
+                                        collaborator = colaborador,
+                                        onClick = {
+                                            selecionado = colaborador
+                                            busca = ""
+                                        },
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -374,6 +386,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
             )
         }
     }
+    }
 }
 
 @Composable
@@ -443,9 +456,12 @@ private fun CollaboratorAuthorizationRow(
     collaborator: Colaborador,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().pcPressScale(pressScale),
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),

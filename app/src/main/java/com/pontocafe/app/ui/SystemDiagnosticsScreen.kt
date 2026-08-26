@@ -233,7 +233,7 @@ fun SystemDiagnosticsScreen(
                             items = fleetState.dispositivos.orEmpty(),
                             key = { "fleet-${it.id}" },
                         ) { device ->
-                            FleetDeviceCard(device)
+                            FleetDeviceCard(device, modifier = Modifier.animateItem())
                         }
                     }
 
@@ -363,7 +363,7 @@ private fun MetricGrid(
 }
 
 @Composable
-private fun FleetDeviceCard(device: DiagnosticFleetDevice) {
+private fun FleetDeviceCard(device: DiagnosticFleetDevice, modifier: Modifier = Modifier) {
     val telemetryRecent = isRemoteTimeRecent(device.telemetriaEm)
     val statusLabel = when {
         device.alertaSaude -> "Requer atenção"
@@ -376,7 +376,7 @@ private fun FleetDeviceCard(device: DiagnosticFleetDevice) {
         device.desatualizado || !telemetryRecent -> PontoCafeTone.WARNING
         else -> PontoCafeTone.SUCCESS
     }
-    PcSectionSurface {
+    PcSectionSurface(modifier = modifier) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),

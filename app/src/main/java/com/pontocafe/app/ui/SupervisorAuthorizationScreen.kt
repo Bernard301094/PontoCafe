@@ -1,6 +1,7 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -190,11 +191,29 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         )
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Liberações fora do horário",
+                onBack = viewModel::voltarAoVivo,
+                backLabel = "Ao vivo",
+                eyebrow = "Supervisor",
+            )
+            Text(
+                when {
+                    liberacaoAtiva -> "Pausa liberada"
+                    selecionado == null -> "Passo 1 de 2 · Escolha o colaborador"
+                    else -> "Passo 2 de 2 · Informe o motivo"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 900.dp) { responsive ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
@@ -210,15 +229,6 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            item(key = "header") {
-                PontoCafeScreenHeader(
-                    title = "Liberações fora do horário",
-                    onBack = viewModel::voltarAoVivo,
-                    backLabel = "Ao vivo",
-                    eyebrow = "Supervisor",
-                )
-            }
-
             item(key = "context") {
                 AuthorizationContextCard()
             }
@@ -323,6 +333,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                                 motivoRapido = null
                                 outroMotivo = ""
                             },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -455,6 +466,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             }
         }
         }
+    }
     }
 }
 
@@ -636,10 +648,14 @@ private fun AuthorizationStepHeader(
 private fun AuthorizationEmployeeRow(
     collaborator: Colaborador,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().pcPressScale(pressScale),
         onClick = onClick,
+        interactionSource = interactionSource,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

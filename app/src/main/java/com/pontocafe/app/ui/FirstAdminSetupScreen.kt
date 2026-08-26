@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,24 +72,31 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
         }
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneScreenHeader(
+                title = "Primeiro administrador",
+                onBack = onClose,
+                backLabel = "Ponto Café",
+                eyebrow = "Configuração inicial",
+            )
+            Text(
+                if (step == 0) "Etapa 1 de 2 · Crie a conta principal" else "Etapa 2 de 2 · Proteja a instalação",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+            )
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.formContentWidth) { responsive ->
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
     ) {
-        PontoCafeScreenHeader(
-            title = "Primeiro administrador",
-            onBack = onClose,
-            backLabel = "Ponto Café",
-            eyebrow = "Configuração inicial",
-        )
-
         PcHeroCard(
             title = if (step == 0) "Crie a conta principal" else "Proteja a instalação",
             supportingText = if (step == 0) {
@@ -226,6 +234,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.carregando,
         )
+    }
     }
     }
 }

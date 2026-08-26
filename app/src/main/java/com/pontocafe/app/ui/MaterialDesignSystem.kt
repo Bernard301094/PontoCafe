@@ -510,7 +510,7 @@ fun PcDangerButton(
 }
 
 @Composable
-private fun rememberPcPressScale(interactionSource: MutableInteractionSource): Float {
+internal fun rememberPcPressScale(interactionSource: MutableInteractionSource): Float {
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.975f else 1f,
@@ -523,7 +523,7 @@ private fun rememberPcPressScale(interactionSource: MutableInteractionSource): F
     return scale
 }
 
-private fun Modifier.pcPressScale(scale: Float): Modifier = graphicsLayer {
+internal fun Modifier.pcPressScale(scale: Float): Modifier = graphicsLayer {
     scaleX = scale
     scaleY = scale
 }

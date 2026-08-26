@@ -92,6 +92,12 @@ import com.pontocafe.app.voice.PontoVoiceRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private val KIOSK_ZONE: ZoneId = ZoneId.of("America/Fortaleza")
 
 private enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
@@ -140,6 +146,10 @@ fun FaceKioskScreen(
     val stableRecognitionFrames = remember { intArrayOf(0) }
     val blinkPendingFrames = remember { intArrayOf(0) }
     var activeFallback by remember { mutableStateOf(false) }
+    // Espelha stableChallengeFrames (um IntArray simples, não observável) para que
+    // o anel de progresso do KioskFaceGuide possa recompor sem alterar a máquina
+    // de estados de liveness em si.
+    var turnChallengeProgress by remember { mutableStateOf(0f) }
     var passiveAccepted by remember { mutableStateOf(false) }
     var challengeAdjustedForEyes by remember { mutableStateOf(false) }
     var challengeCompleted by remember { mutableStateOf(false) }
@@ -161,6 +171,7 @@ fun FaceKioskScreen(
         stableChallengeFrames[0] = 0
         stableRecognitionFrames[0] = 0
         blinkPendingFrames[0] = 0
+        turnChallengeProgress = 0f
         activeFallback = false
         passiveAccepted = false
         challengeAdjustedForEyes = false
@@ -284,6 +295,7 @@ fun FaceKioskScreen(
                                     turnChallengeContinuity.reset()
                                     stableChallengeFrames[0] = 0
                                     blinkPendingFrames[0] = 0
+                                    turnChallengeProgress = 0f
                                     livenessState = LivenessState.POSICIONE_ROSTO
                                 }
                                 PassivePresenceDecision.WAITING -> Unit
@@ -305,6 +317,7 @@ fun FaceKioskScreen(
                                     ).random()
                                     stableChallengeFrames[0] = 0
                                     blinkPendingFrames[0] = 0
+                                    turnChallengeProgress = 0f
                                     challengeAdjustedForEyes = true
                                     liveness.reset()
                                     livenessState = LivenessState.POSICIONE_ROSTO
@@ -325,6 +338,7 @@ fun FaceKioskScreen(
                                         turnChallengeContinuity.bind(observation)
                                         stableChallengeFrames[0] = 1
                                     }
+                                    turnChallengeProgress = stableChallengeFrames[0] / CHALLENGE_STABLE_FRAMES.toFloat()
                                     if (stableChallengeFrames[0] >= CHALLENGE_STABLE_FRAMES) {
                                         challengeCompleted = true
                                         stableRecognitionFrames[0] = 0
@@ -332,6 +346,7 @@ fun FaceKioskScreen(
                                     }
                                 } else {
                                     stableChallengeFrames[0] = 0
+                                    turnChallengeProgress = 0f
                                 }
                             }
                         } else if (challengeCompleted) {
@@ -403,19 +418,31 @@ fun FaceKioskScreen(
                 recognitionReady = recognitionReady,
                 guideWidth = guideWidth,
                 modifier = Modifier.align(Alignment.Center),
+                turnProgress = if (activeFallback && challenge != KioskLivenessChallenge.BLINK && !challengeCompleted) {
+                    turnChallengeProgress
+                } else {
+                    0f
+                },
             )
         }
 
-        KioskTopBar(
-            offline = state.modoOffline,
-            pendingEvents = state.eventosPendentes,
-            hasAdminSession = hasAdminSession,
-            hasSupervisorSession = hasSupervisorSession,
-            onAdmin = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN },
-            onSupervisor = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR },
-            onAccess = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN },
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            KioskTopBar(
+                offline = state.modoOffline,
+                pendingEvents = state.eventosPendentes,
+                hasAdminSession = hasAdminSession,
+                hasSupervisorSession = hasSupervisorSession,
+                onAdmin = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN },
+                onSupervisor = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR },
+                onAccess = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN },
+            )
+            KioskClock()
+        }
 
         val challengeInstruction = when {
             !activeFallback -> "Olhe para a câmera"
@@ -709,7 +736,7 @@ private fun KioskTopBar(
                     Icon(
                         imageVector = Icons.Default.Face,
                         contentDescription = null,
-                        tint = Color(0xFF72DCBC),
+                        tint = DarkSemanticColors.success,
                         modifier = Modifier.size(21.dp),
                     )
                 }
@@ -737,9 +764,9 @@ private fun KioskTopBar(
             Surface(
                 shape = CircleShape,
                 color = if (offline) {
-                    Color(0xFFFFC867).copy(alpha = 0.14f)
+                    DarkSemanticColors.warning.copy(alpha = 0.14f)
                 } else {
-                    Color(0xFF72DCBC).copy(alpha = 0.14f)
+                    DarkSemanticColors.success.copy(alpha = 0.14f)
                 },
             ) {
                 Row(
@@ -750,7 +777,7 @@ private fun KioskTopBar(
                     Icon(
                         imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
                         contentDescription = null,
-                        tint = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                        tint = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
                         modifier = Modifier.size(15.dp),
                     )
                     Text(
@@ -760,7 +787,7 @@ private fun KioskTopBar(
                             "Online"
                         },
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (offline) Color(0xFFFFC867) else Color(0xFF72DCBC),
+                        color = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
                     )
                 }
             }
@@ -797,6 +824,49 @@ private fun KioskTopBar(
 }
 
 @Composable
+private fun KioskClock(modifier: Modifier = Modifier) {
+    var now by remember { mutableStateOf(ZonedDateTime.now(KIOSK_ZONE)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = ZonedDateTime.now(KIOSK_ZONE)
+            delay(15_000L)
+        }
+    }
+    val time = remember(now.hour, now.minute) {
+        now.format(DateTimeFormatter.ofPattern("HH:mm"))
+    }
+    val date = remember(now.dayOfYear) {
+        now.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.forLanguageTag("pt-BR")))
+            .replaceFirstChar { it.uppercase() }
+    }
+
+    Surface(
+        modifier = modifier.padding(top = 8.dp),
+        color = Color(0xB3161B19),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                time,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            Text(
+                date,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.62f),
+            )
+        }
+    }
+}
+
+@Composable
 private fun KioskInstructionSheet(
     title: String,
     detail: String,
@@ -821,10 +891,10 @@ private fun KioskInstructionSheet(
     modifier: Modifier = Modifier,
 ) {
     val accent = when {
-        multipleFaces -> Color(0xFFFFB4AB)
-        ready -> Color(0xFF72DCBC)
-        noFace -> Color(0xFFFFC867)
-        loading -> Color(0xFFA5CDFF)
+        multipleFaces -> DarkSemanticColors.critical
+        ready -> DarkSemanticColors.success
+        noFace -> DarkSemanticColors.warning
+        loading -> DarkSemanticColors.info
         else -> Color.White
     }
 
@@ -937,8 +1007,8 @@ private fun KioskInstructionSheet(
                 )
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = Color(0xFF3A1D1A),
-                    contentColor = Color(0xFFFFDAD6),
+                    color = DarkSemanticColors.criticalContainer,
+                    contentColor = DarkSemanticColors.onCriticalContainer,
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
@@ -961,7 +1031,7 @@ private fun KioskInstructionSheet(
                                 message
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFFFDAD6).copy(alpha = 0.82f),
+                            color = DarkSemanticColors.onCriticalContainer.copy(alpha = 0.82f),
                         )
                     }
                 }

@@ -511,6 +511,7 @@ fun AdminHomeScreenV2(
                         HistoryPauseCard(
                             pause = pause,
                             onClick = { selectedHistoryPause = pause },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                     if (historyPauses.size > historyPreviewLimit) {
