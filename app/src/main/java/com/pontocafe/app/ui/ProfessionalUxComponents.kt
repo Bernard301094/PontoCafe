@@ -1,19 +1,24 @@
 package com.pontocafe.app.ui
 
+import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Science
@@ -24,10 +29,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -35,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import com.pontocafe.app.data.AdminTestPause
 import com.pontocafe.app.data.ReportDay
 import com.pontocafe.app.data.ReportSummary
@@ -114,6 +124,136 @@ fun PcAreaTopBar(
                 InitialAvatar(name = displayName, avatarSize = 34.dp)
             }
         }
+    }
+}
+
+/**
+ * Página com zona colorida fixa no topo (saudação, navegação, números-chave)
+ * e uma folha arredondada abaixo, rolável, com o resto do conteúdo -- o
+ * padrão de apps bancários (Nubank/Revolut) em vez de uma barra fina seguida
+ * de uma coluna plana de cartões. Reservada para as telas de maior tráfego
+ * (Início Admin/Supervisor); o restante do app continua em
+ * PontoCafeResponsivePage.
+ */
+@Composable
+fun PcHeroPage(
+    modifier: Modifier = Modifier,
+    heroContent: @Composable ColumnScope.() -> Unit,
+    sheetContent: @Composable () -> Unit,
+) {
+    // A zona colorida fica embaixo da barra de status -- sem isto, os ícones
+    // do sistema (relógio, bateria) herdam a cor clara/escura padrão do tema
+    // geral do app, que assume um fundo neutro no topo, não um primary saturado.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        DisposableEffect(view) {
+            val window = (view.context as? Activity)?.window
+            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+            val previous = controller?.isAppearanceLightStatusBars
+            controller?.isAppearanceLightStatusBars = false
+            onDispose {
+                if (previous != null) controller?.isAppearanceLightStatusBars = previous
+            }
+        }
+    }
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.86f),
+                        ),
+                    ),
+                )
+                .statusBarsPadding()
+                .padding(horizontal = PontoCafeSpacing.lg, vertical = PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+            content = heroContent,
+        )
+        Surface(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) { sheetContent() }
+        }
+    }
+}
+
+/**
+ * Variante de PcAreaTopBar para uso dentro da zona colorida de PcHeroPage --
+ * mesmo layout, mas com tons `onPrimary`/translúcidos em vez de cores que
+ * assumem um fundo neutro.
+ */
+@Composable
+fun PcHeroZoneTopBar(
+    title: String,
+    eyebrow: String,
+    account: SavedRestrictedAccount?,
+    fallbackName: String,
+    onProfileClick: () -> Unit,
+    onBackToPonto: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val displayName = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName
+    val onColor = MaterialTheme.colorScheme.onPrimary
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = eyebrow.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = onColor.copy(alpha = 0.78f),
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.6.sp,
+            )
+            Text(
+                text = title,
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+                color = onColor,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Surface(
+            onClick = onBackToPonto,
+            shape = MaterialTheme.shapes.extraLarge,
+            color = onColor.copy(alpha = 0.16f),
+            contentColor = onColor,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Ponto", modifier = Modifier.padding(start = 5.dp), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        IconButton(onClick = onProfileClick, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
+            InitialAvatar(name = displayName, avatarSize = 34.dp)
+        }
+    }
+}
+
+/** Um número da tira de estatísticas na zona colorida -- texto puro, sem cartão. */
+@Composable
+fun PcHeroStat(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.onPrimary,
+) {
+    Column(modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" }) {
+        Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = tint)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = tint.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

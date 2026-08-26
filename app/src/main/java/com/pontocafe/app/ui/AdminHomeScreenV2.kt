@@ -236,6 +236,33 @@ fun AdminHomeScreenV2(
         }
     }
 
+    // Zona colorida fixa (saudação + navegação + números-chave) sobre uma
+    // folha arredondada rolável -- ver PcHeroPage. Substitui a barra fina +
+    // AdminHomeOverviewCard que ficavam soltos no topo da lista.
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneTopBar(
+                title = "Início",
+                eyebrow = "Administrador",
+                account = activeAccount,
+                fallbackName = adminDisplayName,
+                onProfileClick = { showAccountSheet = true },
+                onBackToPonto = onClose,
+            )
+            Text(
+                if (online) "Tudo em ordem por aqui" else "Conexão ainda não confirmada",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcHeroStat(value = "$openPauses", label = "Em pausa", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "$attentionCount", label = "Em atenção", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "$exceededCount", label = "Excedidos", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "$activeDevices", label = "Dispositivos", modifier = Modifier.weight(1f))
+            }
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = 1180.dp) { responsive ->
         val livePreviewLimit = when (responsive.windowSizeClass) {
             PontoCafeWindowSizeClass.COMPACT -> 4
@@ -252,7 +279,6 @@ fun AdminHomeScreenV2(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .navigationBarsPadding()
                     .imePadding(),
                 contentPadding = PaddingValues(
@@ -263,29 +289,7 @@ fun AdminHomeScreenV2(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
-                item("header") {
-                    PcAreaTopBar(
-                        title = "Início",
-                        eyebrow = "Administrador",
-                        account = activeAccount,
-                        fallbackName = adminDisplayName,
-                        onProfileClick = { showAccountSheet = true },
-                        onBackToPonto = onClose,
-                    )
-                }
-
                 item("feedback") { AdminFeedback(viewModel) }
-
-                item("overview") {
-                    AdminHomeOverviewCard(
-                        online = online,
-                        openPauses = openPauses,
-                        attentionCount = attentionCount,
-                        exceededCount = exceededCount,
-                        activeDevices = activeDevices,
-                        responsive = responsive,
-                    )
-                }
 
                 // Sinal de status logo após o resumo -- antes só existia a versão
                 // "tudo certo" e ficava no fim da lista, depois do histórico inteiro,
@@ -534,154 +538,6 @@ fun AdminHomeScreenV2(
             )
         }
     }
-}
-
-@Composable
-private fun AdminHomeOverviewCard(
-    online: Boolean,
-    openPauses: Int,
-    attentionCount: Int,
-    exceededCount: Int,
-    activeDevices: Int,
-    responsive: PontoCafeResponsiveInfo,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(0.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "Operação agora",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        if (online) {
-                            "Acompanhe somente o que precisa de atenção neste momento."
-                        } else {
-                            "A conexão ainda não foi confirmada. Os dados disponíveis continuam visíveis."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Surface(
-                    shape = CircleShape,
-                    color = if (online) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        Icon(
-                            imageVector = if (online) Icons.Default.Security else Icons.Default.Devices,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = if (online) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                        Text(
-                            if (online) "Online" else "Atenção",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (online) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                    }
-                }
-            }
-
-            if (responsive.isCompact || responsive.usesLargeText) {
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        AdminHomeNowMetric("$openPauses", "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
-                        AdminHomeNowMetric("$attentionCount", "Em atenção", Icons.Default.Security, Modifier.weight(1f), attention = attentionCount > 0)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    ) {
-                        AdminHomeNowMetric("$exceededCount", "Excedidos", Icons.Default.Coffee, Modifier.weight(1f), danger = exceededCount > 0)
-                        AdminHomeNowMetric("$activeDevices", "Dispositivos", Icons.Default.Devices, Modifier.weight(1f))
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    AdminHomeNowMetric("$openPauses", "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
-                    AdminHomeNowMetric("$attentionCount", "Em atenção", Icons.Default.Security, Modifier.weight(1f), attention = attentionCount > 0)
-                    AdminHomeNowMetric("$exceededCount", "Excedidos", Icons.Default.Coffee, Modifier.weight(1f), danger = exceededCount > 0)
-                    AdminHomeNowMetric("$activeDevices", "Dispositivos", Icons.Default.Devices, Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AdminHomeNowMetric(
-    value: String,
-    label: String,
-    icon: ImageVector,
-    modifier: Modifier = Modifier,
-    attention: Boolean = false,
-    danger: Boolean = false,
-) {
-    val semantic = LocalPontoCafeSemanticColors.current
-    val container = when {
-        danger -> semantic.criticalContainer
-        attention -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.surface
-    }
-    val content = when {
-        danger -> semantic.onCriticalContainer
-        attention -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-
-    Surface(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            contentDescription = "$label: $value"
-            when {
-                danger -> stateDescription = "Crítico"
-                attention -> stateDescription = "Requer atenção"
-            }
-        },
-        shape = MaterialTheme.shapes.medium,
-        color = container,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp), tint = content)
-                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = content)
-            }
-            Text(
-                label,
-                style = MaterialTheme.typography.bodySmall,
-                color = content.copy(alpha = .78f),
-            )
-        }
     }
 }
 

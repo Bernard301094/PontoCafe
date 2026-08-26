@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -230,24 +233,37 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         filterOperationalPauseItems(operationItems, pauseFilter, System.currentTimeMillis())
     }
 
+    PcHeroPage(
+        heroContent = {
+            PcHeroZoneTopBar(
+                title = "Operação",
+                eyebrow = accountProfileLabel,
+                account = activeAccount,
+                fallbackName = accountFallbackName,
+                onProfileClick = { showAccountSheet = true },
+                onBackToPonto = onClose,
+            )
+            Text(
+                if (state.conexaoAoVivoOk) "Dados ao vivo atualizados" else "Conexão instável",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                PcHeroStat(value = "${state.pausasAtivas.size}", label = "Em pausa", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "$overdue", label = "Acima do limite", modifier = Modifier.weight(1f))
+                PcHeroStat(value = "${pendingFaces.size}", label = "Rostos pendentes", modifier = Modifier.weight(1f))
+            }
+        },
+    ) {
     PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.detailContentWidth) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
                 contentPadding = PaddingValues(start = responsive.pagePadding, end = responsive.pagePadding, top = PontoCafeSpacing.md, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
-                item("header") {
-                    PcAreaTopBar(
-                        title = "Operação",
-                        eyebrow = accountProfileLabel,
-                        account = activeAccount,
-                        fallbackName = accountFallbackName,
-                        onProfileClick = { showAccountSheet = true },
-                        onBackToPonto = onClose,
-                    )
-                }
                 item("connection") { SupervisorConnectionBanner(state.conexaoAoVivoOk, state.ultimaAtualizacaoAoVivoEmMillis) }
                 // Fica logo junto do banner de conexão -- mesma preocupação (dados ao
                 // vivo desatualizados), agora com a mensagem específica do erro e o
@@ -290,23 +306,6 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         filter = pauseFilter,
                         onFilterChange = { pauseFilter = it },
                     )
-                }
-                item("metrics") {
-                    if (responsive.usesVeryLargeText) {
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.fillMaxWidth())
-                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.fillMaxWidth(), attention = overdue > 0)
-                            PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.fillMaxWidth(), attention = pendingFaces.isNotEmpty())
-                        }
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                            PcMetricTile(state.pausasAtivas.size.toString(), "Em pausa", Icons.Default.Coffee, Modifier.weight(1f))
-                            PcMetricTile(overdue.toString(), "Acima do limite", Icons.Default.Timer, Modifier.weight(1f), attention = overdue > 0)
-                            if (!responsive.isCompact) {
-                                PcMetricTile(pendingFaces.size.toString(), "Rostos pendentes", Icons.Default.Face, Modifier.weight(1f), attention = pendingFaces.isNotEmpty())
-                            }
-                        }
-                    }
                 }
                 if (filteredItems.isEmpty()) {
                     item("active-empty-${pauseFilter.name}") {
@@ -382,6 +381,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
             }
             PcScrollToTopFab(listState, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md))
         }
+    }
     }
 }
 
