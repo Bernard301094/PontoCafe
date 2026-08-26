@@ -5,7 +5,6 @@ import android.os.Build
 import com.pontocafe.app.BuildConfig
 import java.io.IOException
 import okhttp3.Interceptor
-import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
@@ -486,7 +485,7 @@ object ApiClient {
             }.build()
             chain.proceed(request)
         }
-        val okHttp = OkHttpClient.Builder()
+        val okHttp = PontoHttpClients.baseBuilder()
             .addInterceptor(tokenInterceptor)
             .addInterceptor(DeviceAuthResponseInterceptor())
             .build()

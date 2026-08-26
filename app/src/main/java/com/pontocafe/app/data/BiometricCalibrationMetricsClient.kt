@@ -2,7 +2,6 @@ package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
 import okhttp3.Interceptor
-import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -45,7 +44,7 @@ object BiometricCalibrationMetricsApiClient {
         }
         val retrofit = Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)
-            .client(OkHttpClient.Builder().addInterceptor(interceptor).build())
+            .client(PontoHttpClients.baseBuilder().addInterceptor(interceptor).build())
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         return BiometricCalibrationMetricsRepository(retrofit.create(BiometricCalibrationMetricsApi::class.java))

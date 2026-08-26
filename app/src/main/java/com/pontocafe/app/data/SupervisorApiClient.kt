@@ -10,7 +10,6 @@ import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import org.json.JSONObject
@@ -372,8 +371,7 @@ object SupervisorApiClient {
             chain.proceed(request)
         }
 
-        val client = OkHttpClient.Builder()
-            .retryOnConnectionFailure(true)
+        val client = PontoHttpClients.baseBuilder()
             .addInterceptor(authInterceptor)
             .build()
         val retrofit = Retrofit.Builder()

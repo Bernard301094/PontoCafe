@@ -2,7 +2,6 @@ package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
 import okhttp3.Interceptor
-import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Retrofit
@@ -341,7 +340,7 @@ object AdminReliabilityApiClient {
             }.build()
             chain.proceed(request)
         }
-        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+        val client = PontoHttpClients.baseBuilder().addInterceptor(authInterceptor).build()
         val retrofit = Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)
             .client(client)

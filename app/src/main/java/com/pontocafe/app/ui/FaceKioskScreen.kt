@@ -85,9 +85,7 @@ import com.pontocafe.app.camera.LivenessState
 import com.pontocafe.app.camera.PassivePresenceDecision
 import com.pontocafe.app.camera.PassivePresenceGate
 import com.pontocafe.app.camera.toPassivePresenceSample
-import com.pontocafe.app.data.ApiClient
 import com.pontocafe.app.data.PontoCafeRepository
-import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.voice.PontoVoiceKioskCue
 import com.pontocafe.app.voice.PontoVoicePromptPolicy
 import com.pontocafe.app.voice.PontoVoiceRuntime
@@ -128,9 +126,6 @@ fun FaceKioskScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val unlockRepository = remember(context) {
-        ApiClient.create(context.applicationContext, SecureDeviceTokenStore(context.applicationContext))
-    }
     val state = viewModel.state
     val cameraPermission = rememberCameraPermissionUiState()
     val permissionGranted = cameraPermission.granted
@@ -202,7 +197,7 @@ fun FaceKioskScreen(
                 unlockLoading = true
                 unlockError = null
                 scope.launch {
-                    runCatching { unlockRepository.validarPinSaida(exitPin, destination.name) }
+                    runCatching { viewModel.validarPinSaida(exitPin, destination.name) }
                         .onSuccess {
                             fecharSolicitacaoAcesso()
                             when (destination) {

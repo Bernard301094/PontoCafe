@@ -130,6 +130,8 @@ class PontoCafeViewModel(
     private val catalogSyncMutex = Mutex()
     private val avatarCatalogSyncMutex = Mutex()
 
+    suspend fun validarPinSaida(pin: String, area: String) = repository.validarPinSaida(pin, area)
+
     var state by mutableStateOf(
         PontoCafeUiState(
             deviceConfigured = false,

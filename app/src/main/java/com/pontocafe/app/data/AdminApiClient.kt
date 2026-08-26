@@ -4,7 +4,6 @@ import com.pontocafe.app.BuildConfig
 import com.pontocafe.app.avatar.PontoAvatarRuntime
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import retrofit2.HttpException
@@ -610,7 +609,7 @@ object AdminApiClient {
             }.build()
             chain.proceed(request)
         }
-        val client = OkHttpClient.Builder().addInterceptor(authInterceptor).build()
+        val client = PontoHttpClients.baseBuilder().addInterceptor(authInterceptor).build()
         val retrofit = Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(GsonConverterFactory.create()).build()
         return AdminRepository(retrofit.create(AdminApi::class.java), sessionStore)
     }

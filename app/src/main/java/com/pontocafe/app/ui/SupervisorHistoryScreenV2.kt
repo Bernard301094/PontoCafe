@@ -260,7 +260,7 @@ internal fun HistoryPauseCard(
         else -> "No limite"
     }
     val statusColor = when {
-        exceeded -> MaterialTheme.colorScheme.error
+        exceeded -> LocalPontoCafeSemanticColors.current.critical
         pause.foraHorario -> LocalPontoCafeSemanticColors.current.warning
         else -> LocalPontoCafeSemanticColors.current.success
     }
@@ -279,7 +279,7 @@ internal fun HistoryPauseCard(
         onClick = onClick,
         colors = CardDefaults.cardColors(
             containerColor = if (exceeded) {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.58f)
+                LocalPontoCafeSemanticColors.current.criticalContainer.copy(alpha = 0.58f)
             } else {
                 MaterialTheme.colorScheme.surfaceContainerLow
             },
@@ -287,7 +287,7 @@ internal fun HistoryPauseCard(
         border = BorderStroke(
             1.dp,
             if (exceeded) {
-                MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+                LocalPontoCafeSemanticColors.current.critical.copy(alpha = 0.18f)
             } else {
                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
             },
@@ -331,7 +331,7 @@ internal fun HistoryPauseCard(
                     text = formatHistoryDuration(duration),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (exceeded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    color = if (exceeded) LocalPontoCafeSemanticColors.current.critical else MaterialTheme.colorScheme.primary,
                 )
                 Text(
                     text = statusText,

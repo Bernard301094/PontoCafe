@@ -167,7 +167,12 @@ private val LightSemanticColors = PontoCafeSemanticColors(
     infoContainer = Color(0xFFD1E4FF),
     onInfoContainer = Color(0xFF001D35),
     critical = Color(0xFFA23F32),
-    criticalContainer = Color(0xFFFFDAD3),
+    // Antes 0xFFFFDAD3 -- praticamente idêntico ao errorContainer padrão do
+    // Material (0xFFFFDAD6), o que anulava a distinção que este token existe
+    // para fazer. Um tom mais pêssego/terracota, na mesma vivacidade dos
+    // containers vizinhos (success/warning/info), fica perceptivelmente
+    // diferente do vermelho-rosado de erro.
+    criticalContainer = Color(0xFFFFB4A0),
     onCriticalContainer = Color(0xFF410F08),
 )
 

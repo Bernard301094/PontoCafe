@@ -240,7 +240,7 @@ fun CollaboratorHistoryScreen(
                             }
                         },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, if (pause.excedeuLimite) MaterialTheme.colorScheme.error.copy(alpha = .35f) else MaterialTheme.colorScheme.outlineVariant),
+                    border = BorderStroke(1.dp, if (pause.excedeuLimite) LocalPontoCafeSemanticColors.current.critical.copy(alpha = .35f) else MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Row(Modifier.fillMaxWidth().padding(PontoCafeSpacing.md), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {

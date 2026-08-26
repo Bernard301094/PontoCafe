@@ -93,11 +93,40 @@ data class PontoOfflineSnapshot(
     val quarentenaEmMillis: Long = 0L,
 )
 
+/**
+ * Fila de eventos pendentes de sincronização -- inclui o embedding facial
+ * bruto de cada batida, então pode crescer para centenas de KB em uso
+ * pesado (até MAX_PENDING_EVENTS batidas).
+ */
+private data class OfflineEventsPayload(
+    val eventos: List<OfflinePontoEvent> = emptyList(),
+)
+
+/**
+ * Tudo que não é a fila de eventos: regras, pausas locais, estado de
+ * sincronização/quarentena. Pequeno e muda com muito mais frequência que os
+ * eventos (ex.: markServerOk() a cada heartbeat), por isso vive numa chave
+ * separada -- ver comentário em saveMeta().
+ */
+private data class OfflineMetaPayload(
+    val pausasAbertas: List<LocalOpenPause> = emptyList(),
+    val regras: List<RegraCafe> = emptyList(),
+    val regrasAtualizadasEmMillis: Long = 0L,
+    val ultimoServidorOkEmMillis: Long = 0L,
+    val falhasSincronizacao: List<OfflineSyncFailure> = emptyList(),
+    val pausasConcluidas: List<LocalCompletedPause>? = emptyList(),
+    val eventosEmQuarentena: Boolean = false,
+    val motivoQuarentena: String? = null,
+    val quarentenaEmMillis: Long = 0L,
+)
+
 class SecurePontoOfflineStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("pontocafe_offline_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_offline_key"
-    private val payloadKey = "offline_snapshot"
+    private val eventsKey = "offline_events"
+    private val metaKey = "offline_meta"
+    private val legacyPayloadKey = "offline_snapshot"
     private val gson = Gson()
     private val timezone = ZoneId.of("America/Fortaleza")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
@@ -105,25 +134,26 @@ class SecurePontoOfflineStore(context: Context) {
     private val operationJournal = PontoOperationJournal(appContext)
 
     @Volatile
-    private var cachedSnapshot: PontoOfflineSnapshot? = null
+    private var cachedEvents: OfflineEventsPayload? = null
+
+    @Volatile
+    private var cachedMeta: OfflineMetaPayload? = null
 
     @Synchronized
-    fun snapshot(): PontoOfflineSnapshot = readInternal()
+    fun snapshot(): PontoOfflineSnapshot = combinedSnapshot()
 
     @Synchronized
-    fun pendingEvents(): List<OfflinePontoEvent> = readInternal().eventos
+    fun pendingEvents(): List<OfflinePontoEvent> = readEvents().eventos
 
     @Synchronized
-    fun pendingCount(): Int = readInternal().eventos.size
+    fun pendingCount(): Int = readEvents().eventos.size
 
     @Synchronized
-    fun lastServerOkMillis(): Long = readInternal().ultimoServidorOkEmMillis
+    fun lastServerOkMillis(): Long = readMeta().ultimoServidorOkEmMillis
 
     @Synchronized
-    fun hasQuarantinedPendingEvents(): Boolean {
-        val current = readInternal()
-        return current.eventosEmQuarentena && current.eventos.isNotEmpty()
-    }
+    fun hasQuarantinedPendingEvents(): Boolean =
+        readMeta().eventosEmQuarentena && readEvents().eventos.isNotEmpty()
 
     /**
      * Remote credential revocation must never destroy unsynchronized point
@@ -132,10 +162,10 @@ class SecurePontoOfflineStore(context: Context) {
      */
     @Synchronized
     fun quarantinePendingEvents(reason: String) {
-        val current = readInternal()
-        if (current.eventos.isEmpty()) {
-            saveInternal(
-                current.copy(
+        val meta = readMeta()
+        if (readEvents().eventos.isEmpty()) {
+            saveMeta(
+                meta.copy(
                     ultimoServidorOkEmMillis = 0L,
                     eventosEmQuarentena = false,
                     motivoQuarentena = null,
@@ -145,8 +175,8 @@ class SecurePontoOfflineStore(context: Context) {
             )
             return
         }
-        saveInternal(
-            current.copy(
+        saveMeta(
+            meta.copy(
                 ultimoServidorOkEmMillis = 0L,
                 eventosEmQuarentena = true,
                 motivoQuarentena = reason.take(160),
@@ -158,10 +188,11 @@ class SecurePontoOfflineStore(context: Context) {
 
     @Synchronized
     fun syncCenterSnapshot(): SyncCenterSnapshot {
-        val current = readInternal()
-        val failureById = current.falhasSincronizacao.associateBy { it.eventId }
+        val events = readEvents()
+        val meta = readMeta()
+        val failureById = meta.falhasSincronizacao.associateBy { it.eventId }
         return SyncCenterSnapshot(
-            pending = current.eventos.map { event ->
+            pending = events.eventos.map { event ->
                 SyncCenterEvent(
                     eventId = event.eventId,
                     nome = event.nome,
@@ -171,34 +202,32 @@ class SecurePontoOfflineStore(context: Context) {
                     falha = failureById[event.eventId],
                 )
             },
-            failures = current.falhasSincronizacao.filter { failure -> current.eventos.any { it.eventId == failure.eventId } },
-            lastServerOkMillis = current.ultimoServidorOkEmMillis,
-            rulesUpdatedAtMillis = current.regrasAtualizadasEmMillis,
-            quarantined = current.eventosEmQuarentena && current.eventos.isNotEmpty(),
-            quarantineReason = current.motivoQuarentena,
-            quarantinedAtMillis = current.quarentenaEmMillis,
+            failures = meta.falhasSincronizacao.filter { failure -> events.eventos.any { it.eventId == failure.eventId } },
+            lastServerOkMillis = meta.ultimoServidorOkEmMillis,
+            rulesUpdatedAtMillis = meta.regrasAtualizadasEmMillis,
+            quarantined = meta.eventosEmQuarentena && events.eventos.isNotEmpty(),
+            quarantineReason = meta.motivoQuarentena,
+            quarantinedAtMillis = meta.quarentenaEmMillis,
         )
     }
 
     @Synchronized
     fun canOperateOffline(maxOfflineMillis: Long): Boolean {
-        val current = readInternal()
-        if (current.eventosEmQuarentena && current.eventos.isNotEmpty()) return false
-        val lastOk = current.ultimoServidorOkEmMillis
+        val meta = readMeta()
+        if (meta.eventosEmQuarentena && readEvents().eventos.isNotEmpty()) return false
+        val lastOk = meta.ultimoServidorOkEmMillis
         return lastOk > 0L && System.currentTimeMillis() - lastOk <= maxOfflineMillis
     }
 
     @Synchronized
     fun markServerOk() {
-        val current = readInternal()
-        saveInternal(current.copy(ultimoServidorOkEmMillis = System.currentTimeMillis()))
+        saveMeta(readMeta().copy(ultimoServidorOkEmMillis = System.currentTimeMillis()))
     }
 
     @Synchronized
     fun saveRules(rules: List<RegraCafe>) {
-        val current = readInternal()
-        saveInternal(
-            current.copy(
+        saveMeta(
+            readMeta().copy(
                 regras = rules,
                 regrasAtualizadasEmMillis = System.currentTimeMillis(),
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
@@ -209,7 +238,7 @@ class SecurePontoOfflineStore(context: Context) {
     @Synchronized
     fun currentRule(now: ZonedDateTime = ZonedDateTime.now(timezone)): RegraCafe? {
         val currentTime = now.toLocalTime()
-        return readInternal().regras.firstOrNull { rule ->
+        return readMeta().regras.firstOrNull { rule ->
             runCatching {
                 val start = LocalTime.parse(rule.inicio)
                 val end = LocalTime.parse(rule.fim)
@@ -220,19 +249,19 @@ class SecurePontoOfflineStore(context: Context) {
 
     @Synchronized
     fun localOpenPause(collaboratorId: String): LocalOpenPause? =
-        readInternal().pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
+        readMeta().pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
 
     @Synchronized
     fun completedPauseToday(collaboratorId: String, periodo: String): LocalCompletedPause? {
         val today = ZonedDateTime.now(timezone).format(dateFormatter)
-        return readInternal().pausasConcluidas.orEmpty().firstOrNull {
+        return readMeta().pausasConcluidas.orEmpty().firstOrNull {
             it.colaboradorId == collaboratorId && it.periodo == periodo && it.dataLocal == today
         }
     }
 
     @Synchronized
     fun recordOnlineStart(collaboratorId: String, nome: String, pause: IniciarPausaResponse) {
-        val current = readInternal()
+        val meta = readMeta()
         val startedMillis = runCatching { Instant.parse(pause.inicioEm).toEpochMilli() }
             .getOrDefault(System.currentTimeMillis())
         val localPause = LocalOpenPause(
@@ -244,9 +273,9 @@ class SecurePontoOfflineStore(context: Context) {
             limiteSegundos = pause.limiteSegundos,
             retornoAteLocal = pause.retornoAteLocal,
         )
-        saveInternal(
-            current.copy(
-                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId } + localPause,
+        saveMeta(
+            meta.copy(
+                pausasAbertas = meta.pausasAbertas.filterNot { it.colaboradorId == collaboratorId } + localPause,
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
             durable = true,
@@ -256,8 +285,8 @@ class SecurePontoOfflineStore(context: Context) {
 
     @Synchronized
     fun recordOnlineFinish(collaboratorId: String) {
-        val current = readInternal()
-        val open = current.pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
+        val meta = readMeta()
+        val open = meta.pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
         val now = ZonedDateTime.now(timezone)
         val completed = open?.let {
             LocalCompletedPause(
@@ -275,14 +304,14 @@ class SecurePontoOfflineStore(context: Context) {
             )
         }
         val today = now.format(dateFormatter)
-        val completedToday = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today }.toMutableList()
+        val completedToday = meta.pausasConcluidas.orEmpty().filter { it.dataLocal == today }.toMutableList()
         if (completed != null) {
             completedToday.removeAll { it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo }
             completedToday += completed
         }
-        saveInternal(
-            current.copy(
-                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == collaboratorId },
+        saveMeta(
+            meta.copy(
+                pausasAbertas = meta.pausasAbertas.filterNot { it.colaboradorId == collaboratorId },
                 pausasConcluidas = completedToday,
                 ultimoServidorOkEmMillis = System.currentTimeMillis(),
             ),
@@ -300,18 +329,19 @@ class SecurePontoOfflineStore(context: Context) {
         modelVersion: String,
         rule: RegraCafe,
     ): LocalOpenPause {
-        val current = readInternal()
-        require(!current.eventosEmQuarentena) {
+        val events = readEvents()
+        val meta = readMeta()
+        require(!meta.eventosEmQuarentena) {
             "Existem registros offline preservados de uma credencial anterior. Conecte este dispositivo ao servidor antes de registrar novos pontos offline."
         }
-        require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
-        require(current.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
+        require(events.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
+        require(meta.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
 
         val operationId = operationJournal.prepare(colaborador.id, embedding)
         val now = ZonedDateTime.now(timezone)
         val today = now.format(dateFormatter)
-        val completed = current.pausasConcluidas.orEmpty().firstOrNull {
+        val completed = meta.pausasConcluidas.orEmpty().firstOrNull {
             it.colaboradorId == colaborador.id && it.periodo == rule.periodo && it.dataLocal == today
         }
         if (completed != null) {
@@ -327,11 +357,9 @@ class SecurePontoOfflineStore(context: Context) {
                 modelo = model,
                 versaoModelo = modelVersion,
             )
-            saveInternal(
-                current.copy(
-                    eventos = current.eventos + repeatedAttempt,
-                    pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
-                ),
+            saveBoth(
+                events.copy(eventos = events.eventos + repeatedAttempt),
+                meta.copy(pausasConcluidas = meta.pausasConcluidas.orEmpty().filter { it.dataLocal == today }),
                 durable = true,
             )
             operationJournal.complete(operationId)
@@ -365,11 +393,11 @@ class SecurePontoOfflineStore(context: Context) {
             limiteSegundos = rule.limiteSegundos,
             retornoAteLocal = now.plusSeconds(rule.limiteSegundos.toLong()).format(timeFormatter),
         )
-        saveInternal(
-            current.copy(
-                eventos = current.eventos + event,
-                pausasAbertas = current.pausasAbertas + localPause,
-                pausasConcluidas = current.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
+        saveBoth(
+            events.copy(eventos = events.eventos + event),
+            meta.copy(
+                pausasAbertas = meta.pausasAbertas + localPause,
+                pausasConcluidas = meta.pausasConcluidas.orEmpty().filter { it.dataLocal == today },
             ),
             durable = true,
         )
@@ -385,13 +413,14 @@ class SecurePontoOfflineStore(context: Context) {
         model: String,
         modelVersion: String,
     ): Pair<LocalOpenPause, Int> {
-        val current = readInternal()
-        require(!current.eventosEmQuarentena) {
+        val events = readEvents()
+        val meta = readMeta()
+        require(!meta.eventosEmQuarentena) {
             "Existem registros offline preservados de uma credencial anterior. Conecte este dispositivo ao servidor antes de registrar novos pontos offline."
         }
-        require(current.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
+        require(events.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
         require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
-        val open = current.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
+        val open = meta.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
             ?: error("Não existe pausa local aberta para este colaborador.")
         val operationId = operationJournal.prepare(colaborador.id, embedding)
         val now = ZonedDateTime.now(timezone)
@@ -422,13 +451,13 @@ class SecurePontoOfflineStore(context: Context) {
             limiteSegundos = open.limiteSegundos,
         )
         val today = now.format(dateFormatter)
-        val completedToday = current.pausasConcluidas.orEmpty().filter {
+        val completedToday = meta.pausasConcluidas.orEmpty().filter {
             it.dataLocal == today && !(it.colaboradorId == completed.colaboradorId && it.periodo == completed.periodo)
         } + completed
-        saveInternal(
-            current.copy(
-                eventos = current.eventos + event,
-                pausasAbertas = current.pausasAbertas.filterNot { it.colaboradorId == colaborador.id },
+        saveBoth(
+            events.copy(eventos = events.eventos + event),
+            meta.copy(
+                pausasAbertas = meta.pausasAbertas.filterNot { it.colaboradorId == colaborador.id },
                 pausasConcluidas = completedToday,
             ),
             durable = true,
@@ -440,23 +469,24 @@ class SecurePontoOfflineStore(context: Context) {
     @Synchronized
     fun recordSyncResults(results: List<OfflineSyncResult>) {
         if (results.isEmpty()) return
-        val current = readInternal()
+        val events = readEvents()
+        val meta = readMeta()
         val processed = results.filter {
             it.status.equals("PROCESSADO", true) ||
                 it.status.equals("OK", true) ||
                 it.status.equals("SINCRONIZADO", true) ||
                 it.status.equals("RECONCILIADO", true)
         }.map { it.eventId }.toSet()
-        val pendingIds = current.eventos.map { it.eventId }.toSet() - processed
-        val currentFailures = current.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
+        val pendingIds = events.eventos.map { it.eventId }.toSet() - processed
+        val currentFailures = meta.falhasSincronizacao.associateBy { it.eventId }.toMutableMap()
         val now = System.currentTimeMillis()
-        val remainingEvents = current.eventos.filterNot { it.eventId in processed }
+        val remainingEvents = events.eventos.filterNot { it.eventId in processed }
 
         results.forEach { result ->
             if (result.eventId in processed) {
                 currentFailures.remove(result.eventId)
             } else if (result.eventId in pendingIds) {
-                val event = current.eventos.firstOrNull { it.eventId == result.eventId } ?: return@forEach
+                val event = events.eventos.firstOrNull { it.eventId == result.eventId } ?: return@forEach
                 val previous = currentFailures[result.eventId]
                 currentFailures[result.eventId] = OfflineSyncFailure(
                     eventId = result.eventId,
@@ -469,14 +499,14 @@ class SecurePontoOfflineStore(context: Context) {
             }
         }
 
-        saveInternal(
-            current.copy(
-                eventos = remainingEvents,
+        saveBoth(
+            events.copy(eventos = remainingEvents),
+            meta.copy(
                 falhasSincronizacao = currentFailures.values.filter { it.eventId in pendingIds }.sortedByDescending { it.ultimaTentativaEmMillis },
                 ultimoServidorOkEmMillis = now,
-                eventosEmQuarentena = current.eventosEmQuarentena && remainingEvents.isNotEmpty(),
-                motivoQuarentena = current.motivoQuarentena.takeIf { current.eventosEmQuarentena && remainingEvents.isNotEmpty() },
-                quarentenaEmMillis = current.quarentenaEmMillis.takeIf { current.eventosEmQuarentena && remainingEvents.isNotEmpty() } ?: 0L,
+                eventosEmQuarentena = meta.eventosEmQuarentena && remainingEvents.isNotEmpty(),
+                motivoQuarentena = meta.motivoQuarentena.takeIf { meta.eventosEmQuarentena && remainingEvents.isNotEmpty() },
+                quarentenaEmMillis = meta.quarentenaEmMillis.takeIf { meta.eventosEmQuarentena && remainingEvents.isNotEmpty() } ?: 0L,
             ),
         )
         processed.forEach(operationJournal::complete)
@@ -486,16 +516,17 @@ class SecurePontoOfflineStore(context: Context) {
     fun removeProcessed(eventIds: Collection<String>) {
         if (eventIds.isEmpty()) return
         val ids = eventIds.toHashSet()
-        val current = readInternal()
-        val remainingEvents = current.eventos.filterNot { it.eventId in ids }
-        val keepQuarantine = current.eventosEmQuarentena && remainingEvents.isNotEmpty()
-        saveInternal(
-            current.copy(
-                eventos = remainingEvents,
-                falhasSincronizacao = current.falhasSincronizacao.filterNot { it.eventId in ids },
+        val events = readEvents()
+        val meta = readMeta()
+        val remainingEvents = events.eventos.filterNot { it.eventId in ids }
+        val keepQuarantine = meta.eventosEmQuarentena && remainingEvents.isNotEmpty()
+        saveBoth(
+            events.copy(eventos = remainingEvents),
+            meta.copy(
+                falhasSincronizacao = meta.falhasSincronizacao.filterNot { it.eventId in ids },
                 eventosEmQuarentena = keepQuarantine,
-                motivoQuarentena = current.motivoQuarentena.takeIf { keepQuarantine },
-                quarentenaEmMillis = current.quarentenaEmMillis.takeIf { keepQuarantine } ?: 0L,
+                motivoQuarentena = meta.motivoQuarentena.takeIf { keepQuarantine },
+                quarentenaEmMillis = meta.quarentenaEmMillis.takeIf { keepQuarantine } ?: 0L,
             ),
         )
         ids.forEach(operationJournal::complete)
@@ -503,29 +534,92 @@ class SecurePontoOfflineStore(context: Context) {
 
     @Synchronized
     fun clear() {
-        cachedSnapshot = PontoOfflineSnapshot()
-        prefs.edit().remove(payloadKey).apply()
+        cachedEvents = OfflineEventsPayload()
+        cachedMeta = OfflineMetaPayload()
+        prefs.edit().remove(eventsKey).remove(metaKey).remove(legacyPayloadKey).apply()
         operationJournal.clear()
     }
 
-    private fun readInternal(): PontoOfflineSnapshot {
-        cachedSnapshot?.let { return it }
-        val payload = prefs.getString(payloadKey, null) ?: return PontoOfflineSnapshot().also { cachedSnapshot = it }
-        val snapshot = runCatching {
-            val bytes = Base64.decode(payload, Base64.NO_WRAP)
-            require(bytes.size > 12)
-            val iv = bytes.copyOfRange(0, 12)
-            val encrypted = bytes.copyOfRange(12, bytes.size)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-            val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
-            gson.fromJson(json, PontoOfflineSnapshot::class.java) ?: PontoOfflineSnapshot()
-        }.getOrElse {
-            prefs.edit().remove(payloadKey).apply()
+    private fun combinedSnapshot(): PontoOfflineSnapshot {
+        val events = readEvents()
+        val meta = readMeta()
+        return PontoOfflineSnapshot(
+            eventos = events.eventos,
+            pausasAbertas = meta.pausasAbertas,
+            regras = meta.regras,
+            regrasAtualizadasEmMillis = meta.regrasAtualizadasEmMillis,
+            ultimoServidorOkEmMillis = meta.ultimoServidorOkEmMillis,
+            falhasSincronizacao = meta.falhasSincronizacao,
+            pausasConcluidas = meta.pausasConcluidas,
+            eventosEmQuarentena = meta.eventosEmQuarentena,
+            motivoQuarentena = meta.motivoQuarentena,
+            quarentenaEmMillis = meta.quarentenaEmMillis,
+        )
+    }
+
+    private fun readEvents(): OfflineEventsPayload {
+        cachedEvents?.let { return it }
+        migrateLegacyIfNeeded()
+        cachedEvents?.let { return it }
+        val payload = prefs.getString(eventsKey, null) ?: return OfflineEventsPayload().also { cachedEvents = it }
+        val decoded = runCatching { decrypt(payload, OfflineEventsPayload::class.java) }
+            .getOrNull() ?: run {
+            prefs.edit().remove(eventsKey).apply()
+            OfflineEventsPayload()
+        }
+        cachedEvents = decoded
+        return decoded
+    }
+
+    private fun readMeta(): OfflineMetaPayload {
+        cachedMeta?.let { return it }
+        migrateLegacyIfNeeded()
+        cachedMeta?.let { return it }
+        val payload = prefs.getString(metaKey, null) ?: return OfflineMetaPayload().also { cachedMeta = it }
+        val decoded = runCatching { decrypt(payload, OfflineMetaPayload::class.java) }
+            .getOrNull() ?: run {
+            prefs.edit().remove(metaKey).apply()
+            OfflineMetaPayload()
+        }
+        cachedMeta = decoded
+        return decoded
+    }
+
+    /**
+     * Instalações existentes têm a fila inteira sob uma única chave legada
+     * (formato pré-partição). Decifra esse blob uma única vez, grava os dois
+     * novos payloads atomicamente (mesmo editor, um só commit) e só então
+     * remove a chave antiga -- se o processo morrer no meio, a chave antiga
+     * ainda está lá e a migração é refeita do zero na próxima leitura, sem
+     * risco de perder eventos pendentes.
+     */
+    private fun migrateLegacyIfNeeded() {
+        if (prefs.contains(eventsKey) || prefs.contains(metaKey)) return
+        val legacyPayload = prefs.getString(legacyPayloadKey, null) ?: return
+        val legacy = runCatching { decrypt(legacyPayload, PontoOfflineSnapshot::class.java) }
+            .getOrNull() ?: run {
+            prefs.edit().remove(legacyPayloadKey).apply()
             PontoOfflineSnapshot()
         }
-        cachedSnapshot = snapshot
-        return snapshot
+        val events = OfflineEventsPayload(eventos = legacy.eventos)
+        val meta = OfflineMetaPayload(
+            pausasAbertas = legacy.pausasAbertas,
+            regras = legacy.regras,
+            regrasAtualizadasEmMillis = legacy.regrasAtualizadasEmMillis,
+            ultimoServidorOkEmMillis = legacy.ultimoServidorOkEmMillis,
+            falhasSincronizacao = legacy.falhasSincronizacao,
+            pausasConcluidas = legacy.pausasConcluidas,
+            eventosEmQuarentena = legacy.eventosEmQuarentena,
+            motivoQuarentena = legacy.motivoQuarentena,
+            quarentenaEmMillis = legacy.quarentenaEmMillis,
+        )
+        val editor = prefs.edit()
+            .putString(eventsKey, encrypt(events))
+            .putString(metaKey, encrypt(meta))
+            .remove(legacyPayloadKey)
+        check(editor.commit()) { "Não foi possível migrar o estado offline do Ponto para o novo formato." }
+        cachedEvents = events
+        cachedMeta = meta
     }
 
     /**
@@ -533,22 +627,53 @@ class SecurePontoOfflineStore(context: Context) {
      * dessa confirmação em disco podemos apagar o operationId idempotente. As
      * demais atualizações de cache/telemetria continuam usando apply().
      */
-    private fun saveInternal(snapshot: PontoOfflineSnapshot, durable: Boolean = false) {
-        val plaintext = gson.toJson(snapshot).toByteArray(Charsets.UTF_8)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val encrypted = cipher.doFinal(plaintext)
-        val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-        val editor = prefs.edit().putString(payloadKey, payload)
-
+    private fun saveMeta(meta: OfflineMetaPayload, durable: Boolean = false) {
+        val editor = prefs.edit().putString(metaKey, encrypt(meta))
         if (durable) {
-            check(editor.commit()) {
-                "Não foi possível persistir o estado local do Ponto."
-            }
+            check(editor.commit()) { "Não foi possível persistir o estado local do Ponto." }
         } else {
             editor.apply()
         }
-        cachedSnapshot = snapshot
+        cachedMeta = meta
+    }
+
+    /**
+     * Usada pelos únicos métodos que precisam adicionar/remover um evento
+     * (com seu embedding) e mexer em pausas/quarentena no mesmo instante. Os
+     * dois valores vão para chaves separadas mas dentro do MESMO editor, então
+     * o commit()/apply() único continua atômico entre eles -- nenhuma garantia
+     * de durabilidade foi perdida em relação ao blob único anterior.
+     */
+    private fun saveBoth(events: OfflineEventsPayload, meta: OfflineMetaPayload, durable: Boolean = false) {
+        val editor = prefs.edit()
+            .putString(eventsKey, encrypt(events))
+            .putString(metaKey, encrypt(meta))
+        if (durable) {
+            check(editor.commit()) { "Não foi possível persistir o estado local do Ponto." }
+        } else {
+            editor.apply()
+        }
+        cachedEvents = events
+        cachedMeta = meta
+    }
+
+    private fun <T> encrypt(payload: T): String {
+        val plaintext = gson.toJson(payload).toByteArray(Charsets.UTF_8)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val encrypted = cipher.doFinal(plaintext)
+        return Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
+    }
+
+    private fun <T> decrypt(payload: String, type: Class<T>): T? {
+        val bytes = Base64.decode(payload, Base64.NO_WRAP)
+        require(bytes.size > 12)
+        val iv = bytes.copyOfRange(0, 12)
+        val encrypted = bytes.copyOfRange(12, bytes.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+        val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
+        return gson.fromJson(json, type)
     }
 
     private fun getOrCreateKey(): SecretKey {

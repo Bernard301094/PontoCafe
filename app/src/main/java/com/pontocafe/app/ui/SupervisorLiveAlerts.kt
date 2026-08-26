@@ -285,14 +285,14 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
     LaunchedEffect(alert.id) { visible = true }
 
     val containerColor = when (alert.type) {
-        SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.errorContainer
+        SupervisorLiveAlertType.EXCESSO.name -> LocalPontoCafeSemanticColors.current.criticalContainer
         SupervisorLiveAlertType.CRITICO.name,
         SupervisorLiveAlertType.PROXIMO_LIMITE.name -> LocalPontoCafeSemanticColors.current.warningContainer
         SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.primaryContainer
     }
     val contentColor = when (alert.type) {
-        SupervisorLiveAlertType.EXCESSO.name -> MaterialTheme.colorScheme.onErrorContainer
+        SupervisorLiveAlertType.EXCESSO.name -> LocalPontoCafeSemanticColors.current.onCriticalContainer
         SupervisorLiveAlertType.CRITICO.name,
         SupervisorLiveAlertType.PROXIMO_LIMITE.name -> LocalPontoCafeSemanticColors.current.onWarningContainer
         SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.onSecondaryContainer
