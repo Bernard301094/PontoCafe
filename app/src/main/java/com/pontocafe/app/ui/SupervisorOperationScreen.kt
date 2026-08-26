@@ -249,6 +249,15 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     )
                 }
                 item("connection") { SupervisorConnectionBanner(state.conexaoAoVivoOk, state.ultimaAtualizacaoAoVivoEmMillis) }
+                // Fica logo junto do banner de conexão -- mesma preocupação (dados ao
+                // vivo desatualizados), agora com a mensagem específica do erro e o
+                // botão de retry no mesmo lugar, em vez de reaparecer isolado lá
+                // embaixo depois de ações rápidas e status de voz.
+                if (state.erro != null && !state.conexaoAoVivoOk) {
+                    item("error") {
+                        OperationalAlertCard("Exibindo os últimos dados disponíveis", state.erro ?: "A conexão será atualizada automaticamente.", "Tentar agora", viewModel::atualizarAoVivo, PontoCafeTone.WARNING)
+                    }
+                }
                 notificationPrompt?.let { (title, text, actionLabel) ->
                     item("notification-${notificationAvailability?.name}") {
                         OperationalAlertCard(
@@ -356,11 +365,6 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         PcActionTile("Autorizar exceção", "Liberar uma pausa fora da janela normal", Icons.Default.Coffee, viewModel::abrirAutorizacao)
                         PcActionTile("Histórico por data", "Escolher um dia e abrir cada registro", Icons.Default.CalendarMonth, { viewModel.abrirHistorico() })
                         PcActionTile("Pessoas e biometria", "Cadastrar, atualizar ou excluir colaboradores e rostos", Icons.Default.PersonSearch, viewModel::abrirColaboradores)
-                    }
-                }
-                if (state.erro != null && !state.conexaoAoVivoOk) {
-                    item("error") {
-                        OperationalAlertCard("Exibindo os últimos dados disponíveis", state.erro ?: "A conexão será atualizada automaticamente.", "Tentar agora", viewModel::atualizarAoVivo, PontoCafeTone.WARNING)
                     }
                 }
                 if (pendingFaces.isNotEmpty()) {

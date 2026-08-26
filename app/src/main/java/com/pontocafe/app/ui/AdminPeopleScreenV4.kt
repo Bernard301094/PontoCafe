@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -392,7 +393,16 @@ fun AdminPeopleScreenV4(
             )
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Em telas muito largas (desktop-like/tablet grande), o conteúdo
+        // mestre-detalhe não deve simplesmente esticar até a borda -- mesmo
+        // limite usado no dashboard, para manter linhas de texto e o painel
+        // de detalhe numa largura legível.
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = PontoCafeDimensions.dashboardContentWidth),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -778,6 +788,7 @@ fun AdminPeopleScreenV4(
                     },
                 )
             }
+        }
         }
     }
 }

@@ -287,6 +287,33 @@ fun AdminHomeScreenV2(
                     )
                 }
 
+                // Sinal de status logo após o resumo -- antes só existia a versão
+                // "tudo certo" e ficava no fim da lista, depois do histórico inteiro,
+                // onde ninguém rolava até ver. Agora aparece sempre aqui em cima,
+                // nos dois sentidos: com ou sem pendência.
+                item("configuration-status") {
+                    if (hasPendingConfiguration) {
+                        val pendingReasons = buildList {
+                            if (pendingFaces > 0) add("$pendingFaces pessoa(s) sem biometria cadastrada")
+                            if (devicesWithoutPin > 0) add("$devicesWithoutPin dispositivo(s) sem PIN configurado")
+                            if (activeSupervisors == 0) add("nenhum supervisor ativo")
+                        }
+                        PcStateBanner(
+                            title = "Configuração pendente",
+                            supportingText = pendingReasons.joinToString(" · ").ifEmpty {
+                                "Há itens de configuração para revisar."
+                            },
+                            tone = PontoCafeTone.WARNING,
+                        )
+                    } else if (collaborators > 0) {
+                        PcStateBanner(
+                            title = "Configuração em dia",
+                            supportingText = "Equipe, biometria, supervisão e dispositivos não apresentam pendências de configuração.",
+                            tone = PontoCafeTone.SUCCESS,
+                        )
+                    }
+                }
+
                 item("quick-actions") {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         AdminHomeSectionHeader(
@@ -494,16 +521,6 @@ fun AdminHomeScreenV2(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                    }
-                }
-
-                if (!hasPendingConfiguration && collaborators > 0) {
-                    item("all-ready") {
-                        PcStateBanner(
-                            title = "Configuração em dia",
-                            supportingText = "Equipe, biometria, supervisão e dispositivos não apresentam pendências de configuração.",
-                            tone = PontoCafeTone.SUCCESS,
-                        )
                     }
                 }
             }

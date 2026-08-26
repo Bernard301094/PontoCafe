@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -309,7 +310,14 @@ fun SupervisorPeopleScreenV3(
             )
         }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        // Mesmo limite do dashboard -- em telas muito largas o conteúdo
+        // mestre-detalhe não deve esticar até a borda.
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = PontoCafeDimensions.dashboardContentWidth),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -466,6 +474,7 @@ fun SupervisorPeopleScreenV3(
                 text = { Text("Novo colaborador") },
                 expanded = true,
             )
+        }
         }
     }
 }

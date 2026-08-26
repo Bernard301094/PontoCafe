@@ -2,6 +2,7 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -167,58 +168,78 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                                 )
                             }
 
-                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                Text("Setor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                OutlinedTextField(
-                                    value = draft.setor,
-                                    onValueChange = { draftState.update(draft.copy(setor = it)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    label = { Text("Setor") },
-                                    placeholder = { Text("Ex.: Produção") },
-                                    leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
-                                    supportingText = { Text("Digite um novo setor ou escolha uma sugestão.") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.Words,
-                                        imeAction = ImeAction.Done,
-                                    ),
-                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                                )
-                                if (sectorSuggestions.isNotEmpty()) {
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                        items(sectorSuggestions, key = { "sector-$it" }) { sector ->
+                            val sectorField = @Composable {
+                                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                    Text("Setor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    OutlinedTextField(
+                                        value = draft.setor,
+                                        onValueChange = { draftState.update(draft.copy(setor = it)) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        label = { Text("Setor") },
+                                        placeholder = { Text("Ex.: Produção") },
+                                        leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
+                                        supportingText = { Text("Digite um novo setor ou escolha uma sugestão.") },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(
+                                            capitalization = KeyboardCapitalization.Words,
+                                            imeAction = ImeAction.Done,
+                                        ),
+                                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                    )
+                                    if (sectorSuggestions.isNotEmpty()) {
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                            items(sectorSuggestions, key = { "sector-$it" }) { sector ->
+                                                FilterChip(
+                                                    selected = cleanSector.equals(sector, ignoreCase = true),
+                                                    onClick = { draftState.update(draft.copy(setor = sector)) },
+                                                    label = { Text(sector) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            val shiftField = @Composable {
+                                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                    Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Selecione o turno para manter o cadastro padronizado.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                    ) {
+                                        items(CollaboratorShiftOptions, key = { "shift-$it" }) { shift ->
                                             FilterChip(
-                                                selected = cleanSector.equals(sector, ignoreCase = true),
-                                                onClick = { draftState.update(draft.copy(setor = sector)) },
-                                                label = { Text(sector) },
+                                                selected = cleanShift == shift,
+                                                onClick = { draftState.update(draft.copy(turno = shift)) },
+                                                label = { Text("Turno $shift") },
+                                                leadingIcon = if (cleanShift == shift) {
+                                                    { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                                } else null,
                                             )
                                         }
                                     }
                                 }
                             }
 
-                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "Selecione o turno para manter o cadastro padronizado.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                LazyRow(
+                            // Setor e turno cabem lado a lado em telas médias/expandidas
+                            // -- em vez de empilhar dois campos curtos ocupando a largura
+                            // toda de um tablet, aproveitamos o espaço horizontal.
+                            if (responsive.supportsTwoColumns) {
+                                Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
                                 ) {
-                                    items(CollaboratorShiftOptions, key = { "shift-$it" }) { shift ->
-                                        FilterChip(
-                                            selected = cleanShift == shift,
-                                            onClick = { draftState.update(draft.copy(turno = shift)) },
-                                            label = { Text("Turno $shift") },
-                                            leadingIcon = if (cleanShift == shift) {
-                                                { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                                            } else null,
-                                        )
-                                    }
+                                    Box(modifier = Modifier.weight(1f)) { sectorField() }
+                                    Box(modifier = Modifier.weight(1f)) { shiftField() }
                                 }
+                            } else {
+                                sectorField()
+                                shiftField()
                             }
                         }
                     }

@@ -309,6 +309,17 @@ fun AdminManagementScreenV3(
                 }
             }
 
+            // As outras seções (Operação, Confiabilidade, Regras) têm um
+            // ManagementSectionHeader próprio antes do conteúdo -- esta não
+            // tinha, o que fazia "Teste operacional" parecer um apêndice solto
+            // em vez de uma seção da mesma hierarquia.
+            item("test-title") {
+                ManagementSectionHeader(
+                    title = "Teste operacional",
+                    subtitle = "Simule o painel do Supervisor sem gerar registros reais.",
+                )
+            }
+
             item("advanced") {
                 Card(
                     modifier = Modifier
@@ -347,12 +358,12 @@ fun AdminManagementScreenV3(
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        "Teste operacional",
+                                        if (showAdvanced) "Ocultar ferramenta" else "Abrir ferramenta de teste",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                     Text(
-                                        "Simule o cartão do Supervisor sem criar registros reais.",
+                                        "Painel visual de INÍCIO/RETORNO simulado.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

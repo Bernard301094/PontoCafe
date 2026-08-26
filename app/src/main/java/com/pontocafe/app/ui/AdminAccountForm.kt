@@ -7,6 +7,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -101,6 +102,7 @@ fun AdminAccountForm(
     carregando: Boolean = false,
     initialProfile: AccountProfile = AccountProfile.SUPERVISOR_A,
     showHeader: Boolean = true,
+    responsive: PontoCafeResponsiveInfo? = null,
     onSubmit: (NewAccountInput) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -227,28 +229,49 @@ fun AdminAccountForm(
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 Text("Informações da conta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = draft.nome,
-                    onValueChange = { draftState.update(draft.copy(nome = it, erroLocal = null)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Nome completo") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                    singleLine = true,
-                    enabled = !carregando,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                )
-                OutlinedTextField(
-                    value = draft.email,
-                    onValueChange = { draftState.update(draft.copy(email = it, erroLocal = null)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("E-mail de acesso") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                    singleLine = true,
-                    enabled = !carregando,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                )
+
+                val nameField = @Composable {
+                    OutlinedTextField(
+                        value = draft.nome,
+                        onValueChange = { draftState.update(draft.copy(nome = it, erroLocal = null)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Nome completo") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        singleLine = true,
+                        enabled = !carregando,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    )
+                }
+                val emailField = @Composable {
+                    OutlinedTextField(
+                        value = draft.email,
+                        onValueChange = { draftState.update(draft.copy(email = it, erroLocal = null)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("E-mail de acesso") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                        singleLine = true,
+                        enabled = !carregando,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                    )
+                }
+
+                // Nome e e-mail cabem lado a lado quando há espaço real (tablet/
+                // desktop admin) -- empilhados só no telefone, onde cada campo
+                // precisa da largura toda para não comprimir o texto digitado.
+                if (responsive?.supportsTwoColumns == true) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) { nameField() }
+                        Box(modifier = Modifier.weight(1f)) { emailField() }
+                    }
+                } else {
+                    nameField()
+                    emailField()
+                }
             }
         }
 

@@ -241,7 +241,7 @@ private fun EnrollmentTopBar(
             .widthIn(max = 900.dp)
             .fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = Color(0xE8161B19),
+        color = Color(0xE817130F),
         contentColor = Color.White,
     ) {
         Row(
@@ -249,9 +249,9 @@ private fun EnrollmentTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Surface(modifier = Modifier.size(38.dp), shape = CircleShape, color = Color(0xFF72DCBC).copy(alpha = 0.14f)) {
+            Surface(modifier = Modifier.size(38.dp), shape = CircleShape, color = Color(0xFFFFB781).copy(alpha = 0.14f)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFF72DCBC), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFFFFB781), modifier = Modifier.size(20.dp))
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -280,7 +280,7 @@ private fun IdentityConfirmationCard(
             .padding(horizontal = 22.dp, vertical = if (compactHeight) 76.dp else 92.dp)
             .widthIn(max = 560.dp)
             .fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xF5161B19)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xF517130F)),
         shape = RoundedCornerShape(28.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -292,9 +292,9 @@ private fun IdentityConfirmationCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Surface(modifier = Modifier.size(58.dp), shape = CircleShape, color = Color(0xFF72DCBC).copy(alpha = 0.14f)) {
+            Surface(modifier = Modifier.size(58.dp), shape = CircleShape, color = Color(0xFFFFB781).copy(alpha = 0.14f)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF72DCBC), modifier = Modifier.size(28.dp))
+                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFFFFB781), modifier = Modifier.size(28.dp))
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -309,7 +309,7 @@ private fun IdentityConfirmationCard(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
-                    color = Color(0xFF72DCBC),
+                    color = Color(0xFFFFB781),
                 )
                 val details = listOfNotNull(sector, shift).filter { it.isNotBlank() }.joinToString(" · ")
                 if (details.isNotBlank()) {
@@ -356,7 +356,7 @@ private fun EnrollmentBottomSheet(
                 liveRegion = LiveRegionMode.Polite
                 stateDescription = "$cameraHint. $captured de $totalSteps amostras capturadas"
             },
-        color = Color(0xF5161B19),
+        color = Color(0xF517130F),
         contentColor = Color.White,
         shape = RoundedCornerShape(24.dp),
     ) {
@@ -371,7 +371,7 @@ private fun EnrollmentBottomSheet(
             Text(
                 "ETAPA ${stepIndex + 1} DE $totalSteps",
                 style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF72DCBC),
+                color = Color(0xFFFFB781),
             )
             Text(
                 currentPose.title,
@@ -401,7 +401,7 @@ private fun EnrollmentBottomSheet(
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = Color(0xFF72DCBC),
+                        color = Color(0xFFFFB781),
                     )
                 }
                 Text(
@@ -483,8 +483,8 @@ private fun EnrollmentStepper(
             val completed = index < captured
             val active = index == current && !completed
             val color = when {
-                completed -> Color(0xFF72DCBC)
-                active && processing -> Color(0xFFFFC867)
+                completed -> Color(0xFFFFB781)
+                active && processing -> Color(0xFFFFD54D)
                 active -> Color.White
                 else -> Color.White.copy(alpha = 0.22f)
             }

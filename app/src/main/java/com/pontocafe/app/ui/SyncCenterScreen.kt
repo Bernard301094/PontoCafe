@@ -200,7 +200,11 @@ fun SyncCenterScreen(
                         )
                     }
                 } else {
-                    items(snapshot.pending, key = { it.eventId }) { event ->
+                    // Registros com falha de sincronização precisam de atenção
+                    // antes dos que só estão esperando a próxima tentativa normal
+                    // -- sem isso, uma falha ficava misturada em meio à fila.
+                    val prioritized = snapshot.pending.sortedBy { it.falha == null }
+                    items(prioritized, key = { it.eventId }) { event ->
                         val failure = event.falha
                         Card(
                             modifier = Modifier

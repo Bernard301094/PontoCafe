@@ -79,6 +79,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
                     carregando = state.carregando,
                     initialProfile = AccountProfile.SUPERVISOR_A,
                     showHeader = false,
+                    responsive = responsive,
                     onSubmit = { input ->
                         viewModel.trackAccountDraftSubmission(draftState)
                         viewModel.criarConta(input)

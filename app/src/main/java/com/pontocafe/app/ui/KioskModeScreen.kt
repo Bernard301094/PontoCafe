@@ -166,6 +166,20 @@ fun KioskModeScreen(
 
                 item("lock-task") {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        // O botão depende de duas condições (modo terminal ativo +
+                        // switch "Fixar aplicativo na tela" acima), mas nada explicava
+                        // por que ele aparecia desabilitado -- só um botão cinza sem
+                        // pista de qual das duas faltava ligar.
+                        if (!settings.enabled || !settings.lockTask) {
+                            PcStateBanner(
+                                title = "Ative os requisitos acima para fixar",
+                                supportingText = when {
+                                    !settings.enabled -> "Ative \"Ativar modo terminal\" no topo desta tela."
+                                    else -> "Ative \"Fixar aplicativo na tela\" em Comportamento do terminal."
+                                },
+                                tone = PontoCafeTone.NEUTRAL,
+                            )
+                        }
                         PcPrimaryButton(
                             text = "Fixar Ponto Café agora",
                             icon = Icons.Default.Lock,

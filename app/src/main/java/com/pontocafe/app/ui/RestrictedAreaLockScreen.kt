@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -235,7 +234,7 @@ fun RestrictedAreaLockScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 520.dp),
-                shape = RoundedCornerShape(if (compactHeight) 26.dp else 30.dp),
+                shape = if (compactHeight) MaterialTheme.shapes.large else MaterialTheme.shapes.extraLarge,
                 color = PontoCafePremium.glassStrong,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 border = BorderStroke(1.dp, PontoCafePremium.border),
@@ -256,7 +255,7 @@ fun RestrictedAreaLockScreen(
                     ) {
                         Surface(
                             modifier = Modifier.size(iconBoxSize),
-                            shape = RoundedCornerShape(18.dp),
+                            shape = MaterialTheme.shapes.medium,
                             color = PontoCafePremium.glowSoft,
                             border = BorderStroke(
                                 1.dp,
@@ -304,7 +303,7 @@ fun RestrictedAreaLockScreen(
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
                         border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
                     ) {
@@ -388,7 +387,7 @@ fun RestrictedAreaLockScreen(
                                     liveRegion = LiveRegionMode.Assertive
                                     stateDescription = message
                                 },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.errorContainer,
                             border = BorderStroke(
                                 1.dp,
@@ -415,7 +414,7 @@ fun RestrictedAreaLockScreen(
                                     "Aguardando desbloqueio"
                                 }
                             },
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                         contentPadding = PaddingValues(vertical = if (compactHeight) 14.dp else 16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -438,7 +437,7 @@ fun RestrictedAreaLockScreen(
                     OutlinedButton(
                         onClick = onBackToPonto,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.medium,
                         contentPadding = PaddingValues(vertical = if (compactHeight) 13.dp else 15.dp),
                         border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
                     ) {

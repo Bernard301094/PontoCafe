@@ -71,6 +71,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
         }
     }
 
+    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.formContentWidth) { responsive ->
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -78,7 +79,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             .navigationBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.lg),
+            .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
     ) {
         PontoCafeScreenHeader(
@@ -225,6 +226,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.carregando,
         )
+    }
     }
 }
 

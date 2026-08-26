@@ -433,7 +433,19 @@ fun AdminDevicesScreenV2(
                         )
                     }
                 } else {
-                    items(state.dispositivos, key = { "device-v2-${it.id}" }) { device ->
+                    // Sem isso a frota aparece na ordem crua do servidor -- um
+                    // aparelho com alerta de saúde podia ficar enterrado no meio
+                    // de dezenas de aparelhos saudáveis. Prioriza quem precisa
+                    // de atenção primeiro, sem esconder nenhum dispositivo.
+                    val prioritized = state.dispositivos.sortedWith(
+                        compareBy(
+                            { !it.alertaSaude },
+                            { it.statusAtivacao == "ATIVADO" },
+                            { it.pinConfigurado },
+                            { !it.ativo },
+                        ),
+                    )
+                    items(prioritized, key = { "device-v2-${it.id}" }) { device ->
                         DeviceCardV2(
                             viewModel = viewModel,
                             device = device,

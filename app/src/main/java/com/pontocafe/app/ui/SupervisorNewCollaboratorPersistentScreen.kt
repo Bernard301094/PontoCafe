@@ -1,6 +1,7 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -140,49 +141,65 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                                 onNext = { focusManager.moveFocus(FocusDirection.Down) },
                             ),
                         )
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            OutlinedTextField(
-                                value = draft.setor,
-                                onValueChange = { draftState.update(draft.copy(setor = it)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Setor") },
-                                leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Words,
-                                    imeAction = ImeAction.Done,
-                                ),
-                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                            )
-                            if (sectorSuggestions.isNotEmpty()) {
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                                    items(sectorSuggestions, key = { "supervisor-sector-$it" }) { sector ->
+                        val sectorField = @Composable {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                OutlinedTextField(
+                                    value = draft.setor,
+                                    onValueChange = { draftState.update(draft.copy(setor = it)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Setor") },
+                                    leadingIcon = { Icon(Icons.Default.Apartment, contentDescription = null) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Words,
+                                        imeAction = ImeAction.Done,
+                                    ),
+                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                )
+                                if (sectorSuggestions.isNotEmpty()) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                        items(sectorSuggestions, key = { "supervisor-sector-$it" }) { sector ->
+                                            FilterChip(
+                                                selected = cleanSector.equals(sector, ignoreCase = true),
+                                                onClick = { draftState.update(draft.copy(setor = sector)) },
+                                                label = { Text(sector) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val shiftField = @Composable {
+                            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                ) {
+                                    items(SupervisorShiftOptions, key = { "supervisor-shift-$it" }) { shift ->
                                         FilterChip(
-                                            selected = cleanSector.equals(sector, ignoreCase = true),
-                                            onClick = { draftState.update(draft.copy(setor = sector)) },
-                                            label = { Text(sector) },
+                                            selected = cleanShift == shift,
+                                            onClick = { draftState.update(draft.copy(turno = shift)) },
+                                            label = { Text("Turno $shift") },
+                                            leadingIcon = if (cleanShift == shift) {
+                                                { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                            } else null,
                                         )
                                     }
                                 }
                             }
                         }
-                        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                            Text("Turno", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            LazyRow(
+                        if (responsive.supportsTwoColumns) {
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
                             ) {
-                                items(SupervisorShiftOptions, key = { "supervisor-shift-$it" }) { shift ->
-                                    FilterChip(
-                                        selected = cleanShift == shift,
-                                        onClick = { draftState.update(draft.copy(turno = shift)) },
-                                        label = { Text("Turno $shift") },
-                                        leadingIcon = if (cleanShift == shift) {
-                                            { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                                        } else null,
-                                    )
-                                }
+                                Box(modifier = Modifier.weight(1f)) { sectorField() }
+                                Box(modifier = Modifier.weight(1f)) { shiftField() }
                             }
+                        } else {
+                            sectorField()
+                            shiftField()
                         }
                     }
                 }
