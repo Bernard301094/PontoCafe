@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -134,7 +134,10 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
         cameraHint = currentPose.instruction
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    // Preto puro trocado pelo mesmo quase-preto quente do resto do app
+    // (PontoCafePremium.backgroundTop) -- fica coerente com a nova identidade
+    // mesmo sendo, na prática, quase todo coberto pela prévia da câmera.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(PontoCafePremium.backgroundTop)) {
         val compactHeight = maxHeight < 480.dp
         if (identityConfirmed) {
             if (cameraPermission.granted) {
@@ -240,7 +243,7 @@ private fun EnrollmentTopBar(
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .widthIn(max = 900.dp)
             .fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.medium,
         color = Color(0xE817130F),
         contentColor = Color.White,
     ) {
@@ -249,7 +252,12 @@ private fun EnrollmentTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Surface(modifier = Modifier.size(38.dp), shape = CircleShape, color = Color(0xFFFFB781).copy(alpha = 0.14f)) {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = MaterialTheme.shapes.small,
+                color = Color(0xFFFFB781).copy(alpha = 0.14f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB781).copy(alpha = 0.35f)),
+            ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Face, contentDescription = null, tint = Color(0xFFFFB781), modifier = Modifier.size(20.dp))
                 }
@@ -275,15 +283,27 @@ private fun IdentityConfirmationCard(
     compactHeight: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    Column(
         modifier = modifier
             .padding(horizontal = 22.dp, vertical = if (compactHeight) 76.dp else 92.dp)
             .widthIn(max = 560.dp)
             .fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xF517130F)),
-        shape = RoundedCornerShape(28.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
+        // Mesma franja de acento do PcHeroCard no resto do app -- aqui na
+        // horizontal, já que este cartão fica centralizado na tela em vez de
+        // ancorado numa lista.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(Color(0xFFFFB781), MaterialTheme.shapes.extraSmall),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xF517130F)),
+            shape = MaterialTheme.shapes.extraLarge,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
         Column(
             modifier = Modifier
                 .heightIn(max = if (compactHeight) 300.dp else 560.dp)
@@ -292,7 +312,11 @@ private fun IdentityConfirmationCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
-            Surface(modifier = Modifier.size(58.dp), shape = CircleShape, color = Color(0xFFFFB781).copy(alpha = 0.14f)) {
+            Surface(
+                modifier = Modifier.size(58.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = Color(0xFFFFB781).copy(alpha = 0.14f),
+            ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFFFFB781), modifier = Modifier.size(28.dp))
                 }
@@ -328,6 +352,7 @@ private fun IdentityConfirmationCard(
                 onSecondary = onBack,
             )
         }
+        }
     }
 }
 
@@ -358,7 +383,7 @@ private fun EnrollmentBottomSheet(
             },
         color = Color(0xF517130F),
         contentColor = Color.White,
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier
@@ -432,7 +457,7 @@ private fun EnrollmentBottomSheet(
             message?.let {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = Color(0xFF164D40),
                 ) {
                     Text(
@@ -447,7 +472,7 @@ private fun EnrollmentBottomSheet(
             error?.let {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = Color(0xFF3A1D1A),
                 ) {
                     Text(
