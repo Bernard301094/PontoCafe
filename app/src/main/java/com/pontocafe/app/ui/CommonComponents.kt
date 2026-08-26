@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -106,33 +107,42 @@ fun PontoCafeScreenHeader(
                 modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = backLabel,
-                        tint = MaterialTheme.colorScheme.onSurface,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             if (!eyebrow.isNullOrBlank()) {
-                Text(
-                    eyebrow.uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    )
+                    Text(
+                        eyebrow.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
             Text(
                 title,
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
             )
         }
     }

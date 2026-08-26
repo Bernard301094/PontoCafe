@@ -1,7 +1,10 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +23,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.pontocafe.app.data.AdminTestPause
 import com.pontocafe.app.data.ReportDay
 import com.pontocafe.app.data.ReportSummary
@@ -53,32 +56,56 @@ fun PcAreaTopBar(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(
-                text = eyebrow.uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                )
+                Text(
+                    text = eyebrow.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.6.sp,
+                )
+            }
             Text(
                 text = title,
                 modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
 
-        TextButton(onClick = onBackToPonto) {
-            Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("Ponto", modifier = Modifier.padding(start = 5.dp))
+        Surface(
+            onClick = onBackToPonto,
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(
+                    "Ponto",
+                    modifier = Modifier.padding(start = 5.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
         }
 
         Surface(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
         ) {
             IconButton(
                 onClick = onProfileClick,

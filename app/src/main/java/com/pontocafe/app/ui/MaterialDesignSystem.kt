@@ -4,6 +4,7 @@ import com.pontocafe.app.haptics.PontoHaptics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -12,10 +13,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -83,47 +87,60 @@ fun PcHeroCard(
         PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceContainer
     }
 
-    Card(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .semantics(mergeDescendants = true) {
                 stateDescription = tone.accessibilityLabel()
             },
-        colors = CardDefaults.cardColors(containerColor = container),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(PontoCafeSpacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        // Faixa de destaque na cor do tom -- identifica o estado à distância,
+        // sem depender só do tom do container de fundo (que é sutil de propósito
+        // para não competir com o conteúdo).
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(accent, MaterialTheme.shapes.extraSmall),
+        )
+        Card(
+            modifier = Modifier.weight(1f),
+            colors = CardDefaults.cardColors(containerColor = container),
+            shape = MaterialTheme.shapes.extraLarge,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = CircleShape,
-                color = accent.copy(alpha = 0.14f),
+            Row(
+                modifier = Modifier.padding(PontoCafeSpacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(24.dp))
+                Surface(
+                    modifier = Modifier.size(52.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = accent.copy(alpha = 0.16f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(26.dp))
+                    }
                 }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        title,
+                        modifier = Modifier.semantics { heading() },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        supportingText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                trailing?.invoke(this)
             }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    title,
-                    modifier = Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    supportingText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            trailing?.invoke(this)
         }
     }
 }
@@ -151,23 +168,31 @@ fun PcMetricTile(
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = CircleShape,
-                color = accent.copy(alpha = 0.12f),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
+                // O número lidera o cartão (maior peso visual que o ícone) --
+                // é a informação que a pessoa realmente veio buscar aqui.
+                Text(
+                    text = animatedMetricValue(value),
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                )
+                Surface(
+                    modifier = Modifier.size(30.dp),
+                    shape = CircleShape,
+                    color = accent.copy(alpha = 0.14f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
-            Text(
-                text = animatedMetricValue(value),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = accent,
-            )
             Text(
                 label,
                 style = MaterialTheme.typography.bodyMedium,
@@ -175,6 +200,15 @@ fun PcMetricTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (attention) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = PontoCafeSpacing.xs)
+                        .height(3.dp)
+                        .fillMaxWidth()
+                        .background(accent, MaterialTheme.shapes.extraSmall),
+                )
+            }
         }
     }
 }
@@ -187,9 +221,12 @@ fun PcActionTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
     Card(
         modifier = modifier
-            .defaultMinSize(minHeight = 72.dp)
+            .defaultMinSize(minHeight = 76.dp)
+            .pcPressScale(pressScale)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = "$title. $supportingText"
@@ -197,7 +234,9 @@ fun PcActionTile(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        interactionSource = interactionSource,
     ) {
         Row(
             modifier = Modifier.padding(PontoCafeSpacing.md),
@@ -205,8 +244,8 @@ fun PcActionTile(
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = CircleShape,
+                modifier = Modifier.size(44.dp),
+                shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -214,24 +253,32 @@ fun PcActionTile(
                         icon,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(21.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     supportingText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+            Surface(
+                modifier = Modifier.size(28.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
         }
     }
 }
