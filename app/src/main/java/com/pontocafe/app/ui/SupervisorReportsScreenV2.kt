@@ -82,7 +82,23 @@ fun SupervisorReportsScreenV2(
     var showExportSheet by remember { mutableStateOf(false) }
     var selectedDelay by remember { mutableStateOf<ReportDelay?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
+    var sectorFilter by remember { mutableStateOf<String?>(null) }
     val collaboratorById = remember(state.colaboradores) { state.colaboradores.associateBy { it.id } }
+    // Filtro por setor só se aplica a este ranking -- os cartões por dia e o
+    // resumo geral vêm já agregados do servidor (carregarRelatorio só recebe
+    // início/fim, sem parâmetro de setor), então não há como refiltrá-los no
+    // cliente sem fingir números que o servidor não forneceu.
+    val rankingSectors = remember(report, collaboratorById) {
+        report?.maioresAtrasos
+            ?.mapNotNull { collaboratorById[it.colaboradorId]?.setor?.trim()?.takeIf(String::isNotBlank) }
+            ?.distinct()
+            ?.sorted()
+            .orEmpty()
+    }
+    val filteredDelays = remember(report, sectorFilter, collaboratorById) {
+        val delays = report?.maioresAtrasos.orEmpty()
+        if (sectorFilter == null) delays else delays.filter { collaboratorById[it.colaboradorId]?.setor == sectorFilter }
+    }
 
     val sessionStore = remember(context, state.sessaoAdministrativa) {
         SecureAdminSessionStore(
@@ -445,16 +461,36 @@ fun SupervisorReportsScreenV2(
                             "Pessoas com maior excesso acumulado no período.",
                         )
                     }
-                    if (report.maioresAtrasos.isEmpty()) {
+                    if (rankingSectors.size > 1) {
+                        item("ranking-sector-filter") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                                item("ranking-sector-all") {
+                                    FilterChip(
+                                        selected = sectorFilter == null,
+                                        onClick = { sectorFilter = null },
+                                        label = { Text("Todos os setores") },
+                                    )
+                                }
+                                items(rankingSectors, key = { "ranking-sector-$it" }) { sector ->
+                                    FilterChip(
+                                        selected = sectorFilter == sector,
+                                        onClick = { sectorFilter = sector },
+                                        label = { Text(sector) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (filteredDelays.isEmpty()) {
                         item("ranking-empty") {
                             PcEmptyState(
-                                title = "Tudo dentro do limite",
+                                title = if (report.maioresAtrasos.isEmpty()) "Tudo dentro do limite" else "Ninguém neste setor excedeu o limite",
                                 supportingText = "Nenhuma pessoa excedeu o tempo configurado neste período.",
                                 icon = Icons.Default.Timer,
                             )
                         }
                     } else {
-                        items(report.maioresAtrasos, key = { "delay-${it.colaboradorId}" }) { delay ->
+                        items(filteredDelays, key = { "delay-${it.colaboradorId}" }) { delay ->
                             val interactionSource = remember { MutableInteractionSource() }
                             val pressScale = rememberPcPressScale(interactionSource)
                             androidx.compose.material3.Card(
@@ -498,6 +534,20 @@ fun SupervisorReportsScreenV2(
                         }
                     }
                 }
+            }
+
+            if (report != null) {
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = { showExportSheet = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .navigationBarsPadding()
+                        .padding(start = responsive.pagePadding, bottom = PontoCafeSpacing.md),
+                    icon = { androidx.compose.material3.Icon(Icons.Default.Download, contentDescription = null) },
+                    text = { Text("Exportar") },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
             }
 
             PcScrollToTopFab(

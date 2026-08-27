@@ -1,25 +1,33 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -27,16 +35,21 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +71,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
     val selectedDate = state.historicoData?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
     var showCalendar by remember { mutableStateOf(false) }
     var selectedPause by remember { mutableStateOf<PausaSupervisor?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
 
     if (showCalendar) {
         val pickerState = androidx.compose.material3.rememberDatePickerState(
@@ -136,12 +150,43 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                     )
                 }
 
-                item("calendar") {
-                    PcPrimaryButton(
-                        text = "Escolher outra data",
-                        icon = Icons.Default.CalendarMonth,
-                        onClick = { showCalendar = true },
+                item("date-presets") {
+                    val today = LocalDate.now()
+                    val yesterday = today.minusDays(1)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+                        item("preset-today") {
+                            FilterChip(
+                                selected = selectedDate == today,
+                                onClick = { viewModel.abrirHistorico(today.toString()) },
+                                label = { Text("Hoje") },
+                            )
+                        }
+                        item("preset-yesterday") {
+                            FilterChip(
+                                selected = selectedDate == yesterday,
+                                onClick = { viewModel.abrirHistorico(yesterday.toString()) },
+                                label = { Text("Ontem") },
+                            )
+                        }
+                        item("preset-custom") {
+                            FilterChip(
+                                selected = selectedDate != today && selectedDate != yesterday,
+                                onClick = { showCalendar = true },
+                                label = { Text("Escolher data…") },
+                                leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            )
+                        }
+                    }
+                }
+
+                item("search") {
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = { search = it },
                         modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Buscar por nome") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
                     )
                 }
 
@@ -210,30 +255,40 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                 item("title") {
                     SectionTitle(
                         "Registros de ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM"))}",
-                        if (state.historico.isEmpty()) "Nenhuma pausa encontrada nesta data." else "Lista compacta · toque em um registro para ver todos os detalhes.",
+                        if (state.historico.isEmpty()) "Nenhuma pausa encontrada nesta data." else "Linha do tempo · toque em um registro para ver todos os detalhes.",
                     )
                 }
 
+                val query = search.trim()
+                val visiblePauses = state.historico
+                    .filter { query.isBlank() || it.nome.contains(query, ignoreCase = true) }
+                    .sortedByDescending { it.inicioLocal }
+
                 if (state.carregando && state.historico.isEmpty()) {
                     item("loading") { PontoCafeLoadingSkeleton(rows = 4) }
-                } else if (state.historico.isEmpty()) {
+                } else if (visiblePauses.isEmpty()) {
                     item("empty") {
                         PcEmptyState(
-                            title = "Sem registros neste dia",
-                            supportingText = "Escolha outra data no calendário para consultar o histórico.",
+                            title = if (state.historico.isEmpty()) "Sem registros neste dia" else "Ninguém encontrado para \"$query\"",
+                            supportingText = "Escolha outra data ou ajuste a busca para consultar o histórico.",
                             icon = Icons.Default.CalendarMonth,
                         )
                     }
                 } else {
-                    items(
-                        state.historico.sortedByDescending { it.inicioLocal },
-                        key = { "history-v2-${it.id}" },
-                    ) { pause ->
-                        HistoryPauseCard(
-                            pause = pause,
-                            onClick = { selectedPause = pause },
+                    itemsIndexed(
+                        visiblePauses,
+                        key = { _, pause -> "history-v2-${pause.id}" },
+                    ) { index, pause ->
+                        HistoryTimelineRow(
+                            isFirst = index == 0,
+                            isLast = index == visiblePauses.lastIndex,
                             modifier = Modifier.animateItem(),
-                        )
+                        ) {
+                            HistoryPauseCard(
+                                pause = pause,
+                                onClick = { selectedPause = pause },
+                            )
+                        }
                     }
                 }
             }
@@ -245,6 +300,53 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
                     .navigationBarsPadding()
                     .padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md),
             )
+        }
+    }
+}
+
+/**
+ * Nó de linha do tempo vertical -- linha contínua à esquerda com um marcador
+ * circular por registro, conteúdo do cartão à direita. Não é a variante em
+ * zigue-zague (nós alternando lado a lado) do pedido original: numa coluna
+ * de largura de celular, alternar o lado a cada item prejudica a leitura em
+ * vez de ajudar; o efeito de "linha do tempo" continua real com um único
+ * trilho contínuo.
+ */
+@Composable
+internal fun HistoryTimelineRow(
+    isFirst: Boolean,
+    isLast: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val lineColor = MaterialTheme.colorScheme.outlineVariant
+    Row(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .width(20.dp)
+                .fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .weight(1f)
+                    .background(if (isFirst) Color.Transparent else lineColor),
+            )
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+            )
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .weight(1f)
+                    .background(if (isLast) Color.Transparent else lineColor),
+            )
+        }
+        Box(modifier = Modifier.padding(start = 8.dp, bottom = PontoCafeSpacing.xs).weight(1f)) {
+            content()
         }
     }
 }

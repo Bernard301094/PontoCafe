@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.AlertDialog
@@ -226,40 +227,45 @@ fun CollaboratorHistoryScreen(
                 )
             }
         } else {
-            items(history.pausas, key = { it.id }) { pause ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .animateItem()
-                        .semantics {
-                            stateDescription = if (pause.excedeuLimite) {
-                                "Pausa acima do limite"
-                            } else if (pause.foraHorario) {
-                                "Pausa fora do horário"
-                            } else {
-                                "Pausa dentro do limite"
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, if (pause.excedeuLimite) LocalPontoCafeSemanticColors.current.critical.copy(alpha = .35f) else MaterialTheme.colorScheme.outlineVariant),
+            itemsIndexed(history.pausas, key = { _, pause -> pause.id }) { index, pause ->
+                HistoryTimelineRow(
+                    isFirst = index == 0,
+                    isLast = index == history.pausas.lastIndex,
+                    modifier = Modifier.animateItem(),
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(PontoCafeSpacing.md), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(pause.inicioLocal, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                if (pause.fimLocal == null) "Pausa em andamento" else "Retorno ${pause.fimLocal}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (pause.foraHorario) StatusPill("Fora do horário", PontoCafeTone.WARNING)
-                        }
-                        Column {
-                            Text(pause.duracaoSegundos?.let(PontoCafeRules::formatDuration) ?: "…")
-                            Text(
-                                "limite ${PontoCafeRules.formatDuration(pause.limiteSegundos)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                stateDescription = if (pause.excedeuLimite) {
+                                    "Pausa acima do limite"
+                                } else if (pause.foraHorario) {
+                                    "Pausa fora do horário"
+                                } else {
+                                    "Pausa dentro do limite"
+                                }
+                            },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, if (pause.excedeuLimite) LocalPontoCafeSemanticColors.current.critical.copy(alpha = .35f) else MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(PontoCafeSpacing.md), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(pause.inicioLocal, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    if (pause.fimLocal == null) "Pausa em andamento" else "Retorno ${pause.fimLocal}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (pause.foraHorario) StatusPill("Fora do horário", PontoCafeTone.WARNING)
+                            }
+                            Column {
+                                Text(pause.duracaoSegundos?.let(PontoCafeRules::formatDuration) ?: "…")
+                                Text(
+                                    "limite ${PontoCafeRules.formatDuration(pause.limiteSegundos)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
