@@ -680,6 +680,19 @@ private fun DeviceCardV2(
                     )
                 }
                 StatusPill(statusLabel, statusTone)
+                // Alternância remota de bloqueio -- mesmo fluxo de confirmação de
+                // sempre (dangerAction), só exposta como toggle no cabeçalho do
+                // cartão em vez de exigir abrir os botões de gestão lá embaixo.
+                Switch(
+                    checked = device.ativo,
+                    onCheckedChange = {
+                        dangerAction = if (device.ativo) DeviceDangerAction.DEACTIVATE else DeviceDangerAction.ROTATE
+                    },
+                    enabled = !viewModel.state.carregando,
+                    modifier = Modifier.semantics {
+                        stateDescription = if (device.ativo) "Acesso remoto ativo" else "Acesso remoto bloqueado"
+                    },
+                )
             }
 
             DeviceFactsPanel(deviceFacts)

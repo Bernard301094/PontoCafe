@@ -549,12 +549,15 @@ private fun AdminHomeQuickAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressScale = rememberPcPressScale(interactionSource)
     Card(
-        modifier = modifier,
+        modifier = modifier.pcPressScale(pressScale),
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 4.dp),
     ) {
         Column(
             modifier = Modifier

@@ -17,18 +17,32 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
@@ -36,6 +50,12 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+private enum class SyncQueueTab(val label: String) {
+    PENDING("Fila local"),
+    ERRORS("Erros"),
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncCenterScreen(
     viewModel: AdminReliabilityViewModel,
@@ -44,6 +64,8 @@ fun SyncCenterScreen(
     val state = viewModel.state
     val snapshot = state.syncCenter
     val listState = rememberLazyListState()
+    val clipboard = LocalClipboardManager.current
+    var selectedTab by rememberSaveable { mutableStateOf(SyncQueueTab.PENDING) }
 
     LaunchedEffect(Unit) {
         if (snapshot == null) viewModel.openSyncCenter()
@@ -118,13 +140,36 @@ fun SyncCenterScreen(
                     )
                 }
 
+                if (snapshot != null && snapshot.pending.isNotEmpty()) {
+                    item("queue-tabs") {
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            SyncQueueTab.entries.forEachIndexed { index, tab ->
+                                val count = if (tab == SyncQueueTab.ERRORS) {
+                                    snapshot.pending.count { it.falha != null }
+                                } else {
+                                    snapshot.pending.size
+                                }
+                                SegmentedButton(
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    shape = SegmentedButtonDefaults.itemShape(index, SyncQueueTab.entries.size),
+                                ) {
+                                    Text("${tab.label} ($count)")
+                                }
+                            }
+                        }
+                    }
+                }
+
                 item("pending-title") {
                     SectionTitle(
-                        "Fila local",
+                        if (selectedTab == SyncQueueTab.ERRORS) "Erros de sincronização" else "Fila local",
                         if (snapshot == null) {
                             "Carregando o estado da fila local."
                         } else if (snapshot.pending.isEmpty()) {
                             "Nenhum registro aguardando envio."
+                        } else if (selectedTab == SyncQueueTab.ERRORS) {
+                            "Registros que falharam e precisam de atenção."
                         } else {
                             "Cada item permanece aqui até o servidor confirmar o processamento."
                         },
@@ -161,7 +206,18 @@ fun SyncCenterScreen(
                     // Registros com falha de sincronização precisam de atenção
                     // antes dos que só estão esperando a próxima tentativa normal
                     // -- sem isso, uma falha ficava misturada em meio à fila.
-                    val prioritized = snapshot.pending.sortedBy { it.falha == null }
+                    val prioritized = snapshot.pending
+                        .filter { selectedTab == SyncQueueTab.PENDING || it.falha != null }
+                        .sortedBy { it.falha == null }
+                    if (prioritized.isEmpty()) {
+                        item("errors-empty") {
+                            PcEmptyState(
+                                title = "Nenhum erro no momento",
+                                supportingText = "Todos os registros pendentes estão aguardando a próxima tentativa normal.",
+                                icon = Icons.Default.CheckCircle,
+                            )
+                        }
+                    }
                     items(prioritized, key = { it.eventId }) { event ->
                         val failure = event.falha
                         Card(
@@ -209,10 +265,31 @@ fun SyncCenterScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                         )
                                     }
-                                    StatusPill(
-                                        if (failure == null) "Aguardando" else "Atenção",
-                                        if (failure == null) PontoCafeTone.WARNING else PontoCafeTone.DANGER,
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        StatusPill(
+                                            if (failure == null) "Aguardando" else "Atenção",
+                                            if (failure == null) PontoCafeTone.WARNING else PontoCafeTone.DANGER,
+                                        )
+                                        IconButton(onClick = {
+                                            val payload = buildString {
+                                                appendLine("eventId: ${event.eventId}")
+                                                appendLine("colaborador: ${event.nome}")
+                                                appendLine("acao: ${event.acao}")
+                                                appendLine("ocorridoEm: ${event.ocorridoEm}")
+                                                failure?.let {
+                                                    appendLine("falha: ${it.mensagem}")
+                                                    appendLine("tentativas: ${it.tentativas}")
+                                                    appendLine("ultimaTentativaEmMillis: ${it.ultimaTentativaEmMillis}")
+                                                }
+                                            }
+                                            clipboard.setText(AnnotatedString(payload))
+                                        }) {
+                                            Icon(
+                                                Icons.Default.ContentCopy,
+                                                contentDescription = "Copiar dados de depuração deste registro",
+                                            )
+                                        }
+                                    }
                                 }
                                 Text(
                                     formatInstant(event.ocorridoEm),
