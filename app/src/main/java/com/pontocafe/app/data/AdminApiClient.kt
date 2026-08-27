@@ -560,6 +560,16 @@ class AdminRepository(
         summaryCache = null
     }
 
+    /**
+     * Purga manual disparada pela pessoa administradora (console de
+     * diagnóstico). Mesmo efeito de clearCaches(), usado internamente no
+     * logout: força a próxima leitura de cada lista a vir do servidor. Não
+     * apaga sessão nem fila offline, só as listas em memória desta instância.
+     */
+    fun purgeLocalCaches() {
+        clearCaches()
+    }
+
     private fun ensureSuccess(response: Response<*>) {
         if (!response.isSuccessful) throw HttpException(response)
     }

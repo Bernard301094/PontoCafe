@@ -129,6 +129,35 @@ fun AdminManagementScreenV3(
 
     var showAccountSheet by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(testPause != null) }
+    var showPurgeCacheConfirm by remember { mutableStateOf(false) }
+
+    if (showPurgeCacheConfirm) {
+        AlertDialog(
+            onDismissRequest = { showPurgeCacheConfirm = false },
+            title = { Text("Limpar cache local?") },
+            text = {
+                PcDialogBody {
+                    Text(
+                        "As listas de pessoas, dispositivos, usuários e regras guardadas em memória neste " +
+                            "aparelho serão descartadas. A próxima tela que precisar delas vai buscar " +
+                            "direto do servidor. Sessão e fila de sincronização offline não são afetadas.",
+                    )
+                }
+            },
+            confirmButton = {
+                PcPrimaryButton(
+                    text = "Limpar cache",
+                    onClick = {
+                        viewModel.purgarCacheLocal()
+                        showPurgeCacheConfirm = false
+                    },
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showPurgeCacheConfirm = false }) { Text("Cancelar") }
+            },
+        )
+    }
 
     LaunchedEffect(Unit) {
         reliabilityViewModel.loadManagement()
@@ -273,6 +302,15 @@ fun AdminManagementScreenV3(
                 ManagementActionGrid(
                     actions = reliabilityActions,
                     responsive = responsive,
+                )
+            }
+
+            item("purge-cache") {
+                PcSecondaryButton(
+                    text = "Limpar cache local",
+                    icon = Icons.Default.Sync,
+                    onClick = { showPurgeCacheConfirm = true },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 

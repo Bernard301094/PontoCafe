@@ -726,6 +726,18 @@ class AdminViewModel(
         state = state.copy(erro = null, mensagem = null)
     }
 
+    /**
+     * Purga manual do cache local (listas de usuários, regras, dispositivos,
+     * colaboradores e resumo em memória nesta instância). Não afeta sessão
+     * nem fila de sincronização offline -- só força a próxima leitura de
+     * cada lista a vir do servidor em vez de reaproveitar o que já foi
+     * buscado nesta sessão de app.
+     */
+    fun purgarCacheLocal() {
+        repository.purgeLocalCaches()
+        state = state.copy(mensagem = "Cache local limpo. Os próximos dados virão direto do servidor.")
+    }
+
     private fun releaseEnrollmentAvatarArtifacts() {
         enrollmentAvatarCapture.clear()
         state.enrollmentAvatarPreview?.fill(0)
