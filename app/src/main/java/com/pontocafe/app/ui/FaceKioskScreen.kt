@@ -86,6 +86,7 @@ import com.pontocafe.app.camera.BlinkLiveness
 import com.pontocafe.app.camera.FaceCameraPreview
 import com.pontocafe.app.camera.FaceCaptureRejectionReason
 import com.pontocafe.app.camera.FaceCapturePurpose
+import com.pontocafe.app.camera.FaceGuideGeometry
 import com.pontocafe.app.camera.FaceObservation
 import com.pontocafe.app.camera.FaceTrackContinuity
 import com.pontocafe.app.camera.FrameCaptureController
@@ -259,8 +260,22 @@ fun FaceKioskScreen(
     ) {
         val compactHeight = maxHeight < 480.dp
         val expanded = maxWidth >= 600.dp && !compactHeight
+        // Tamanho derivado da política, não escolhido a olho. FaceGuideGeometry
+        // devolve a altura de oval que coloca quem o preenche no MEIO da banda que
+        // FaceCapturePolicy aceita, e as constantes KIOSK_GUIDE_* convertem essa
+        // altura na largura da caixa. Num 1080x2340 isso dá 0.880 da largura da tela
+        // (oval de 0.845 x 0.487 da tela) ≈ 0.375 de razão de altura contra o buffer
+        // de análise — bem no meio geométrico de 0.24..0.587.
+        val policyGuideWidth = maxHeight *
+            FaceGuideGeometry.ovalHeightFractionOfPreview(maxWidth / maxHeight) *
+            KIOSK_GUIDE_CANVAS_ASPECT / KIOSK_GUIDE_OVAL_FILL
+        // Os dois ramos responsivos viram TRILHOS, não o valor principal: em preview
+        // deitado (tablet/compactHeight) o recorte vertical do FILL_CENTER exigiria um
+        // oval mais alto que a própria tela, e aí o guia fica do maior tamanho que
+        // couber — subdimensionado, mas nunca estourando a tela.
         val guideWidth = minOf(
-            maxWidth * if (expanded) 0.46f else 0.72f,
+            policyGuideWidth,
+            maxWidth * if (expanded) 0.78f else 0.92f,
             maxHeight * if (compactHeight) 0.42f else 0.58f,
         )
 

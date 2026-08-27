@@ -47,6 +47,20 @@ private const val REJECT_SHAKE_MILLIS = 420
 private const val PARTICLE_COUNT = 10
 
 /**
+ * Largura/altura da caixa do guia. Rosto é mais alto que largo, então o alvo também
+ * precisa ser — ver a derivação em FaceGuideGeometry.
+ *
+ * FaceKioskScreen inverte estas duas constantes para transformar a altura de oval
+ * exigida pela política na largura passada em guideWidth. Elas são o único contrato
+ * entre a tela e o desenho: mudar o desenho sem mudá-las reintroduz exatamente o bug
+ * que esta correção resolveu.
+ */
+internal const val KIOSK_GUIDE_CANVAS_ASPECT = 0.80f
+
+/** Quanto da caixa o oval ocupa; a sobra é respiro para o traço e o glow. */
+internal const val KIOSK_GUIDE_OVAL_FILL = 0.96f
+
+/**
  * Reticula biométrica ambiente. Âmbar pulsante enquanto procura/posiciona o rosto,
  * anel esmeralda com explosão de partículas no instante de um reconhecimento bem
  * sucedido (matchCelebration), e anel rubi com tremor curto para spoof/rejeição
@@ -136,7 +150,7 @@ internal fun KioskFaceGuide(
     Canvas(
         modifier = modifier
             .width(guideWidth)
-            .aspectRatio(0.80f)
+            .aspectRatio(KIOSK_GUIDE_CANVAS_ASPECT)
             .semantics {
                 contentDescription = when {
                     !active -> "Reticula biométrica indisponível"
@@ -150,13 +164,25 @@ internal fun KioskFaceGuide(
     ) {
         val cx = size.width / 2f + shakeOffsetPx
         val cy = size.height / 2f
-        val baseRadius = size.minDimension * 0.42f
-        val pulseFactor = if (detecting || recognitionReady) ambientPulse else 1f
-        val ringRadius = baseRadius * pulseFactor
+
+        // O oval É o alvo de enquadramento, e seu tamanho vem da política via
+        // FaceGuideGeometry — por isso a geometria aqui é FIXA. O pulso ambiente
+        // passou a viver só no brilho e na opacidade: animar o raio, como o anel
+        // circular fazia, variava o alvo em -14% e voltava a mentir sobre o tamanho
+        // que FaceCapturePolicy aceita.
+        //
+        // Também deixou de ser um círculo. Rosto é mais alto que largo; um círculo
+        // com a altura correta precisaria ser mais largo que a tela (ver a aritmética
+        // em FaceGuideGeometry). O oval de KIOSK_GUIDE_CANVAS_ASPECT cabe.
+        val ovalWidth = size.width * KIOSK_GUIDE_OVAL_FILL
+        val ovalHeight = size.height * KIOSK_GUIDE_OVAL_FILL
+        val alive = detecting || recognitionReady
+        val pulseFactor = if (alive) ambientPulse else 1f
         val ringStroke = (if (stablePositioned || recognitionReady || warning) 4.4.dp else 3.4.dp).toPx()
 
         // Glow externo suave, mais forte quando o anel está "vivo" (detectando ou pronto).
-        val glowAlpha = if (detecting || recognitionReady || warning) 0.28f else 0.14f
+        val glowRadius = maxOf(ovalWidth, ovalHeight) / 2f * (1.28f + (pulseFactor - 0.86f))
+        val glowAlpha = (if (alive || warning) 0.28f else 0.14f) * pulseFactor
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -164,20 +190,17 @@ internal fun KioskFaceGuide(
                     guideColor.copy(alpha = 0f),
                 ),
                 center = Offset(cx, cy),
-                radius = ringRadius * 1.55f,
+                radius = glowRadius,
             ),
-            radius = ringRadius * 1.55f,
+            radius = glowRadius,
             center = Offset(cx, cy),
         )
 
-        // Anel principal.
-        drawArc(
-            color = guideColor,
-            startAngle = 0f,
-            sweepAngle = 360f,
-            useCenter = false,
-            topLeft = Offset(cx - ringRadius, cy - ringRadius),
-            size = Size(ringRadius * 2f, ringRadius * 2f),
+        // Oval principal.
+        drawOval(
+            color = guideColor.copy(alpha = guideColor.alpha * pulseFactor),
+            topLeft = Offset(cx - ovalWidth / 2f, cy - ovalHeight / 2f),
+            size = Size(ovalWidth, ovalHeight),
             style = Stroke(width = ringStroke, cap = StrokeCap.Round),
         )
 
@@ -186,28 +209,29 @@ internal fun KioskFaceGuide(
         if (turnProgress > 0f) {
             val progress = turnProgress.coerceIn(0f, 1f)
             val ringColor = lerp(DarkSemanticColors.critical, DarkSemanticColors.success, progress)
-            val challengeRadius = baseRadius * 0.86f
+            val challengeWidth = ovalWidth * 0.88f
+            val challengeHeight = ovalHeight * 0.88f
             drawArc(
                 color = ringColor,
                 startAngle = -90f,
                 sweepAngle = 360f * progress,
                 useCenter = false,
-                topLeft = Offset(cx - challengeRadius, cy - challengeRadius),
-                size = Size(challengeRadius * 2f, challengeRadius * 2f),
+                topLeft = Offset(cx - challengeWidth / 2f, cy - challengeHeight / 2f),
+                size = Size(challengeWidth, challengeHeight),
                 style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
             )
         }
 
-        // Explosão de partículas na confirmação do match.
+        // Explosão de partículas na confirmação do match, agora seguindo o oval.
         if (matchCelebration && burstProgress.value < 1f) {
             val progress = burstProgress.value
             val particleAlpha = (1f - progress).coerceIn(0f, 1f)
-            val travel = ringRadius * (0.15f + progress * 0.95f)
+            val travel = 0.15f + progress * 0.95f
             repeat(PARTICLE_COUNT) { index ->
                 val angle = (360f / PARTICLE_COUNT) * index
                 val radians = Math.toRadians(angle.toDouble())
-                val px = cx + (cos(radians) * travel).toFloat()
-                val py = cy + (sin(radians) * travel).toFloat()
+                val px = cx + (cos(radians) * (ovalWidth / 2f * travel)).toFloat()
+                val py = cy + (sin(radians) * (ovalHeight / 2f * travel)).toFloat()
                 drawCircle(
                     color = DarkSemanticColors.success.copy(alpha = particleAlpha),
                     radius = (3.4.dp.toPx()) * (1f - progress * 0.5f),
