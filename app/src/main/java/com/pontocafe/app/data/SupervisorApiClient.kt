@@ -348,7 +348,20 @@ class SupervisorRepository(
 
         fun message(error: Throwable): String {
             if (isTlsTrustFailure(error)) {
-                return "A conexão segura falhou antes de o servidor validar o e-mail e a senha. Verifique data e hora automáticas e tente novamente."
+                // A mensagem antiga culpava data e hora do aparelho. Isso é UMA das
+                // causas, e na prática a menos frequente: SSLHandshakeException sai
+                // igual quando a rede inspeciona o tráfego. Redes corporativas
+                // trocam o certificado por um assinado pela CA da empresa, que é
+                // instalada como certificado DE USUÁRIO -- e desde o Android 7 os
+                // apps não confiam nessas. O navegador funciona, o app não.
+                //
+                // Mandar o operador conferir o relógio quando o problema é o Wi-Fi
+                // faz procurar no lugar errado. A dica de trocar de rede separa os
+                // dois casos em segundos.
+                return "A conexão segura falhou antes de o servidor validar o e-mail e a senha. " +
+                    "Tente por outra rede (dados móveis, por exemplo): redes de empresa costumam " +
+                    "bloquear esta conexão. Se funcionar em outra rede, avise a equipe de TI. " +
+                    "Se falhar em todas, confira data e hora automáticas do aparelho."
             }
             if (apiErrorCode(error) == "PASSWORD_CHANGE_REQUIRED") {
                 return "Crie uma nova senha para concluir seu primeiro acesso."

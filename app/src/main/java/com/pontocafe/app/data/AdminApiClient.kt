@@ -657,6 +657,16 @@ class AdminRepository(
             error is HttpException && (error.code() == 401 || error.code() == 403)
 
         fun message(error: Throwable): String {
+            // O Admin cai na mesma falha de TLS que o Supervisor -- é o mesmo cliente
+            // HTTP (PontoHttpClients) -- mas aqui não havia tradução: um
+            // SSLHandshakeException chegava ao operador como error.message cru. Isso
+            // fazia o mesmo problema de rede parecer dois problemas diferentes
+            // conforme a tela, e escondia que a causa era comum.
+            if (SupervisorRepository.isTlsTrustFailure(error)) {
+                return "A conexão segura falhou antes de o servidor responder. " +
+                    "Tente por outra rede (dados móveis, por exemplo): redes de empresa costumam " +
+                    "bloquear esta conexão. Se falhar em todas, confira data e hora automáticas."
+            }
             if (error is HttpException) {
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
                 val json = runCatching { body?.let(::JSONObject) }.getOrNull()
