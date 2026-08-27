@@ -29,10 +29,14 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,17 +56,31 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
+import com.pontocafe.app.ManualPunchResult
+import com.pontocafe.app.ManualPunchType
 import com.pontocafe.app.data.Colaborador
 
+private enum class AdminAuthorizationMode { EXCECAO, MANUAL }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     val state = viewModel.state
+    var modo by rememberSaveable { mutableStateOf(AdminAuthorizationMode.EXCECAO) }
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
     var busca by rememberSaveable { mutableStateOf("") }
     var motivo by rememberSaveable { mutableStateOf("") }
     var confirmarAutorizacao by remember { mutableStateOf(false) }
     var confirmarCancelamento by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    fun trocarModo(novoModo: AdminAuthorizationMode) {
+        modo = novoModo
+        selecionado = null
+        busca = ""
+        motivo = ""
+        viewModel.limparRegistroManual()
+    }
 
     val query = busca.trim()
     val filtrados = state.colaboradores
@@ -77,23 +95,29 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
         .toList()
 
     val motivoValido = motivo.trim().length >= 2
+    val manual = modo == AdminAuthorizationMode.MANUAL
+    val manualSucesso = state.manualPunchResult
     val podeAutorizar = selecionado != null && motivoValido && !state.carregando
-    val showBottomAction = state.authorizationId == null && selecionado != null
+    val showBottomAction = state.authorizationId == null && manualSucesso == null && selecionado != null
 
     if (confirmarAutorizacao && selecionado != null) {
         AlertDialog(
             onDismissRequest = { if (!state.carregando) confirmarAutorizacao = false },
-            title = { Text("Confirmar autorização") },
+            title = { Text(if (manual) "Confirmar registro manual" else "Confirmar autorização") },
             text = {
                 PcDialogBody {
                     Text(
-                        "Autorizar ${selecionado!!.nome}?",
+                        if (manual) "Registrar saída de ${selecionado!!.nome} agora?" else "Autorizar ${selecionado!!.nome}?",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Text("Motivo: ${motivo.trim()}")
                     Text(
-                        "O período será definido pela hora oficial do servidor. A autorização expira automaticamente e só pode ser usada uma vez.",
+                        if (manual) {
+                            "Use somente quando o reconhecimento facial não identificar a pessoa dentro do horário normal. Fica registrado que esta saída foi feita manualmente."
+                        } else {
+                            "O período será definido pela hora oficial do servidor. A autorização expira automaticamente e só pode ser usada uma vez."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -101,10 +125,12 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
             },
             confirmButton = {
                 PcPrimaryButton(
-                    text = "Autorizar",
+                    text = if (manual) "Registrar saída" else "Autorizar",
                     onClick = {
                         confirmarAutorizacao = false
-                        selecionado?.let { viewModel.autorizarPausa(it, motivo) }
+                        selecionado?.let {
+                            if (manual) viewModel.registrarPausaManual(it, motivo) else viewModel.autorizarPausa(it, motivo)
+                        }
                     },
                     loading = state.carregando,
                 )
@@ -149,14 +175,14 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
     PcHeroPage(
         heroContent = {
             PcHeroZoneScreenHeader(
-                title = "Autorizar pausa",
+                title = if (manual) "Registro manual de ponto" else "Autorizar pausa",
                 onBack = viewModel::voltarHome,
                 backLabel = "Painel",
-                eyebrow = "Fora do horário",
+                eyebrow = if (manual) "Reconhecimento indisponível" else "Fora do horário",
             )
             Text(
                 when {
-                    state.authorizationId != null -> "Autorização concedida"
+                    state.authorizationId != null || manualSucesso != null -> "Registrado"
                     selecionado == null -> "Passo 1 de 2 · Escolha o colaborador"
                     else -> "Passo 2 de 2 · Informe o motivo"
                 },
@@ -183,20 +209,57 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
+                if (state.authorizationId == null && manualSucesso == null) {
+                    item(key = "mode-toggle") {
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            AdminAuthorizationMode.entries.forEachIndexed { index, option ->
+                                SegmentedButton(
+                                    selected = modo == option,
+                                    onClick = { trocarModo(option) },
+                                    shape = SegmentedButtonDefaults.itemShape(index, AdminAuthorizationMode.entries.size),
+                                ) {
+                                    Text(if (option == AdminAuthorizationMode.MANUAL) "Registrar manualmente" else "Autorizar exceção")
+                                }
+                            }
+                        }
+                    }
+                }
+
                 item(key = "context") {
-                    PcHeroCard(
-                        title = "Autorização direta e temporária",
-                        supportingText = "Depois de autorizar, o colaborador pode ir ao Ponto. O reconhecimento facial localizará a autorização automaticamente.",
-                        icon = Icons.Default.AccessTime,
-                        tone = PontoCafeTone.INFO,
-                    )
+                    if (manual) {
+                        PcHeroCard(
+                            title = "Registro manual",
+                            supportingText = "Use apenas quando o reconhecimento facial não identificar a pessoa dentro do horário normal. Fora do horário, use Autorizar exceção.",
+                            icon = Icons.Default.AccessTime,
+                            tone = PontoCafeTone.WARNING,
+                        )
+                    } else {
+                        PcHeroCard(
+                            title = "Autorização direta e temporária",
+                            supportingText = "Depois de autorizar, o colaborador pode ir ao Ponto. O reconhecimento facial localizará a autorização automaticamente.",
+                            icon = Icons.Default.AccessTime,
+                            tone = PontoCafeTone.INFO,
+                        )
+                    }
                 }
 
                 item(key = "feedback") {
                     AdminFeedback(viewModel)
                 }
 
-                state.authorizationId?.let {
+                if (manualSucesso != null) {
+                    item(key = "manual-granted") {
+                        GrantedManualPunchCard(
+                            result = manualSucesso,
+                            onAnother = {
+                                viewModel.limparRegistroManual()
+                                selecionado = null
+                                busca = ""
+                                motivo = ""
+                            },
+                        )
+                    }
+                } else state.authorizationId?.let {
                     item(key = "authorization-granted") {
                         GrantedAuthorizationCard(
                             employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
@@ -292,7 +355,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             StepHeader(
                                 number = "1",
                                 title = "Colaborador",
-                                subtitle = "Confirme quem receberá a autorização.",
+                                subtitle = if (manual) "Confirme quem terá a saída registrada." else "Confirme quem receberá a autorização.",
                                 completed = true,
                             )
                         }
@@ -308,7 +371,11 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             StepHeader(
                                 number = "2",
                                 title = "Motivo",
-                                subtitle = "Explique brevemente por que a pausa precisa ocorrer fora do horário.",
+                                subtitle = if (manual) {
+                                    "Explique brevemente por que o registro precisa ser manual."
+                                } else {
+                                    "Explique brevemente por que a pausa precisa ocorrer fora do horário."
+                                },
                             )
                         }
 
@@ -318,8 +385,12 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                                 value = motivo,
                                 onValueChange = { motivo = it.take(300) },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Motivo da autorização") },
-                                placeholder = { Text("Ex.: atividade operacional terminou após o horário") },
+                                label = { Text(if (manual) "Motivo do registro manual" else "Motivo da autorização") },
+                                placeholder = {
+                                    Text(
+                                        if (manual) "Ex.: reconhecimento facial não identificou a pessoa" else "Ex.: atividade operacional terminou após o horário",
+                                    )
+                                },
                                 minLines = 3,
                                 maxLines = 5,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -364,7 +435,7 @@ fun AdminAuthorizationScreen(viewModel: AdminViewModel) {
                             )
                         }
                         PcPrimaryButton(
-                            text = "Autorizar pausa",
+                            text = if (manual) "Registrar saída" else "Autorizar pausa",
                             icon = Icons.Default.CheckCircle,
                             onClick = { confirmarAutorizacao = true },
                             modifier = Modifier.fillMaxWidth(),
@@ -552,6 +623,57 @@ private fun EmptyAuthorizationSearch(query: String) {
         },
         icon = Icons.Default.Search,
     )
+}
+
+@Composable
+private fun GrantedManualPunchCard(
+    result: ManualPunchResult,
+    onAnother: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = LocalPontoCafeSemanticColors.current.successContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp),
+                    tint = LocalPontoCafeSemanticColors.current.success,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (result.tipo == ManualPunchType.INICIO) "Saída registrada" else "Retorno registrado",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Registrado manualmente às ${result.horarioLocal}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = LocalPontoCafeSemanticColors.current.success,
+                    )
+                }
+            }
+            Text(
+                result.colaboradorNome,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            PcPrimaryButton(
+                text = "Registrar outra pessoa",
+                onClick = onAnother,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
 @Composable

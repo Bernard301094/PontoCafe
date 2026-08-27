@@ -13,18 +13,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -216,6 +221,7 @@ fun OperationalPauseCompactCard(
     item: OperationalPauseItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onCloseManually: (() -> Unit)? = null,
 ) {
     val pause = item.pause
     var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
@@ -347,10 +353,106 @@ fun OperationalPauseCompactCard(
                             else -> PontoCafeTone.SUCCESS
                         },
                     )
+                    if (onCloseManually != null && !item.isTest) {
+                        TextButton(
+                            onClick = onCloseManually,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = "Registrar retorno",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private val ManualPauseCloseReasons = listOf(
+    "Reconhecimento facial falhou",
+    "Esqueceu de marcar o retorno",
+    "Outro",
+)
+
+@Composable
+fun ManualPauseCloseDialog(
+    item: OperationalPauseItem,
+    loading: Boolean,
+    onConfirm: (motivo: String) -> Unit,
+    onDismiss: () -> Unit,
+    errorMessage: String? = null,
+) {
+    val pause = item.pause
+    var motivoRapido by remember(pause.id) { mutableStateOf<String?>(null) }
+    var outroMotivo by remember(pause.id) { mutableStateOf("") }
+    val motivoFinal = if (motivoRapido == "Outro") outroMotivo.trim() else motivoRapido.orEmpty()
+    val podeConfirmar = motivoFinal.length >= 2
+
+    AlertDialog(
+        onDismissRequest = { if (!loading) onDismiss() },
+        title = { Text("Registrar retorno manualmente") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                Text(
+                    text = "${pause.nome} · saída às ${pause.inicioLocal}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Use apenas quando a pessoa já retornou, mas o reconhecimento facial falhou ou o retorno não foi marcado.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(end = 8.dp),
+                ) {
+                    items(ManualPauseCloseReasons, key = { it }) { reason ->
+                        FilterChip(
+                            selected = motivoRapido == reason,
+                            onClick = {
+                                motivoRapido = reason
+                                if (reason != "Outro") outroMotivo = ""
+                            },
+                            label = { Text(reason) },
+                        )
+                    }
+                }
+                if (motivoRapido == "Outro") {
+                    OutlinedTextField(
+                        value = outroMotivo,
+                        onValueChange = { outroMotivo = it.take(300) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Descreva o motivo") },
+                        minLines = 2,
+                        maxLines = 4,
+                    )
+                }
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(motivoFinal) },
+                enabled = podeConfirmar && !loading,
+            ) {
+                Text(if (loading) "Registrando…" else "Confirmar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !loading) {
+                Text("Cancelar")
+            }
+        },
+    )
 }
 
 @Composable

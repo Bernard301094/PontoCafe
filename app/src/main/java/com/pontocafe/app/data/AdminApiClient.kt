@@ -219,6 +219,52 @@ data class AuthorizationCreatedResponse(
     val aviso: String,
 )
 
+/**
+ * Registro manual de ponto (saída ou retorno) feito por Admin/Supervisor
+ * quando o reconhecimento facial falhou ou a pessoa esqueceu de marcar --
+ * ver proposta "Registro Manual de Ponto". A sessão autenticada de quem
+ * registra substitui o verificacaoToken biométrico; por isso exige motivo,
+ * fica marcado registradoManualmente e é auditado do lado do servidor.
+ * Endpoints ainda não existem no backend.
+ */
+data class RegistrarPausaManualRequest(
+    val colaboradorId: String,
+    val motivo: String,
+)
+
+data class RegistradoPorAtor(
+    val atorTipo: String,
+    val atorNome: String,
+)
+
+data class RegistrarPausaManualResponse(
+    val id: String,
+    val periodo: String,
+    val limiteSegundos: Int,
+    val inicioEm: String,
+    val inicioLocal: String,
+    val retornoAteLocal: String,
+    val registradoManualmente: Boolean = true,
+    val registradoPor: RegistradoPorAtor? = null,
+)
+
+data class FinalizarPausaManualRequest(
+    val pausaId: String,
+    val motivo: String,
+    val horarioRetorno: String? = null,
+)
+
+data class FinalizarPausaManualResponse(
+    val id: String,
+    val inicioLocal: String,
+    val fimEm: String,
+    val fimLocal: String,
+    val duracaoSegundos: Int,
+    val excedeuLimite: Boolean,
+    val registradoManualmente: Boolean = true,
+    val registradoPor: RegistradoPorAtor? = null,
+)
+
 data class AdminCoffeeRule(
     val periodo: String,
     val inicio: String,
@@ -329,6 +375,14 @@ interface AdminApi {
     @POST("admin/autorizacoes/cancelar") suspend fun cancelAuthorization(
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
+
+    // Endpoints ainda não existem no backend -- ver proposta "Registro Manual de Ponto".
+    @POST("admin/pausas/manual/iniciar") suspend fun iniciarPausaManual(
+        @Body body: RegistrarPausaManualRequest,
+    ): RegistrarPausaManualResponse
+    @POST("admin/pausas/manual/finalizar") suspend fun finalizarPausaManual(
+        @Body body: FinalizarPausaManualRequest,
+    ): FinalizarPausaManualResponse
 }
 
 class AdminRepository(
@@ -545,6 +599,12 @@ class AdminRepository(
 
     suspend fun cancelAuthorization(collaboratorId: String) =
         api.cancelAuthorization(CancelAuthorizationRequest(collaboratorId))
+
+    suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
+        api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
+
+    suspend fun finalizarPausaManual(pausaId: String, motivo: String, horarioRetorno: String? = null) =
+        api.finalizarPausaManual(FinalizarPausaManualRequest(pausaId, motivo.trim(), horarioRetorno))
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() {

@@ -48,6 +48,19 @@ enum class SupervisorDestination {
     RELATORIOS,
 }
 
+enum class ManualPunchType { INICIO, FIM }
+
+/**
+ * Feedback de um registro manual de ponto (ver proposta "Registro Manual de
+ * Ponto"). Só existe depois de iniciarPausaManual/finalizarPausaManual
+ * responderem com sucesso -- os endpoints ainda não existem no backend.
+ */
+data class ManualPunchResult(
+    val colaboradorNome: String,
+    val tipo: ManualPunchType,
+    val horarioLocal: String,
+)
+
 data class SupervisorUiState(
     val destination: SupervisorDestination = SupervisorDestination.LOGIN,
     val carregando: Boolean = false,
@@ -64,6 +77,7 @@ data class SupervisorUiState(
     val authorizationEmployeeName: String? = null,
     val authorizationPeriod: String? = null,
     val authorizationExpiresSeconds: Int? = null,
+    val manualPunchResult: ManualPunchResult? = null,
     val colaboradorSelecionado: Colaborador? = null,
     val biometricScanCycle: Int = 0,
     val biometricStepIndex: Int = 0,
@@ -458,6 +472,68 @@ class SupervisorViewModel(
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
         }
+    }
+
+    /**
+     * Registra manualmente a saída de [colaborador] -- uso excepcional para
+     * quando o reconhecimento facial falha dentro do horário normal (fora
+     * do horário continua exigindo autorizarPausa). A sessão do Supervisor
+     * substitui o verificacaoToken biométrico; por isso o motivo é
+     * obrigatório e o servidor audita quem fez o registro. Endpoint ainda
+     * não existe no backend.
+     */
+    fun registrarPausaManual(colaborador: Colaborador, motivo: String) {
+        if (motivo.trim().length < 2) {
+            state = state.copy(erro = "Informe o motivo do registro manual.")
+            return
+        }
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.iniciarPausaManual(colaborador.id, motivo) }
+                .onSuccess { resposta ->
+                    state = state.copy(
+                        carregando = false,
+                        mensagem = "Saída registrada manualmente para ${colaborador.nome}.",
+                        manualPunchResult = ManualPunchResult(colaborador.nome, ManualPunchType.INICIO, resposta.inicioLocal),
+                    )
+                    atualizarPausasAoVivoSilencioso()
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    /**
+     * Fecha manualmente uma pausa já aberta de [pausa] -- resolve tanto "a
+     * pessoa esqueceu de marcar o retorno" quanto "o reconhecimento falhou
+     * ao voltar". [horarioRetorno] é opcional (ISO 8601); quando omitido o
+     * servidor usa o horário atual. Endpoint ainda não existe no backend.
+     */
+    fun finalizarPausaManual(pausa: PausaSupervisor, motivo: String, horarioRetorno: String? = null) {
+        if (motivo.trim().length < 2) {
+            state = state.copy(erro = "Informe o motivo do registro manual.")
+            return
+        }
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.finalizarPausaManual(pausa.id, motivo, horarioRetorno) }
+                .onSuccess { resposta ->
+                    state = state.copy(
+                        carregando = false,
+                        mensagem = "Retorno registrado manualmente para ${pausa.nome}.",
+                        manualPunchResult = ManualPunchResult(pausa.nome, ManualPunchType.FIM, resposta.fimLocal),
+                    )
+                    atualizarPausasAoVivoSilencioso()
+                }
+                .onFailure {
+                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                }
+        }
+    }
+
+    fun limparRegistroManual() {
+        state = state.copy(manualPunchResult = null)
     }
 
     fun limparAutorizacao() {

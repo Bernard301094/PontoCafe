@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +69,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +104,10 @@ fun AdminHomeScreenV2(
     var livePausesLoaded by remember { mutableStateOf(false) }
     var pauseFilter by remember { mutableStateOf(OperationalPauseFilter.TODOS) }
     var selectedOperationalPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
+    var manualClosePause by remember { mutableStateOf<OperationalPauseItem?>(null) }
+    var manualCloseLoading by remember { mutableStateOf(false) }
+    var manualCloseError by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     var showAllLive by remember { mutableStateOf(false) }
     var showAccountSheet by remember { mutableStateOf(false) }
 
@@ -182,6 +188,36 @@ fun AdminHomeScreenV2(
 
     selectedOperationalPause?.let { item ->
         OperationalPauseDetailDialog(item, onDismiss = { selectedOperationalPause = null })
+    }
+    manualClosePause?.let { item ->
+        ManualPauseCloseDialog(
+            item = item,
+            loading = manualCloseLoading,
+            errorMessage = manualCloseError,
+            onConfirm = { motivo ->
+                coroutineScope.launch {
+                    manualCloseLoading = true
+                    manualCloseError = null
+                    runCatching { adminLiveRepository.finalizarPausaManual(item.pause.id, motivo) }
+                        .onSuccess {
+                            manualCloseLoading = false
+                            manualClosePause = null
+                            runCatching { adminLiveRepository.pausasAtivas() }.onSuccess { pausas ->
+                                livePauses = pausas
+                                livePausesLoaded = true
+                            }
+                        }
+                        .onFailure { error ->
+                            manualCloseLoading = false
+                            manualCloseError = SupervisorRepository.message(error)
+                        }
+                }
+            },
+            onDismiss = {
+                manualClosePause = null
+                manualCloseError = null
+            },
+        )
     }
     selectedHistoryPause?.let { pause ->
         HistoryPauseDetailDialog(pause = pause, onDismiss = { selectedHistoryPause = null })
@@ -395,6 +431,7 @@ fun AdminHomeScreenV2(
                                 showAll = showAllLive,
                                 onToggleShowAll = { showAllLive = !showAllLive },
                                 onItemClick = { selectedOperationalPause = it },
+                                onCloseManually = { manualClosePause = it },
                                 modifier = Modifier.weight(1.12f),
                             )
 
@@ -427,6 +464,7 @@ fun AdminHomeScreenV2(
                             showAll = showAllLive,
                             onToggleShowAll = { showAllLive = !showAllLive },
                             onItemClick = { selectedOperationalPause = it },
+                            onCloseManually = { manualClosePause = it },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -596,6 +634,7 @@ private fun AdminHomeAttentionPanel(
     showAll: Boolean,
     onToggleShowAll: () -> Unit,
     onItemClick: (OperationalPauseItem) -> Unit,
+    onCloseManually: (OperationalPauseItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -630,7 +669,11 @@ private fun AdminHomeAttentionPanel(
                 )
             } else {
                 visibleItems.forEach { item ->
-                    OperationalPauseCompactCard(item, onClick = { onItemClick(item) })
+                    OperationalPauseCompactCard(
+                        item,
+                        onClick = { onItemClick(item) },
+                        onCloseManually = { onCloseManually(item) },
+                    )
                 }
                 if (filteredCount > visibleItems.size || showAll) {
                     PcSecondaryButton(

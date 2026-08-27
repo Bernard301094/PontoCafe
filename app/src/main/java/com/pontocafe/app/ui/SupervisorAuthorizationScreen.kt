@@ -33,11 +33,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,6 +63,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.pontocafe.app.ManualPunchResult
+import com.pontocafe.app.ManualPunchType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.Colaborador
@@ -73,9 +79,19 @@ private val SupervisorAuthorizationReasons = listOf(
     "Outro",
 )
 
+private val SupervisorManualPunchReasons = listOf(
+    "Reconhecimento facial falhou",
+    "Esqueceu de marcar",
+    "Outro",
+)
+
+private enum class AuthorizationScreenMode { EXCECAO, MANUAL }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     val state = viewModel.state
+    var modo by rememberSaveable { mutableStateOf(AuthorizationScreenMode.EXCECAO) }
     var selecionado by remember { mutableStateOf<Colaborador?>(null) }
     var busca by rememberSaveable { mutableStateOf("") }
     var motivoRapido by rememberSaveable { mutableStateOf<String?>(null) }
@@ -83,12 +99,22 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     var confirmarLiberacao by remember { mutableStateOf(false) }
     var confirmarCancelamento by remember { mutableStateOf(false) }
 
+    fun trocarModo(novoModo: AuthorizationScreenMode) {
+        modo = novoModo
+        selecionado = null
+        busca = ""
+        motivoRapido = null
+        outroMotivo = ""
+        viewModel.limparRegistroManual()
+    }
+
     val motivoFinal = when (motivoRapido) {
         null -> ""
         "Outro" -> outroMotivo.trim()
         else -> motivoRapido.orEmpty()
     }
     val motivoValido = motivoFinal.length >= 2
+    val reasonOptions = if (modo == AuthorizationScreenMode.MANUAL) SupervisorManualPunchReasons else SupervisorAuthorizationReasons
 
     val filtrados = state.colaboradores
         .asSequence()
@@ -113,13 +139,14 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
     val expiraEmLocal = expiraEmMillis?.let(::formatAuthorizationClock)
 
     if (confirmarLiberacao && selecionado != null) {
+        val manual = modo == AuthorizationScreenMode.MANUAL
         AlertDialog(
             onDismissRequest = { if (!state.carregando) confirmarLiberacao = false },
-            title = { Text("Confirmar liberação") },
+            title = { Text(if (manual) "Confirmar registro manual" else "Confirmar liberação") },
             text = {
                 PcDialogBody {
                     Text(
-                        "Liberar ${selecionado!!.nome}?",
+                        if (manual) "Registrar saída de ${selecionado!!.nome} agora?" else "Liberar ${selecionado!!.nome}?",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -128,7 +155,11 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "O período será identificado automaticamente pelo servidor de acordo com o horário atual. A liberação é de uso único e expira automaticamente.",
+                        if (manual) {
+                            "Use somente quando o reconhecimento facial não identificar a pessoa dentro do horário normal. Fica registrado que esta saída foi feita manualmente."
+                        } else {
+                            "O período será identificado automaticamente pelo servidor de acordo com o horário atual. A liberação é de uso único e expira automaticamente."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -136,11 +167,11 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             },
             confirmButton = {
                 PcPrimaryButton(
-                    text = "Liberar pausa",
+                    text = if (manual) "Registrar saída" else "Liberar pausa",
                     onClick = {
                         confirmarLiberacao = false
                         selecionado?.let {
-                            viewModel.autorizarPausa(it, motivoFinal)
+                            if (manual) viewModel.registrarPausaManual(it, motivoFinal) else viewModel.autorizarPausa(it, motivoFinal)
                         }
                     },
                     loading = state.carregando,
@@ -191,17 +222,18 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
         )
     }
 
+    val manualSucesso = state.manualPunchResult
     PcHeroPage(
         heroContent = {
             PcHeroZoneScreenHeader(
-                title = "Liberações fora do horário",
+                title = if (modo == AuthorizationScreenMode.MANUAL) "Registro manual de ponto" else "Liberações fora do horário",
                 onBack = viewModel::voltarAoVivo,
                 backLabel = "Ao vivo",
                 eyebrow = "Supervisor",
             )
             Text(
                 when {
-                    liberacaoAtiva -> "Pausa liberada"
+                    liberacaoAtiva || manualSucesso != null -> "Registrado"
                     selecionado == null -> "Passo 1 de 2 · Escolha o colaborador"
                     else -> "Passo 2 de 2 · Informe o motivo"
                 },
@@ -229,8 +261,24 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
+            if (!liberacaoAtiva && manualSucesso == null) {
+                item(key = "mode-toggle") {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        AuthorizationScreenMode.entries.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = modo == option,
+                                onClick = { trocarModo(option) },
+                                shape = SegmentedButtonDefaults.itemShape(index, AuthorizationScreenMode.entries.size),
+                            ) {
+                                Text(if (option == AuthorizationScreenMode.MANUAL) "Registrar manualmente" else "Autorizar exceção")
+                            }
+                        }
+                    }
+                }
+            }
+
             item(key = "context") {
-                AuthorizationContextCard()
+                if (modo == AuthorizationScreenMode.MANUAL) ManualPunchContextCard() else AuthorizationContextCard()
             }
 
             state.erro?.let { error ->
@@ -245,7 +293,20 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                 }
             }
 
-            if (liberacaoAtiva) {
+            if (manualSucesso != null) {
+                item(key = "manual-success") {
+                    ManualPunchSuccessCard(
+                        result = manualSucesso,
+                        onAnother = {
+                            viewModel.limparRegistroManual()
+                            selecionado = null
+                            busca = ""
+                            motivoRapido = null
+                            outroMotivo = ""
+                        },
+                    )
+                }
+            } else if (liberacaoAtiva) {
                 item(key = "success") {
                     AuthorizationReleasedCard(
                         employeeName = state.authorizationEmployeeName ?: selecionado?.nome ?: "Colaborador",
@@ -358,8 +419,10 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     )
                 }
 
-                item(key = "automatic-period") {
-                    AutomaticPeriodCard()
+                if (modo == AuthorizationScreenMode.EXCECAO) {
+                    item(key = "automatic-period") {
+                        AutomaticPeriodCard()
+                    }
                 }
 
                 item(key = "reason-step") {
@@ -375,7 +438,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(end = 8.dp),
                     ) {
-                        items(SupervisorAuthorizationReasons, key = { it }) { reason ->
+                        items(reasonOptions, key = { it }) { reason ->
                             FilterChip(
                                 selected = motivoRapido == reason,
                                 onClick = {
@@ -418,12 +481,13 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     AuthorizationReviewCard(
                         employeeName = selecionado!!.nome,
                         reason = motivoFinal.takeIf { motivoValido },
+                        automaticPeriod = modo == AuthorizationScreenMode.EXCECAO,
                     )
                 }
             }
         }
 
-        if (!liberacaoAtiva && selecionado != null) {
+        if (!liberacaoAtiva && manualSucesso == null && selecionado != null) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -440,14 +504,15 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        "${selecionado!!.nome.substringBefore(' ')} · período automático",
+                        "${selecionado!!.nome.substringBefore(' ')}" +
+                            if (modo == AuthorizationScreenMode.EXCECAO) " · período automático" else "",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     PcPrimaryButton(
-                        text = "Liberar pausa",
+                        text = if (modo == AuthorizationScreenMode.MANUAL) "Registrar saída" else "Liberar pausa",
                         onClick = { confirmarLiberacao = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = motivoValido,
@@ -455,7 +520,7 @@ fun SupervisorAuthorizationScreen(viewModel: SupervisorViewModel) {
                     )
                     if (!motivoValido) {
                         Text(
-                            "Selecione um motivo para habilitar a liberação.",
+                            "Selecione um motivo para continuar.",
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodySmall,
@@ -766,6 +831,7 @@ private fun CollaboratorAuthorizationDetail(collaborator: Colaborador) {
 private fun AuthorizationReviewCard(
     employeeName: String,
     reason: String?,
+    automaticPeriod: Boolean = true,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -789,10 +855,116 @@ private fun AuthorizationReviewCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Período definido automaticamente pelo horário do servidor.",
+                if (automaticPeriod) {
+                    "Período definido automaticamente pelo horário do servidor."
+                } else {
+                    "A saída será registrada com o horário atual."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ManualPunchContextCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = CircleShape,
+                color = LocalPontoCafeSemanticColors.current.warningContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Person,
+                        contentDescription = null,
+                        tint = LocalPontoCafeSemanticColors.current.onWarningContainer,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "Registro manual",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Use apenas quando o reconhecimento facial não identificar a pessoa dentro do horário normal. Fora do horário, use Autorizar exceção.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManualPunchSuccessCard(
+    result: ManualPunchResult,
+    onAnother: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
+        color = LocalPontoCafeSemanticColors.current.successContainer,
+        border = BorderStroke(
+            1.dp,
+            LocalPontoCafeSemanticColors.current.success.copy(alpha = 0.38f),
+        ),
+        shadowElevation = 10.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = LocalPontoCafeSemanticColors.current.success,
+                    modifier = Modifier.size(34.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (result.tipo == ManualPunchType.INICIO) "Saída registrada" else "Retorno registrado",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Registrado manualmente às ${result.horarioLocal}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = LocalPontoCafeSemanticColors.current.success,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Text(
+                result.colaboradorNome,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            PcPrimaryButton(
+                text = "Registrar outra pessoa",
+                onClick = onAnother,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

@@ -65,6 +65,7 @@ data class AdminUiState(
     val authorizationEmployeeName: String? = null,
     val authorizationPeriod: String? = null,
     val authorizationExpirySeconds: Int? = null,
+    val manualPunchResult: ManualPunchResult? = null,
     val mensagem: String? = null,
     val erro: String? = null,
 )
@@ -632,6 +633,37 @@ class AdminViewModel(
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
+    }
+
+    /**
+     * Registra manualmente a saída de [colaborador] -- uso excepcional para
+     * quando o reconhecimento facial falha dentro do horário normal (fora
+     * do horário continua exigindo autorizarPausa). A sessão do
+     * Administrador substitui o verificacaoToken biométrico; por isso o
+     * motivo é obrigatório e o servidor audita quem fez o registro.
+     * Endpoint ainda não existe no backend.
+     */
+    fun registrarPausaManual(colaborador: Colaborador, motivo: String) {
+        if (motivo.trim().length < 2) {
+            state = state.copy(erro = "Informe o motivo do registro manual.")
+            return
+        }
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null)
+            runCatching { repository.iniciarPausaManual(colaborador.id, motivo) }
+                .onSuccess { resposta ->
+                    state = state.copy(
+                        carregando = false,
+                        mensagem = "Saída registrada manualmente para ${colaborador.nome}.",
+                        manualPunchResult = ManualPunchResult(colaborador.nome, ManualPunchType.INICIO, resposta.inicioLocal),
+                    )
+                }
+                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+        }
+    }
+
+    fun limparRegistroManual() {
+        state = state.copy(manualPunchResult = null)
     }
 
     fun cancelarAutorizacao(colaborador: Colaborador) {

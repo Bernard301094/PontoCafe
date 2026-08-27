@@ -49,6 +49,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.pontocafe.app.ManualPunchType
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.OperationalAlertHistoryItem
@@ -77,6 +78,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     var pauseFilter by rememberSaveable { mutableStateOf(OperationalPauseFilter.TODOS) }
     var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
+    var manualClosePause by remember { mutableStateOf<OperationalPauseItem?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     val sessionStore = remember(context, state.sessaoAdministrativa) {
         SecureAdminSessionStore(context.applicationContext, if (state.sessaoAdministrativa) "admin" else "supervisor")
@@ -149,6 +151,20 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
 
     selectedPause?.let { item ->
         OperationalPauseDetailDialog(item = item, onDismiss = { selectedPause = null })
+    }
+    manualClosePause?.let { item ->
+        ManualPauseCloseDialog(
+            item = item,
+            loading = state.carregando,
+            errorMessage = state.erro,
+            onConfirm = { motivo -> viewModel.finalizarPausaManual(item.pause, motivo) },
+            onDismiss = { manualClosePause = null },
+        )
+    }
+    LaunchedEffect(state.manualPunchResult) {
+        if (state.manualPunchResult?.tipo == ManualPunchType.FIM) {
+            manualClosePause = null
+        }
     }
     if (showAccountSheet) {
         PcAccountProfileSheet(
@@ -350,6 +366,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                             item = item,
                             onClick = { selectedPause = item },
                             modifier = Modifier.animateItem(),
+                            onCloseManually = { manualClosePause = item },
                         )
                     }
                 }

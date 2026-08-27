@@ -118,6 +118,13 @@ interface SupervisorApi {
     @POST("supervisor/autorizacoes/cancelar") suspend fun cancelAuthorization(
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
+    // Endpoints ainda não existem no backend -- ver proposta "Registro Manual de Ponto".
+    @POST("supervisor/pausas/manual/iniciar") suspend fun iniciarPausaManual(
+        @Body body: RegistrarPausaManualRequest,
+    ): RegistrarPausaManualResponse
+    @POST("supervisor/pausas/manual/finalizar") suspend fun finalizarPausaManual(
+        @Body body: FinalizarPausaManualRequest,
+    ): FinalizarPausaManualResponse
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}/avatar") suspend fun uploadAvatar(
@@ -224,6 +231,10 @@ class SupervisorRepository(
         api.createAuthorization(CreateAuthorizationRequest(colaboradorId, motivo.trim()))
     suspend fun cancelAuthorization(colaboradorId: String) =
         api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId))
+    suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
+        api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
+    suspend fun finalizarPausaManual(pausaId: String, motivo: String, horarioRetorno: String? = null) =
+        api.finalizarPausaManual(FinalizarPausaManualRequest(pausaId, motivo.trim(), horarioRetorno))
     suspend fun collaborators() = api.collaborators().colaboradores
         .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 
