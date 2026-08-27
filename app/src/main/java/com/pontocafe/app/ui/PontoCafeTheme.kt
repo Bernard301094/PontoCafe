@@ -24,6 +24,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
+ * Constantes literais da paleta "Warm Espresso & Slate". Use estes valores
+ * quando um componente precisa da cor exata da marca (vinheta do quiosque,
+ * glow biométrico) em vez de um papel semântico do Material 3.
+ */
+object PontoCafeBrand {
+    val deepEspresso = Color(0xFF1E120B)
+    val tonalAmber = Color(0xFFD97706)
+    val softCreamSurface = Color(0xFFF9F6F0)
+    val darkSlate = Color(0xFF121417)
+    val emeraldSync = Color(0xFF059669)
+    val crimsonSpoofAlert = Color(0xFFDC2626)
+}
+
+/**
  * Tokens legados mantidos para compatibilidade com as telas existentes.
  *
  * Eles deixaram de representar "vidro escuro" e agora são neutros translúcidos
@@ -31,25 +45,25 @@ import androidx.compose.ui.unit.sp
  * devem preferir MaterialTheme.colorScheme.surfaceContainer* diretamente.
  */
 object PontoCafePremium {
-    val backgroundTop = Color(0xFF120D09)
-    val backgroundMid = Color(0xFF110C08)
-    val backgroundBottom = Color(0xFF0D0906)
-    val glass = Color(0x128A7358)
-    val glassStrong = Color(0x1E8A7358)
-    val glassSoft = Color(0x148A7358)
-    val border = Color(0x35C99B5F)
-    val borderSoft = Color(0x24C99B5F)
-    val glow = Color(0xFFFFB781)
-    val glowSoft = Color(0x24FFB781)
-    val ice = Color(0xFFB1D399)
-    val textPrimary = Color(0xFFF8F0E7)
-    val textSecondary = Color(0xFFCBBBAA)
+    val backgroundTop = PontoCafeBrand.deepEspresso
+    val backgroundMid = Color(0xFF190F09)
+    val backgroundBottom = Color(0xFF120B06)
+    val glass = Color(0x12D97706)
+    val glassStrong = Color(0x1ED97706)
+    val glassSoft = Color(0x14D97706)
+    val border = Color(0x35D97706)
+    val borderSoft = Color(0x24D97706)
+    val glow = PontoCafeBrand.tonalAmber
+    val glowSoft = Color(0x24D97706)
+    val ice = PontoCafeBrand.emeraldSync
+    val textPrimary = PontoCafeBrand.softCreamSurface
+    val textSecondary = Color(0xFFC9BEB2)
 }
 
 private val PontoCafeDarkColors = darkColorScheme(
-    primary = Color(0xFFFFB781),
-    onPrimary = Color(0xFF4A2800),
-    primaryContainer = Color(0xFF6B3F0A),
+    primary = PontoCafeBrand.tonalAmber,
+    onPrimary = Color(0xFF2E1500),
+    primaryContainer = Color(0xFF5C3A0C),
     onPrimaryContainer = Color(0xFFFFDCC0),
     secondary = Color(0xFFDCC1AA),
     onSecondary = Color(0xFF3D2E1F),
@@ -63,20 +77,20 @@ private val PontoCafeDarkColors = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF17130F),
+    background = PontoCafeBrand.darkSlate,
     onBackground = Color(0xFFEAE1D9),
-    surface = Color(0xFF17130F),
+    surface = PontoCafeBrand.darkSlate,
     onSurface = Color(0xFFEAE1D9),
     surfaceVariant = Color(0xFF4F4539),
     onSurfaceVariant = Color(0xFFD3C4B4),
-    surfaceDim = Color(0xFF17130F),
-    surfaceBright = Color(0xFF3D372F),
-    surfaceContainerLowest = Color(0xFF110D0A),
-    surfaceContainerLow = Color(0xFF1F1B16),
-    surfaceContainer = Color(0xFF231F1A),
-    surfaceContainerHigh = Color(0xFF2E2924),
-    surfaceContainerHighest = Color(0xFF39332D),
-    surfaceTint = Color(0xFFFFB781),
+    surfaceDim = PontoCafeBrand.darkSlate,
+    surfaceBright = Color(0xFF3A3D42),
+    surfaceContainerLowest = Color(0xFF0A0B0D),
+    surfaceContainerLow = Color(0xFF191B1E),
+    surfaceContainer = Color(0xFF1D2023),
+    surfaceContainerHigh = Color(0xFF272A2E),
+    surfaceContainerHighest = Color(0xFF323539),
+    surfaceTint = PontoCafeBrand.tonalAmber,
     outline = Color(0xFF9C8F80),
     outlineVariant = Color(0xFF4F4539),
     inverseSurface = Color(0xFFEAE1D9),
@@ -85,8 +99,8 @@ private val PontoCafeDarkColors = darkColorScheme(
 )
 
 private val PontoCafeLightColors = lightColorScheme(
-    primary = Color(0xFF8C5A2E),
-    onPrimary = Color.White,
+    primary = PontoCafeBrand.tonalAmber,
+    onPrimary = Color(0xFF2E1500),
     primaryContainer = Color(0xFFFFDCC0),
     onPrimaryContainer = Color(0xFF2E1500),
     secondary = Color(0xFF6F5B4A),
@@ -101,20 +115,20 @@ private val PontoCafeLightColors = lightColorScheme(
     onError = Color.White,
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFFFF8F3),
+    background = PontoCafeBrand.softCreamSurface,
     onBackground = Color(0xFF1F1B17),
-    surface = Color(0xFFFFF8F3),
+    surface = PontoCafeBrand.softCreamSurface,
     onSurface = Color(0xFF1F1B17),
     surfaceVariant = Color(0xFFF0E0D0),
     onSurfaceVariant = Color(0xFF4F4539),
     surfaceDim = Color(0xFFE2D5C8),
-    surfaceBright = Color(0xFFFFF8F3),
+    surfaceBright = PontoCafeBrand.softCreamSurface,
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = Color(0xFFFBF1E8),
     surfaceContainer = Color(0xFFF5EAE0),
     surfaceContainerHigh = Color(0xFFEFE4D8),
     surfaceContainerHighest = Color(0xFFE9DFD2),
-    surfaceTint = Color(0xFF8C5A2E),
+    surfaceTint = PontoCafeBrand.tonalAmber,
     outline = Color(0xFF817567),
     outlineVariant = Color(0xFFD3C4B4),
     inverseSurface = Color(0xFF34302A),
@@ -146,8 +160,10 @@ data class PontoCafeSemanticColors(
 // ele precisa dos valores fixos de "escuro", não do CompositionLocal que segue
 // o tema ambiente.
 internal val DarkSemanticColors = PontoCafeSemanticColors(
-    success = Color(0xFF72DCBC),
-    successContainer = Color(0xFF164D40),
+    // Emerald Sync — usado direto (mesmo hex do token de marca), o contraste
+    // contra o fundo escuro (Dark Slate) já passa de 4.5:1.
+    success = PontoCafeBrand.emeraldSync,
+    successContainer = Color(0xFF0B3B30),
     onSuccessContainer = Color(0xFFB0F2DD),
     // Deslocado para amarelo-ouro mais puro (antes um dourado acastanhado) --
     // com o novo primary em tom café/âmbar, warning precisava de matiz mais
@@ -158,14 +174,18 @@ internal val DarkSemanticColors = PontoCafeSemanticColors(
     info = Color(0xFFA5CDFF),
     infoContainer = Color(0xFF244A6E),
     onInfoContainer = Color(0xFFD3E5FF),
-    critical = Color(0xFFFF7A6E),
+    // Crimson Spoof Alert — usado direto; em texto/rótulo grande (labelMedium+
+    // SemiBold) o contraste contra o fundo escuro passa no limiar de "large text".
+    critical = PontoCafeBrand.crimsonSpoofAlert,
     criticalContainer = Color(0xFF5C231D),
     onCriticalContainer = Color(0xFFFFDAD3),
 )
 
 private val LightSemanticColors = PontoCafeSemanticColors(
-    success = Color(0xFF006B56),
-    successContainer = Color(0xFF9AF2D5),
+    // Emerald Sync — como texto/ícone sobre containers claros e sobre o fundo
+    // Soft Cream o contraste passa de 4.5:1 sem precisar escurecer o tom.
+    success = PontoCafeBrand.emeraldSync,
+    successContainer = Color(0xFFA7F3D0),
     onSuccessContainer = Color(0xFF002019),
     warning = Color(0xFF8C6D00),
     warningContainer = Color(0xFFFFE18C),
@@ -173,7 +193,9 @@ private val LightSemanticColors = PontoCafeSemanticColors(
     info = Color(0xFF35618D),
     infoContainer = Color(0xFFD1E4FF),
     onInfoContainer = Color(0xFF001D35),
-    critical = Color(0xFFA23F32),
+    // Crimson Spoof Alert — usado direto; como texto sobre Soft Cream o
+    // contraste fica em ~4.5:1 (limiar de texto normal AA).
+    critical = PontoCafeBrand.crimsonSpoofAlert,
     // Antes 0xFFFFDAD3 -- praticamente idêntico ao errorContainer padrão do
     // Material (0xFFFFDAD6), o que anulava a distinção que este token existe
     // para fazer. Um tom mais pêssego/terracota, na mesma vivacidade dos
