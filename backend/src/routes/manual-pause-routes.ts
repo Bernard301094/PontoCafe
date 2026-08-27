@@ -139,11 +139,26 @@ type ManualStartResponse = {
 /**
  * Abre a pausa do colaborador sem passar pelo quiosque.
  *
- * As tres recusas abaixo sao as mesmas de /ponto/pausas (pausa ja aberta, pausa do
- * periodo ja usada hoje, colaborador inativo). Nao sao repetidas por simetria
- * estetica: sem elas esta rota vira o caminho facil para furar as regras que o
- * fluxo biometrico aplica, e o ux_pausa_periodo_dia estouraria como erro 500 em
- * vez de uma mensagem que o operador entende.
+ * NAO faz verificacao previa nenhuma, por decisao explicita: quem usa esta rota e
+ * um Admin/Supervisor a corrigir uma situacao ja quebrada (o rosto nao foi
+ * reconhecido, a pessoa saiu sem marcar, o quiosque estava fora do ar), e as
+ * recusas que fazem sentido no fluxo biometrico bloqueiam justamente essa
+ * correcao. Nao pergunta se ja ha pausa aberta, se a pausa do periodo ja foi usada
+ * hoje, nem se o colaborador esta ativo -- tenta gravar.
+ *
+ * O que sobra a recusar e o que a BASE recusa, e ai a resposta traduz o erro em
+ * vez de o deixar sair como 500:
+ *
+ *   23505 -> ux_pausa_periodo_dia. Um colaborador nao pode ter duas pausas do
+ *            mesmo periodo no mesmo dia. Este indice e do modelo de jornada, nao
+ *            desta rota: abrir excecao exigiria mudar o indice, o que muda o que
+ *            "uma pausa por periodo" significa em todo o sistema.
+ *   23503 -> a FK de colaborador_id. Id que nao existe.
+ *
+ * Consequencia assumida: passa a ser possivel abrir uma segunda pausa enquanto
+ * outra esta aberta (periodos diferentes) e abrir pausa de colaborador inativo.
+ * Ambas ficam com inicio_registrado_manualmente=true, motivo e ator -- visiveis
+ * em auditoria, nao silenciosas.
  *
  * Fora do horario NAO exige autorizacao previa aqui, ao contrario do fluxo do
  * quiosque: quem abre ja e o Admin/Supervisor que emitiria essa autorizacao. O
@@ -155,21 +170,6 @@ async function iniciarPausaManual(
   ator: { id: string; nome: string; papel: 'ADMIN' | 'SUPERVISOR' },
 ): Promise<ManualStartResponse | { erro: string; status: number }> {
   return transaction(async (client) => {
-    const colaborador = await client.query<{ id: string; ativo: boolean }>(
-      `select id,ativo from colaboradores where id=$1`,
-      [colaboradorId],
-    )
-    if (!colaborador.rows[0]) return { erro: 'Colaborador nao encontrado.', status: 404 }
-    if (!colaborador.rows[0].ativo) return { erro: 'Colaborador inativo.', status: 409 }
-
-    const aberta = await client.query<{ id: string }>(
-      `select id from pausas_cafe where colaborador_id=$1 and fim_em is null limit 1 for update`,
-      [colaboradorId],
-    )
-    if (aberta.rows[0]) {
-      return { erro: 'Este colaborador ja tem uma pausa aberta.', status: 409 }
-    }
-
     const ativa = await client.query<{ periodo: 'MANHA' | 'TARDE'; limite_segundos: number }>(
       `select periodo,limite_segundos from regras_cafe where ativo=true
         and (now() at time zone $1)::time>=inicio and (now() at time zone $1)::time<fim
@@ -198,39 +198,45 @@ async function iniciarPausaManual(
         [config.appTimezone],
       )
       if (!fallback.rows[0]) {
+        // Nao e uma verificacao sobre o pedido: sem regra nao ha limite_segundos
+        // para gravar, e a coluna e not null. Falta configuracao, nao permissao.
         return { erro: 'Nenhuma regra de cafe ativa configurada para este periodo.', status: 409 }
       }
       periodo = fallback.rows[0].periodo
       limiteSegundos = fallback.rows[0].limite_segundos
     }
 
-    const usada = await client.query<{ id: string }>(
-      `select id from pausas_cafe
-        where colaborador_id=$1 and periodo=$2
-          and (inicio_em at time zone $3)::date=(now() at time zone $3)::date
-        limit 1 for update`,
-      [colaboradorId, periodo, config.appTimezone],
-    )
-    if (usada.rows[0]) {
-      return { erro: 'Este colaborador ja registrou esta pausa hoje.', status: 409 }
-    }
-
     const id = newId()
-    const inserida = await client.query<{ inicio_em: string }>(
-      `insert into pausas_cafe
-         (id,colaborador_id,periodo,limite_segundos,fora_horario,
-          inicio_registrado_manualmente,inicio_motivo_manual,
-          inicio_ator_auth_id,inicio_ator_tipo,inicio_registrado_em)
-       values ($1,$2,$3,$4,$5,true,$6,$7,$8,now())
-       returning inicio_em::text`,
-      [id, colaboradorId, periodo, limiteSegundos, foraHorario, motivo, ator.id, ator.papel],
-    )
+    let inicioEm: string
+    try {
+      const inserida = await client.query<{ inicio_em: string }>(
+        `insert into pausas_cafe
+           (id,colaborador_id,periodo,limite_segundos,fora_horario,
+            inicio_registrado_manualmente,inicio_motivo_manual,
+            inicio_ator_auth_id,inicio_ator_tipo,inicio_registrado_em)
+         values ($1,$2,$3,$4,$5,true,$6,$7,$8,now())
+         returning inicio_em::text`,
+        [id, colaboradorId, periodo, limiteSegundos, foraHorario, motivo, ator.id, ator.papel],
+      )
+      inicioEm = inserida.rows[0]!.inicio_em
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        return {
+          erro: 'Este colaborador ja registrou a pausa deste periodo hoje.',
+          status: 409,
+        }
+      }
+      if (error?.code === '23503') {
+        return { erro: 'Colaborador nao encontrado.', status: 404 }
+      }
+      throw error
+    }
 
     const horario = await client.query<{ inicio_local: string; retorno_ate_local: string }>(
       `select to_char($1::timestamptz at time zone $3,'HH24:MI') as inicio_local,
               to_char(($1::timestamptz + ($2::int * interval '1 second')) at time zone $3,'HH24:MI')
                 as retorno_ate_local`,
-      [inserida.rows[0]!.inicio_em, limiteSegundos, config.appTimezone],
+      [inicioEm, limiteSegundos, config.appTimezone],
     )
 
     await client.query(
@@ -248,7 +254,7 @@ async function iniciarPausaManual(
       id,
       periodo,
       limiteSegundos,
-      inicioEm: inserida.rows[0]!.inicio_em,
+      inicioEm,
       inicioLocal: horario.rows[0]!.inicio_local,
       retornoAteLocal: horario.rows[0]!.retorno_ate_local,
       registradoManualmente: true as const,

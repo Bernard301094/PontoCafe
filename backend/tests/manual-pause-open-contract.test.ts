@@ -24,12 +24,21 @@ test('a abertura manual exige motivo e grava quem a fez', () => {
   assert.match(routes, /'PAUSA_INICIADA_MANUALMENTE','PAUSA'/)
 })
 
-test('a abertura manual nao e um atalho para furar as regras do quiosque', () => {
-  // Sem estas tres recusas a rota manual vira o caminho fácil para o que o fluxo
-  // biométrico bloqueia, e o ux_pausa_periodo_dia estoura como 500.
-  assert.match(routes, /ja tem uma pausa aberta/)
-  assert.match(routes, /ja registrou esta pausa hoje/)
-  assert.match(routes, /Colaborador inativo/)
+test('a abertura manual nao faz verificacao previa; quem recusa e a base', () => {
+  // Decisao explicita: quem usa esta rota esta a corrigir algo ja quebrado, e as
+  // recusas do fluxo biometrico bloqueiam justamente essa correcao. O que NAO se
+  // aceita e um erro de base a sair como 500 na cara do operador.
+  const encontrada = routes.match(/async function iniciarPausaManual\([\s\S]*?\n\}\n/)
+  assert.ok(encontrada, 'iniciarPausaManual deve ser localizavel')
+  const corpo = encontrada[0]
+
+  assert.doesNotMatch(corpo, /from colaboradores/, 'nao deve pre-verificar o colaborador')
+  assert.doesNotMatch(corpo, /select id from pausas_cafe/, 'nao deve pre-verificar pausas')
+
+  assert.match(corpo, /error\?\.code === '23505'/, 'unique violation tem de virar mensagem')
+  assert.match(corpo, /error\?\.code === '23503'/, 'FK violation tem de virar mensagem')
+  assert.match(corpo, /ja registrou a pausa deste periodo hoje/)
+  assert.match(corpo, /Colaborador nao encontrado/)
 })
 
 test('o invariante de prova nao evapora: NOT NULL sai, check disjuntivo entra', () => {
