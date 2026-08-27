@@ -5,6 +5,8 @@ package com.pontocafe.app.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -376,6 +378,7 @@ private val ManualPauseCloseReasons = listOf(
     "Outro",
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ManualPauseCloseDialog(
     item: OperationalPauseItem,
@@ -405,11 +408,16 @@ fun ManualPauseCloseDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                LazyRow(
+                // Uma LazyRow cortava "Esqueceu de marcar o retorno" na borda da
+                // tela: a pessoa via "Esqueceu de r" e nao havia nada indicando
+                // que era rolavel. Em um dialogo com tres opcoes fixas, quebrar
+                // em linhas mostra todas de uma vez.
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(end = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(ManualPauseCloseReasons, key = { it }) { reason ->
+                    ManualPauseCloseReasons.forEach { reason ->
                         FilterChip(
                             selected = motivoRapido == reason,
                             onClick = {

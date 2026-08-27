@@ -313,6 +313,13 @@ class AdminReliabilityRepository(
     companion object {
         fun message(error: Throwable): String {
             if (error is HttpException) {
+                // 404/405/501 aqui significa que a rota nao existe no Worker, nao
+                // que a pessoa fez algo errado. Repassar o "Rota nao encontrada"
+                // cru do backend, com requestId, so confunde quem opera o turno.
+                if (error.code() == 404 || error.code() == 405 || error.code() == 501) {
+                    return "Esta função ainda não está disponível no servidor. " +
+                        "Avise a equipe responsável pelo sistema."
+                }
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
                 val json = runCatching { body?.let(::JSONObject) }.getOrNull()
                 val message = json?.optString("erro")?.takeIf { it.isNotBlank() }
