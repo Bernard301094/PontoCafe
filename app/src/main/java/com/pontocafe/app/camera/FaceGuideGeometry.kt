@@ -56,6 +56,12 @@ object FaceGuideGeometry {
     /** Largura/altura do frame de análise já de pé: 960x720 girado 90° → 720x960. */
     const val ANALYSIS_UPRIGHT_ASPECT = 0.75f
 
+    /**
+     * Largura/altura do oval do guia. Fonte unica: KIOSK_GUIDE_CANVAS_ASPECT e
+     * FacePositionGuide leem daqui, para o quiosque e o cadastro nao divergirem.
+     */
+    const val GUIDE_OVAL_ASPECT = 0.80f
+
     /** ESTIMADO: altura/largura da bounding box do ML Kit. */
     const val FACE_BOX_ASPECT = 1.15f
 

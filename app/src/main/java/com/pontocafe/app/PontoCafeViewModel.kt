@@ -72,6 +72,17 @@ data class ComprovantePonto(
     val excedeuLimite: Boolean = false,
     val foraHorario: Boolean = false,
     val pendenteSincronizacao: Boolean = false,
+    /**
+     * Foto da pessoa reconhecida, quando existe.
+     *
+     * PontoAvatarRuntime já resolvia esta URL a cada reconhecimento e guardava em
+     * lastRecognizedAvatarUrl — só que ninguém lia esse valor. Toda a canalização
+     * existia menos a última ligação.
+     *
+     * Nulo é um estado normal, não um erro: sem R2 configurado, sem foto enviada
+     * ou sem rede, CollaboratorAvatar desenha as iniciais que já ficam por baixo.
+     */
+    val avatarUrl: String? = null,
 )
 
 data class PontoCafeUiState(
@@ -1515,6 +1526,8 @@ class PontoCafeViewModel(
                             retornoAte = local.retornoAteLocal,
                             limiteSegundos = local.limiteSegundos,
                             pendenteSincronizacao = true,
+                            // Offline o avatar vem do catalogo local, que ja guarda avatarUrl.
+                            avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl,
                         ),
                         mensagem = null,
                         erro = null,
@@ -1575,6 +1588,8 @@ class PontoCafeViewModel(
                         limiteSegundos = open.limiteSegundos,
                         excedeuLimite = duration > open.limiteSegundos,
                         pendenteSincronizacao = true,
+                        // Offline o avatar vem do catalogo local, que ja guarda avatarUrl.
+                        avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl,
                     ),
                     mensagem = null,
                     erro = null,
@@ -1678,6 +1693,7 @@ class PontoCafeViewModel(
         retornoAte = pausa.retornoAteLocal,
         limiteSegundos = pausa.limiteSegundos,
         foraHorario = pausa.foraHorario,
+        avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl,
     )
 
     private fun comprovanteRetorno(nome: String, pausa: FinalizarPausaResponse) = ComprovantePonto(
@@ -1687,6 +1703,7 @@ class PontoCafeViewModel(
         duracaoSegundos = pausa.duracaoSegundos,
         limiteSegundos = pausa.limiteSegundos,
         excedeuLimite = pausa.excedeuLimite,
+        avatarUrl = PontoAvatarRuntime.lastRecognizedAvatarUrl,
     )
 
     fun formatarTempo(segundos: Int): String = "%02d:%02d".format(segundos / 60, segundos % 60)

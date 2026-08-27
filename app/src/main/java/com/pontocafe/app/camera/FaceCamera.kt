@@ -505,8 +505,20 @@ private fun analyzer(
 @Composable
 private fun FacePositionGuide(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
-        val guideWidth = size.width * 0.62f
-        val guideHeight = minOf(size.height * 0.48f, guideWidth * 1.35f)
+        // Derivado de FaceGuideGeometry, não mais de frações escolhidas a olho.
+        //
+        // As antigas (0.62 de largura, 0.48 de altura) rendiam ~0.297 de razão de
+        // altura num 1080x2340 — apenas 24% acima do piso de 0.24. Quem encaixava
+        // no guia já estava na borda inferior da banda, e o cadastro é justamente
+        // onde a pessoa também precisa GIRAR a cabeça: qualquer inclinação para
+        // trás durante a pose derrubava o tamanho e a captura era recusada sem que
+        // a tela explicasse o motivo. Daí a dificuldade relatada para registrar.
+        //
+        // O alvo agora é o mesmo do quiosque: o meio geométrico da banda aceita.
+        val ovalHeight = size.height *
+            FaceGuideGeometry.ovalHeightFractionOfPreview(size.width / size.height)
+        val guideHeight = minOf(ovalHeight, size.height * 0.92f)
+        val guideWidth = minOf(guideHeight * FaceGuideGeometry.GUIDE_OVAL_ASPECT, size.width * 0.92f)
         val centerX = size.width / 2f
         val centerY = size.height * 0.43f
         val left = centerX - guideWidth / 2f

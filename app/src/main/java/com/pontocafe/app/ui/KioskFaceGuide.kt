@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import com.pontocafe.app.camera.FaceGuideGeometry
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -56,7 +57,7 @@ private const val LOCK_RIPPLE_MILLIS = 620
  * entre a tela e o desenho: mudar o desenho sem mudá-las reintroduz exatamente o bug
  * que esta correção resolveu.
  */
-internal const val KIOSK_GUIDE_CANVAS_ASPECT = 0.80f
+internal const val KIOSK_GUIDE_CANVAS_ASPECT = FaceGuideGeometry.GUIDE_OVAL_ASPECT
 
 /** Quanto da caixa o oval ocupa; a sobra é respiro para o traço e o glow. */
 internal const val KIOSK_GUIDE_OVAL_FILL = 0.96f

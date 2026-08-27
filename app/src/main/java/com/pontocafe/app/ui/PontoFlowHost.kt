@@ -634,7 +634,15 @@ private fun FastPointReceiptOverlay(
                                 Box(contentAlignment = Alignment.BottomEnd) {
                                     CollaboratorAvatar(
                                         name = comprovante.nome,
-                                        avatarUrl = colaborador?.avatarUrl,
+                                        // O comprovante primeiro, identificacao só como reserva.
+                                        //
+                                        // identificacao?.colaborador era a única fonte, mas o
+                                        // ViewModel zera identificacao nos mesmos caminhos em que
+                                        // monta o comprovante (inclusive os offline). Quando o
+                                        // cartão aparecia, colaborador já era null e a foto nunca
+                                        // saía — o componente estava certo, o dado é que chegava
+                                        // vazio. Agora a URL viaja junto com o comprovante.
+                                        avatarUrl = comprovante.avatarUrl ?: colaborador?.avatarUrl,
                                         avatarSize = if (compactFeedback) 52.dp else 64.dp,
                                     )
                                     Surface(
