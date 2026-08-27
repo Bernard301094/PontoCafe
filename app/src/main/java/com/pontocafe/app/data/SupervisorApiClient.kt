@@ -118,8 +118,8 @@ interface SupervisorApi {
     @POST("supervisor/autorizacoes/cancelar") suspend fun cancelAuthorization(
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
-    // finalizar existe no Worker desde 88bc890. iniciar NÃO existe e não está
-    // planejado nessa forma -- continua devolvendo 404. Ver manual-pause-routes.ts.
+    // Ambas existem no Worker: finalizar desde 88bc890, iniciar desde a migração
+    // 011. Ver backend/src/routes/manual-pause-routes.ts.
     @POST("supervisor/pausas/manual/iniciar") suspend fun iniciarPausaManual(
         @Body body: RegistrarPausaManualRequest,
     ): RegistrarPausaManualResponse

@@ -225,11 +225,13 @@ data class AuthorizationCreatedResponse(
  * ver proposta "Registro Manual de Ponto". A sessão autenticada de quem
  * registra substitui o verificacaoToken biométrico; por isso exige motivo,
  * fica marcado registradoManualmente e é auditado do lado do servidor.
- * Só o FECHAMENTO existe no Worker (POST .../pausas/manual/finalizar). A abertura
- * manual continua sem rota, e de propósito: abrir uma pausa retroativa cria um
- * registro de jornada inteiro sem nenhuma evidência biométrica, o que merece
- * controle próprio (perfil, janela temporal, aprovação) em vez de vir de carona.
- * Ver o cabeçalho de backend/src/routes/manual-pause-routes.ts.
+ * As duas metades existem no Worker: o fechamento desde 88bc890, a abertura a
+ * partir da migração 011_manual_pause_open.sql. A abertura grava a pausa sem
+ * verificacaoToken e sem dispositivo -- é a sessão de quem registra que autentica.
+ * Em troca, o esquema passou a exigir motivo e ator identificados
+ * (ck_pausa_inicio_coerente): uma pausa tem prova biométrica OU um responsável
+ * com motivo, nunca nenhuma das duas. Ver o cabeçalho de
+ * backend/src/routes/manual-pause-routes.ts.
  */
 data class RegistrarPausaManualRequest(
     val colaboradorId: String,
@@ -391,8 +393,8 @@ interface AdminApi {
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
 
-    // finalizar existe no Worker desde 88bc890. iniciar NÃO existe e não está
-    // planejado nessa forma -- continua devolvendo 404. Ver manual-pause-routes.ts.
+    // Ambas existem no Worker: finalizar desde 88bc890, iniciar desde a migração
+    // 011. Ver backend/src/routes/manual-pause-routes.ts.
     @POST("admin/pausas/manual/iniciar") suspend fun iniciarPausaManual(
         @Body body: RegistrarPausaManualRequest,
     ): RegistrarPausaManualResponse
