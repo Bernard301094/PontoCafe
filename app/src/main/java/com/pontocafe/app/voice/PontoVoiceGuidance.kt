@@ -248,8 +248,20 @@ internal class PontoVoiceGate {
         sessionKey: String?,
     ): Boolean {
         prepareSession(sessionKey)
-        val timestamps = if (sessionKey != null) sessionLastSpokenAt else globalLastSpokenAt
-        val previous = timestamps[prompt.key]
+
+        // O cooldown é medido SEMPRE contra o relógio global, nunca contra o da
+        // sessão. Antes ele vivia em sessionLastSpokenAt, que prepareSession limpa
+        // a cada troca de sessionKey — e o quiosque passa "scan:${scanCycle}", com
+        // scanCycle subindo a cada nova tentativa de leitura. Na prática o cooldown
+        // era apagado imediatamente antes de ser consultado: quem não era detectado
+        // ouvia "Aproxime-se e olhe para a câmera" a cada ciclo, apesar dos 30 s
+        // declarados na política.
+        //
+        // Uma frase é a mesma frase independentemente de quantos ciclos passaram.
+        // Já o ORÇAMENTO de instruções continua por sessão, porque ali o reset é
+        // proposital: quem chega depois não deve herdar o silêncio de quem estava
+        // antes na frente da câmera.
+        val previous = globalLastSpokenAt[prompt.key]
         if (previous != null && nowMillis - previous < prompt.cooldownMillis) return false
         if (
             sessionKey != null && prompt.countsTowardInstructionBudget &&
@@ -266,8 +278,10 @@ internal class PontoVoiceGate {
         sessionKey: String?,
     ) {
         prepareSession(sessionKey)
-        val timestamps = if (sessionKey != null) sessionLastSpokenAt else globalLastSpokenAt
-        timestamps[prompt.key] = nowMillis
+        // Registrado nos dois: o global é o que sustenta o cooldown entre ciclos, e
+        // o da sessão continua servindo para inspeção e para o reset por pessoa.
+        globalLastSpokenAt[prompt.key] = nowMillis
+        if (sessionKey != null) sessionLastSpokenAt[prompt.key] = nowMillis
         if (sessionKey != null && prompt.countsTowardInstructionBudget) {
             sessionInstructionCount += 1
         }

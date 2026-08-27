@@ -68,7 +68,7 @@ class PontoVoicePromptPolicyTest {
     }
 
     @Test
-    fun `cooldown impede repetir a mesma fala no mesmo ciclo`() {
+    fun `cooldown impede repetir a mesma fala mesmo trocando de ciclo`() {
         val gate = PontoVoiceGate()
         val prompt = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.BLINK)
         val session = "scan:9"
@@ -76,7 +76,33 @@ class PontoVoicePromptPolicyTest {
         assertTrue(gate.canSpeak(prompt, 10_000L, session))
         gate.markSpoken(prompt, 10_000L, session)
         assertFalse(gate.canSpeak(prompt, 10_500L, session))
-        assertTrue(gate.canSpeak(prompt, 10_500L, "scan:10"))
+
+        // Este era o furo: o quiosque passa "scan:${scanCycle}" e scanCycle sobe a
+        // cada tentativa de leitura, então prepareSession limpava o cooldown antes
+        // de ele ser consultado. Trocar de ciclo NÃO pode liberar a mesma fala.
+        assertFalse(gate.canSpeak(prompt, 10_500L, "scan:10"))
+
+        // Passado o cooldown declarado na política, volta a poder falar.
+        assertTrue(gate.canSpeak(prompt, 10_000L + prompt.cooldownMillis, "scan:10"))
+    }
+
+    @Test
+    fun `nao detectar varias vezes seguidas nao repete a mesma instrucao`() {
+        val gate = PontoVoiceGate()
+        val prompt = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.NO_FACE)
+
+        // Dez ciclos seguidos sem detectar, um por segundo: é o caso relatado em
+        // operação. A frase deve sair uma vez só dentro da janela de cooldown.
+        var spoken = 0
+        repeat(10) { cycle ->
+            val now = 1_000L + cycle * 1_000L
+            if (gate.canSpeak(prompt, now, "scan:$cycle")) {
+                gate.markSpoken(prompt, now, "scan:$cycle")
+                spoken += 1
+            }
+        }
+
+        assertEquals(1, spoken)
     }
 
     @Test
