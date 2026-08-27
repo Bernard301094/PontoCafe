@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -21,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.voice.PontoNeuralSpeechDecision
 import com.pontocafe.app.voice.PontoNeuralSpeechEvent
@@ -185,6 +188,17 @@ internal fun PontoNaturalVoiceProvisioningScreen(
     var verificationFailed by remember { mutableStateOf(false) }
     var verificationMessage by remember { mutableStateOf<String?>(null) }
     var completed by remember { mutableStateOf(false) }
+    // Feed estilo terminal: acumula as mesmas mensagens reais que já passavam
+    // por verificationMessage (um valor só, sobrescrito) em vez de descartar
+    // cada etapa anterior assim que a próxima chega.
+    var provisioningLog by remember { mutableStateOf(listOf<String>()) }
+
+    LaunchedEffect(verificationMessage) {
+        val message = verificationMessage
+        if (message != null && provisioningLog.lastOrNull() != message) {
+            provisioningLog = (provisioningLog + message).takeLast(8)
+        }
+    }
 
     fun startPlaybackVerification() {
         if (verificationStarted || completed) return
@@ -332,11 +346,9 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                         },
                     )
 
-                    PcFeedbackBanner(
-                        message = verificationMessage,
-                        tone = if (completed) PontoCafeTone.SUCCESS else PontoCafeTone.INFO,
-                        onDismiss = { if (!completed) verificationMessage = null },
-                    )
+                    if (provisioningLog.isNotEmpty()) {
+                        ProvisioningLogFeed(lines = provisioningLog, completed = completed)
+                    }
 
                     if (diagnostics.availability == PontoNeuralVoiceAvailability.FAILED) {
                         PcPrimaryButton(
@@ -397,6 +409,56 @@ internal fun PontoNaturalVoiceProvisioningScreen(
                         text = "Entrar como Supervisor",
                         onClick = onSupervisorClick,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Feed estilo terminal com as etapas reais de instalação/verificação da voz
+ * natural, na ordem em que realmente aconteceram — nada de texto de etapa
+ * inventado, são as mesmas mensagens que já vinham de PontoNeuralSpeechEvent.
+ */
+@Composable
+private fun ProvisioningLogFeed(lines: List<String>, completed: Boolean, modifier: Modifier = Modifier) {
+    val semantic = LocalPontoCafeSemanticColors.current
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            lines.forEachIndexed { index, line ->
+                val isLast = index == lines.lastIndex
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (isLast && completed) "✓" else if (isLast) "›" else " ",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (isLast) {
+                            if (completed) semantic.success else MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        },
+                    )
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (isLast) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        },
                     )
                 }
             }
