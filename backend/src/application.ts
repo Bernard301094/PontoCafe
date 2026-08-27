@@ -7,6 +7,7 @@ import { query } from './db.js'
 import { errorPayload, logServerError, requestIdMiddleware } from './observability.js'
 import { adminBiometricDeletionRoutes } from './routes/admin-biometric-deletion-routes.js'
 import { adminRoutes } from './routes/admin-routes.js'
+import { adminManualPauseRoutes, supervisorManualPauseRoutes } from './routes/manual-pause-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
 import { authorizationRoutes } from './routes/authorization-routes.js'
@@ -176,6 +177,7 @@ app.route('/admin', deviceManagementRoutes)
 app.route('/admin', userManagementRoutes)
 app.route('/admin', coffeeRuleRoutes)
 app.route('/admin', reliabilityRoutes)
+app.route('/admin', adminManualPauseRoutes)
 app.route('/admin', adminRoutes)
 app.route('/admin', authorizationRoutes)
 app.route('/admin', auditRoutes)
@@ -204,6 +206,7 @@ app.route('/ponto', idempotentPontoMutationRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
 app.route('/ponto', offlineRoutes)
+app.route('/supervisor', supervisorManualPauseRoutes)
 app.route('/supervisor', liveRoutes)
 app.route('/supervisor', reportRoutes)
 app.route('/supervisor', authorizationRoutes)
