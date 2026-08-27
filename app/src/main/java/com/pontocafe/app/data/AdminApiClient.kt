@@ -225,7 +225,11 @@ data class AuthorizationCreatedResponse(
  * ver proposta "Registro Manual de Ponto". A sessão autenticada de quem
  * registra substitui o verificacaoToken biométrico; por isso exige motivo,
  * fica marcado registradoManualmente e é auditado do lado do servidor.
- * Endpoints ainda não existem no backend.
+ * Só o FECHAMENTO existe no Worker (POST .../pausas/manual/finalizar). A abertura
+ * manual continua sem rota, e de propósito: abrir uma pausa retroativa cria um
+ * registro de jornada inteiro sem nenhuma evidência biométrica, o que merece
+ * controle próprio (perfil, janela temporal, aprovação) em vez de vir de carona.
+ * Ver o cabeçalho de backend/src/routes/manual-pause-routes.ts.
  */
 data class RegistrarPausaManualRequest(
     val colaboradorId: String,
@@ -248,10 +252,21 @@ data class RegistrarPausaManualResponse(
     val registradoPor: RegistradoPorAtor? = null,
 )
 
+/**
+ * O Worker fecha a pausa ABERTA do colaborador
+ * (`select ... where colaborador_id=$1 and fim_em is null`), não uma pausa por id.
+ * Enviar `pausa.id` aqui fazia o Zod recusar o corpo inteiro por falta de
+ * `colaboradorId`: o 404 de "rota não existe" virou 400 de validação e o retorno
+ * manual continuou sem funcionar, só que falhando de outro jeito.
+ *
+ * `horarioRetorno` saiu: o Worker grava `fim_em=now()` e nenhum chamador o
+ * preenchia, então o campo prometia um controle que não existe em nenhuma das
+ * duas pontas. Se algum dia o retorno retroativo for necessário, precisa de rota
+ * e de coluna próprias, não de um parâmetro que o servidor descarta em silêncio.
+ */
 data class FinalizarPausaManualRequest(
-    val pausaId: String,
+    val colaboradorId: String,
     val motivo: String,
-    val horarioRetorno: String? = null,
 )
 
 data class FinalizarPausaManualResponse(
@@ -376,7 +391,8 @@ interface AdminApi {
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
 
-    // Endpoints ainda não existem no backend -- ver proposta "Registro Manual de Ponto".
+    // finalizar existe no Worker desde 88bc890. iniciar NÃO existe e não está
+    // planejado nessa forma -- continua devolvendo 404. Ver manual-pause-routes.ts.
     @POST("admin/pausas/manual/iniciar") suspend fun iniciarPausaManual(
         @Body body: RegistrarPausaManualRequest,
     ): RegistrarPausaManualResponse
@@ -603,8 +619,8 @@ class AdminRepository(
     suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
         api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
 
-    suspend fun finalizarPausaManual(pausaId: String, motivo: String, horarioRetorno: String? = null) =
-        api.finalizarPausaManual(FinalizarPausaManualRequest(pausaId, motivo.trim(), horarioRetorno))
+    suspend fun finalizarPausaManual(colaboradorId: String, motivo: String) =
+        api.finalizarPausaManual(FinalizarPausaManualRequest(colaboradorId, motivo.trim()))
 
     fun hasSession() = sessionStore.hasToken()
     fun clearSession() {

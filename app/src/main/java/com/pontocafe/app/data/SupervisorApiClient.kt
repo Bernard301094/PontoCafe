@@ -118,7 +118,8 @@ interface SupervisorApi {
     @POST("supervisor/autorizacoes/cancelar") suspend fun cancelAuthorization(
         @Body body: CancelAuthorizationRequest,
     ): CancelAuthorizationResponse
-    // Endpoints ainda não existem no backend -- ver proposta "Registro Manual de Ponto".
+    // finalizar existe no Worker desde 88bc890. iniciar NÃO existe e não está
+    // planejado nessa forma -- continua devolvendo 404. Ver manual-pause-routes.ts.
     @POST("supervisor/pausas/manual/iniciar") suspend fun iniciarPausaManual(
         @Body body: RegistrarPausaManualRequest,
     ): RegistrarPausaManualResponse
@@ -233,8 +234,8 @@ class SupervisorRepository(
         api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId))
     suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
         api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
-    suspend fun finalizarPausaManual(pausaId: String, motivo: String, horarioRetorno: String? = null) =
-        api.finalizarPausaManual(FinalizarPausaManualRequest(pausaId, motivo.trim(), horarioRetorno))
+    suspend fun finalizarPausaManual(colaboradorId: String, motivo: String) =
+        api.finalizarPausaManual(FinalizarPausaManualRequest(colaboradorId, motivo.trim()))
     suspend fun collaborators() = api.collaborators().colaboradores
         .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
 

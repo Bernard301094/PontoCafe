@@ -198,7 +198,7 @@ fun AdminHomeScreenV2(
                 coroutineScope.launch {
                     manualCloseLoading = true
                     manualCloseError = null
-                    runCatching { adminLiveRepository.finalizarPausaManual(item.pause.id, motivo) }
+                    runCatching { adminLiveRepository.finalizarPausaManual(item.pause.colaboradorId, motivo) }
                         .onSuccess {
                             manualCloseLoading = false
                             manualClosePause = null

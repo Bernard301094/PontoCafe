@@ -505,19 +505,22 @@ class SupervisorViewModel(
     }
 
     /**
-     * Fecha manualmente uma pausa já aberta de [pausa] -- resolve tanto "a
-     * pessoa esqueceu de marcar o retorno" quanto "o reconhecimento falhou
-     * ao voltar". [horarioRetorno] é opcional (ISO 8601); quando omitido o
-     * servidor usa o horário atual. Endpoint ainda não existe no backend.
+     * Fecha manualmente a pausa aberta do colaborador de [pausa] -- resolve tanto
+     * "a pessoa esqueceu de marcar o retorno" quanto "o reconhecimento falhou ao
+     * voltar".
+     *
+     * Envia `pausa.colaboradorId`, não `pausa.id`: o Worker procura a pausa aberta
+     * do colaborador, e mandar o id da pausa fazia a validação recusar o corpo.
+     * O horário de retorno não é configurável -- o servidor sempre grava `now()`.
      */
-    fun finalizarPausaManual(pausa: PausaSupervisor, motivo: String, horarioRetorno: String? = null) {
+    fun finalizarPausaManual(pausa: PausaSupervisor, motivo: String) {
         if (motivo.trim().length < 2) {
             state = state.copy(erro = "Informe o motivo do registro manual.")
             return
         }
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.finalizarPausaManual(pausa.id, motivo, horarioRetorno) }
+            runCatching { repository.finalizarPausaManual(pausa.colaboradorId, motivo) }
                 .onSuccess { resposta ->
                     state = state.copy(
                         carregando = false,
