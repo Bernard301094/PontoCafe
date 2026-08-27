@@ -2,8 +2,11 @@ package com.pontocafe.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
@@ -357,10 +361,25 @@ internal fun PeoplePersonCard(
                     )
                 }
 
-                CollaboratorAvatar(
-                    name = person.nome,
-                    avatarUrl = person.avatarUrl,
-                )
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    CollaboratorAvatar(
+                        name = person.nome,
+                        avatarUrl = person.avatarUrl,
+                    )
+                    // Sinal real (biometria pronta/pendente) -- não existe conceito
+                    // de "online" para colaboradores, que não fazem login no
+                    // sistema, então o ponto usa o único status por pessoa que
+                    // de fato existe.
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
+                            .background(
+                                if (person.rostoCadastrado) semantic.success else semantic.warning,
+                                CircleShape,
+                            ),
+                    )
+                }
 
                 Column(
                     modifier = Modifier.weight(1f),

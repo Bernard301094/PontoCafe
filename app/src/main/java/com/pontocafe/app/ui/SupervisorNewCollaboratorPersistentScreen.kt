@@ -101,12 +101,18 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             item("hero") {
-                PcHeroCard(
-                    title = "Cadastro para o modo Ponto",
-                    supportingText = "Depois de salvar os dados, a câmera abrirá automaticamente para registrar as 5 amostras faciais.",
-                    icon = Icons.Default.Face,
-                    tone = PontoCafeTone.INFO,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    PcHeroCard(
+                        title = "Cadastro para o modo Ponto",
+                        supportingText = "Depois de salvar os dados, a câmera abrirá automaticamente para registrar as 5 amostras faciais.",
+                        icon = Icons.Default.Face,
+                        tone = PontoCafeTone.INFO,
+                    )
+                    UpcomingEnrollmentPreview()
+                    if (cleanName.isNotBlank() || cleanSector.isNotBlank()) {
+                        StatusPill("Rascunho salvo neste aparelho", PontoCafeTone.NEUTRAL)
+                    }
+                }
             }
 
             item("feedback") {

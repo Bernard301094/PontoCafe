@@ -137,12 +137,18 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             ) {
                 item("context") {
-                    PcHeroCard(
-                        title = "Cadastro para o modo Ponto",
-                        supportingText = "Cadastre somente pessoas que usarão reconhecimento facial para registrar a pausa. Contas de Supervisor e Administrador ficam separadas.",
-                        icon = Icons.Default.Face,
-                        tone = PontoCafeTone.INFO,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                        PcHeroCard(
+                            title = "Cadastro para o modo Ponto",
+                            supportingText = "Cadastre somente pessoas que usarão reconhecimento facial para registrar a pausa. Contas de Supervisor e Administrador ficam separadas.",
+                            icon = Icons.Default.Face,
+                            tone = PontoCafeTone.INFO,
+                        )
+                        UpcomingEnrollmentPreview()
+                        if (cleanName.isNotBlank() || cleanSector.isNotBlank()) {
+                            StatusPill("Rascunho salvo neste aparelho", PontoCafeTone.NEUTRAL)
+                        }
+                    }
                 }
 
                 item("feedback") { AdminFeedback(viewModel) }

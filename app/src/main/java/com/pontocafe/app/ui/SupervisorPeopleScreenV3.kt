@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -24,8 +28,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -398,27 +404,27 @@ fun SupervisorPeopleScreenV3(
                             contentPadding = PaddingValues(bottom = 96.dp),
                             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                         ) {
-                            if (visible.isEmpty()) {
-                                item("empty") {
+                            peopleListWithOptionalStickyHeaders(
+                                people = visible,
+                                alphabetical = peopleSort == PeopleSort.NAME,
+                                emptyContent = {
                                     PcEmptyState(
                                         title = "Nenhum colaborador encontrado",
                                         supportingText = "Altere a busca ou os filtros para ver outros registros.",
                                         icon = Icons.Default.People,
                                     )
-                                }
-                            } else {
-                                items(visible, key = { "supervisor-person-v4-${it.id}" }) { person ->
-                                    PeoplePersonCard(
-                                        person = person,
-                                        selected = person.id == selectedPersonId,
-                                        selectionMode = false,
-                                        loading = state.carregando || avatarBusyId == person.id,
-                                        onClick = { selectedPersonId = person.id },
-                                        onSelected = {},
-                                        onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
+                                },
+                            ) { person ->
+                                PeoplePersonCard(
+                                    person = person,
+                                    selected = person.id == selectedPersonId,
+                                    selectionMode = false,
+                                    loading = state.carregando || avatarBusyId == person.id,
+                                    onClick = { selectedPersonId = person.id },
+                                    onSelected = {},
+                                    onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                    modifier = Modifier.animateItem(),
+                                )
                             }
                         }
 
@@ -442,27 +448,27 @@ fun SupervisorPeopleScreenV3(
                         contentPadding = PaddingValues(bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                     ) {
-                        if (visible.isEmpty()) {
-                            item("empty") {
+                        peopleListWithOptionalStickyHeaders(
+                            people = visible,
+                            alphabetical = peopleSort == PeopleSort.NAME,
+                            emptyContent = {
                                 PcEmptyState(
                                     title = "Nenhum colaborador encontrado",
                                     supportingText = "Altere a busca ou os filtros para ver outros registros.",
                                     icon = Icons.Default.People,
                                 )
-                            }
-                        } else {
-                            items(visible, key = { "supervisor-person-v4-${it.id}" }) { person ->
-                                PeoplePersonCard(
-                                    person = person,
-                                    selected = false,
-                                    selectionMode = false,
-                                    loading = state.carregando || avatarBusyId == person.id,
-                                    onClick = { selectedPersonId = person.id },
-                                    onSelected = {},
-                                    onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
-                                    modifier = Modifier.animateItem(),
-                                )
-                            }
+                            },
+                        ) { person ->
+                            PeoplePersonCard(
+                                person = person,
+                                selected = false,
+                                selectionMode = false,
+                                loading = state.carregando || avatarBusyId == person.id,
+                                onClick = { selectedPersonId = person.id },
+                                onSelected = {},
+                                onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                modifier = Modifier.animateItem(),
+                            )
                         }
                     }
                 }
@@ -480,5 +486,45 @@ fun SupervisorPeopleScreenV3(
         }
         }
         }
+    }
+}
+
+/**
+ * Cabeçalhos fixos por letra inicial -- só fazem sentido quando a lista está
+ * ordenada por nome (PeopleSort.NAME). Nos outros modos (prioridade, setor) o
+ * agrupamento alfabético quebraria a própria ordenação que a pessoa escolheu,
+ * então a lista continua plana.
+ */
+private fun LazyListScope.peopleListWithOptionalStickyHeaders(
+    people: List<Colaborador>,
+    alphabetical: Boolean,
+    emptyContent: @Composable () -> Unit,
+    itemContent: @Composable androidx.compose.foundation.lazy.LazyItemScope.(Colaborador) -> Unit,
+) {
+    if (people.isEmpty()) {
+        item("empty") { emptyContent() }
+        return
+    }
+    if (!alphabetical) {
+        items(people, key = { "supervisor-person-v4-${it.id}" }) { itemContent(it) }
+        return
+    }
+    val grouped = people.groupBy { it.nome.trim().firstOrNull()?.uppercaseChar() ?: '#' }
+    grouped.toSortedMap().forEach { (letter, group) ->
+        stickyHeader(key = "supervisor-person-header-$letter") {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Text(
+                    letter.toString(),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+            }
+        }
+        items(group, key = { "supervisor-person-v4-${it.id}" }) { itemContent(it) }
     }
 }
