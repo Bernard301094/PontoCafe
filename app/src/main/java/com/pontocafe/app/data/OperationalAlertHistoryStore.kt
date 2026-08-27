@@ -85,6 +85,12 @@ class OperationalAlertHistoryStore(context: Context) {
         save(snapshot().map { it.copy(read = true) })
     }
 
+    /** Remove um único item (usado pelo gesto de arrastar-para-dispensar). */
+    @Synchronized
+    fun dismiss(id: Long) {
+        save(snapshot().filterNot { it.id == id })
+    }
+
     @Synchronized
     fun clear() {
         preferences.edit().remove(KEY_ITEMS).apply()

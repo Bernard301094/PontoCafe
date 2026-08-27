@@ -3,18 +3,20 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -75,16 +77,20 @@ fun filterOperationalPauseItems(
     items: List<OperationalPauseItem>,
     filter: OperationalPauseFilter,
     nowMillis: Long = System.currentTimeMillis(),
-): List<OperationalPauseItem> = when (filter) {
-    OperationalPauseFilter.TODOS -> items
-    OperationalPauseFilter.ATENCAO -> items.filter {
-        val elapsed = operationalPauseElapsed(it.pause, nowMillis)
-        val remaining = it.pause.limiteSegundos - elapsed
-        elapsed <= it.pause.limiteSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
+    sector: String? = null,
+): List<OperationalPauseItem> {
+    val byStatus = when (filter) {
+        OperationalPauseFilter.TODOS -> items
+        OperationalPauseFilter.ATENCAO -> items.filter {
+            val elapsed = operationalPauseElapsed(it.pause, nowMillis)
+            val remaining = it.pause.limiteSegundos - elapsed
+            elapsed <= it.pause.limiteSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
+        }
+        OperationalPauseFilter.EXCEDIDOS -> items.filter {
+            operationalPauseElapsed(it.pause, nowMillis) > it.pause.limiteSegundos
+        }
     }
-    OperationalPauseFilter.EXCEDIDOS -> items.filter {
-        operationalPauseElapsed(it.pause, nowMillis) > it.pause.limiteSegundos
-    }
+    return if (sector == null) byStatus else byStatus.filter { it.pause.setor == sector }
 }
 
 @Composable
@@ -93,6 +99,8 @@ fun OperationalPauseOverview(
     items: List<OperationalPauseItem>,
     filter: OperationalPauseFilter,
     onFilterChange: (OperationalPauseFilter) -> Unit,
+    sectorFilter: String? = null,
+    onSectorFilterChange: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val now = System.currentTimeMillis()
@@ -161,13 +169,41 @@ fun OperationalPauseOverview(
                 contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
             ) {
                 OperationalPauseFilter.entries.forEach { option ->
-                    val count = filterOperationalPauseItems(items, option, now).size
+                    val count = filterOperationalPauseItems(items, option, now, sectorFilter).size
                     item(key = option.name) {
                         FilterChip(
                             selected = filter == option,
                             onClick = { onFilterChange(option) },
                             label = { Text("${option.label} $count") },
                         )
+                    }
+                }
+            }
+
+            val sectors = remember(items) {
+                items.mapNotNull { it.pause.setor?.takeIf(String::isNotBlank) }.distinct().sorted()
+            }
+            if (sectors.size > 1) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
+                ) {
+                    item(key = "sector-all") {
+                        FilterChip(
+                            selected = sectorFilter == null,
+                            onClick = { onSectorFilterChange(null) },
+                            label = { Text("Todos os setores") },
+                        )
+                    }
+                    sectors.forEach { sector ->
+                        item(key = "sector-$sector") {
+                            FilterChip(
+                                selected = sectorFilter == sector,
+                                onClick = { onSectorFilterChange(sector) },
+                                label = { Text(sector) },
+                            )
+                        }
                     }
                 }
             }
@@ -280,14 +316,24 @@ fun OperationalPauseCompactCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = formatOperationalDuration(elapsed),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = semanticColor,
-                    )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.size(58.dp),
+                            color = semanticColor,
+                            trackColor = semanticColor.copy(alpha = 0.14f),
+                            strokeWidth = 4.dp,
+                        )
+                        Text(
+                            text = formatOperationalDuration(elapsed),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = semanticColor,
+                        )
+                    }
                     StatusPill(
+                        modifier = Modifier.padding(top = 4.dp),
                         text = when {
                             overdue -> "Excedido +${formatOperationalDuration(elapsed - pause.limiteSegundos)}"
                             critical -> "Crítico · ${formatOperationalDuration(remaining)}"
@@ -303,13 +349,6 @@ fun OperationalPauseCompactCard(
                     )
                 }
             }
-
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
-                color = semanticColor,
-                trackColor = semanticColor.copy(alpha = 0.14f),
-            )
         }
     }
 }

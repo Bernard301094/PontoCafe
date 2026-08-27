@@ -6,11 +6,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
@@ -298,6 +307,13 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
         SupervisorLiveAlertType.RETORNO.name -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onPrimaryContainer
     }
+    val icon = when (alert.type) {
+        SupervisorLiveAlertType.EXCESSO.name,
+        SupervisorLiveAlertType.CRITICO.name,
+        SupervisorLiveAlertType.PROXIMO_LIMITE.name -> Icons.Default.Warning
+        SupervisorLiveAlertType.RETORNO.name -> Icons.Default.CheckCircle
+        else -> Icons.Default.Coffee
+    }
 
     AnimatedVisibility(
         visible = visible,
@@ -323,13 +339,20 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
             ),
             shape = MaterialTheme.shapes.large,
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(alert.title, fontWeight = FontWeight.Bold)
-                Text(
-                    alert.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
+            Row(
+                modifier = Modifier.padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Column {
+                    Text(alert.title, fontWeight = FontWeight.Bold)
+                    Text(
+                        alert.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
             }
         }
     }

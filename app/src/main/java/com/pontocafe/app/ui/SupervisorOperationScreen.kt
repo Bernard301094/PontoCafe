@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,6 +75,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val listState = rememberLazyListState()
     val testPause by AdminTestPauseStore.active.collectAsState()
     var pauseFilter by rememberSaveable { mutableStateOf(OperationalPauseFilter.TODOS) }
+    var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     val sessionStore = remember(context, state.sessaoAdministrativa) {
@@ -229,8 +232,8 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     val operationItems = remember(state.pausasAtivas, testPause, state.ultimaAtualizacaoAoVivoEmMillis) {
         buildOperationalPauseItems(state.pausasAtivas, testPause, System.currentTimeMillis())
     }
-    val filteredItems = remember(operationItems, pauseFilter, state.ultimaAtualizacaoAoVivoEmMillis) {
-        filterOperationalPauseItems(operationItems, pauseFilter, System.currentTimeMillis())
+    val filteredItems = remember(operationItems, pauseFilter, sectorFilter, state.ultimaAtualizacaoAoVivoEmMillis) {
+        filterOperationalPauseItems(operationItems, pauseFilter, System.currentTimeMillis(), sectorFilter)
     }
 
     PcHeroPage(
@@ -249,10 +252,22 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onPrimary,
             )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                PcHeroStat(value = "${state.pausasAtivas.size}", label = "Em pausa", modifier = Modifier.weight(1f))
-                PcHeroStat(value = "$overdue", label = "Acima do limite", modifier = Modifier.weight(1f))
-                PcHeroStat(value = "${pendingFaces.size}", label = "Rostos pendentes", modifier = Modifier.weight(1f))
+            // Grade bento 2x2 em vez de uma linha só -- adiciona "Colaboradores"
+            // (state.colaboradores.size, já real) como quarto indicador para
+            // preencher a grade sem inventar métricas como "presentes"/"OEE"
+            // que não existem em nenhum lugar do estado.
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    PcHeroStat(value = "${state.pausasAtivas.size}", label = "Em pausa", modifier = Modifier.weight(1f))
+                    PcHeroStat(value = "$overdue", label = "Acima do limite", modifier = Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
+                    PcHeroStat(value = "${pendingFaces.size}", label = "Rostos pendentes", modifier = Modifier.weight(1f))
+                    PcHeroStat(value = "${state.colaboradores.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
+                }
             }
         },
     ) {
@@ -297,6 +312,10 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                             alertHistoryStore.clear()
                             alertHistory = emptyList()
                         },
+                        onDismissItem = { id ->
+                            alertHistoryStore.dismiss(id)
+                            alertHistory = alertHistoryStore.snapshot()
+                        },
                     )
                 }
                 item("attention") {
@@ -305,6 +324,8 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         items = operationItems,
                         filter = pauseFilter,
                         onFilterChange = { pauseFilter = it },
+                        sectorFilter = sectorFilter,
+                        onSectorFilterChange = { sectorFilter = it },
                     )
                 }
                 if (filteredItems.isEmpty()) {
@@ -383,10 +404,35 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     )
                 }
             }
+            SupervisorQuickOverridePill(
+                onClick = viewModel::abrirAutorizacao,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = responsive.pagePadding, bottom = PontoCafeSpacing.md),
+            )
             PcScrollToTopFab(listState, Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = responsive.pagePadding, bottom = PontoCafeSpacing.md))
         }
     }
     }
+}
+
+/**
+ * Pílula flutuante persistente para a única ação de "override manual" real
+ * desta tela (autorizar uma exceção de pausa). Não inclui atalhos para
+ * sincronizar catálogo facial ou disparar pausa por outra pessoa -- nenhum
+ * dos dois tem um método correspondente em SupervisorViewModel.
+ */
+@Composable
+private fun SupervisorQuickOverridePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    ExtendedFloatingActionButton(
+        onClick = onClick,
+        modifier = modifier,
+        icon = { Icon(Icons.Default.Coffee, contentDescription = null) },
+        text = { Text("Autorizar exceção") },
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
 }
 
 @Composable
