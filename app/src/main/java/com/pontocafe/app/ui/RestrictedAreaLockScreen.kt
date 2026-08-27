@@ -4,6 +4,11 @@ import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
@@ -52,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -60,6 +66,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -202,6 +209,11 @@ fun RestrictedAreaLockScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
+            // Console de bloqueio de alto contraste: fundo escuro fixo,
+            // independente do tema claro/escuro do sistema — mesmo raciocínio
+            // já usado no quiosque (uma tela de segurança não deve parecer
+            // "clara e neutra" só porque o aparelho está no tema claro).
+            .background(PontoCafeBrand.deepEspresso)
             .systemBarsPadding(),
     ) {
         val compactHeight = maxHeight < 600.dp
@@ -235,7 +247,12 @@ fun RestrictedAreaLockScreen(
                     .fillMaxWidth()
                     .widthIn(max = 520.dp),
                 shape = if (compactHeight) MaterialTheme.shapes.large else MaterialTheme.shapes.extraLarge,
-                color = PontoCafePremium.glassStrong,
+                // PontoCafePremium.glassStrong é uma tintura translúcida de ~12%
+                // pensada para repousar sobre um fundo ambiente claro/neutro.
+                // Contra o novo fundo Deep Espresso quase preto deste console,
+                // ela ficaria praticamente invisível — aqui o cartão precisa de
+                // uma superfície sólida e elevada para se destacar de verdade.
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 border = BorderStroke(1.dp, PontoCafePremium.border),
                 shadowElevation = if (compactHeight) 10.dp else 16.dp,
@@ -253,24 +270,7 @@ fun RestrictedAreaLockScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Surface(
-                            modifier = Modifier.size(iconBoxSize),
-                            shape = MaterialTheme.shapes.medium,
-                            color = PontoCafePremium.glowSoft,
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                            ),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(iconSize),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
+                        PulsingShieldIcon(boxSize = iconBoxSize, iconSize = iconSize)
 
                         Column(
                             modifier = Modifier.weight(1f),
@@ -465,6 +465,48 @@ fun RestrictedAreaLockScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Escudo com respiração suave (alfa + escala) — sinaliza continuamente que a
+ * área está protegida, sem depender de nenhum estado de contagem regressiva
+ * que não existe no fluxo real de desbloqueio (que é só BiometricPrompt).
+ */
+@Composable
+private fun PulsingShieldIcon(boxSize: Dp, iconSize: Dp) {
+    val transition = rememberInfiniteTransition(label = "lock-shield-pulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = PontoCafeMotion.StandardEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "lock-shield-pulse-alpha",
+    )
+    Surface(
+        modifier = Modifier.size(boxSize),
+        shape = MaterialTheme.shapes.medium,
+        color = PontoCafePremium.glowSoft.copy(alpha = PontoCafePremium.glowSoft.alpha * pulse),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.24f * pulse),
+        ),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.Shield,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(iconSize)
+                    .graphicsLayer {
+                        scaleX = 0.94f + pulse * 0.06f
+                        scaleY = 0.94f + pulse * 0.06f
+                    },
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f + pulse * 0.25f),
+            )
         }
     }
 }

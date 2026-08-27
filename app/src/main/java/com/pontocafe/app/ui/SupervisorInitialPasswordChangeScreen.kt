@@ -137,6 +137,9 @@ fun SupervisorInitialPasswordChangeScreen(
                             supportingText = if (confirmation.isBlank() || matches) null else "As senhas não coincidem",
                             imeAction = ImeAction.Done,
                         )
+                        if (confirmation.isNotBlank() && matches) {
+                            PasswordRule("As senhas coincidem", ok = true)
+                        }
                     }
                 }
             }

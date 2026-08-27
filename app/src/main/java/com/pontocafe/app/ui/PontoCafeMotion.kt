@@ -3,8 +3,10 @@ package com.pontocafe.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.sin
 
 object PontoCafeMotion {
     // Motion curto por padrão: o app é operacional e precisa responder imediatamente.
@@ -90,6 +93,30 @@ fun animatedProgress(target: Float): Float {
         label = "progress",
     )
     return progress
+}
+
+/**
+ * Tremor curto de erro: dispara uma vez a cada valor não-nulo distinto de
+ * [trigger] (tipicamente o texto de erro de login). Usado em formulários de
+ * autenticação para reforçar visualmente uma tentativa recusada, sem alterar
+ * nenhum estado de validação — é puramente decorativo.
+ */
+@Composable
+fun Modifier.shakeOnChange(trigger: Any?): Modifier {
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(trigger) {
+        if (trigger != null) {
+            shake.snapTo(0f)
+            shake.animateTo(1f, tween(420, easing = LinearEasing))
+        }
+    }
+    return graphicsLayer {
+        translationX = if (shake.value < 1f) {
+            sin(shake.value * 28f) * 10f * (1f - shake.value)
+        } else {
+            0f
+        }
+    }
 }
 
 @Composable

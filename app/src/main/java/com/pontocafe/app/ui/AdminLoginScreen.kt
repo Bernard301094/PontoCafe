@@ -2,23 +2,32 @@ package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,12 +35,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.SecureAdminSessionStore
@@ -54,7 +66,83 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
         viewModel.login(email, senha)
     }
 
-    PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.compactContentWidth) { responsive ->
+    PontoCafeResponsivePage(maxContentWidth = 960.dp) { responsive ->
+        val loginForm: @Composable () -> Unit = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
+                modifier = Modifier.shakeOnChange(state.erro),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 3.dp,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(PontoCafeSpacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+                    ) {
+                        if (!responsive.supportsTwoColumns) {
+                            PcHeroCard(
+                                title = "Controle administrativo",
+                                supportingText = "Contas, dispositivos, regras, auditoria e segurança em uma área protegida.",
+                                icon = Icons.Default.AdminPanelSettings,
+                                tone = PontoCafeTone.INFO,
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("E-mail") },
+                            singleLine = true,
+                            enabled = !state.carregando,
+                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Next,
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                            ),
+                        )
+                        SecurePasswordField(
+                            value = senha,
+                            onValueChange = { senha = it },
+                            label = "Senha",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.carregando,
+                            imeAction = ImeAction.Done,
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                        )
+                        AdminFeedback(viewModel)
+                        PcPrimaryButton(
+                            text = "Entrar com segurança",
+                            onClick = ::submit,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = email.isNotBlank() && senha.length >= 10,
+                            loading = state.carregando,
+                        )
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Text(
+                        "Depois do login, esta conta ficará disponível no seletor deste aparelho. O token é cifrado pelo Android Keystore e a senha nunca é armazenada.",
+                        modifier = Modifier.padding(PontoCafeSpacing.md),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -74,62 +162,58 @@ fun AdminLoginScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             eyebrow = "Acesso protegido",
         )
 
-        PcHeroCard(
-            title = "Controle administrativo",
-            supportingText = "Contas, dispositivos, regras, auditoria e segurança em uma área protegida.",
-            icon = Icons.Default.AdminPanelSettings,
-            tone = PontoCafeTone.INFO,
-        )
-
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
+        if (responsive.supportsTwoColumns) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("E-mail") },
-                singleLine = true,
-                enabled = !state.carregando,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next,
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                ),
-            )
-            SecurePasswordField(
-                value = senha,
-                onValueChange = { senha = it },
-                label = "Senha",
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.carregando,
-                imeAction = ImeAction.Done,
-                keyboardActions = KeyboardActions(onDone = { submit() }),
-            )
-            AdminFeedback(viewModel)
-            PcPrimaryButton(
-                text = "Entrar com segurança",
-                onClick = ::submit,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = email.isNotBlank() && senha.length >= 10,
-                loading = state.carregando,
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        ) {
-            Text(
-                "Depois do login, esta conta ficará disponível no seletor deste aparelho. O token é cifrado pelo Android Keystore e a senha nunca é armazenada.",
-                modifier = Modifier.padding(PontoCafeSpacing.md),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xl),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    AdminBrandingHero()
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    loginForm()
+                }
+            }
+        } else {
+            loginForm()
         }
     }
+    }
+}
+
+@Composable
+private fun AdminBrandingHero() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+    ) {
+        Surface(
+            modifier = Modifier.padding(bottom = PontoCafeSpacing.sm),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Icon(
+                Icons.Default.Shield,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .padding(28.dp)
+                    .size(48.dp),
+            )
+        }
+        Text(
+            "Ponto Café Admin",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            "Gestão completa de pessoas, dispositivos, regras e auditoria de todas as unidades do Ponto Café.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

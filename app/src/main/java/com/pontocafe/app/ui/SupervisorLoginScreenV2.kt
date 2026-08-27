@@ -14,11 +14,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -84,49 +87,68 @@ fun SupervisorLoginScreenV2(
             tone = PontoCafeTone.INFO,
         )
 
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("E-mail") },
-                singleLine = true,
-                enabled = !state.carregando,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next,
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
-                ),
-            )
-            SecurePasswordField(
-                value = password,
-                onValueChange = { password = it },
-                label = "Senha",
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.carregando,
-                imeAction = ImeAction.Done,
-                keyboardActions = KeyboardActions(onDone = { submit() }),
-            )
-            PcFeedbackBanner(
-                message = state.erro,
-                tone = PontoCafeTone.DANGER,
-                onDismiss = viewModel::limparAviso,
-            )
-            PcFeedbackBanner(
-                message = state.mensagem,
-                tone = PontoCafeTone.INFO,
-                onDismiss = viewModel::limparAviso,
-                autoDismissMillis = 4_000L,
-            )
-            PcPrimaryButton(
-                text = "Entrar como Supervisor",
-                onClick = ::submit,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = email.isNotBlank() && password.length >= 10,
-                loading = state.carregando,
-            )
+        // Estilo industrial de quiosque: campos grandes e rótulos em negrito
+        // para leitura/toque rápidos, sem trocar o mecanismo real (e-mail e
+        // senha) por um teclado numérico que não existe no back-end.
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shakeOnChange(state.erro),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            tonalElevation = 3.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(PontoCafeSpacing.lg),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+            ) {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("E-mail", style = MaterialTheme.typography.titleSmall) },
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    singleLine = true,
+                    enabled = !state.carregando,
+                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Next,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    ),
+                )
+                SecurePasswordField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = "Senha",
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.carregando,
+                    imeAction = ImeAction.Done,
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                )
+                PcFeedbackBanner(
+                    message = state.erro,
+                    tone = PontoCafeTone.DANGER,
+                    onDismiss = viewModel::limparAviso,
+                )
+                PcFeedbackBanner(
+                    message = state.mensagem,
+                    tone = PontoCafeTone.INFO,
+                    onDismiss = viewModel::limparAviso,
+                    autoDismissMillis = 4_000L,
+                )
+                PcPrimaryButton(
+                    text = "Entrar como Supervisor",
+                    onClick = ::submit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    enabled = email.isNotBlank() && password.length >= 10,
+                    loading = state.carregando,
+                )
+            }
         }
 
         Card(
