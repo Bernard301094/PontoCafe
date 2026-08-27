@@ -286,7 +286,15 @@ fun AdminHomeScreenV2(
                 onBackToPonto = onClose,
             )
             Text(
-                if (online) "Tudo em ordem por aqui" else "Conexão ainda não confirmada",
+                // O titulo dizia "Tudo em ordem por aqui" enquanto logo abaixo o
+                // painel mostrava "2 Excedidos" e um selo URGENTE. O cabecalho
+                // precisa concordar com o que a tela esta mostrando.
+                when {
+                    !online -> "Conexão ainda não confirmada"
+                    exceededCount > 0 -> "$exceededCount pausa(s) excedida(s)"
+                    attentionCount > 0 -> "$attentionCount pausa(s) perto do limite"
+                    else -> "Tudo em ordem por aqui"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onPrimary,

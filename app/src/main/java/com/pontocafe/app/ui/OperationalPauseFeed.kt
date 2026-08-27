@@ -5,6 +5,8 @@ package com.pontocafe.app.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -376,6 +378,7 @@ private val ManualPauseCloseReasons = listOf(
     "Outro",
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ManualPauseCloseDialog(
     item: OperationalPauseItem,
@@ -405,11 +408,16 @@ fun ManualPauseCloseDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                LazyRow(
+                // Uma LazyRow cortava "Esqueceu de marcar o retorno" na borda da
+                // tela: a pessoa via "Esqueceu de r" e nao havia nada indicando
+                // que era rolavel. Em um dialogo com tres opcoes fixas, quebrar
+                // em linhas mostra todas de uma vez.
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(end = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(ManualPauseCloseReasons, key = { it }) { reason ->
+                    ManualPauseCloseReasons.forEach { reason ->
                         FilterChip(
                             selected = motivoRapido == reason,
                             onClick = {
@@ -577,7 +585,23 @@ private fun operationalPauseElapsed(pause: PausaSupervisor, nowMillis: Long): In
 
 private fun formatOperationalDuration(totalSeconds: Int): String {
     val safe = totalSeconds.coerceAtLeast(0)
+    // Os minutos nunca transbordavam para horas, entao uma pausa aberta desde
+    // ontem aparecia como "1876:48" — que parecia 1876 horas e na verdade eram
+    // 31 h. Em um cartao de atencao, um numero que ninguem consegue ler e pior
+    // do que nenhum numero.
     val minutes = safe / 60
     val seconds = safe % 60
-    return "%02d:%02d".format(minutes, seconds)
+    return when {
+        minutes >= 1440 -> {
+            val days = minutes / 1440
+            val hours = (minutes % 1440) / 60
+            if (hours == 0) "${days}d" else "${days}d ${hours}h"
+        }
+        minutes >= 60 -> {
+            val hours = minutes / 60
+            val rest = minutes % 60
+            if (rest == 0) "${hours}h" else "${hours}h ${rest}min"
+        }
+        else -> "%02d:%02d".format(minutes, seconds)
+    }
 }
