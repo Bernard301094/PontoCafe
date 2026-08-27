@@ -5,7 +5,6 @@ package com.pontocafe.app.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.Colaborador
@@ -266,22 +264,16 @@ fun SupervisorPeopleScreenV3(
         }
     }
 
-    BoxWithConstraints(
+    PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
-            .fillMaxSize()
             .navigationBarsPadding()
             .imePadding(),
-    ) {
-        val windowClass = pontoCafeWindowSizeClass(maxWidth)
-        val compactHeight = maxHeight < 480.dp
-        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED &&
-            !compactHeight &&
-            LocalDensity.current.fontScale < 1.6f
-        val pagePadding = when (windowClass) {
-            PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
-            PontoCafeWindowSizeClass.MEDIUM,
-            PontoCafeWindowSizeClass.EXPANDED -> 20.dp
-        }
+    ) { responsive ->
+        // Cópia literal do bloco de AdminPeopleScreenV4, com a mesma divergência de
+        // 20.dp contra os 24.dp da política. As duas passam a ler do sistema.
+        val compactHeight = responsive.useCompactVerticalLayout
+        val expandedLayout = responsive.isExpanded && !compactHeight && !responsive.usesVeryLargeText
+        val pagePadding = responsive.pagePadding
 
         if (!expandedLayout && selectedPerson != null) {
             PersonActionBottomSheet(

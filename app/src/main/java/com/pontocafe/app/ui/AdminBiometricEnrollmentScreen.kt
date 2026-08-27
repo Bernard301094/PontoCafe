@@ -2,7 +2,6 @@ package com.pontocafe.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -70,8 +69,13 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
     // Preto puro trocado pelo mesmo quase-preto quente do resto do app
     // (PontoCafeBrand.deepEspresso) -- fica coerente com a nova identidade
     // mesmo sendo, na prática, quase todo coberto pela prévia da câmera.
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(PontoCafeBrand.deepEspresso)) {
-        val compactHeight = maxHeight < 480.dp
+    PontoCafeResponsiveOverlayScreen(
+        modifier = Modifier.background(PontoCafeBrand.deepEspresso),
+    ) { responsive ->
+        // useCompactVerticalLayout cobre dois casos que o antigo `maxHeight < 480.dp`
+        // deixava passar: telefone deitado (altura curta mas largura de tablet) e
+        // telas realmente baixas. É a mesma regra do resto do app.
+        val compactHeight = responsive.useCompactVerticalLayout
         if (identityConfirmed) {
             if (cameraPermission.granted) {
                 FaceCameraPreview(
@@ -124,7 +128,10 @@ fun AdminBiometricEnrollmentScreen(viewModel: AdminViewModel) {
                     dark = true,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 24.dp, vertical = if (compactHeight) 72.dp else 96.dp),
+                        .padding(
+                            horizontal = responsive.pagePadding,
+                            vertical = if (compactHeight) 72.dp else 96.dp,
+                        ),
                 )
             }
         } else {

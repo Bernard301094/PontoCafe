@@ -15,7 +15,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -58,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -206,19 +204,27 @@ fun RestrictedAreaLockScreen(
         }
     }
 
-    BoxWithConstraints(
+    PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
-            .fillMaxSize()
             // Console de bloqueio de alto contraste: fundo escuro fixo,
             // independente do tema claro/escuro do sistema — mesmo raciocínio
             // já usado no quiosque (uma tela de segurança não deve parecer
             // "clara e neutra" só porque o aparelho está no tema claro).
             .background(PontoCafeBrand.deepEspresso)
             .systemBarsPadding(),
-    ) {
-        val compactHeight = maxHeight < 600.dp
-        val compactContent = maxWidth < 420.dp || LocalDensity.current.fontScale >= 1.3f
-        val horizontalPadding = if (maxWidth < 360.dp) 14.dp else 20.dp
+    ) { responsiveInfo ->
+        // Esta tela tinha três breakpoints próprios, todos fora da política: altura
+        // curta em 600 em vez de 480, conteúdo compacto em 420 em vez de 480, e
+        // padding 14/20 onde o sistema usa 12/16/24. Ninguém notaria a diferença
+        // até ela aparecer torta ao lado de outra tela no mesmo aparelho.
+        //
+        // A altura fica em isShortLandscape || availableHeight < 600.dp de propósito:
+        // é um cartão centrado e alto, e 600 continua sendo o ponto em que ele
+        // precisa encolher — só que agora dito com o vocabulário do sistema.
+        val responsive = responsiveInfo
+        val compactHeight = responsive.isShortLandscape || responsive.availableHeight < 600.dp
+        val compactContent = responsive.isNarrow || responsive.usesLargeText
+        val horizontalPadding = responsive.pagePadding
         val cardPadding = if (compactHeight) 20.dp else 24.dp
         val iconBoxSize = if (compactHeight) 50.dp else 58.dp
         val iconSize = if (compactHeight) 23.dp else 26.dp

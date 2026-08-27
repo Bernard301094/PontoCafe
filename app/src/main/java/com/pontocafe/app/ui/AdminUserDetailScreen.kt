@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -124,6 +125,11 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
         viewModel.redefinirSenha(user.id, temporary)
     }
 
+    // pagePadding no lugar de PontoCafeSpacing.xl (24.dp fixos): num aparelho de
+    // 320 dp aquilo deixava só 272 dp de conteúdo. E widthIn segura a leitura em
+    // tablet, onde a coluna se esticava de borda a borda.
+    val responsive = rememberPontoCafeResponsiveInfo()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -131,7 +137,8 @@ fun AdminUserDetailScreen(viewModel: AdminViewModel) {
             .navigationBarsPadding()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = PontoCafeSpacing.xl, vertical = PontoCafeSpacing.md),
+            .widthIn(max = 720.dp)
+            .padding(horizontal = responsive.pagePadding, vertical = PontoCafeSpacing.md),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
     ) {
         PontoCafeScreenHeader(

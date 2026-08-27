@@ -5,7 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -57,7 +56,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
@@ -336,22 +334,18 @@ fun AdminPeopleScreenV4(
         }
     }
 
-    BoxWithConstraints(
+    PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
-            .fillMaxSize()
             .navigationBarsPadding()
             .imePadding(),
-    ) {
-        val windowClass = pontoCafeWindowSizeClass(maxWidth)
-        val compactHeight = maxHeight < 480.dp
-        val expandedLayout = windowClass == PontoCafeWindowSizeClass.EXPANDED &&
-            !compactHeight &&
-            LocalDensity.current.fontScale < 1.6f
-        val pagePadding = when (windowClass) {
-            PontoCafeWindowSizeClass.COMPACT -> if (maxWidth < 360.dp) 12.dp else 16.dp
-            PontoCafeWindowSizeClass.MEDIUM,
-            PontoCafeWindowSizeClass.EXPANDED -> 20.dp
-        }
+    ) { responsive ->
+        // Esta tela mantinha uma cópia manual de pagePadding e da regra de duas
+        // colunas. A cópia já tinha divergido: 20.dp em MEDIUM/EXPANDED contra os
+        // 24.dp da política, e altura curta medida só por maxHeight, sem cobrir
+        // telefone deitado. Passa a ler do sistema.
+        val compactHeight = responsive.useCompactVerticalLayout
+        val expandedLayout = responsive.isExpanded && !compactHeight && !responsive.usesVeryLargeText
+        val pagePadding = responsive.pagePadding
 
         if (!expandedLayout && selectedPerson != null && !selectionMode && section == AdminPeopleSection.COLLABORATORS) {
             PersonActionBottomSheet(

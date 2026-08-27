@@ -45,6 +45,7 @@ private const val FACE_GUIDE_LOST_STABILITY_MILLIS = 420L
 private const val PARTICLE_BURST_MILLIS = 700
 private const val REJECT_SHAKE_MILLIS = 420
 private const val PARTICLE_COUNT = 10
+private const val LOCK_RIPPLE_MILLIS = 620
 
 /**
  * Largura/altura da caixa do guia. Rosto é mais alto que largo, então o alvo também
@@ -122,6 +123,33 @@ internal fun KioskFaceGuide(
         label = "kiosk-reticle-pulse",
     )
 
+    // Varredura: um arco curto girando pelo perímetro do oval enquanto procura.
+    //
+    // O pulso de tamanho foi removido de propósito (animar o raio fazia o alvo
+    // mentir sobre o que FaceCapturePolicy aceita), mas isso deixou a retícula
+    // parada, só trocando de cor. Movimento que NÃO é o contorno do alvo resolve
+    // as duas coisas: o oval fica cravado no tamanho certo e a tela mostra que
+    // está trabalhando.
+    val sweepAngle by pulseTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (detecting) 1900 else 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "kiosk-reticle-sweep",
+    )
+
+    // Anel de confirmação: ao travar a posição, uma onda sai do oval para fora e
+    // some. Dispara uma vez por borda de subida, não fica em loop.
+    val lockProgress = remember { Animatable(1f) }
+    LaunchedEffect(stablePositioned) {
+        if (stablePositioned) {
+            lockProgress.snapTo(0f)
+            lockProgress.animateTo(1f, tween(LOCK_RIPPLE_MILLIS, easing = PontoCafeMotion.EmphasizedEasing))
+        }
+    }
+
     // Explosão de partículas: dispara uma vez a cada borda de subida de
     // matchCelebration, sem reiniciar a máquina de estados de reconhecimento.
     val burstProgress = remember { Animatable(0f) }
@@ -195,6 +223,39 @@ internal fun KioskFaceGuide(
             radius = glowRadius,
             center = Offset(cx, cy),
         )
+
+        val ovalTopLeft = Offset(cx - ovalWidth / 2f, cy - ovalHeight / 2f)
+
+        // Onda de confirmação saindo para fora do alvo. Fora do alvo de propósito:
+        // por dentro competiria visualmente com o contorno que a pessoa usa para
+        // se enquadrar.
+        if (lockProgress.value < 1f) {
+            val t = lockProgress.value
+            val spread = 1f + t * 0.22f
+            drawOval(
+                color = guideColor.copy(alpha = (1f - t) * 0.55f),
+                topLeft = Offset(cx - ovalWidth * spread / 2f, cy - ovalHeight * spread / 2f),
+                size = Size(ovalWidth * spread, ovalHeight * spread),
+                style = Stroke(width = 3.dp.toPx()),
+            )
+        }
+
+        // Varredura sobre o próprio contorno enquanto procura/posiciona.
+        if (detecting || recognitionReady) {
+            val tail = if (detecting) 84f else 52f
+            repeat(4) { step ->
+                val fade = 1f - step / 4f
+                drawArc(
+                    color = guideColor.copy(alpha = 0.5f * fade * fade),
+                    startAngle = sweepAngle + step * (tail / 4f),
+                    sweepAngle = tail / 4f + 1.5f,
+                    useCenter = false,
+                    topLeft = ovalTopLeft,
+                    size = Size(ovalWidth, ovalHeight),
+                    style = Stroke(width = ringStroke * 1.7f, cap = StrokeCap.Round),
+                )
+            }
+        }
 
         // Oval principal.
         drawOval(
