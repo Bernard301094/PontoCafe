@@ -61,6 +61,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.AdminTestPauseStore
 import com.pontocafe.app.data.PausaSupervisor
+import com.pontocafe.app.data.PontoRepositories
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SupervisorApiClient
 import com.pontocafe.app.data.SupervisorRepository
@@ -97,7 +98,8 @@ fun AdminHomeScreenV2(
     }
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
-    val adminLiveRepository = remember(adminSessionStore) { SupervisorApiClient.create(adminSessionStore) }
+    // Vida longa: antes era remember, e o cache morria ao sair da tela.
+    val adminLiveRepository = remember(adminSessionStore) { PontoRepositories.supervisor(adminSessionStore) }
     val testPause by AdminTestPauseStore.active.collectAsState()
 
     var livePauses by remember { mutableStateOf<List<PausaSupervisor>>(emptyList()) }

@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.SupervisorViewModel
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.PontoRepositories
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SupervisorApiClient
 import kotlinx.coroutines.launch
@@ -63,7 +64,8 @@ fun SupervisorPeopleScreenV3(
             if (state.sessaoAdministrativa) "admin" else "supervisor",
         )
     }
-    val avatarRepository = remember(sessionStore) { SupervisorApiClient.create(sessionStore) }
+    // Vida longa: antes era remember, e o cache morria ao sair da tela.
+    val avatarRepository = remember(sessionStore) { PontoRepositories.supervisor(sessionStore) }
     val activeAccount = remember(sessionStore, state.sessaoAdministrativa) { sessionStore.activeAccount() }
     val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
     val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel

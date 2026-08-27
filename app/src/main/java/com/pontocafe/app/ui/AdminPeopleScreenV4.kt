@@ -64,6 +64,7 @@ import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.AdminViewModel
 import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.Colaborador
+import com.pontocafe.app.data.PontoRepositories
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.domain.CsvCollaboratorParser
 import com.pontocafe.app.domain.CsvImportPreview
@@ -89,7 +90,8 @@ fun AdminPeopleScreenV4(
     val reliabilityState = reliabilityViewModel.state
     val listState = rememberLazyListState()
     val adminSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "admin") }
-    val avatarRepository = remember(adminSessionStore) { AdminApiClient.create(adminSessionStore) }
+    // Vida longa: antes era remember, e o cache morria ao sair da tela.
+    val avatarRepository = remember(adminSessionStore) { PontoRepositories.admin(adminSessionStore) }
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
 

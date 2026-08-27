@@ -171,6 +171,9 @@ fun FaceKioskScreen(
     var facePositioned by remember { mutableStateOf(false) }
     var lastCaptureRejection by remember { mutableStateOf<FaceCaptureRejectionReason?>(null) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    // Incrementado a cada toque no protetor de tela: e o sinal de vida que faz
+    // rememberKioskIdleState reiniciar a contagem e a camera voltar a ser composta.
+    var wakeTick by remember { mutableStateOf(0) }
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
     var unlockLoading by remember { mutableStateOf(false) }
@@ -279,7 +282,32 @@ fun FaceKioskScreen(
             maxHeight * if (compactHeight) 0.42f else 0.58f,
         )
 
-        if (permissionGranted) {
+        // Repouso: a câmera para de ser composta, não só de analisar. O
+        // DisposableEffect do FaceCameraPreview desvincula o provider e encerra o
+        // executor — é isso que economiza bateria, o brilho é o detalhe menor.
+        //
+        // O token reúne tudo que conta como sinal de vida. Enquanto qualquer um
+        // deles mudar, a contagem recomeça e o quiosque não dorme.
+        val idleActivityToken = listOf(
+            detectedFaces,
+            state.scanning,
+            state.carregando,
+            captureRequested,
+            challengeCompleted,
+            state.comprovante != null,
+            wakeTick,
+        )
+        val kioskIdle = permissionGranted && rememberKioskIdleState(
+            // Nunca adormecer no meio de um reconhecimento nem com um comprovante
+            // na tela: ali a pessoa está lendo o resultado.
+            enabled = detectedFaces == 0 &&
+                !state.carregando &&
+                !captureRequested &&
+                state.comprovante == null,
+            activityToken = idleActivityToken,
+        )
+
+        if (permissionGranted && !kioskIdle) {
             FaceCameraPreview(
                 modifier = Modifier.fillMaxSize(),
                 captureController = captureController,
@@ -585,6 +613,13 @@ fun FaceKioskScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+
+        // Último filho do Box: precisa cobrir a prévia, os scrims e o comprovante.
+        KioskIdleSaver(
+            idle = kioskIdle,
+            onWake = { wakeTick += 1 },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -1124,5 +1159,6 @@ private fun KioskInstructionSheet(
                 }
             }
         }
+
     }
 }

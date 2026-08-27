@@ -25,6 +25,13 @@ class SecureAdminSessionStore(
     namespace: String = "admin",
 ) {
     private val safeNamespace = namespace.lowercase().replace(Regex("[^a-z0-9_]"), "_")
+
+    /**
+     * Identidade do escopo desta sessão, já normalizada. [PontoRepositories] usa
+     * isto como chave: dois stores do mesmo escopo compartilham repositório e
+     * cache; escopos diferentes nunca se enxergam.
+     */
+    val scope: String get() = safeNamespace
     private val prefs = context.getSharedPreferences("pontocafe_${safeNamespace}_secure", Context.MODE_PRIVATE)
     private val keyAlias = "pontocafe_${safeNamespace}_session_key"
     private val legacyTokenKey = "${safeNamespace}_bearer_token"
