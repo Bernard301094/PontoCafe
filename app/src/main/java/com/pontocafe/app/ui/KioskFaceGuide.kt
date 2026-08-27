@@ -1,6 +1,8 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -18,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -27,6 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.sin
 
 private const val FACE_GUIDE_READY_STABILITY_MILLIS = 180L
 
@@ -37,13 +42,17 @@ private const val FACE_GUIDE_READY_STABILITY_MILLIS = 180L
  */
 private const val FACE_GUIDE_LOST_STABILITY_MILLIS = 420L
 
+private const val PARTICLE_BURST_MILLIS = 700
+private const val REJECT_SHAKE_MILLIS = 420
+private const val PARTICLE_COUNT = 10
+
 /**
- * Visual positioning guide. Neutral means no usable face yet, red means the
- * current face is outside the accepted capture geometry, and green means the
- * face has remained correctly positioned long enough to avoid frame-to-frame
- * color flicker. When recognition is actually ready, a very small pulse gives
- * immediate visual confirmation without delaying capture or changing any
- * biometric threshold.
+ * Reticula biométrica ambiente. Âmbar pulsante enquanto procura/posiciona o rosto,
+ * anel esmeralda com explosão de partículas no instante de um reconhecimento bem
+ * sucedido (matchCelebration), e anel rubi com tremor curto para spoof/rejeição
+ * (rejected). A histerese de estabilidade do rosto (stablePositioned) é a mesma
+ * lógica anti-flicker de antes — não foi alterada, só o desenho mudou de cantos
+ * retangulares para um anel circular.
  */
 @Composable
 internal fun KioskFaceGuide(
@@ -55,6 +64,8 @@ internal fun KioskFaceGuide(
     guideWidth: Dp,
     modifier: Modifier = Modifier,
     turnProgress: Float = 0f,
+    matchCelebration: Boolean = false,
+    rejected: Boolean = false,
 ) {
     var stablePositioned by remember { mutableStateOf(false) }
 
@@ -70,13 +81,11 @@ internal fun KioskFaceGuide(
         }
     }
 
+    val detecting = active && (!faceDetected || !stablePositioned) && !warning
     val targetColor = when {
         !active -> Color.White.copy(alpha = 0.32f)
         warning -> DarkSemanticColors.critical
-        !faceDetected -> Color.White.copy(alpha = 0.78f)
-        !stablePositioned -> DarkSemanticColors.critical
-        // Same "ready" accent FaceKioskScreen already uses (DarkSemanticColors.success) —
-        // two different greens signaling the same ready state was an inconsistency.
+        detecting -> PontoCafeBrand.tonalAmber
         else -> DarkSemanticColors.success
     }
     val guideColor by animateColorAsState(
@@ -87,16 +96,42 @@ internal fun KioskFaceGuide(
         ),
         label = "kiosk-guide-color",
     )
-    val pulseTransition = rememberInfiniteTransition(label = "kiosk-recognition-pulse")
-    val readyPulse by pulseTransition.animateFloat(
-        initialValue = 0.82f,
+
+    val pulseTransition = rememberInfiniteTransition(label = "kiosk-reticle")
+    val ambientPulse by pulseTransition.animateFloat(
+        initialValue = 0.86f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(650, easing = PontoCafeMotion.StandardEasing),
+            animation = tween(if (detecting) 1100 else 650, easing = PontoCafeMotion.StandardEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "kiosk-recognition-ready-alpha",
+        label = "kiosk-reticle-pulse",
     )
+
+    // Explosão de partículas: dispara uma vez a cada borda de subida de
+    // matchCelebration, sem reiniciar a máquina de estados de reconhecimento.
+    val burstProgress = remember { Animatable(0f) }
+    LaunchedEffect(matchCelebration) {
+        if (matchCelebration) {
+            burstProgress.snapTo(0f)
+            burstProgress.animateTo(1f, tween(PARTICLE_BURST_MILLIS, easing = LinearEasing))
+        }
+    }
+
+    // Tremor curto: dispara uma vez a cada borda de subida de rejected.
+    val shakeProgress = remember { Animatable(0f) }
+    LaunchedEffect(rejected) {
+        if (rejected) {
+            shakeProgress.snapTo(0f)
+            shakeProgress.animateTo(1f, tween(REJECT_SHAKE_MILLIS, easing = LinearEasing))
+        }
+    }
+    val shakeOffsetPx = if (shakeProgress.value in 0f..1f && shakeProgress.value < 1f) {
+        val decay = 1f - shakeProgress.value
+        (sin(shakeProgress.value * 28f) * 10f * decay)
+    } else {
+        0f
+    }
 
     Canvas(
         modifier = modifier
@@ -104,53 +139,81 @@ internal fun KioskFaceGuide(
             .aspectRatio(0.80f)
             .semantics {
                 contentDescription = when {
-                    !active -> "Guia facial indisponível"
-                    warning -> "Guia facial vermelho: mais de uma pessoa detectada"
-                    !faceDetected -> "Guia facial aguardando um rosto"
-                    !stablePositioned -> "Guia facial vermelho: ajuste o rosto dentro da área"
-                    recognitionReady -> "Guia facial verde pulsando: rosto pronto para reconhecimento"
-                    else -> "Guia facial verde: posição correta"
+                    !active -> "Reticula biométrica indisponível"
+                    rejected || warning -> "Reticula rubi: verificação recusada, tente novamente"
+                    matchCelebration -> "Reticula esmeralda: reconhecimento confirmado"
+                    detecting -> "Reticula âmbar pulsando: procurando e posicionando o rosto"
+                    recognitionReady -> "Reticula esmeralda pulsando: rosto pronto para reconhecimento"
+                    else -> "Reticula esmeralda: posição correta"
                 }
             },
     ) {
-        val emphasized = stablePositioned || recognitionReady || warning
-        val pulseFactor = if (recognitionReady) readyPulse else 1f
-        val drawColor = guideColor.copy(alpha = guideColor.alpha * pulseFactor)
-        val stroke = (if (emphasized) 4.2.dp else 3.4.dp).toPx() *
-            if (recognitionReady) (0.96f + (pulseFactor * 0.08f)) else 1f
-        val cornerLength = size.minDimension * if (stablePositioned) 0.24f else 0.20f
-        val inset = stroke
-        val left = inset
-        val top = inset
-        val right = size.width - inset
-        val bottom = size.height - inset
+        val cx = size.width / 2f + shakeOffsetPx
+        val cy = size.height / 2f
+        val baseRadius = size.minDimension * 0.42f
+        val pulseFactor = if (detecting || recognitionReady) ambientPulse else 1f
+        val ringRadius = baseRadius * pulseFactor
+        val ringStroke = (if (stablePositioned || recognitionReady || warning) 4.4.dp else 3.4.dp).toPx()
 
-        drawLine(drawColor, Offset(left, top + cornerLength), Offset(left, top), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(left, top), Offset(left + cornerLength, top), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(right - cornerLength, top), Offset(right, top), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(right, top), Offset(right, top + cornerLength), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(left, bottom - cornerLength), Offset(left, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(left, bottom), Offset(left + cornerLength, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(right - cornerLength, bottom), Offset(right, bottom), stroke, cap = StrokeCap.Round)
-        drawLine(drawColor, Offset(right, bottom), Offset(right, bottom - cornerLength), stroke, cap = StrokeCap.Round)
+        // Glow externo suave, mais forte quando o anel está "vivo" (detectando ou pronto).
+        val glowAlpha = if (detecting || recognitionReady || warning) 0.28f else 0.14f
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    guideColor.copy(alpha = glowAlpha),
+                    guideColor.copy(alpha = 0f),
+                ),
+                center = Offset(cx, cy),
+                radius = ringRadius * 1.55f,
+            ),
+            radius = ringRadius * 1.55f,
+            center = Offset(cx, cy),
+        )
 
-        // Anel de progresso do desafio de virar o rosto: cresce de vermelho a verde
+        // Anel principal.
+        drawArc(
+            color = guideColor,
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = Offset(cx - ringRadius, cy - ringRadius),
+            size = Size(ringRadius * 2f, ringRadius * 2f),
+            style = Stroke(width = ringStroke, cap = StrokeCap.Round),
+        )
+
+        // Anel de progresso do desafio de virar o rosto: cresce de rubi a esmeralda
         // conforme os frames estáveis se acumulam, em vez de só alternar de cor no final.
         if (turnProgress > 0f) {
             val progress = turnProgress.coerceIn(0f, 1f)
             val ringColor = lerp(DarkSemanticColors.critical, DarkSemanticColors.success, progress)
-            val ringStroke = 3.dp.toPx()
-            val ringRadius = size.width * 0.40f
-            val ringCenter = Offset(size.width / 2f, size.height / 2f)
+            val challengeRadius = baseRadius * 0.86f
             drawArc(
                 color = ringColor,
                 startAngle = -90f,
                 sweepAngle = 360f * progress,
                 useCenter = false,
-                topLeft = Offset(ringCenter.x - ringRadius, ringCenter.y - ringRadius),
-                size = Size(ringRadius * 2f, ringRadius * 2f),
-                style = Stroke(width = ringStroke, cap = StrokeCap.Round),
+                topLeft = Offset(cx - challengeRadius, cy - challengeRadius),
+                size = Size(challengeRadius * 2f, challengeRadius * 2f),
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
             )
+        }
+
+        // Explosão de partículas na confirmação do match.
+        if (matchCelebration && burstProgress.value < 1f) {
+            val progress = burstProgress.value
+            val particleAlpha = (1f - progress).coerceIn(0f, 1f)
+            val travel = ringRadius * (0.15f + progress * 0.95f)
+            repeat(PARTICLE_COUNT) { index ->
+                val angle = (360f / PARTICLE_COUNT) * index
+                val radians = Math.toRadians(angle.toDouble())
+                val px = cx + (cos(radians) * travel).toFloat()
+                val py = cy + (sin(radians) * travel).toFloat()
+                drawCircle(
+                    color = DarkSemanticColors.success.copy(alpha = particleAlpha),
+                    radius = (3.4.dp.toPx()) * (1f - progress * 0.5f),
+                    center = Offset(px, py),
+                )
+            }
         }
     }
 }

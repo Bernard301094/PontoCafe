@@ -4,7 +4,15 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import com.pontocafe.app.haptics.PontoHaptics
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.TipoComprovantePonto
+import com.pontocafe.app.data.Colaborador
 import com.pontocafe.app.data.LocalCompletedPause
 import com.pontocafe.app.data.SecurePontoOfflineStore
 import java.time.LocalTime
@@ -66,7 +75,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlinx.coroutines.delay
 
-private const val POINT_RECEIPT_VISIBLE_MILLIS = 3_000L
+private const val POINT_RECEIPT_VISIBLE_MILLIS = 2_500L
 private const val POINT_GREETING_VISIBLE_MILLIS = 450L
 private const val POINT_BLOCKED_VISIBLE_MILLIS = 2_000L
 private const val USED_BREAK_WARNING_VISIBLE_MILLIS = 5_000L
@@ -200,6 +209,7 @@ fun PontoFlowHost(
             state.comprovante != null -> FastPointReceiptOverlay(
                 viewModel = viewModel,
                 comprovante = state.comprovante,
+                colaborador = identificacao?.colaborador,
             )
 
             dayExhausted -> FastPointBlockedOverlay(
@@ -475,6 +485,7 @@ private fun normalizeUsedBreakMessage(original: String): String {
 private fun FastPointReceiptOverlay(
     viewModel: PontoCafeViewModel,
     comprovante: ComprovantePonto,
+    colaborador: Colaborador?,
 ) {
     val view = LocalView.current
     val accessibilityManager = LocalAccessibilityManager.current
@@ -482,8 +493,10 @@ private fun FastPointReceiptOverlay(
     val warning = !start && comprovante.excedeuLimite
     val offline = comprovante.pendenteSincronizacao
     var showGreeting by remember { mutableStateOf(true) }
+    var cardVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(comprovante) {
+        cardVisible = true
         showGreeting = true
         delay(POINT_GREETING_VISIBLE_MILLIS)
         showGreeting = false
@@ -500,6 +513,10 @@ private fun FastPointReceiptOverlay(
                 containsControls = false,
             ) ?: POINT_RECEIPT_VISIBLE_MILLIS,
         )
+        // A saída animada (spring) toca antes de liberar o próximo ciclo de
+        // reconhecimento, para o cartão não sumir de corte seco.
+        cardVisible = false
+        delay(220L)
         viewModel.concluirComprovante()
     }
 
@@ -507,11 +524,6 @@ private fun FastPointReceiptOverlay(
         warning -> DarkSemanticColors.warning
         offline -> DarkSemanticColors.info
         else -> DarkSemanticColors.success
-    }
-    val background = when {
-        warning -> Color(0xFF160B08)
-        offline -> Color(0xFF06111B)
-        else -> Color(0xFF04110E)
     }
     val primaryIcon = when {
         warning -> Icons.Default.Warning
@@ -525,170 +537,215 @@ private fun FastPointReceiptOverlay(
         "${comprovante.horarioRegistrado} · duração ${viewModel.formatarTempo(comprovante.duracaoSegundos ?: 0)}"
     }
 
-    PointFeedbackBackdrop(
-        accent = accent,
-        background = background,
-    ) { compactFeedback ->
-        MotionReveal(
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Véu suave só no terço inferior — legibilidade do cartão sem cobrir a
+        // cena do quiosque, diferente do backdrop opaco de tela cheia de antes.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 520.dp),
+                .heightIn(min = 240.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, PontoCafeBrand.deepEspresso.copy(alpha = 0.6f)),
+                    ),
+                ),
+        )
+
+        AnimatedVisibility(
+            visible = cardVisible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .systemBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 22.dp),
+            enter = fadeIn(tween(200)) + slideInVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow,
+                ),
+                initialOffsetY = { it / 2 },
+            ),
+            exit = fadeOut(tween(160)) + slideOutVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium,
+                ),
+                targetOffsetY = { it / 2 },
+            ),
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        paneTitle = title
-                        liveRegion = LiveRegionMode.Assertive
-                        stateDescription = buildString {
-                            append("$title. ${comprovante.nome}. $detail")
-                            if (offline) append(". Registro salvo offline neste aparelho")
-                            if (warning) append(". Limite excedido")
-                        }
-                    },
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xF5121C19),
-                contentColor = Color.White,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
-                shadowElevation = 10.dp,
-            ) {
-                Crossfade(targetState = showGreeting, label = "kiosk-receipt-phase") { greeting ->
-                    if (greeting) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = if (compactFeedback) 28.dp else 48.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = "Olá,",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White.copy(alpha = 0.70f),
-                                textAlign = TextAlign.Center,
-                            )
-                            Text(
-                                text = comprovante.nome.substringBefore(' '),
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .heightIn(max = if (compactFeedback) 340.dp else 680.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(
-                                    horizontal = if (compactFeedback) 16.dp else 24.dp,
-                                    vertical = if (compactFeedback) 16.dp else 26.dp,
-                                ),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Surface(
-                                modifier = Modifier.size(if (compactFeedback) 52.dp else 72.dp),
-                                shape = CircleShape,
-                                color = accent.copy(alpha = 0.13f),
-                                border = BorderStroke(1.dp, accent.copy(alpha = 0.25f)),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = primaryIcon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(if (compactFeedback) 27.dp else 36.dp),
-                                        tint = accent,
-                                    )
-                                }
+            BoxWithConstraints {
+                val compactFeedback = maxWidth < 360.dp
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            paneTitle = title
+                            liveRegion = LiveRegionMode.Assertive
+                            stateDescription = buildString {
+                                append("$title. ${comprovante.nome}. $detail")
+                                if (offline) append(". Registro salvo offline neste aparelho")
+                                if (warning) append(". Limite excedido")
+                                colaborador?.turno?.let { append(". Turno $it") }
                             }
-
-                            Text(
-                                text = title,
-                                modifier = Modifier.semantics { heading() },
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                            )
-
-                            Text(
-                                text = comprovante.nome,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center,
-                            )
-
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(18.dp),
-                                color = Color.White.copy(alpha = 0.055f),
+                        },
+                    shape = MaterialTheme.shapes.medium,
+                    color = PontoCafeBrand.deepEspresso.copy(alpha = 0.96f),
+                    contentColor = Color.White,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 12.dp,
+                ) {
+                    Crossfade(targetState = showGreeting, label = "kiosk-receipt-phase") { greeting ->
+                        if (greeting) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = if (compactFeedback) 24.dp else 34.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
-                                    text = detail,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                    text = "Olá,",
                                     style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White.copy(alpha = 0.70f),
                                     textAlign = TextAlign.Center,
-                                    color = Color.White.copy(alpha = 0.86f),
+                                )
+                                Text(
+                                    text = comprovante.nome.substringBefore(' '),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
                                 )
                             }
-
-                            when {
-                                offline -> {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .heightIn(max = if (compactFeedback) 340.dp else 460.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(
+                                        horizontal = if (compactFeedback) 16.dp else 22.dp,
+                                        vertical = if (compactFeedback) 16.dp else 20.dp,
+                                    ),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.BottomEnd) {
+                                    CollaboratorAvatar(
+                                        name = comprovante.nome,
+                                        avatarUrl = colaborador?.avatarUrl,
+                                        avatarSize = if (compactFeedback) 52.dp else 64.dp,
+                                    )
+                                    Surface(
+                                        modifier = Modifier.size(if (compactFeedback) 20.dp else 24.dp),
+                                        shape = CircleShape,
+                                        color = accent,
+                                        border = BorderStroke(2.dp, PontoCafeBrand.deepEspresso),
                                     ) {
-                                        Icon(
-                                            Icons.Default.CloudDone,
-                                            contentDescription = null,
-                                            tint = accent,
-                                            modifier = Modifier.size(18.dp),
-                                        )
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = primaryIcon,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(if (compactFeedback) 12.dp else 14.dp),
+                                                tint = PontoCafeBrand.deepEspresso,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = title,
+                                    modifier = Modifier.semantics { heading() },
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                )
+
+                                Text(
+                                    text = comprovante.nome,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                )
+
+                                colaborador?.turno?.let { turno ->
+                                    StatusPill("Turno $turno", PontoCafeTone.INFO)
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = Color.White.copy(alpha = 0.055f),
+                                ) {
+                                    Text(
+                                        text = detail,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        textAlign = TextAlign.Center,
+                                        color = Color.White.copy(alpha = 0.86f),
+                                    )
+                                }
+
+                                when {
+                                    offline -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Icon(
+                                                Icons.Default.CloudDone,
+                                                contentDescription = null,
+                                                tint = accent,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Text(
+                                                "Salvo com segurança neste aparelho · sincronização automática pendente",
+                                                modifier = Modifier.weight(1f),
+                                                color = Color.White.copy(alpha = 0.78f),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        }
+                                    }
+
+                                    warning -> {
                                         Text(
-                                            "Salvo com segurança neste aparelho · sincronização automática pendente",
-                                            modifier = Modifier.weight(1f),
-                                            color = Color.White.copy(alpha = 0.78f),
+                                            "Registro confirmado · limite excedido",
+                                            color = accent,
                                             style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+
+                                    comprovante.foraHorario -> {
+                                        Text(
+                                            "Registro validado pelo fluxo autorizado",
+                                            color = accent,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+
+                                    else -> {
+                                        Text(
+                                            "Registro confirmado",
+                                            color = accent,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
                                         )
                                     }
                                 }
 
-                                warning -> {
-                                    Text(
-                                        "Registro confirmado · limite excedido",
-                                        color = accent,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-
-                                comprovante.foraHorario -> {
-                                    Text(
-                                        "Registro validado pelo fluxo autorizado",
-                                        color = accent,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-
-                                else -> {
-                                    Text(
-                                        "Registro confirmado",
-                                        color = accent,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
+                                Text(
+                                    "Próxima pessoa em instantes",
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White.copy(alpha = 0.68f),
+                                    textAlign = TextAlign.Center,
+                                )
                             }
-
-                            Text(
-                                "Próxima pessoa em instantes",
-                                modifier = Modifier.padding(top = 4.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White.copy(alpha = 0.68f),
-                                textAlign = TextAlign.Center,
-                            )
                         }
                     }
                 }

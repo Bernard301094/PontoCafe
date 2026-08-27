@@ -2,7 +2,12 @@ package com.pontocafe.app.ui
 
 import android.os.SystemClock
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,11 +37,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +65,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -133,6 +141,10 @@ fun FaceKioskScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state = viewModel.state
+    val faceRecognitionError = state.erro?.startsWith(
+        "ROSTO NÃO RECONHECIDO",
+        ignoreCase = true,
+    ) == true
     val cameraPermission = rememberCameraPermissionUiState()
     val permissionGranted = cameraPermission.granted
 
@@ -243,7 +255,7 @@ fun FaceKioskScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(PontoCafeBrand.deepEspresso),
     ) {
         val compactHeight = maxHeight < 480.dp
         val expanded = maxWidth >= 600.dp && !compactHeight
@@ -423,26 +435,30 @@ fun FaceKioskScreen(
                 } else {
                     0f
                 },
+                matchCelebration = state.comprovante != null,
+                rejected = lastCaptureRejection != null || faceRecognitionError,
             )
         }
 
-        Column(
+        // Sinal real de que o gate de presença passiva está avaliando um rosto
+        // detectado agora (não é decorativo: é a mesma condição que guarda a
+        // chamada a passivePresence.update() no onObservation acima).
+        val presenceScanning = state.scanning && state.catalogoBiometricoPronto && !state.carregando &&
+            !challengeCompleted && !activeFallback && detectedFaces >= 1
+
+        KioskGlassHeader(
+            offline = state.modoOffline,
+            pendingEvents = state.eventosPendentes,
+            hasAdminSession = hasAdminSession,
+            hasSupervisorSession = hasSupervisorSession,
+            presenceScanning = presenceScanning,
+            onAdmin = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN },
+            onSupervisor = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR },
+            onAccess = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            KioskTopBar(
-                offline = state.modoOffline,
-                pendingEvents = state.eventosPendentes,
-                hasAdminSession = hasAdminSession,
-                hasSupervisorSession = hasSupervisorSession,
-                onAdmin = { restrictedAreaRequest = RestrictedAreaRequest.ADMIN },
-                onSupervisor = { restrictedAreaRequest = RestrictedAreaRequest.SUPERVISOR },
-                onAccess = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN },
-            )
-            KioskClock()
-        }
+        )
 
         val challengeInstruction = when {
             !activeFallback -> "Olhe para a câmera"
@@ -493,10 +509,6 @@ fun FaceKioskScreen(
             else -> "Olhe normalmente para a câmera. O ponto é registrado automaticamente."
         }
 
-        val faceRecognitionError = state.erro?.startsWith(
-            "ROSTO NÃO RECONHECIDO",
-            ignoreCase = true,
-        ) == true
         val voiceCue = when {
             !permissionGranted -> PontoVoiceKioskCue.CAMERA_PERMISSION_REQUIRED
             restrictedAreaRequest != null -> null
@@ -676,7 +688,7 @@ private fun KioskCameraScrims(compactHeight: Boolean) {
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.68f),
+                            PontoCafeBrand.deepEspresso.copy(alpha = 0.72f),
                             Color.Transparent,
                         ),
                     ),
@@ -691,7 +703,7 @@ private fun KioskCameraScrims(compactHeight: Boolean) {
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.78f),
+                            PontoCafeBrand.deepEspresso.copy(alpha = 0.82f),
                         ),
                     ),
                 ),
@@ -699,132 +711,199 @@ private fun KioskCameraScrims(compactHeight: Boolean) {
     }
 }
 
+/**
+ * Cabeçalho flutuante único (vidro fosco em tom Deep Espresso) substituindo os
+ * dois cartões separados de antes (marca/acesso e relógio). O ícone de radar
+ * pulsa apenas quando presenceScanning é verdadeiro — mesmo sinal real que
+ * guarda a chamada a passivePresence.update() em FaceKioskScreen, não é
+ * decorativo.
+ */
 @Composable
-private fun KioskTopBar(
+private fun KioskGlassHeader(
     offline: Boolean,
     pendingEvents: Int,
     hasAdminSession: Boolean,
     hasSupervisorSession: Boolean,
+    presenceScanning: Boolean,
     onAdmin: () -> Unit,
     onSupervisor: () -> Unit,
     onAccess: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    Column(
         modifier = modifier
             .statusBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .widthIn(max = 720.dp)
             .fillMaxWidth(),
-        color = Color(0xE7161B19),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = PontoCafeBrand.deepEspresso.copy(alpha = 0.86f),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(22.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
-            Surface(
-                modifier = Modifier.size(38.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.08f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Face,
-                        contentDescription = null,
-                        tint = DarkSemanticColors.success,
-                        modifier = Modifier.size(21.dp),
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                Text(
-                    "Ponto Café",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-                Text(
-                    "Bater ponto por reconhecimento facial",
-                    color = Color.White.copy(alpha = 0.62f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                )
-            }
-
-            Surface(
-                shape = CircleShape,
-                color = if (offline) {
-                    DarkSemanticColors.warning.copy(alpha = 0.14f)
-                } else {
-                    DarkSemanticColors.success.copy(alpha = 0.14f)
-                },
-            ) {
+            Column {
                 Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Text(
-                        if (offline) {
-                            if (pendingEvents > 0) "Offline · $pendingEvents" else "Offline"
-                        } else {
-                            "Online"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
-                    )
-                }
-            }
+                    Surface(
+                        modifier = Modifier.size(38.dp),
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.08f),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Face,
+                                contentDescription = null,
+                                tint = DarkSemanticColors.success,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
 
-            if (hasAdminSession) {
-                IconButton(onClick = onAdmin, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.AdminPanelSettings,
-                        contentDescription = "Abrir Administrador",
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp),
+                    ) {
+                        Text(
+                            "Ponto Café",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                        Text(
+                            "Bater ponto por reconhecimento facial",
+                            color = Color.White.copy(alpha = 0.62f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                        )
+                    }
+
+                    PresenceRadarIcon(scanning = presenceScanning)
+
+                    Surface(
+                        shape = CircleShape,
+                        color = if (offline) {
+                            DarkSemanticColors.warning.copy(alpha = 0.14f)
+                        } else {
+                            DarkSemanticColors.success.copy(alpha = 0.14f)
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (offline) Icons.Default.WifiOff else Icons.Default.Wifi,
+                                contentDescription = null,
+                                tint = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Text(
+                                if (offline) {
+                                    if (pendingEvents > 0) "Offline · $pendingEvents" else "Offline"
+                                } else {
+                                    "Online"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (offline) DarkSemanticColors.warning else DarkSemanticColors.success,
+                            )
+                        }
+                    }
+
+                    if (hasAdminSession) {
+                        IconButton(onClick = onAdmin, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
+                            Icon(
+                                Icons.Default.AdminPanelSettings,
+                                contentDescription = "Abrir Administrador",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    if (hasSupervisorSession) {
+                        IconButton(onClick = onSupervisor, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
+                            Icon(
+                                Icons.Default.SupervisorAccount,
+                                contentDescription = "Abrir Supervisor",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    if (!hasAdminSession && !hasSupervisorSession) {
+                        IconButton(onClick = onAccess, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = "Acesso restrito",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
-            }
-            if (hasSupervisorSession) {
-                IconButton(onClick = onSupervisor, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.SupervisorAccount,
-                        contentDescription = "Abrir Supervisor",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            if (!hasAdminSession && !hasSupervisorSession) {
-                IconButton(onClick = onAccess, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription = "Acesso restrito",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                KioskClockRow(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
         }
     }
 }
 
 @Composable
-private fun KioskClock(modifier: Modifier = Modifier) {
+private fun PresenceRadarIcon(scanning: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "presence-radar")
+    val pulse by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = PontoCafeMotion.StandardEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "presence-radar-pulse",
+    )
+    val tint = if (scanning) PontoCafeBrand.tonalAmber else Color.White.copy(alpha = 0.42f)
+
+    Box(
+        modifier = modifier
+            .size(24.dp)
+            .semantics {
+                contentDescription = if (scanning) {
+                    "Radar de presença ativo: avaliando um rosto detectado"
+                } else {
+                    "Radar de presença em espera"
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (scanning) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val radius = (size.minDimension / 2f) * (0.5f + pulse * 0.5f)
+                drawCircle(
+                    color = tint.copy(alpha = (1f - pulse) * 0.55f),
+                    radius = radius,
+                    style = Stroke(width = 1.6.dp.toPx()),
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.RadioButtonChecked,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+@Composable
+private fun KioskClockRow(modifier: Modifier = Modifier) {
     var now by remember { mutableStateOf(ZonedDateTime.now(KIOSK_ZONE)) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -840,29 +919,22 @@ private fun KioskClock(modifier: Modifier = Modifier) {
             .replaceFirstChar { it.uppercase() }
     }
 
-    Surface(
-        modifier = modifier.padding(top = 8.dp),
-        color = Color(0xB3161B19),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(18.dp),
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                time,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
-            Text(
-                date,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.62f),
-            )
-        }
+        Text(
+            time,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
+        Text(
+            date,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.62f),
+        )
     }
 }
 
@@ -908,7 +980,7 @@ private fun KioskInstructionSheet(
                 liveRegion = LiveRegionMode.Polite
                 stateDescription = listOf(title, detail).filter(String::isNotBlank).joinToString(". ")
             },
-        color = Color(0xF3161B19),
+        color = PontoCafeBrand.deepEspresso.copy(alpha = 0.95f),
         contentColor = Color.White,
         shape = RoundedCornerShape(24.dp),
         tonalElevation = 0.dp,
