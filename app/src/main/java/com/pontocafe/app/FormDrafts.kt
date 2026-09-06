@@ -132,7 +132,7 @@ fun AdminViewModel.trackCollaboratorDraftSubmission(draftState: CollaboratorRegi
             .dropWhile { !it.loading }
             .first { !it.loading }
 
-        if (result.error == null && result.destination == AdminDestination.BIOMETRIC_ENROLLMENT.name) {
+        if (result.error == null && result.destination == AdminDestination.COLLABORATORS.name) {
             draftState.reset()
         } else {
             draftState.markServerFailure()
@@ -148,7 +148,7 @@ fun SupervisorViewModel.trackCollaboratorDraftSubmission(draftState: Collaborato
             .dropWhile { !it.loading }
             .first { !it.loading }
 
-        if (result.error == null && result.destination == SupervisorDestination.BIOMETRIA.name) {
+        if (result.error == null && result.destination == SupervisorDestination.COLABORADORES.name) {
             draftState.reset()
         } else {
             draftState.markServerFailure()

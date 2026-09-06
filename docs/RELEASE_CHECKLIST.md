@@ -51,11 +51,11 @@ Confirmar:
 - [ ] PIN individual do dispositivo.
 - [ ] Login Admin.
 - [ ] Login Supervisor.
-- [ ] Minimizar/reabrir Admin: exige biometria/PIN e restaura a tela.
+- [ ] Minimizar/reabrir Admin: exige biometria do aparelho ou PIN, e restaura a tela.
 - [ ] Criar Supervisor.
 - [ ] Criar dispositivo e gerar token.
 - [ ] Editar nome/setor/turno de colaborador.
-- [ ] Cadastro de rosto em cinco amostras.
+- [ ] Emissão de código de café e uso no quiosque (saída e retorno).
 - [ ] Reconhecimento de saída.
 - [ ] Reconhecimento de retorno.
 - [ ] Confirmação de limite 15:00.

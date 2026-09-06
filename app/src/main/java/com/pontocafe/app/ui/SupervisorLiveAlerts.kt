@@ -205,17 +205,17 @@ fun rememberSupervisorLiveActivityAlert(
 
         val atual = pausasAtivas.associateBy { it.id }
         val excessosAtuais = atual.values
-            .filter { tempoAtualSupervisor(it, agoraEmMillis) > it.limiteSegundos }
+            .filter { tempoAtualSupervisor(it, agoraEmMillis) > it.limiteEfetivoSegundos }
             .mapTo(mutableSetOf()) { it.id }
         val criticosAtuais = atual.values
             .filter {
-                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
+                val remaining = it.limiteEfetivoSegundos - tempoAtualSupervisor(it, agoraEmMillis)
                 remaining in 0..SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS
             }
             .mapTo(mutableSetOf()) { it.id }
         val avisosAtuais = atual.values
             .filter {
-                val remaining = it.limiteSegundos - tempoAtualSupervisor(it, agoraEmMillis)
+                val remaining = it.limiteEfetivoSegundos - tempoAtualSupervisor(it, agoraEmMillis)
                 remaining in (SUPERVISOR_LIVE_ALERT_CRITICAL_THRESHOLD_SECONDS + 1)..SUPERVISOR_LIVE_ALERT_WARNING_THRESHOLD_SECONDS
             }
             .mapTo(mutableSetOf()) { it.id }
@@ -382,6 +382,18 @@ private fun formatAlertDuration(totalSeconds: Int): String {
         else -> "${seconds}s"
     }
 }
+
+/**
+ * Prazo real da pausa: o limite mais a tolerância que correu antes de ele
+ * começar a contar.
+ *
+ * Todo alerta do Supervisor compara contra este valor, e não contra
+ * `limiteSegundos`. Usar o limite cru marcaria a pessoa como atrasada um
+ * minuto antes da hora — exatamente o minuto que o quiosque lhe deu para
+ * chegar ao café.
+ */
+internal val PausaSupervisor.limiteEfetivoSegundos: Int
+    get() = limiteSegundos + carenciaSegundos
 
 internal fun tempoAtualSupervisor(pausa: PausaSupervisor, agoraEmMillis: Long): Int {
     val base = pausa.tempoSegundos ?: pausa.duracaoSegundos ?: 0

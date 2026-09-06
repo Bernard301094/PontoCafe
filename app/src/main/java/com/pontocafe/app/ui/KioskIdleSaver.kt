@@ -41,10 +41,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 /**
- * Tempo sem rosto e sem toque antes de entrar em repouso.
+ * Tempo sem toque antes de entrar em repouso.
  *
  * Dois minutos é um meio-termo deliberado: curto o bastante para que o quiosque
- * passe a maior parte de um turno ocioso com a câmera desligada, e longo o
+ * passe a maior parte de um turno ocioso com a tela apagada, e longo o
  * bastante para não apagar na cara de quem está lendo o comprovante ou hesitando
  * na frente do aparelho.
  */
@@ -60,13 +60,12 @@ private const val KIOSK_IDLE_BRIGHTNESS = 0.02f
 /**
  * Repouso do quiosque.
  *
- * O ponto do repouso é a CÂMERA, não a tela. A prévia mais o ML Kit rodando em
- * PERFORMANCE_MODE_ACCURATE são o consumo dominante desta tela — baixar só o
- * brilho economizaria a menor parte do gasto. Por isso quem chama deve parar de
- * compor o FaceCameraPreview enquanto [idle] for true: o DisposableEffect dele
- * desvincula o provider e encerra o executor de análise.
+ * Sem câmera, o que resta a economizar é o painel — e num aparelho ligado 24 h
+ * isso continua a ser a diferença entre uma tela queimada e uma inteira. O
+ * brilho cai ao mínimo legível em vez de zero, para o quiosque não parecer
+ * quebrado.
  *
- * A consequência assumida é que, em repouso, o aparelho não enxerga ninguém — não
+ * Acorda com toque, e o aviso na tela diz isso com todas as letras — não
  * há como acordar por presença sem manter ligado justamente o que se quer
  * desligar. Acorda com toque, e o aviso na tela diz isso com todas as letras.
  */
@@ -148,7 +147,7 @@ fun KioskIdleSaver(
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "A câmera está desligada para poupar bateria",
+                    "A tela está em repouso para poupar energia",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.62f),
                     textAlign = TextAlign.Center,
@@ -162,13 +161,13 @@ fun KioskIdleSaver(
 /**
  * Conta o tempo ocioso e devolve se o quiosque deve dormir.
  *
- * Qualquer rosto visível, operação em andamento ou toque zera a contagem — e é
- * por isso que [activityToken] existe: quem chama passa um valor que muda a cada
- * sinal de vida (contagem de rostos, ciclo de leitura, instante do último toque),
- * e a contagem recomeça sozinha.
+ * Qualquer toque ou operação em andamento zera a contagem — e é por isso que
+ * [activityToken] existe: quem chama passa um valor que muda a cada sinal de
+ * vida (passo atual, código digitado, instante do último toque), e a contagem
+ * recomeça sozinha.
  *
  * [enabled] false congela o relógio sem dormir: serve para nunca adormecer no
- * meio de um reconhecimento ou com um comprovante na tela.
+ * meio de um registro ou com um comprovante na tela.
  */
 @Composable
 fun rememberKioskIdleState(

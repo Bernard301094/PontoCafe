@@ -18,17 +18,23 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 
+/**
+ * Um registro feito sem rede.
+ *
+ * O aparelho não tem como saber se o código é válido — só o servidor conhece os
+ * códigos vivos. Então ele guarda o que a pessoa digitou junto com a hora real
+ * do quiosque e deixa a validação para a sincronização. `acao` e `nome` existem
+ * apenas para a central de sincronismo mostrar algo legível; o servidor ignora
+ * ambos e decide sozinho se aquele código é saída ou retorno.
+ */
 data class OfflinePontoEvent(
     val eventId: String,
     val acao: String,
     val colaboradorId: String,
     val nome: String,
+    val codigo: String,
     val ocorridoEm: String,
-    val score: Double,
-    val embedding: List<Float>,
     val appVersion: String,
-    val modelo: String,
-    val versaoModelo: String,
 )
 
 data class LocalOpenPause(
@@ -38,6 +44,7 @@ data class LocalOpenPause(
     val inicioEmMillis: Long,
     val inicioLocal: String,
     val limiteSegundos: Int,
+    val carenciaSegundos: Int = 0,
     val retornoAteLocal: String,
 )
 
@@ -50,6 +57,7 @@ data class LocalCompletedPause(
     val fimLocal: String,
     val duracaoSegundos: Int,
     val limiteSegundos: Int,
+    val carenciaSegundos: Int = 0,
 )
 
 data class OfflineSyncFailure(
@@ -94,9 +102,9 @@ data class PontoOfflineSnapshot(
 )
 
 /**
- * Fila de eventos pendentes de sincronização -- inclui o embedding facial
- * bruto de cada batida, então pode crescer para centenas de KB em uso
- * pesado (até MAX_PENDING_EVENTS batidas).
+ * Fila de eventos pendentes de sincronização. Desde os códigos de acesso cada
+ * evento é só um punhado de bytes -- antes carregava o embedding facial bruto
+ * e chegava a centenas de KB com a fila cheia.
  */
 private data class OfflineEventsPayload(
     val eventos: List<OfflinePontoEvent> = emptyList(),
@@ -247,6 +255,31 @@ class SecurePontoOfflineStore(context: Context) {
         }
     }
 
+    /**
+     * Regra usada para etiquetar uma pausa registrada offline.
+     *
+     * Espelha o que o servidor faz: se a hora cai dentro de uma janela, é essa;
+     * fora de qualquer janela, a temporalmente mais próxima. Desde os códigos de
+     * acesso o horário deixou de autorizar a pausa e passou a ser só a etiqueta
+     * MANHÃ/TARDE do relatório -- então "fora de horário" nunca pode ser motivo
+     * para o quiosque recusar quem tem um código válido.
+     */
+    @Synchronized
+    fun resolveRule(now: ZonedDateTime = ZonedDateTime.now(timezone)): RegraCafe? {
+        currentRule(now)?.let { return it }
+        val currentSeconds = now.toLocalTime().toSecondOfDay()
+        return readMeta().regras.minByOrNull { rule ->
+            runCatching {
+                val start = LocalTime.parse(rule.inicio).toSecondOfDay()
+                val end = LocalTime.parse(rule.fim).toSecondOfDay()
+                minOf(
+                    kotlin.math.abs(currentSeconds - start),
+                    kotlin.math.abs(currentSeconds - end),
+                )
+            }.getOrDefault(Int.MAX_VALUE)
+        }
+    }
+
     @Synchronized
     fun localOpenPause(collaboratorId: String): LocalOpenPause? =
         readMeta().pausasAbertas.firstOrNull { it.colaboradorId == collaboratorId }
@@ -260,7 +293,7 @@ class SecurePontoOfflineStore(context: Context) {
     }
 
     @Synchronized
-    fun recordOnlineStart(collaboratorId: String, nome: String, pause: IniciarPausaResponse) {
+    fun recordOnlineStart(collaboratorId: String, nome: String, pause: InicioPausaResponse) {
         val meta = readMeta()
         val startedMillis = runCatching { Instant.parse(pause.inicioEm).toEpochMilli() }
             .getOrDefault(System.currentTimeMillis())
@@ -271,6 +304,7 @@ class SecurePontoOfflineStore(context: Context) {
             inicioEmMillis = startedMillis,
             inicioLocal = pause.inicioLocal,
             limiteSegundos = pause.limiteSegundos,
+            carenciaSegundos = pause.carenciaSegundos,
             retornoAteLocal = pause.retornoAteLocal,
         )
         saveMeta(
@@ -301,6 +335,7 @@ class SecurePontoOfflineStore(context: Context) {
                     .coerceAtMost(Int.MAX_VALUE.toLong())
                     .toInt(),
                 limiteSegundos = it.limiteSegundos,
+                carenciaSegundos = it.carenciaSegundos,
             )
         }
         val today = now.format(dateFormatter)
@@ -320,14 +355,22 @@ class SecurePontoOfflineStore(context: Context) {
         operationJournal.completeForCollaborator(collaboratorId)
     }
 
+    /**
+     * Registra uma SAÍDA sem rede.
+     *
+     * O código não é validado aqui: quem sabe se ele existe, se é desta pessoa e
+     * se ainda não foi usado é o servidor. O que este método garante é o resto —
+     * que a fila não estoure, que não haja duas pausas abertas para a mesma
+     * pessoa, e que a pausa deste período ainda não tenha sido gasta hoje neste
+     * aparelho. Um código errado só será recusado na sincronização, e aparece na
+     * central como falha nominal em vez de virar uma pausa silenciosa.
+     */
     @Synchronized
     fun queueOfflineStart(
         colaborador: Colaborador,
-        score: Double,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
+        codigo: String,
         rule: RegraCafe,
+        carenciaSegundos: Int,
     ): LocalOpenPause {
         val events = readEvents()
         val meta = readMeta()
@@ -336,9 +379,9 @@ class SecurePontoOfflineStore(context: Context) {
         }
         require(events.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
         require(meta.pausasAbertas.none { it.colaboradorId == colaborador.id }) { "Já existe uma pausa aberta neste dispositivo." }
-        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
+        require(codigo.isNotBlank()) { "Informe o código de acesso." }
 
-        val operationId = operationJournal.prepare(colaborador.id, embedding)
+        val operationId = operationJournal.prepareCode(colaborador.id, codigo)
         val now = ZonedDateTime.now(timezone)
         val today = now.format(dateFormatter)
         val completed = meta.pausasConcluidas.orEmpty().firstOrNull {
@@ -350,12 +393,9 @@ class SecurePontoOfflineStore(context: Context) {
                 acao = "INICIAR",
                 colaboradorId = colaborador.id,
                 nome = colaborador.nome,
+                codigo = codigo,
                 ocorridoEm = now.toInstant().toString(),
-                score = score,
-                embedding = embedding.toList(),
                 appVersion = BuildConfig.VERSION_NAME,
-                modelo = model,
-                versaoModelo = modelVersion,
             )
             saveBoth(
                 events.copy(eventos = events.eventos + repeatedAttempt),
@@ -377,12 +417,9 @@ class SecurePontoOfflineStore(context: Context) {
             acao = "INICIAR",
             colaboradorId = colaborador.id,
             nome = colaborador.nome,
+            codigo = codigo,
             ocorridoEm = now.toInstant().toString(),
-            score = score,
-            embedding = embedding.toList(),
             appVersion = BuildConfig.VERSION_NAME,
-            modelo = model,
-            versaoModelo = modelVersion,
         )
         val localPause = LocalOpenPause(
             colaboradorId = colaborador.id,
@@ -391,7 +428,10 @@ class SecurePontoOfflineStore(context: Context) {
             inicioEmMillis = now.toInstant().toEpochMilli(),
             inicioLocal = now.format(timeFormatter),
             limiteSegundos = rule.limiteSegundos,
-            retornoAteLocal = now.plusSeconds(rule.limiteSegundos.toLong()).format(timeFormatter),
+            carenciaSegundos = carenciaSegundos,
+            retornoAteLocal = now
+                .plusSeconds((rule.limiteSegundos + carenciaSegundos).toLong())
+                .format(timeFormatter),
         )
         saveBoth(
             events.copy(eventos = events.eventos + event),
@@ -408,10 +448,7 @@ class SecurePontoOfflineStore(context: Context) {
     @Synchronized
     fun queueOfflineFinish(
         colaborador: Colaborador,
-        score: Double,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
+        codigo: String,
     ): Pair<LocalOpenPause, Int> {
         val events = readEvents()
         val meta = readMeta()
@@ -419,22 +456,19 @@ class SecurePontoOfflineStore(context: Context) {
             "Existem registros offline preservados de uma credencial anterior. Conecte este dispositivo ao servidor antes de registrar novos pontos offline."
         }
         require(events.eventos.size < MAX_PENDING_EVENTS) { "Há muitos registros offline aguardando sincronização." }
-        require(embedding.isNotEmpty() && embedding.all { it.isFinite() }) { "A biometria offline é inválida." }
+        require(codigo.isNotBlank()) { "Informe o código de acesso." }
         val open = meta.pausasAbertas.firstOrNull { it.colaboradorId == colaborador.id }
             ?: error("Não existe pausa local aberta para este colaborador.")
-        val operationId = operationJournal.prepare(colaborador.id, embedding)
+        val operationId = operationJournal.prepareCode(colaborador.id, codigo)
         val now = ZonedDateTime.now(timezone)
         val event = OfflinePontoEvent(
             eventId = operationId,
             acao = "FINALIZAR",
             colaboradorId = colaborador.id,
             nome = colaborador.nome,
+            codigo = codigo,
             ocorridoEm = now.toInstant().toString(),
-            score = score,
-            embedding = embedding.toList(),
             appVersion = BuildConfig.VERSION_NAME,
-            modelo = model,
-            versaoModelo = modelVersion,
         )
         val duration = ((now.toInstant().toEpochMilli() - open.inicioEmMillis) / 1000L)
             .coerceAtLeast(0L)
@@ -449,6 +483,7 @@ class SecurePontoOfflineStore(context: Context) {
             fimLocal = now.format(timeFormatter),
             duracaoSegundos = duration,
             limiteSegundos = open.limiteSegundos,
+            carenciaSegundos = open.carenciaSegundos,
         )
         val today = now.format(dateFormatter)
         val completedToday = meta.pausasConcluidas.orEmpty().filter {

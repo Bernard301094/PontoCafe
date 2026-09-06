@@ -13,12 +13,14 @@ Para a arquitetura atual:
 7. **Antes de implantar o Worker 0.15.0 ou 1.0.0**, aplique `007_ponto_operation_idempotency.sql`. Ela cria o diário transacional exactly-once para `REGISTRO_RAPIDO`, `INICIAR` e `FINALIZAR`, permitindo replay seguro e reconciliação online → offline quando uma resposta de rede é perdida.
 8. Para a candidata **1.0.0**, aplique `008_release_readiness_indexes.sql` depois da 007. Ela adiciona somente índices idempotentes para a retenção do diário exactly-once e a leitura/retenção da telemetria `APP_HEALTH`; não altera dados de negócio.
 9. Depois das migrações 007/008, implante o Worker compatível antes de instalar o APK Android 1.0.
-10. Execute `npm run auth:bootstrap` uma única vez para criar o primeiro administrador em uma instalação nova.
+10. **Antes de implantar o Worker com código de acesso**, aplique `012_access_codes.sql`. Ela cria `codigos_acesso`, adiciona `pausas_cafe.codigo_acesso_id` e `carencia_segundos`, e **apaga** `templates_faciais`, `verificacoes_faciais` e `autorizacoes`. A migração é destrutiva por desenho: o reconhecimento facial deixou de existir e o dado biométrico não fica dormente no banco. **Faça backup antes.** Não aplique a 012 mantendo o Worker antigo em produção — as rotas biométricas passariam a falhar em tabelas inexistentes.
+11. Numa instalação nova, as migrações 005 e 006 podem ser puladas: a 012 desfaz o que elas criam.
+12. Execute `npm run auth:bootstrap` uma única vez para criar o primeiro administrador em uma instalação nova.
 
 Depois disso, novos supervisores devem ser criados pelo recurso Admin do Better Auth com o papel `user`. Dentro do Ponto Café, esse papel é interpretado como `SUPERVISOR`.
 
 O aplicativo Android nunca recebe a `DATABASE_URL`, nenhum PIN de desbloqueio é salvo em texto puro no PostgreSQL e o token de ativação permanece persistido normalmente apenas como hash; a única cópia reversível usada para replay idempotente de cadastro de dispositivo é cifrada com AES-256-GCM e possui TTL curto.
 
-Na operação do Ponto, `operacoes_ponto_idempotentes` armazena somente a identidade UUID da operação, os vínculos de dispositivo/colaborador, o tipo de mutação, o `pause_id` e a resposta JSON já confirmada pelo servidor. Fotos, embeddings, PINs, senhas e tokens de sessão **não** são armazenados nessa tabela.
+Na operação do Ponto, `operacoes_ponto_idempotentes` armazena somente a identidade UUID da operação, os vínculos de dispositivo/colaborador, o tipo de mutação, o `pause_id` e a resposta JSON já confirmada pelo servidor. Códigos de acesso, PINs, senhas e tokens de sessão **não** são armazenados nessa tabela.
 
-A manutenção diária da 1.0 remove entradas técnicas antigas conforme configuração: por padrão 30 dias para `operacoes_ponto_idempotentes` e 30 dias para auditorias `APP_HEALTH`. Registros de pausa e demais auditorias de negócio não são removidos por essa limpeza técnica.
+A manutenção diária da 1.0 remove entradas técnicas antigas conforme configuração: por padrão 30 dias para `operacoes_ponto_idempotentes`, 30 dias para auditorias `APP_HEALTH` e 90 dias para códigos de acesso já esgotados — um código com saída registrada e sem retorno nunca é removido. Registros de pausa e demais auditorias de negócio não são removidos por essa limpeza técnica.

@@ -13,6 +13,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 
@@ -21,19 +22,15 @@ data class Colaborador(
     val nome: String,
     val setor: String?,
     val turno: String?,
-    val rostoCadastrado: Boolean = false,
-    val avatarUrl: String? = null,
+    val ativo: Boolean = true,
+    /** Preenchidos só pelas rotas de gestão; o quiosque não os recebe. */
+    val emPausa: Boolean = false,
+    val codigoAtivo: Boolean = false,
     @Deprecated("Matrícula não é mais utilizada pelo Ponto Café")
     val matricula: String? = null,
 )
 
 data class ColaboradoresResponse(val colaboradores: List<Colaborador>)
-
-data class AvatarCatalogItem(
-    val colaboradorId: String,
-    val avatarUrl: String,
-)
-data class AvatarCatalogResponse(val avatares: List<AvatarCatalogItem>)
 
 data class DeviceActivationRequest(val token: String)
 data class DeviceActivationResponse(val token: String)
@@ -54,6 +51,7 @@ data class HorarioCafeResponse(
     val dentroHorario: Boolean,
     val periodoAtual: String?,
     val limiteSegundos: Int?,
+    val carenciaSegundos: Int = 60,
     val agoraLocal: String?,
     val regras: List<RegraCafe>,
 )
@@ -70,27 +68,9 @@ data class AppStatusResponse(
     val minimumAndroidVersion: String,
     val timezone: String,
     val offlineMaxEventAgeHours: Int,
+    val tamanhoCodigoAcesso: Int = 6,
+    val carenciaSegundos: Int = 60,
 )
-
-data class FaceCatalogResponse(
-    val atualizado: Boolean,
-    val versao: String,
-    val modelo: String,
-    val versaoModelo: String,
-    val limiar: Double,
-    val margem: Double,
-    val templates: List<CachedFaceTemplate>,
-    val templatesRejeitados: Int = 0,
-)
-
-data class ConfirmarBiometriaLocalRequest(
-    val colaboradorId: String,
-    val embedding: List<Float>,
-    val modelo: String,
-    val versaoModelo: String,
-)
-
-data class IdentificarBiometriaRequest(val embedding: List<Float>)
 
 data class PausaAbertaResumo(
     val id: String,
@@ -98,80 +78,63 @@ data class PausaAbertaResumo(
     val inicioEm: String,
     val inicioLocal: String,
     val limiteSegundos: Int,
+    val carenciaSegundos: Int,
     val tempoDecorridoSegundos: Int,
-)
-
-data class IdentificarBiometriaResponse(
-    val reconhecido: Boolean,
-    val motivo: String? = null,
-    val mensagem: String? = null,
-    val score: Double? = null,
-    val verificacaoToken: String? = null,
-    val expiraEmSegundos: Int? = null,
-    val colaborador: Colaborador? = null,
-    val acaoSugerida: String? = null,
-    val pausaAberta: PausaAbertaResumo? = null,
-    val dentroHorario: Boolean? = null,
-    val periodoAtual: String? = null,
-    val limiteSegundos: Int? = null,
-)
-
-data class VerificarBiometriaRequest(val colaboradorId: String, val embedding: List<Float>)
-data class VerificarBiometriaResponse(
-    val reconhecido: Boolean,
-    val score: Double,
-    val verificacaoToken: String?,
-    val expiraEmSegundos: Int?,
-)
-
-data class IniciarPausaRequest(
-    val operacaoId: String,
-    val colaboradorId: String,
-    val verificacaoToken: String,
-)
-
-data class IniciarPausaResponse(
-    val id: String,
-    val periodo: String,
-    val limiteSegundos: Int,
-    val foraHorario: Boolean,
-    val inicioEm: String,
-    val inicioLocal: String,
     val retornoAteLocal: String,
 )
 
-data class FinalizarPausaRequest(
-    val operacaoId: String,
-    val colaboradorId: String,
-    val verificacaoToken: String,
+/**
+ * Estado do colaborador escolhido na lista do quiosque.
+ *
+ * `acaoEsperada` existe só para o ecrã dizer a frase certa ("digite o código
+ * para sair" vs "digite o mesmo código para voltar"). Quem decide de verdade é
+ * o servidor no momento do registro — este valor pode ficar desatualizado e
+ * isso não causa erro nenhum.
+ */
+data class ColaboradorPausaResponse(
+    val colaborador: Colaborador,
+    val acaoEsperada: String,
+    val tamanhoCodigo: Int = 6,
+    val periodosUsadosHoje: List<String> = emptyList(),
+    val pausaAberta: PausaAbertaResumo? = null,
 )
 
-data class FinalizarPausaResponse(
+data class RegistrarPontoRequest(
+    val operacaoId: String,
+    val colaboradorId: String,
+    val codigo: String,
+)
+
+data class InicioPausaResponse(
+    val id: String,
+    val periodo: String,
+    val limiteSegundos: Int,
+    val carenciaSegundos: Int,
+    val foraHorario: Boolean,
+    val inicioEm: String,
+    val inicioLocal: String,
+    val contagemInicioEm: String,
+    val contagemInicioLocal: String,
+    val retornoAteLocal: String,
+)
+
+data class RetornoPausaResponse(
     val id: String,
     val inicioLocal: String,
     val fimEm: String,
     val fimLocal: String,
     val duracaoSegundos: Int,
+    val tempoContadoSegundos: Int,
     val limiteSegundos: Int,
+    val carenciaSegundos: Int,
     val excedeuLimite: Boolean,
 )
 
-data class RegistroRapidoRequest(
-    val operacaoId: String,
-    val colaboradorId: String,
-    val embedding: List<Float>,
-    val modelo: String,
-    val versaoModelo: String,
-)
-
-data class RegistroRapidoResponse(
+data class RegistroPontoResponse(
     val status: String,
-    val score: Double? = null,
     val colaborador: Colaborador? = null,
-    val inicio: IniciarPausaResponse? = null,
-    val retorno: FinalizarPausaResponse? = null,
-    val motivo: String? = null,
-    val mensagem: String? = null,
+    val inicio: InicioPausaResponse? = null,
+    val retorno: RetornoPausaResponse? = null,
 )
 
 data class PontoOperationReconcileRequest(
@@ -181,10 +144,10 @@ data class PontoOperationReconcileRequest(
 
 data class PontoOperationReconcileResponse(
     val encontrada: Boolean,
-    val tipo: String? = null,
+    val status: String? = null,
     val colaborador: Colaborador? = null,
-    val inicio: IniciarPausaResponse? = null,
-    val retorno: FinalizarPausaResponse? = null,
+    val inicio: InicioPausaResponse? = null,
+    val retorno: RetornoPausaResponse? = null,
 )
 
 data class OfflineSyncRequest(val eventos: List<OfflinePontoEvent>)
@@ -192,6 +155,7 @@ data class OfflineSyncResult(
     val eventId: String,
     val status: String,
     val pausaId: String? = null,
+    val tipo: String? = null,
     val mensagem: String? = null,
 )
 data class OfflineSyncResponse(
@@ -204,22 +168,12 @@ interface PontoCafeApi {
     @POST("setup/device-activation") suspend fun activateDevice(@Body body: DeviceActivationRequest): DeviceActivationResponse
     @POST("ponto/device/unlock") suspend fun unlockDevice(@Body body: DeviceUnlockRequest): DeviceUnlockResponse
     @GET("ponto/colaboradores") suspend fun colaboradores(@Query("q") busca: String = ""): ColaboradoresResponse
-    @GET("ponto/avatares") suspend fun avatarCatalog(): AvatarCatalogResponse
+    @GET("ponto/colaboradores/{id}/pausa") suspend fun estadoDaPausa(@Path("id") id: String): ColaboradorPausaResponse
     @GET("ponto/horario") suspend fun horario(): HorarioCafeResponse
     @GET("health") suspend fun health(): SystemHealthResponse
     @GET("app-status") suspend fun appStatus(): AppStatusResponse
-    @GET("ponto/biometria/catalogo") suspend fun catalogoBiometrico(
-        @Query("modelo") modelo: String,
-        @Query("versaoModelo") versaoModelo: String,
-        @Query("versaoAtual") versaoAtual: String? = null,
-    ): FaceCatalogResponse
-    @POST("ponto/biometria/confirmar-local") suspend fun confirmarBiometriaLocal(@Body body: ConfirmarBiometriaLocalRequest): IdentificarBiometriaResponse
-    @POST("ponto/biometria/identificar") suspend fun identificarBiometria(@Body body: IdentificarBiometriaRequest): IdentificarBiometriaResponse
-    @POST("ponto/biometria/verificar") suspend fun verificarBiometria(@Body body: VerificarBiometriaRequest): VerificarBiometriaResponse
-    @POST("ponto/registro-rapido") suspend fun registroRapido(@Body body: RegistroRapidoRequest): Response<RegistroRapidoResponse>
+    @POST("ponto/pausas/registrar") suspend fun registrarPonto(@Body body: RegistrarPontoRequest): Response<RegistroPontoResponse>
     @POST("ponto/operacoes/reconciliar") suspend fun reconciliarOperacao(@Body body: PontoOperationReconcileRequest): PontoOperationReconcileResponse
-    @POST("ponto/pausas/iniciar") suspend fun iniciarPausa(@Body body: IniciarPausaRequest): Response<IniciarPausaResponse>
-    @POST("ponto/pausas/finalizar") suspend fun finalizarPausa(@Body body: FinalizarPausaRequest): Response<FinalizarPausaResponse>
     @POST("ponto/offline/sincronizar") suspend fun sincronizarOffline(@Body body: OfflineSyncRequest): OfflineSyncResponse
 }
 
@@ -231,108 +185,50 @@ class PontoCafeRepository(
     suspend fun validarPinSaida(pin: String, area: String): DeviceUnlockResponse =
         api.unlockDevice(DeviceUnlockRequest(pin.trim(), area))
     suspend fun listarColaboradores(busca: String = "") = api.colaboradores(busca).colaboradores
-    suspend fun avatarCatalog(): Map<String, String> =
-        api.avatarCatalog().avatares.associate { it.colaboradorId to it.avatarUrl }
+    suspend fun estadoDaPausa(colaboradorId: String): ColaboradorPausaResponse = api.estadoDaPausa(colaboradorId)
     suspend fun consultarHorario(): HorarioCafeResponse = api.horario()
     suspend fun health(): SystemHealthResponse = api.health()
     suspend fun appStatus(): AppStatusResponse = api.appStatus()
 
-    suspend fun sincronizarCatalogo(
-        modelo: String,
-        versaoModelo: String,
-        versaoAtual: String? = null,
-    ): FaceCatalogResponse = api.catalogoBiometrico(modelo, versaoModelo, versaoAtual)
-
-    suspend fun confirmarIdentidadeLocal(
-        colaboradorId: String,
-        embedding: FloatArray,
-        modelo: String,
-        versaoModelo: String,
-    ): IdentificarBiometriaResponse {
-        // Se uma mutação anterior ficou incerta, não podemos consultar o estado
-        // atual e reinterpretá-lo como uma nova ação. O ViewModel já trata
-        // IOException como caminho offline; a fila reutiliza o mesmo operationId
-        // e o Worker reconcilia o COMMIT original antes de qualquer nova mutação.
-        if (operationJournal.isUncertain(colaboradorId)) {
-            throw IOException("O resultado do registro anterior ainda precisa ser reconciliado com o servidor.")
-        }
-        return api.confirmarBiometriaLocal(
-            ConfirmarBiometriaLocalRequest(colaboradorId, embedding.toList(), modelo, versaoModelo),
-        )
-    }
-
-    suspend fun identificar(embedding: FloatArray): IdentificarBiometriaResponse =
-        api.identificarBiometria(IdentificarBiometriaRequest(embedding.toList()))
-
-    suspend fun verificar(colaboradorId: String, embedding: FloatArray): VerificarBiometriaResponse =
-        api.verificarBiometria(VerificarBiometriaRequest(colaboradorId, embedding.toList()))
-
-    suspend fun registrarRapido(
-        colaboradorId: String,
-        embedding: FloatArray,
-        modelo: String,
-        versaoModelo: String,
-    ): RegistroRapidoResponse? {
-        try {
-            // O caminho rápido consegue reconstruir exatamente o comprovante
-            // autoritativo. Por isso tenta reconciliação antes de criar uma nova
-            // operação. Casos não rápidos seguem para a fila offline, que usa o
-            // mesmo UUID e também reconcilia no servidor.
-            reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
-                return when {
-                    reconciliada.inicio != null -> RegistroRapidoResponse(
-                        status = "INICIO",
-                        colaborador = reconciliada.colaborador,
-                        inicio = reconciliada.inicio,
-                    )
-                    reconciliada.retorno != null -> RegistroRapidoResponse(
-                        status = "RETORNO",
-                        colaborador = reconciliada.colaborador,
-                        retorno = reconciliada.retorno,
-                    )
-                    else -> null
-                }
-            }
-        } catch (error: Throwable) {
-            if (isTemporaryFailure(error)) return null
-            throw error
+    /**
+     * Envia o par (pessoa, código) e devolve o que o servidor decidiu: saída ou
+     * retorno.
+     *
+     * Antes de criar uma operação nova, reconcilia qualquer UUID que tenha ficado
+     * incerto — uma resposta perdida depois do COMMIT tem de reaparecer como o
+     * mesmo comprovante, nunca como uma segunda batida.
+     */
+    suspend fun registrar(colaboradorId: String, codigo: String): RegistroPontoResponse {
+        reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
+            return RegistroPontoResponse(
+                status = reconciliada.status ?: if (reconciliada.inicio != null) "INICIO" else "RETORNO",
+                colaborador = reconciliada.colaborador,
+                inicio = reconciliada.inicio,
+                retorno = reconciliada.retorno,
+            )
         }
 
-        val operationId = operationJournal.prepare(colaboradorId, embedding)
+        val operationId = operationJournal.prepareCode(colaboradorId, codigo)
         operationJournal.markUncertain(operationId)
 
-        val response = try {
-            api.registroRapido(
-                RegistroRapidoRequest(
-                    operacaoId = operationId,
-                    colaboradorId = colaboradorId,
-                    embedding = embedding.toList(),
-                    modelo = modelo,
-                    versaoModelo = versaoModelo,
-                ),
-            )
-        } catch (_: IOException) {
-            return null
-        }
+        val response = api.registrarPonto(
+            RegistrarPontoRequest(
+                operacaoId = operationId,
+                colaboradorId = colaboradorId,
+                codigo = codigo,
+            ),
+        )
 
-        if (response.code() == 404 || response.code() == 405 || response.code() == 501) {
-            operationJournal.complete(operationId)
-            return null
-        }
-        if (response.code() >= 500) {
-            return null
-        }
         if (!response.isSuccessful) {
-            operationJournal.complete(operationId)
+            // Um 4xx é uma decisão final do servidor: nada foi gravado, então o
+            // UUID pode ser libertado. Um 5xx deixa o resultado em aberto e o
+            // diário mantém a marca de incerteza para a próxima tentativa.
+            if (response.code() < 500) operationJournal.complete(operationId)
             throw HttpException(response)
         }
 
-        val result = response.body() ?: return null
-        when (result.status) {
-            "INICIO", "RETORNO" -> Unit
-            else -> operationJournal.complete(operationId)
-        }
-        return result
+        return response.body()
+            ?: throw IOException("O servidor confirmou a requisição sem retornar o resultado do Ponto.")
     }
 
     private suspend fun reconciliarOperacaoPendente(
@@ -354,59 +250,8 @@ class PontoCafeRepository(
         if (response.inicio == null && response.retorno == null) {
             throw IOException("O servidor encontrou a operação, mas não retornou um resultado reconciliável.")
         }
+        operationJournal.complete(operationId)
         return response
-    }
-
-    suspend fun iniciar(
-        colaboradorId: String,
-        verificacaoToken: String,
-    ): IniciarPausaResponse = executarMutacaoConfirmada(
-        colaboradorId = colaboradorId,
-        acao = "INICIAR",
-    ) { operationId ->
-        api.iniciarPausa(
-            IniciarPausaRequest(
-                operacaoId = operationId,
-                colaboradorId = colaboradorId,
-                verificacaoToken = verificacaoToken,
-            ),
-        )
-    }
-
-    suspend fun finalizar(
-        colaboradorId: String,
-        verificacaoToken: String,
-    ): FinalizarPausaResponse = executarMutacaoConfirmada(
-        colaboradorId = colaboradorId,
-        acao = "FINALIZAR",
-    ) { operationId ->
-        api.finalizarPausa(
-            FinalizarPausaRequest(
-                operacaoId = operationId,
-                colaboradorId = colaboradorId,
-                verificacaoToken = verificacaoToken,
-            ),
-        )
-    }
-
-    private suspend fun <T> executarMutacaoConfirmada(
-        colaboradorId: String,
-        acao: String,
-        request: suspend (operationId: String) -> Response<T>,
-    ): T {
-        val operationId = operationJournal.prepareAction(colaboradorId, acao)
-        operationJournal.markUncertain(operationId)
-
-        val response = request(operationId)
-        if (!response.isSuccessful) {
-            if (response.code() < 500) {
-                operationJournal.complete(operationId)
-            }
-            throw HttpException(response)
-        }
-
-        return response.body()
-            ?: throw IOException("O servidor confirmou a requisição sem retornar o resultado do Ponto.")
     }
 
     suspend fun sincronizarOffline(eventos: List<OfflinePontoEvent>): OfflineSyncResponse =
@@ -416,7 +261,7 @@ class PontoCafeRepository(
         /**
          * Used only where the request itself is a protected device-auth probe
          * (currently /ponto/horario). Business 403 responses are intentionally
-         * excluded so rules such as "Pausa não liberada" can never revoke a
+         * excluded so rules such as "Código inválido" can never revoke a
          * device session.
          */
         fun isAuthFailure(error: Throwable): Boolean =
@@ -427,6 +272,13 @@ class PontoCafeRepository(
 
         fun isTemporaryFailure(error: Throwable): Boolean =
             error is IOException || (error is HttpException && error.code() >= 500)
+
+        /** Código do erro de negócio devolvido pelo Worker, quando existe. */
+        fun codigoErro(error: Throwable): String? {
+            if (error !is HttpException) return null
+            val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull() ?: return null
+            return runCatching { JSONObject(body).optString("codigo").takeIf { it.isNotBlank() } }.getOrNull()
+        }
 
         fun mensagemErro(error: Throwable): String {
             if (error is HttpException) {

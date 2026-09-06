@@ -90,11 +90,11 @@ fun filterOperationalPauseItems(
         OperationalPauseFilter.TODOS -> items
         OperationalPauseFilter.ATENCAO -> items.filter {
             val elapsed = operationalPauseElapsed(it.pause, nowMillis)
-            val remaining = it.pause.limiteSegundos - elapsed
-            elapsed <= it.pause.limiteSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
+            val remaining = it.pause.limiteEfetivoSegundos - elapsed
+            elapsed <= it.pause.limiteEfetivoSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
         }
         OperationalPauseFilter.EXCEDIDOS -> items.filter {
-            operationalPauseElapsed(it.pause, nowMillis) > it.pause.limiteSegundos
+            operationalPauseElapsed(it.pause, nowMillis) > it.pause.limiteEfetivoSegundos
         }
     }
     return if (sector == null) byStatus else byStatus.filter { it.pause.setor == sector }
@@ -111,15 +111,15 @@ fun OperationalPauseOverview(
     modifier: Modifier = Modifier,
 ) {
     val now = System.currentTimeMillis()
-    val realOverdue = realPauses.count { operationalPauseElapsed(it, now) > it.limiteSegundos }
+    val realOverdue = realPauses.count { operationalPauseElapsed(it, now) > it.limiteEfetivoSegundos }
     val realCritical = realPauses.count {
-        val remaining = it.limiteSegundos - operationalPauseElapsed(it, now)
+        val remaining = it.limiteEfetivoSegundos - operationalPauseElapsed(it, now)
         remaining in 0..OPERATIONAL_CRITICAL_SECONDS
     }
     val realAttention = realPauses.count {
         val elapsed = operationalPauseElapsed(it, now)
-        val remaining = it.limiteSegundos - elapsed
-        elapsed <= it.limiteSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
+        val remaining = it.limiteEfetivoSegundos - elapsed
+        elapsed <= it.limiteEfetivoSegundos && remaining <= OPERATIONAL_ATTENTION_SECONDS
     }
     val testActive = items.any { it.isTest }
 
@@ -237,13 +237,13 @@ fun OperationalPauseCompactCard(
     }
 
     val elapsed = operationalPauseElapsed(pause, now)
-    val remaining = (pause.limiteSegundos - elapsed).coerceAtLeast(0)
-    val overdue = elapsed > pause.limiteSegundos
+    val remaining = (pause.limiteEfetivoSegundos - elapsed).coerceAtLeast(0)
+    val overdue = elapsed > pause.limiteEfetivoSegundos
     val critical = !overdue && remaining <= OPERATIONAL_CRITICAL_SECONDS
     val warning = !overdue && !critical && remaining <= OPERATIONAL_WARNING_SECONDS
     val attention = !overdue && !critical && !warning && remaining <= OPERATIONAL_ATTENTION_SECONDS
-    val progress = if (pause.limiteSegundos <= 0) 1f else {
-        (elapsed.toFloat() / pause.limiteSegundos.toFloat()).coerceIn(0f, 1f)
+    val progress = if (pause.limiteEfetivoSegundos <= 0) 1f else {
+        (elapsed.toFloat() / pause.limiteEfetivoSegundos.toFloat()).coerceIn(0f, 1f)
     }
     val semantic = LocalPontoCafeSemanticColors.current
     val semanticColor = when {
@@ -289,7 +289,6 @@ fun OperationalPauseCompactCard(
             ) {
                 CollaboratorAvatar(
                     name = pause.nome,
-                    avatarUrl = pause.avatarUrl,
                 )
                 Column(
                     modifier = Modifier.weight(1f),
@@ -319,7 +318,8 @@ fun OperationalPauseCompactCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "Saída ${pause.inicioLocal} · limite ${formatOperationalDuration(pause.limiteSegundos)}",
+                        text = "Saída ${pause.inicioLocal} · limite ${formatOperationalDuration(pause.limiteSegundos)}" +
+                            if (pause.carenciaSegundos > 0) " + ${pause.carenciaSegundos}s de tolerância" else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -343,7 +343,7 @@ fun OperationalPauseCompactCard(
                     StatusPill(
                         modifier = Modifier.padding(top = 4.dp),
                         text = when {
-                            overdue -> "Excedido +${formatOperationalDuration(elapsed - pause.limiteSegundos)}"
+                            overdue -> "Excedido +${formatOperationalDuration(elapsed - pause.limiteEfetivoSegundos)}"
                             critical -> "Crítico · ${formatOperationalDuration(remaining)}"
                             warning -> "Restam ${formatOperationalDuration(remaining)}"
                             attention -> "Atenção · ${formatOperationalDuration(remaining)}"
@@ -373,7 +373,7 @@ fun OperationalPauseCompactCard(
 }
 
 private val ManualPauseCloseReasons = listOf(
-    "Reconhecimento facial falhou",
+    "Código não funcionou no quiosque",
     "Esqueceu de marcar o retorno",
     "Outro",
 )
@@ -404,7 +404,7 @@ fun ManualPauseCloseDialog(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Use apenas quando a pessoa já retornou, mas o reconhecimento facial falhou ou o retorno não foi marcado.",
+                    text = "Use apenas quando a pessoa já retornou, mas o retorno não chegou a ser registrado no quiosque.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -471,7 +471,7 @@ fun OperationalPauseDetailDialog(
     val pause = item.pause
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos
         ?: operationalPauseElapsed(pause, System.currentTimeMillis())
-    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
+    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteEfetivoSegundos)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -486,7 +486,6 @@ fun OperationalPauseDetailDialog(
             ) {
                 CollaboratorAvatar(
                     name = pause.nome,
-                    avatarUrl = pause.avatarUrl,
                     avatarSize = 56.dp,
                 )
                 Column(
@@ -557,16 +556,15 @@ private fun AdminTestPause.toOperationalPause(): PausaSupervisor {
         colaboradorId = id,
         nome = adminName,
         setor = "Simulação",
-        avatarUrl = null,
         clienteAtualizadoEmMillis = startedAtMillis,
     )
 }
 
 private fun operationalPausePriority(pause: PausaSupervisor, nowMillis: Long): Int {
     val elapsed = operationalPauseElapsed(pause, nowMillis)
-    val remaining = pause.limiteSegundos - elapsed
+    val remaining = pause.limiteEfetivoSegundos - elapsed
     return when {
-        elapsed > pause.limiteSegundos -> 0
+        elapsed > pause.limiteEfetivoSegundos -> 0
         remaining <= OPERATIONAL_CRITICAL_SECONDS -> 1
         remaining <= OPERATIONAL_WARNING_SECONDS -> 2
         remaining <= OPERATIONAL_ATTENTION_SECONDS -> 3

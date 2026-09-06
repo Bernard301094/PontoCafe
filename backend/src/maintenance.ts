@@ -35,33 +35,53 @@ export async function cleanupExpiredDeviceHealthTelemetry() {
   }
 }
 
-export async function cleanupExpiredBiometrics() {
+/**
+ * Retenção dos códigos de acesso já esgotados.
+ *
+ * Só saem códigos que não têm mais nada a dizer: cancelados, já usados no
+ * retorno, ou que expiraram sem ninguém os apresentar. Um código com saída
+ * registada e sem retorno NUNCA é removido — é a única coisa que ainda permite
+ * fechar aquela pausa, por mais antiga que seja.
+ */
+export async function cleanupExpiredAccessCodes() {
   return transaction(async (client) => {
-    const deleted = await client.query<{ colaborador_id: string }>(
-      `delete from templates_faciais t
-        using colaboradores c
-        where c.id=t.colaborador_id
-          and c.ativo=false
-          and c.atualizado_em < now() - ($1::text || ' days')::interval
-        returning t.colaborador_id`,
-      [config.biometricRetentionDays],
+    const deleted = await client.query<{ id: string }>(
+      `delete from codigos_acesso
+        where criado_em < now() - ($1::text || ' days')::interval
+          and (
+            cancelado_em is not null
+            or retorno_em is not null
+            or (saida_em is null and expira_em <= now())
+          )
+        returning id`,
+      [config.accessCodeRetentionDays],
     )
 
     if ((deleted.rowCount ?? 0) > 0) {
       await client.query(
         `insert into auditoria (ator_tipo,acao,entidade,detalhes)
-         values ('SISTEMA','LIMPEZA_RETENCAO_BIOMETRICA','BIOMETRIA',$1::jsonb)`,
+         values ('SISTEMA','LIMPEZA_RETENCAO_CODIGOS','CODIGO_ACESSO',$1::jsonb)`,
         [JSON.stringify({
-          retencaoDias: config.biometricRetentionDays,
+          retencaoDias: config.accessCodeRetentionDays,
           removidos: deleted.rowCount ?? 0,
-          colaboradorIds: deleted.rows.map((row) => row.colaborador_id),
         })],
       )
     }
 
     return {
       removed: deleted.rowCount ?? 0,
-      retentionDays: config.biometricRetentionDays,
+      retentionDays: config.accessCodeRetentionDays,
     }
   })
+}
+
+/** Tentativas de código erradas só interessam dentro da janela de bloqueio. */
+export async function cleanupAccessCodeAttempts() {
+  const deleted = await query(
+    `delete from auditoria
+      where acao='CODIGO_ACESSO_TENTATIVA_INVALIDA'
+        and criado_em < now() - ($1::text || ' days')::interval`,
+    [config.accessCodeRetentionDays],
+  )
+  return { removed: deleted.rowCount ?? 0, retentionDays: config.accessCodeRetentionDays }
 }

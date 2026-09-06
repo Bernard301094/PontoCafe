@@ -14,52 +14,12 @@ val debugApiBaseUrl = providers.gradleProperty("PONTOCAFE_API_URL")
     .orElse(productionApiBaseUrl)
     .get()
 
-val faceModelCommit = "289bc10420aad15fed99094eee364eb24f908ecc"
-val faceModelBlobSha = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
-val faceModelUrl = "https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/$faceModelCommit/app/src/main/assets/facenet.tflite"
-val faceModelFile = layout.projectDirectory.file("src/main/assets/facenet.tflite").asFile
-
-fun gitBlobSha(file: File): String {
-    val digest = MessageDigest.getInstance("SHA-1")
-    digest.update("blob ${file.length()}\u0000".toByteArray(Charsets.UTF_8))
-    file.inputStream().use { input ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val count = input.read(buffer)
-            if (count <= 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
-}
-
-val prepareFaceModel by tasks.registering {
-    group = "build setup"
-    description = "Baixa e valida o modelo FaceNet gratuito usado pelo APK."
-    outputs.file(faceModelFile)
-
-    doLast {
-        faceModelFile.parentFile.mkdirs()
-        val currentValid = faceModelFile.exists() && gitBlobSha(faceModelFile) == faceModelBlobSha
-        if (!currentValid) {
-            faceModelFile.delete()
-            URI(faceModelUrl).toURL().openStream().use { input ->
-                faceModelFile.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-
-        check(gitBlobSha(faceModelFile) == faceModelBlobSha) {
-            "O arquivo facenet.tflite baixado não corresponde ao modelo fixado pelo projeto."
-        }
-    }
-}
-
 // A voz neural pt-BR era baixada em tempo de execução em cada aparelho (ver
 // histórico de PontoNeuralVoiceRuntime.kt). Isso expôs o Ponto a corrupção de
 // download em redes de quiosque reais (ex.: VOICE_MODEL_SIZE_INVALID quando
-// um proxy/rede altera o corpo binário). Mesmo padrão do FaceNet acima:
-// baixa, valida e empacota uma única vez em tempo de build, dentro do APK
-// assinado — nenhum aparelho depende mais de rede para ter a voz pronta.
+// um proxy/rede altera o corpo binário). A correção: baixa, valida e empacota
+// uma única vez em tempo de build, dentro do APK assinado — nenhum aparelho
+// depende mais de rede para ter a voz pronta.
 val voiceModelDirName = "vits-piper-pt_BR-faber-medium"
 val voiceModelFileName = "pt_BR-faber-medium.onnx"
 val voiceModelUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2"
@@ -145,7 +105,7 @@ val prepareVoiceModel by tasks.registering {
     }
 }
 
-tasks.named("preBuild").configure { dependsOn(prepareFaceModel, prepareVoiceModel) }
+tasks.named("preBuild").configure { dependsOn(prepareVoiceModel) }
 
 android {
     namespace = "com.pontocafe.app"
@@ -155,8 +115,8 @@ android {
         applicationId = "com.pontocafe.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 110
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -238,18 +198,6 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("com.airbnb.android:lottie-compose:6.7.1")
-    implementation("io.coil-kt:coil-compose:2.7.0")
-
-    val cameraX = "1.6.1"
-    implementation("androidx.camera:camera-camera2:$cameraX")
-    implementation("androidx.camera:camera-lifecycle:$cameraX")
-    implementation("androidx.camera:camera-view:$cameraX")
-    implementation("com.google.mlkit:face-detection:16.1.7")
-
-    // CPU/XNNPACK intencional: preserva o mesmo espaço de embeddings dos
-    // templates faciais já cadastrados. Delegate GPU só volta após calibração
-    // explícita contra o catálogo existente.
-    implementation("com.google.android.gms:play-services-tflite-java:16.5.0")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")

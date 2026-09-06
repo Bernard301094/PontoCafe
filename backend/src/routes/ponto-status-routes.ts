@@ -1,25 +1,11 @@
 import { Hono } from 'hono'
-import { createMiddleware } from 'hono/factory'
-import type { AppEnv, Device } from '../auth-runtime.js'
+import type { AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query } from '../db.js'
-import { hashToken } from '../security.js'
-
-const requireDevice = createMiddleware<AppEnv>(async (c, next) => {
-  const token = c.req.header('X-Device-Token')?.trim()
-  if (!token) return c.json({ erro: 'Dispositivo não autenticado.' }, 401)
-  const result = await query<Device>(
-    'select id,nome from dispositivos where token_hash=$1 and ativo=true limit 1',
-    [hashToken(token)],
-  )
-  const device = result.rows[0]
-  if (!device) return c.json({ erro: 'Dispositivo inválido.' }, 401)
-  c.set('device', device)
-  await next()
-})
+import { deviceTokenMiddleware } from './shared.js'
 
 export const pontoStatusRoutes = new Hono<AppEnv>()
-pontoStatusRoutes.use('*', requireDevice)
+pontoStatusRoutes.use('*', deviceTokenMiddleware)
 
 pontoStatusRoutes.get('/horario', async (c) => {
   const activeRule = await query<{
@@ -56,6 +42,9 @@ pontoStatusRoutes.get('/horario', async (c) => {
     dentroHorario: Boolean(activeRule.rows[0]),
     periodoAtual: activeRule.rows[0]?.periodo ?? null,
     limiteSegundos: activeRule.rows[0]?.limite_segundos ?? null,
+    // A fila offline precisa da carência para desenhar o mesmo relógio que o
+    // servidor vai gravar quando o evento subir.
+    carenciaSegundos: config.coffeeGraceSeconds,
     agoraLocal: nowResult.rows[0]?.agora_local,
     regras: rules.rows.map((rule) => ({
       periodo: rule.periodo,

@@ -6,19 +6,14 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.pontocafe.app.avatar.AvatarImageOptimizer
-import com.pontocafe.app.avatar.EnrollmentAvatarCaptureSession
-import com.pontocafe.app.avatar.EnrollmentAvatarUploadStatus
-import com.pontocafe.app.camera.FaceEmbeddingEngine
-import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AdminCoffeeRule
 import com.pontocafe.app.data.AdminOperationalSummary
 import com.pontocafe.app.data.AdminRepository
 import com.pontocafe.app.data.AdminUser
 import com.pontocafe.app.data.AuditEvent
-import com.pontocafe.app.data.BiometricTemplateAggregator
+import com.pontocafe.app.data.AccessCodeCreatedResponse
+import com.pontocafe.app.data.AccessCodeItem
 import com.pontocafe.app.data.Colaborador
-import com.pontocafe.app.data.FaceEmbeddingIntegrity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,9 +29,8 @@ enum class AdminDestination {
     USER_DETAIL,
     COLLABORATORS,
     NEW_COLLABORATOR,
-    BIOMETRIC_ENROLLMENT,
     SETTINGS,
-    AUTHORIZATION,
+    ACCESS_CODES,
     AUDIT,
 }
 
@@ -52,19 +46,8 @@ data class AdminUiState(
     val regrasCafe: List<AdminCoffeeRule> = emptyList(),
     val auditoria: List<AuditEvent> = emptyList(),
     val resumoOperacional: AdminOperationalSummary? = null,
-    val biometricScanCycle: Int = 0,
-    val biometricStepIndex: Int = 0,
-    val biometricSamplesCaptured: Int = 0,
-    val biometricEnrollmentCompleted: Boolean = false,
-    val enrollmentAvatarCaptured: Boolean = false,
-    val enrollmentAvatarPreview: ByteArray? = null,
-    val enrollmentAvatarStatus: EnrollmentAvatarUploadStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-    val enrollmentAvatarUrl: String? = null,
-    val enrollmentAvatarError: String? = null,
-    val authorizationId: String? = null,
-    val authorizationEmployeeName: String? = null,
-    val authorizationPeriod: String? = null,
-    val authorizationExpirySeconds: Int? = null,
+    val codigosAtivos: List<AccessCodeItem> = emptyList(),
+    val codigoEmitido: AccessCodeCreatedResponse? = null,
     val manualPunchResult: ManualPunchResult? = null,
     val mensagem: String? = null,
     val erro: String? = null,
@@ -72,13 +55,10 @@ data class AdminUiState(
 
 class AdminViewModel(
     private val repository: AdminRepository,
-    val embeddingEngine: FaceEmbeddingEngine,
 ) : ViewModel() {
     var state by mutableStateOf(AdminUiState())
         private set
 
-    private val biometricSamples = mutableListOf<FloatArray>()
-    private val enrollmentAvatarCapture = EnrollmentAvatarCaptureSession()
 
     init {
         inicializar()
@@ -236,17 +216,9 @@ class AdminViewModel(
     }
 
     fun abrirColaboradores() {
-        releaseEnrollmentAvatarArtifacts()
-        biometricSamples.clear()
         viewModelScope.launch {
             state = state.copy(
                 carregando = true,
-                biometricEnrollmentCompleted = false,
-                enrollmentAvatarCaptured = false,
-                enrollmentAvatarPreview = null,
-                enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-                enrollmentAvatarUrl = null,
-                enrollmentAvatarError = null,
                 erro = null,
                 mensagem = null,
             )
@@ -257,8 +229,6 @@ class AdminViewModel(
                         destination = AdminDestination.COLLABORATORS,
                         colaboradores = it,
                         colaboradorSelecionado = null,
-                        biometricStepIndex = 0,
-                        biometricSamplesCaptured = 0,
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -266,7 +236,6 @@ class AdminViewModel(
     }
 
     fun abrirNovoColaborador() {
-        releaseEnrollmentAvatarArtifacts()
         state = state.copy(destination = AdminDestination.NEW_COLLABORATOR, erro = null, mensagem = null)
     }
 
@@ -279,22 +248,12 @@ class AdminViewModel(
             state = state.copy(carregando = true, erro = null, mensagem = null)
             runCatching { repository.createCollaborator(nome, setor, turno) }
                 .onSuccess { colaborador ->
-                    releaseEnrollmentAvatarArtifacts()
-                    biometricSamples.clear()
                     state = state.copy(
                         carregando = false,
-                        destination = AdminDestination.BIOMETRIC_ENROLLMENT,
+                        destination = AdminDestination.COLLABORATORS,
+                        colaboradores = upsertCollaborator(state.colaboradores, colaborador),
                         colaboradorSelecionado = colaborador,
-                        biometricScanCycle = state.biometricScanCycle + 1,
-                        biometricStepIndex = 0,
-                        biometricSamplesCaptured = 0,
-                        biometricEnrollmentCompleted = false,
-                        enrollmentAvatarCaptured = false,
-                        enrollmentAvatarPreview = null,
-                        enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-                        enrollmentAvatarUrl = colaborador.avatarUrl,
-                        enrollmentAvatarError = null,
-                        mensagem = "Colaborador cadastrado. Agora cadastre o rosto em 5 etapas.",
+                        mensagem = "${colaborador.nome} cadastrado. Gere um código quando ele for tomar café.",
                     )
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
@@ -333,240 +292,10 @@ class AdminViewModel(
         }
     }
 
-    fun cadastrarOuAtualizarRosto(colaborador: Colaborador) {
-        releaseEnrollmentAvatarArtifacts()
-        biometricSamples.clear()
-        state = state.copy(
-            destination = AdminDestination.BIOMETRIC_ENROLLMENT,
-            colaboradorSelecionado = colaborador,
-            biometricScanCycle = state.biometricScanCycle + 1,
-            biometricStepIndex = 0,
-            biometricSamplesCaptured = 0,
-            biometricEnrollmentCompleted = false,
-            enrollmentAvatarCaptured = false,
-            enrollmentAvatarPreview = null,
-            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-            enrollmentAvatarUrl = colaborador.avatarUrl,
-            enrollmentAvatarError = null,
-            erro = null,
-            mensagem = null,
-        )
-    }
-
-    fun processarAmostraBiometrica(frame: FaceFrame) {
-        val colaborador = state.colaboradorSelecionado
-        if (colaborador == null || state.carregando) {
-            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
-            return
-        }
-        if (!embeddingEngine.isReady) {
-            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
-            state = state.copy(erro = "O modelo de reconhecimento facial ainda não está instalado neste APK.")
-            return
-        }
-
-        viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = "Processando amostra facial...")
-            try {
-                val stagedAvatar = runCatching {
-                    withContext(Dispatchers.Default) { enrollmentAvatarCapture.stage(frame) }
-                }.getOrNull()
-                var biometricSampleAccepted = false
-                val embedding = try {
-                    embeddingEngine.embed(frame).also {
-                        FaceEmbeddingIntegrity.requireValid(it)
-                        biometricSampleAccepted = true
-                    }
-                } finally {
-                    if (stagedAvatar != null) {
-                        if (biometricSampleAccepted) {
-                            runCatching {
-                                withContext(Dispatchers.Default) {
-                                    enrollmentAvatarCapture.consider(stagedAvatar)
-                                }
-                            }
-                        }
-                        stagedAvatar.close()
-                    }
-                }
-                biometricSamples += embedding.copyOf()
-
-                val captured = biometricSamples.size
-                if (captured < BIOMETRIC_SAMPLE_COUNT) {
-                    val avatarCaptured = enrollmentAvatarCapture.hasCandidate()
-                    state = state.copy(
-                        carregando = false,
-                        biometricStepIndex = captured,
-                        biometricSamplesCaptured = captured,
-                        biometricScanCycle = state.biometricScanCycle + 1,
-                        enrollmentAvatarCaptured = avatarCaptured,
-                        mensagem = if (avatarCaptured) {
-                            "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada. Foto de perfil selecionada."
-                        } else {
-                            "Amostra $captured de $BIOMETRIC_SAMPLE_COUNT capturada."
-                        },
-                        erro = null,
-                    )
-                    return@launch
-                }
-
-                val samplesForValidation = biometricSamples.map { it.copyOf() }
-                val combined = combineBiometricSamples(samplesForValidation)
-                repository.saveBiometric(
-                    collaboratorId = colaborador.id,
-                    embedding = combined,
-                    model = embeddingEngine.modelName,
-                    modelVersion = embeddingEngine.modelVersion,
-                    samples = samplesForValidation,
-                )
-
-                biometricSamples.clear()
-                val avatarBytes = enrollmentAvatarCapture.takeBestWebp()
-                val existingAvatarAvailable = !colaborador.avatarUrl.isNullOrBlank()
-                val biometricCollaborator = colaborador.copy(rostoCadastrado = true)
-                state = state.copy(
-                    carregando = true,
-                    colaboradorSelecionado = biometricCollaborator,
-                    biometricEnrollmentCompleted = true,
-                    enrollmentAvatarCaptured = avatarBytes != null,
-                    enrollmentAvatarPreview = avatarBytes,
-                    enrollmentAvatarStatus = when {
-                        avatarBytes != null -> EnrollmentAvatarUploadStatus.UPLOADING
-                        existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
-                        else -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
-                    },
-                    enrollmentAvatarUrl = colaborador.avatarUrl,
-                    enrollmentAvatarError = null,
-                    mensagem = "Biometria de ${colaborador.nome} salva com segurança.",
-                    erro = null,
-                )
-
-                var avatarUrl = colaborador.avatarUrl
-                var avatarFailure: Throwable? = null
-                if (avatarBytes != null) {
-                    try {
-                        avatarUrl = repository.uploadAvatar(colaborador.id, avatarBytes).avatarUrl
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Throwable) {
-                        avatarFailure = error
-                    }
-                }
-
-                val updatedCollaborator = biometricCollaborator.copy(avatarUrl = avatarUrl)
-                state = state.copy(
-                    carregando = false,
-                    colaboradores = upsertCollaborator(state.colaboradores, updatedCollaborator),
-                    colaboradorSelecionado = updatedCollaborator,
-                    enrollmentAvatarStatus = when {
-                        avatarBytes == null && existingAvatarAvailable -> EnrollmentAvatarUploadStatus.SAVED
-                        avatarBytes == null -> EnrollmentAvatarUploadStatus.NOT_CAPTURED
-                        avatarFailure == null -> EnrollmentAvatarUploadStatus.SAVED
-                        else -> EnrollmentAvatarUploadStatus.FAILED
-                    },
-                    enrollmentAvatarUrl = avatarUrl,
-                    enrollmentAvatarError = avatarFailure?.let {
-                        "A biometria foi salva, mas a foto de perfil não. ${AdminRepository.message(it)}"
-                    },
-                    mensagem = when {
-                        avatarBytes == null && existingAvatarAvailable ->
-                            "Rosto de ${colaborador.nome} cadastrado. A foto de perfil existente foi mantida."
-                        avatarBytes == null ->
-                            "Rosto de ${colaborador.nome} cadastrado. Você pode adicionar a foto de perfil sem repetir a biometria."
-                        avatarFailure == null ->
-                            "Rosto e foto de perfil de ${colaborador.nome} cadastrados com sucesso."
-                        else ->
-                            "Rosto de ${colaborador.nome} cadastrado. Falta apenas salvar a foto de perfil."
-                    },
-                    erro = null,
-                )
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                val completedSequence = biometricSamples.size >= BIOMETRIC_SAMPLE_COUNT
-                if (completedSequence) {
-                    biometricSamples.clear()
-                    enrollmentAvatarCapture.clear()
-                }
-                val captured = biometricSamples.size.coerceAtMost(BIOMETRIC_SAMPLE_COUNT - 1)
-                state = state.copy(
-                    carregando = false,
-                    biometricStepIndex = captured,
-                    biometricSamplesCaptured = captured,
-                    biometricScanCycle = state.biometricScanCycle + 1,
-                    enrollmentAvatarCaptured = enrollmentAvatarCapture.hasCandidate(),
-                    mensagem = null,
-                    erro = AdminRepository.message(error),
-                )
-            }
-        }
-    }
-
-    fun tentarNovamenteAvatarDoCadastro() {
-        val preview = state.enrollmentAvatarPreview ?: return
-        saveEnrollmentAvatar(preview)
-    }
-
-    fun substituirAvatarDoCadastro(webp: ByteArray) {
-        if (webp.isEmpty() || webp.size > AvatarImageOptimizer.MAX_BYTES) {
-            state = state.copy(enrollmentAvatarError = "A foto de perfil preparada é inválida.")
-            return
-        }
-        saveEnrollmentAvatar(webp)
-    }
-
-    private fun saveEnrollmentAvatar(webp: ByteArray) {
-        val collaborator = state.colaboradorSelecionado ?: return
-        if (!state.biometricEnrollmentCompleted || state.carregando) return
-
-        state = state.copy(
-            carregando = true,
-            enrollmentAvatarCaptured = true,
-            enrollmentAvatarPreview = webp,
-            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.UPLOADING,
-            enrollmentAvatarError = null,
-            erro = null,
-        )
-        viewModelScope.launch {
-            try {
-                val result = repository.uploadAvatar(collaborator.id, webp)
-                val updated = collaborator.copy(avatarUrl = result.avatarUrl)
-                state = state.copy(
-                    carregando = false,
-                    colaboradores = upsertCollaborator(state.colaboradores, updated),
-                    colaboradorSelecionado = updated,
-                    enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.SAVED,
-                    enrollmentAvatarUrl = result.avatarUrl,
-                    enrollmentAvatarError = null,
-                    mensagem = "Foto de perfil de ${collaborator.nome} salva. A biometria não foi alterada.",
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                state = state.copy(
-                    carregando = false,
-                    enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.FAILED,
-                    enrollmentAvatarError = "A biometria continua salva. ${AdminRepository.message(error)}",
-                    mensagem = "Falta apenas salvar a foto de perfil de ${collaborator.nome}.",
-                    erro = null,
-                )
-            }
-        }
-    }
-
     fun voltarColaboradores() {
-        releaseEnrollmentAvatarArtifacts()
-        biometricSamples.clear()
         state = state.copy(
             destination = AdminDestination.COLLABORATORS,
             colaboradorSelecionado = null,
-            biometricStepIndex = 0,
-            biometricSamplesCaptured = 0,
-            biometricEnrollmentCompleted = false,
-            enrollmentAvatarCaptured = false,
-            enrollmentAvatarPreview = null,
-            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-            enrollmentAvatarUrl = null,
-            enrollmentAvatarError = null,
             erro = null,
         )
     }
@@ -595,41 +324,49 @@ class AdminViewModel(
         }
     }
 
-    fun abrirAutorizacao() {
+    fun abrirCodigos() {
         viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-                authorizationId = null,
-                authorizationEmployeeName = null,
-                authorizationPeriod = null,
-                authorizationExpirySeconds = null,
-            )
-            runCatching { repository.collaborators() }
-                .onSuccess { state = state.copy(carregando = false, destination = AdminDestination.AUTHORIZATION, colaboradores = it) }
+            state = state.copy(carregando = true, erro = null, mensagem = null, codigoEmitido = null)
+            runCatching { repository.collaborators() to repository.accessCodes() }
+                .onSuccess { (pessoas, codigos) ->
+                    state = state.copy(
+                        carregando = false,
+                        destination = AdminDestination.ACCESS_CODES,
+                        colaboradores = pessoas,
+                        codigosAtivos = codigos.codigos,
+                    )
+                }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun autorizarPausa(colaborador: Colaborador, motivo: String) {
-        if (motivo.trim().length < 2) {
-            state = state.copy(erro = "Informe o motivo da autorização.")
-            return
-        }
+    fun atualizarCodigos() {
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, authorizationId = null)
-            runCatching { repository.createAuthorization(colaborador.id, motivo) }
-                .onSuccess { auth ->
+            runCatching { repository.accessCodes() }
+                .onSuccess { state = state.copy(codigosAtivos = it.codigos) }
+        }
+    }
+
+    /**
+     * Emite o passe de café de uma pessoa.
+     *
+     * O código volta em claro nesta resposta e fica no estado até o Admin sair
+     * da tela: é o que ele lê em voz alta. A lista de códigos vivos é recarregada
+     * a seguir para o cartão da pessoa passar imediatamente a "aguardando saída".
+     */
+    fun emitirCodigo(colaborador: Colaborador, motivo: String?) {
+        if (state.carregando) return
+        viewModelScope.launch {
+            state = state.copy(carregando = true, erro = null, mensagem = null, codigoEmitido = null)
+            runCatching { repository.createAccessCode(colaborador.id, motivo) }
+                .onSuccess { codigo ->
                     state = state.copy(
                         carregando = false,
-                        authorizationId = auth.id,
-                        authorizationEmployeeName = auth.colaboradorNome,
-                        authorizationPeriod = auth.periodo,
-                        authorizationExpirySeconds = auth.expiraEmSegundos,
-                        mensagem = "Autorização concedida para ${auth.colaboradorNome}.",
+                        codigoEmitido = codigo,
+                        mensagem = "Código gerado para ${codigo.colaboradorNome}.",
                         erro = null,
                     )
+                    atualizarCodigos()
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
@@ -637,7 +374,7 @@ class AdminViewModel(
 
     /**
      * Registra manualmente a saída de [colaborador] -- uso excepcional para
-     * quando o reconhecimento facial falha dentro do horário normal (fora
+     * quando a pessoa esqueceu de registrar no quiosque ou o código falhou
      * do horário continua exigindo autorizarPausa). A sessão do
      * Administrador substitui o verificacaoToken biométrico; por isso o
      * motivo é obrigatório e o servidor audita quem fez o registro.
@@ -666,59 +403,43 @@ class AdminViewModel(
         state = state.copy(manualPunchResult = null)
     }
 
-    fun cancelarAutorizacao(colaborador: Colaborador) {
-        if (state.authorizationId == null || state.carregando) return
+    fun cancelarCodigo(colaborador: Colaborador) {
+        if (state.carregando) return
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.cancelAuthorization(colaborador.id) }
+            runCatching { repository.cancelAccessCode(colaborador.id) }
                 .onSuccess {
                     state = state.copy(
                         carregando = false,
-                        authorizationId = null,
-                        authorizationEmployeeName = null,
-                        authorizationPeriod = null,
-                        authorizationExpirySeconds = null,
-                        mensagem = "Autorização de ${colaborador.nome} cancelada.",
+                        codigoEmitido = if (state.codigoEmitido?.colaboradorId == colaborador.id) {
+                            null
+                        } else {
+                            state.codigoEmitido
+                        },
+                        mensagem = "Código de ${colaborador.nome} cancelado.",
                         erro = null,
                     )
+                    atualizarCodigos()
                 }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun limparAutorizacao() {
-        state = state.copy(
-            authorizationId = null,
-            authorizationEmployeeName = null,
-            authorizationPeriod = null,
-            authorizationExpirySeconds = null,
-            mensagem = null,
-            erro = null,
-        )
+    fun limparCodigoEmitido() {
+        state = state.copy(codigoEmitido = null, mensagem = null, erro = null)
     }
 
     fun voltarHome() {
-        releaseEnrollmentAvatarArtifacts()
-        biometricSamples.clear()
         state = state.copy(
             destination = AdminDestination.HOME,
             selecionado = null,
             colaboradorSelecionado = null,
-            biometricStepIndex = 0,
-            biometricSamplesCaptured = 0,
-            biometricEnrollmentCompleted = false,
-            enrollmentAvatarCaptured = false,
-            enrollmentAvatarPreview = null,
-            enrollmentAvatarStatus = EnrollmentAvatarUploadStatus.NOT_CAPTURED,
-            enrollmentAvatarUrl = null,
-            enrollmentAvatarError = null,
             erro = null,
             mensagem = null,
         )
     }
 
     fun logout() {
-        releaseEnrollmentAvatarArtifacts()
         viewModelScope.launch {
             state = state.copy(carregando = true, erro = null)
             repository.signOut()
@@ -737,17 +458,13 @@ class AdminViewModel(
             AdminDestination.COLLABORATORS -> abrirColaboradores()
             AdminDestination.SETTINGS -> abrirConfiguracoes()
             AdminDestination.AUDIT -> abrirAuditoria()
-            AdminDestination.AUTHORIZATION -> abrirAutorizacao()
+            AdminDestination.ACCESS_CODES -> abrirCodigos()
             AdminDestination.USER_DETAIL -> {
                 val user = state.usuarios.firstOrNull { it.id == userId }
                 if (user != null) selecionarUsuario(user) else state = state.copy(destination = AdminDestination.HOME)
             }
             AdminDestination.NEW_ACCOUNT -> state = state.copy(destination = AdminDestination.NEW_ACCOUNT)
             AdminDestination.NEW_COLLABORATOR -> state = state.copy(destination = AdminDestination.NEW_COLLABORATOR)
-            AdminDestination.BIOMETRIC_ENROLLMENT -> {
-                val collaborator = state.colaboradores.firstOrNull { it.id == collaboratorId }
-                if (collaborator != null) cadastrarOuAtualizarRosto(collaborator) else abrirColaboradores()
-            }
             AdminDestination.LOADING,
             AdminDestination.LOGIN,
             AdminDestination.FIRST_SETUP -> Unit
@@ -770,11 +487,6 @@ class AdminViewModel(
         state = state.copy(mensagem = "Cache local limpo. Os próximos dados virão direto do servidor.")
     }
 
-    private fun releaseEnrollmentAvatarArtifacts() {
-        enrollmentAvatarCapture.clear()
-        state.enrollmentAvatarPreview?.fill(0)
-    }
-
     private fun upsertCollaborator(
         collaborators: List<Colaborador>,
         updated: Colaborador,
@@ -787,20 +499,6 @@ class AdminViewModel(
         }).sortedBy { it.nome.lowercase() }
     }
 
-    override fun onCleared() {
-        releaseEnrollmentAvatarArtifacts()
-        biometricSamples.clear()
-        super.onCleared()
-    }
-
-    companion object {
-        private const val BIOMETRIC_SAMPLE_COUNT = 5
-
-        fun combineBiometricSamples(samples: List<FloatArray>): FloatArray {
-            require(samples.isNotEmpty()) { "Nenhuma amostra biométrica foi capturada." }
-            return BiometricTemplateAggregator.aggregate(samples).embedding
-        }
-    }
 }
 
 class AdminViewModelFactory(

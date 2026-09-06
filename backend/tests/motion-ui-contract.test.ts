@@ -23,7 +23,7 @@ const live = readFileSync(
   'utf8',
 )
 const biometric = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminBiometricEnrollmentScreen.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AccessCodeScreen.kt', import.meta.url),
   'utf8',
 )
 

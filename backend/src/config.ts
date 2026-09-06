@@ -30,30 +30,44 @@ function revisionEnv(name: string, fallback: string): string {
   return value
 }
 
+/**
+ * A chave já não cifra biometria — essa deixou de existir. Continua a cifrar o
+ * token de registo de dispositivo guardado no diário de idempotência, por isso a
+ * variável antiga permanece aceite: nenhum ambiente já implantado precisa de ser
+ * reconfigurado para esta versão subir.
+ */
+function encryptionKeyEnv(): string {
+  const value = process.env.APP_ENCRYPTION_KEY?.trim() || process.env.BIOMETRIC_MASTER_KEY?.trim()
+  if (!value) throw new Error('Variável obrigatória ausente: APP_ENCRYPTION_KEY')
+  return value
+}
+
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   appTimezone: process.env.APP_TIMEZONE?.trim() || 'America/Fortaleza',
   codePepper: required('CODE_PEPPER'),
-  biometricMasterKey: required('BIOMETRIC_MASTER_KEY'),
+  appEncryptionKey: encryptionKeyEnv(),
   firstAdminSetupKey: process.env.FIRST_ADMIN_SETUP_KEY?.trim() || null,
   sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 168, 1, 168),
-  faceThreshold: numberEnv('FACE_MATCH_THRESHOLD', 0.72, 0.5, 0.99),
-  faceIdentificationMargin: numberEnv('FACE_IDENTIFICATION_MARGIN', 0.06, 0.01, 0.3),
-  faceEnrollmentDuplicateThreshold: numberEnv('FACE_ENROLLMENT_DUPLICATE_THRESHOLD', 0.78, 0.7, 0.999),
-  authorizationTtlSeconds: numberEnv('AUTHORIZATION_TTL_SECONDS', 600, 30, 900),
-  verificationTtlSeconds: numberEnv('FACE_VERIFICATION_TTL_SECONDS', 180, 30, 900),
+  /** Janela para a pessoa levar o código ao quiosque e registar a SAÍDA. */
+  accessCodeTtlSeconds: numberEnv('ACCESS_CODE_TTL_SECONDS', 900, 60, 7200),
+  /** Tentativas erradas de código, por colaborador, antes de bloquear. */
+  accessCodeMaxAttempts: numberEnv('ACCESS_CODE_MAX_ATTEMPTS', 8, 3, 50),
+  accessCodeAttemptWindowSeconds: numberEnv('ACCESS_CODE_ATTEMPT_WINDOW_SECONDS', 300, 60, 3600),
+  /** Tolerância antes de o limite da pausa começar a correr. */
+  coffeeGraceSeconds: numberEnv('COFFEE_GRACE_SECONDS', 60, 0, 3600),
   offlineMaxEventAgeHours: numberEnv('OFFLINE_MAX_EVENT_AGE_HOURS', 24, 1, 72),
-  biometricRetentionDays: numberEnv('BIOMETRIC_RETENTION_DAYS', 90, 1, 3650),
+  accessCodeRetentionDays: numberEnv('ACCESS_CODE_RETENTION_DAYS', 90, 1, 3650),
   pontoOperationRetentionDays: numberEnv('PONTO_OPERATION_RETENTION_DAYS', 30, 1, 3650),
   deviceHealthRetentionDays: numberEnv('DEVICE_HEALTH_RETENTION_DAYS', 30, 1, 3650),
   deviceRegistrationIdempotencyTtlSeconds: numberEnv('DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS', 600, 60, 900),
-  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '1.0.0'),
-  minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '0.15.0'),
+  latestAndroidVersion: versionEnv('APP_LATEST_ANDROID_VERSION', '1.1.0'),
+  minimumAndroidVersion: versionEnv('APP_MIN_ANDROID_VERSION', '1.1.0'),
   backendRevision: revisionEnv('BACKEND_REVISION', 'dev'),
 }
 
-export function biometricKey(): Buffer {
-  const key = Buffer.from(config.biometricMasterKey, 'base64')
-  if (key.length !== 32) throw new Error('BIOMETRIC_MASTER_KEY deve ser Base64 de exatamente 32 bytes')
+export function encryptionKey(): Buffer {
+  const key = Buffer.from(config.appEncryptionKey, 'base64')
+  if (key.length !== 32) throw new Error('APP_ENCRYPTION_KEY deve ser Base64 de exatamente 32 bytes')
   return key
 }

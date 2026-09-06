@@ -84,8 +84,10 @@ fun AdminHomeScreenV2(
     val collaborators = summary?.colaboradoresAtivos ?: state.colaboradores.size
     val activeSupervisors = summary?.supervisoresAtivos
         ?: state.usuarios.count { it.ativo && it.perfil == "SUPERVISOR" }
-    val pendingFaces = summary?.rostosPendentes ?: state.colaboradores.count { !it.rostoCadastrado }
-    val registeredFaces = (collaborators - pendingFaces).coerceAtLeast(0)
+    // Quantas pessoas estão fora agora. Não é pendência de configuração —
+    // é o pulso da operação, e substitui o antigo contador de rostos por cadastrar.
+    val emPausaAgora = summary?.codigosEmUso ?: state.colaboradores.count { it.emPausa }
+    val codigosPendentes = summary?.codigosPendentes ?: 0
     val activeDevices = summary?.dispositivosAtivos ?: 0
     val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
     val online = state.erro == null
@@ -318,7 +320,7 @@ fun AdminHomeScreenV2(
         val visibleLive = if (showAllLive) filteredItems else filteredItems.take(livePreviewLimit)
         val historyPreviewLimit = if (responsive.isExpanded) 5 else 3
         val visibleHistory = if (showAllHistory) sortedHistory else sortedHistory.take(historyPreviewLimit)
-        val hasPendingConfiguration = pendingFaces > 0 || devicesWithoutPin > 0 || activeSupervisors == 0
+        val hasPendingConfiguration = devicesWithoutPin > 0 || activeSupervisors == 0
 
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
@@ -344,7 +346,6 @@ fun AdminHomeScreenV2(
                 item("configuration-status") {
                     if (hasPendingConfiguration) {
                         val pendingReasons = buildList {
-                            if (pendingFaces > 0) add("$pendingFaces pessoa(s) sem biometria cadastrada")
                             if (devicesWithoutPin > 0) add("$devicesWithoutPin dispositivo(s) sem PIN configurado")
                             if (activeSupervisors == 0) add("nenhum supervisor ativo")
                         }
@@ -358,7 +359,7 @@ fun AdminHomeScreenV2(
                     } else if (collaborators > 0) {
                         PcStateBanner(
                             title = "Configuração em dia",
-                            supportingText = "Equipe, biometria, supervisão e dispositivos não apresentam pendências de configuração.",
+                            supportingText = "Equipe, supervisão e dispositivos não apresentam pendências de configuração.",
                             tone = PontoCafeTone.SUCCESS,
                         )
                     }
@@ -382,9 +383,9 @@ fun AdminHomeScreenV2(
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 AdminHomeQuickAction(
-                                    title = "Autorizar",
+                                    title = "Códigos",
                                     icon = Icons.Default.Coffee,
-                                    onClick = viewModel::abrirAutorizacao,
+                                    onClick = viewModel::abrirCodigos,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 AdminHomeQuickAction(
@@ -405,9 +406,9 @@ fun AdminHomeScreenV2(
                                 modifier = Modifier.weight(1f),
                             )
                             AdminHomeQuickAction(
-                                title = "Autorizar",
+                                title = "Códigos",
                                 icon = Icons.Default.Coffee,
-                                onClick = viewModel::abrirAutorizacao,
+                                onClick = viewModel::abrirCodigos,
                                 modifier = Modifier.weight(1f),
                             )
                             AdminHomeQuickAction(
@@ -447,9 +448,9 @@ fun AdminHomeScreenV2(
 
                             AdminHomeReadinessPanel(
                                 collaborators = collaborators,
-                                registeredFaces = registeredFaces,
+                                emPausaAgora = emPausaAgora,
                                 activeSupervisors = activeSupervisors,
-                                pendingFaces = pendingFaces,
+                                codigosPendentes = codigosPendentes,
                                 devicesWithoutPin = devicesWithoutPin,
                                 onPeopleClick = viewModel::abrirColaboradores,
                                 onDevicesClick = onDevicesClick,
@@ -482,9 +483,9 @@ fun AdminHomeScreenV2(
                     item("readiness") {
                         AdminHomeReadinessPanel(
                             collaborators = collaborators,
-                            registeredFaces = registeredFaces,
+                            emPausaAgora = emPausaAgora,
                             activeSupervisors = activeSupervisors,
-                            pendingFaces = pendingFaces,
+                            codigosPendentes = codigosPendentes,
                             devicesWithoutPin = devicesWithoutPin,
                             onPeopleClick = viewModel::abrirColaboradores,
                             onDevicesClick = onDevicesClick,
@@ -700,9 +701,9 @@ private fun AdminHomeAttentionPanel(
 @Composable
 private fun AdminHomeReadinessPanel(
     collaborators: Int,
-    registeredFaces: Int,
+    emPausaAgora: Int,
     activeSupervisors: Int,
-    pendingFaces: Int,
+    codigosPendentes: Int,
     devicesWithoutPin: Int,
     onPeopleClick: () -> Unit,
     onDevicesClick: () -> Unit,
@@ -726,10 +727,10 @@ private fun AdminHomeReadinessPanel(
 
             if (collaborators > 0) {
                 ThinProgressSummary(
-                    registeredFaces,
+                    emPausaAgora,
                     collaborators,
-                    "Reconhecimento facial",
-                    "$registeredFaces de $collaborators colaboradores com rosto cadastrado",
+                    "Em pausa agora",
+                    "$emPausaAgora de $collaborators colaboradores estão no café neste momento",
                 )
             }
 
@@ -751,13 +752,13 @@ private fun AdminHomeReadinessPanel(
                 )
             }
 
-            if (pendingFaces > 0) {
+            if (codigosPendentes > 0) {
                 OperationalAlertCard(
-                    "$pendingFaces rosto(s) aguardando cadastro",
-                    "Esses colaboradores ainda não conseguem utilizar reconhecimento facial.",
+                    "$codigosPendentes código(s) aguardando saída",
+                    "Foram emitidos e ainda não foram apresentados no quiosque.",
                     "Abrir Pessoas",
                     onPeopleClick,
-                    PontoCafeTone.WARNING,
+                    PontoCafeTone.INFO,
                 )
             }
             if (devicesWithoutPin > 0) {
@@ -772,16 +773,16 @@ private fun AdminHomeReadinessPanel(
             if (activeSupervisors == 0) {
                 OperationalAlertCard(
                     "Nenhum Supervisor ativo",
-                    "Cadastre uma conta de Supervisor para acompanhamento e autorizações.",
+                    "Cadastre uma conta de Supervisor para acompanhar a operação e emitir códigos.",
                     "Cadastrar Supervisor",
                     onNewSupervisor,
                     PontoCafeTone.INFO,
                 )
             }
-            if (pendingFaces == 0 && devicesWithoutPin == 0 && activeSupervisors > 0) {
+            if (devicesWithoutPin == 0 && activeSupervisors > 0) {
                 PcStateBanner(
                     title = "Tudo pronto para operar",
-                    supportingText = "Não há pendências de biometria, dispositivo ou supervisão.",
+                    supportingText = "Não há pendências de dispositivo ou supervisão.",
                     tone = PontoCafeTone.SUCCESS,
                 )
             }

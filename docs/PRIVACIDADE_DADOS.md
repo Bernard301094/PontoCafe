@@ -1,145 +1,74 @@
-# Ponto Café — privacidade e governança biométrica
+# Ponto Café — privacidade e governança de dados
 
-Este documento registra os controles técnicos esperados para a versão 1.0 do Ponto Café. Ele complementa, mas não substitui, a análise jurídica e as políticas internas aplicáveis ao uso de biometria no ambiente de trabalho.
+Este documento registra os controles técnicos esperados para o Ponto Café. Ele complementa, mas não substitui, a análise jurídica e as políticas internas aplicáveis.
+
+## O que mudou, e por quê importa aqui
+
+Até a versão anterior o Ponto identificava a pessoa pelo rosto: capturava a face na câmera do quiosque, derivava um *embedding* e o comparava contra um catálogo de templates cifrados. Todo este documento existia para governar esse dado.
+
+**Esse dado deixou de existir.** A liberação da pausa passou a ser um código de 6 caracteres emitido pelo Supervisor, e a migração `012_access_codes.sql` apaga `templates_faciais` e `verificacoes_faciais`. O APK não declara mais `android.permission.CAMERA`, não empacota modelo facial e não depende de CameraX, ML Kit ou TFLite.
+
+A consequência para privacidade é direta e vale registrar: o sistema deixou de tratar dado biométrico — a categoria mais sensível que ele manipulava — e passou a tratar um passe operacional de curta duração. O que se ganha em risco residual, perde-se em prova de identidade: um código pode ser passado adiante, um rosto não. Essa troca foi deliberada.
 
 ## Princípios técnicos
 
-1. **Finalidade definida:** a biometria é utilizada para confirmar a identidade no fluxo de pausa do café e para administração/calibração autorizada.
-2. **Minimização:** armazenar e transmitir somente o necessário para a finalidade técnica.
-3. **Separação de finalidade:** avatar visual não é template biométrico e não participa do reconhecimento.
-4. **Menor privilégio:** ações de gestão e diagnóstico exigem perfis autorizados no backend.
-5. **Retenção controlada:** templates de colaboradores desativados obedecem à política configurada; o valor padrão atual é 90 dias, podendo ser alterado por configuração do backend.
-6. **Auditabilidade:** alterações relevantes de biometria, usuários e dispositivos devem deixar trilha de auditoria sem expor o dado biométrico bruto.
+1. **Finalidade definida:** o código de acesso existe para autorizar uma pausa de café e registrar a saída e o retorno correspondentes.
+2. **Minimização:** armazenar e transmitir somente o necessário para essa finalidade.
+3. **Menor privilégio:** emitir e cancelar códigos exige sessão autenticada de Admin ou Supervisor; o quiosque nunca lê um código, apenas o compara.
+4. **Retenção controlada:** códigos esgotados são removidos após a política configurada (padrão 90 dias). Um código com saída registrada e sem retorno **nunca** é removido — é a única coisa que ainda permite fechar aquela pausa.
+5. **Auditabilidade:** emissão, cancelamento e tentativas inválidas deixam trilha de auditoria nominal.
 
-## Dados biométricos
+## O código de acesso
 
-O fluxo facial trabalha com embeddings/templates derivados da captura de câmera. A imagem capturada para reconhecimento/calibração não deve ser usada como telemetria nem incluída em logs operacionais.
+- Alfabeto Crockford Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), 6 caracteres — cerca de 1,07 mil milhões de combinações.
+- Preso a um colaborador desde a emissão. Um código correto apresentado com o nome errado é recusado.
+- Vale **uma** saída e **um** retorno. Depois disso está esgotado.
+- A janela de validade (`ACCESS_CODE_TTL_SECONDS`, padrão 15 min) governa apenas a **saída**. Uma vez usado para sair, o código continua válido para o retorno sem prazo: negar o retorno deixaria a pausa aberta para sempre e obrigaria a um fecho manual.
+- Emissão bloqueada enquanto a pessoa está em pausa — dois códigos vivos deixariam em aberto qual deles fecha a jornada.
 
-O cadastro, identificação e calibração devem manter as seguintes garantias:
+### Sobre guardar o código em texto puro
 
-- não escrever embedding bruto em logs;
-- não incluir foto ou embedding na telemetria de saúde;
-- não incluir embedding em mensagens de erro;
-- não usar avatar como entrada do FaceNet;
-- não reduzir thresholds silenciosamente para aumentar taxa de aceite;
-- preservar modelo/normalização compatíveis com os templates cadastrados enquanto não existir migração biométrica deliberada.
+`codigos_acesso.codigo` é gravado em claro, e isso é uma decisão, não um descuido. O código não é credencial de conta: é um passe operacional de curta duração, preso a uma pessoa, que o Supervisor precisa poder reler para ditar de novo a quem esqueceu. Guardá-lo como hash tornaria a tela de códigos ativos inútil sem ganho proporcional — quem tiver acesso de leitura ao banco já tem acesso a toda a jornada de todos.
 
-## Journal de integridade 1.0
+Só rotas autenticadas de Admin/Supervisor leem essa coluna. Nenhuma rota de dispositivo devolve o código; o quiosque envia o que a pessoa digitou e o servidor compara em tempo constante (`secureCodeEquals`).
 
-O `PontoOperationJournal` existe para recuperar uma mutação de Ponto com resultado de rede incerto. Ele pode persistir:
+### Força bruta
 
-- UUID da operação;
-- identificador do colaborador;
-- fingerprint SHA-256 do embedding já processado em RAM ou etiqueta da ação;
-- timestamp;
-- estado de incerteza.
+O espaço de 32^6 torna adivinhação cega irrelevante. O que o limite de tentativas (`ACCESS_CODE_MAX_ATTEMPTS`, padrão 8 numa janela de 5 min por colaborador) trava é o cenário realista: alguém testando, em minutos, os poucos códigos que viu de relance no papel do Supervisor. Cada tentativa recusada é registada em auditoria com dispositivo e motivo.
 
-Ele **não deve persistir**:
+## A tolerância de 1 minuto
 
-- fotografia;
-- embedding facial bruto;
-- PIN;
-- senha;
-- token de sessão;
-- token do dispositivo.
+`pausas_cafe.carencia_segundos` guarda, por linha, quantos segundos correm antes de o limite começar a contar. Com o padrão de 15 min de café e 60 s de tolerância, a pessoa fica de facto 16 minutos fora, e o relatório mostra as duas leituras separadas: `duracao_segundos` (tempo total fora) e `tempo_contado_segundos` (o que se compara ao limite).
 
-O journal é cifrado com AES-GCM e chave protegida pelo Android Keystore.
+O valor fica na linha, e não só na configuração, para que um relatório de seis meses atrás seja lido com a tolerância que realmente valeu naquele dia.
 
-## Telemetria de saúde
+## Journal de integridade
 
-A telemetria operacional do dispositivo é restrita a metadados técnicos como:
+O `PontoOperationJournal` existe para recuperar uma mutação de Ponto com resultado de rede incerto. Ele persiste:
 
-- versão do app;
-- modelo do aparelho;
-- versão Android;
-- contadores/timestamps de crash;
-- contadores/timestamps de travamento prolongado.
+- um UUID de operação;
+- o identificador do colaborador;
+- um SHA-256 do código digitado — nunca o código em claro;
+- a marca de tempo e o estado de incerteza.
 
-É proibido adicionar a esse payload:
+Quem ler este diário encontra a prova de que a mesma tentativa se repetiu, e não o passe para sair.
 
-- foto;
-- embedding;
-- template facial;
-- PIN;
-- senha;
-- token de ativação;
-- token de sessão;
-- chave do banco;
-- `BIOMETRIC_MASTER_KEY`.
+## Fila offline
 
-## Diagnóstico biométrico
+Sem rede, o quiosque não tem como validar um código — só o servidor conhece os códigos vivos. Ele aceita o registo, guarda o código digitado junto com a hora real do quiosque, e deixa a validação para a sincronização.
 
-O diagnóstico pode apresentar informações derivadas necessárias para medir precisão, por exemplo:
+A consequência aceite é que um código errado digitado offline só é recusado mais tarde. O evento fica com estado `ERRO` e visível na central de sincronismo, em vez de silenciosamente virar uma pausa que ninguém autorizou.
 
-- score do candidato correto;
-- score do concorrente mais próximo;
-- margem;
-- threshold;
-- Top-1 accuracy;
-- FRR;
-- FAR;
-- quantidade de amostras/comparações.
+## Telemetria
 
-Esses dados devem ser exibidos de forma agregada ou vinculada a uma calibração autorizada. A tela não precisa armazenar a imagem de calibração para produzir o resultado.
+A telemetria técnica (`APP_HEALTH`, `DEVICE_HEARTBEAT`) continua limitada a versão do app, modelo do aparelho, versão do Android e contadores de crash/stall. Nunca inclui código de acesso, PIN, senha ou token.
 
-## Retenção e exclusão
+## Retenção configurável
 
-A política técnica deve permitir:
+| Variável | Padrão | O que remove |
+| --- | --- | --- |
+| `ACCESS_CODE_RETENTION_DAYS` | 90 | Códigos cancelados, já usados no retorno, ou expirados sem uso. Também as tentativas inválidas registadas em auditoria. |
+| `PONTO_OPERATION_RETENTION_DAYS` | 30 | Diário idempotente de operações do Ponto. |
+| `DEVICE_HEALTH_RETENTION_DAYS` | 30 | Telemetria técnica `APP_HEALTH` / `DEVICE_HEARTBEAT`. |
 
-- excluir a biometria de um colaborador por ação administrativa autorizada;
-- revogar verificações temporárias relacionadas;
-- executar limpeza automática de templates retidos após o prazo configurado;
-- preservar histórico operacional quando necessário para auditoria sem conservar indefinidamente o template biométrico.
-
-A exclusão de um colaborador não deve apagar silenciosamente registros históricos de Ponto necessários à rastreabilidade.
-
-## Controle de acesso
-
-- Administração de usuários, dispositivos, auditoria e políticas: `ADMIN`.
-- Funções operacionais delegadas: `SUPERVISOR` conforme rotas autorizadas.
-- O dispositivo de Ponto usa token próprio e não recebe credenciais administrativas.
-- PIN de desbloqueio é validado de forma segura e não deve ser armazenado em texto puro.
-- Desativar/rotacionar um dispositivo deve invalidar a credencial anterior conforme o fluxo previsto.
-
-## Logs e observabilidade
-
-Logs podem conter request ID, códigos de erro, tempos e identificadores técnicos necessários para investigação. Devem ser redigidos para evitar segredos e dados biométricos.
-
-Em especial, nunca registrar intencionalmente:
-
-```text
-DATABASE_URL
-BIOMETRIC_MASTER_KEY
-CODE_PEPPER
-senha
-PIN
-Authorization bearer
-X-Device-Token
-embedding completo
-foto facial
-```
-
-## Incidente de privacidade/segurança
-
-Ao suspeitar de exposição indevida:
-
-1. preservar logs e request IDs sem reproduzir o segredo exposto;
-2. revogar tokens/sessões afetados;
-3. rotacionar segredo comprometido conforme necessidade;
-4. limitar temporariamente a superfície afetada;
-5. identificar quais dados e período foram envolvidos;
-6. registrar correção e testes que impedem recorrência;
-7. seguir o procedimento interno/jurídico aplicável para comunicação e resposta ao incidente.
-
-## Gate da versão 1.0
-
-Antes de declarar a Release estável, confirmar que:
-
-- telemetria não contém biometria ou credenciais;
-- diagnóstico não grava fotos;
-- journal idempotente não guarda embedding bruto;
-- exclusão/retensão biométrica funciona;
-- acesso Admin/Supervisor é aplicado no servidor;
-- dispositivo revogado perde acesso;
-- logs de erro redigem credenciais;
-- nenhum segredo está versionado no repositório.
+A limpeza corre no cron diário do Worker (`scheduled`), nunca no caminho de uma requisição de Ponto.

@@ -67,9 +67,7 @@ fun SupervisorAreaShell(
         return
     }
 
-    val transientMessage = state.mensagem?.takeUnless { message ->
-        message.startsWith("Rosto de ") && message.contains("cadastrado com 5 amostras")
-    }
+    val transientMessage = state.mensagem
     LaunchedEffect(transientMessage) {
         val message = transientMessage ?: return@LaunchedEffect
         delay(4_000)
@@ -116,9 +114,18 @@ fun SupervisorAreaShell(
             when (destination) {
                 SupervisorDestination.LOGIN -> SupervisorLoginScreenV2(viewModel, onClose)
                 SupervisorDestination.NOVO_COLABORADOR -> SupervisorNewCollaboratorPersistentScreen(viewModel)
-                SupervisorDestination.BIOMETRIA -> SupervisorBiometricEnrollmentScreenV2(viewModel)
                 SupervisorDestination.HISTORICO -> SupervisorHistoryScreenV2(viewModel)
-                SupervisorDestination.AUTORIZACAO -> SupervisorAuthorizationScreen(viewModel)
+                SupervisorDestination.CODIGOS -> AccessCodeScreen(
+                    colaboradores = state.colaboradores,
+                    codigosAtivos = state.codigosAtivos,
+                    codigoEmitido = state.codigoEmitido,
+                    carregando = state.carregando,
+                    erro = state.erro,
+                    onGerar = viewModel::emitirCodigo,
+                    onCancelar = viewModel::cancelarCodigo,
+                    onFechar = viewModel::limparCodigoEmitido,
+                    onAtualizar = viewModel::atualizarCodigos,
+                )
                 SupervisorDestination.AO_VIVO,
                 SupervisorDestination.COLABORADORES,
                 SupervisorDestination.RELATORIOS -> Unit
@@ -211,10 +218,6 @@ fun SupervisorAreaShell(
                 }
             }
 
-            BiometricRegistrationSuccessFeedback(
-                message = state.mensagem,
-                onDismiss = viewModel::limparAviso,
-            )
         }
     }
 }

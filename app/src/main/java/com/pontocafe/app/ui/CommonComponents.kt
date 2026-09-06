@@ -47,7 +47,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.pontocafe.app.PontoCafeViewModel
 
 enum class PontoCafeTone { NEUTRAL, SUCCESS, WARNING, INFO, DANGER }
@@ -289,38 +288,19 @@ fun InitialAvatar(
     }
 }
 
+/**
+ * Compatibilidade: o Ponto deixou de guardar fotos junto com o reconhecimento
+ * facial, então o avatar passou a ser sempre as iniciais. A assinatura mantém
+ * o parâmetro [avatarUrl] para não obrigar cada chamada a mudar; ele é ignorado.
+ */
 @Composable
 fun CollaboratorAvatar(
     name: String,
-    avatarUrl: String?,
+    @Suppress("UNUSED_PARAMETER") avatarUrl: String? = null,
     modifier: Modifier = Modifier,
     avatarSize: Dp = 44.dp,
 ) {
-    val hasAvatar = !avatarUrl.isNullOrBlank()
-    Box(
-        modifier = modifier
-            .size(avatarSize)
-            .clearAndSetSemantics {
-                contentDescription = if (hasAvatar) {
-                    "Foto de perfil de $name"
-                } else {
-                    "Sem foto de perfil para $name; exibindo iniciais"
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        // O fallback já fica desenhado por baixo. Se a rede estiver lenta ou o
-        // arquivo não existir, o usuário nunca vê um espaço vazio.
-        InitialAvatar(name = name, avatarSize = avatarSize)
-        if (hasAvatar) {
-            AsyncImage(
-                model = avatarUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
-        }
-    }
+    InitialAvatar(name = name, modifier = modifier, avatarSize = avatarSize)
 }
 
 @Composable

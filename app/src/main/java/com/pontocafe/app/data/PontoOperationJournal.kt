@@ -5,7 +5,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.google.gson.Gson
-import java.nio.ByteBuffer
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.util.UUID
@@ -17,7 +16,7 @@ import javax.crypto.spec.GCMParameterSpec
 private data class PendingPontoOperation(
     val operationId: String,
     val collaboratorId: String,
-    val embeddingFingerprint: String,
+    val operationFingerprint: String,
     val createdAtMillis: Long,
     val uncertain: Boolean = false,
 )
@@ -29,9 +28,9 @@ private data class PontoOperationJournalPayload(
 /**
  * Diário mínimo e cifrado de operações críticas do Ponto.
  *
- * Não guarda foto, embedding, token de sessão, PIN ou senha. O único vínculo
- * biométrico persistido é um SHA-256 dos bits do embedding já calculado em RAM.
- * Operações legadas de INICIAR/FINALIZAR usam apenas uma etiqueta de ação.
+ * Não guarda código em claro, token de sessão, PIN ou senha: o único vínculo
+ * persistido é um SHA-256 do código de acesso digitado, suficiente para
+ * reconhecer a repetição da mesma tentativa e inútil para quem o leia.
  *
  * As gravações usam commit() intencionalmente: o UUID precisa estar fisicamente
  * persistido ANTES da mutação de rede. A frequência é baixa (uma escrita por
@@ -41,17 +40,20 @@ class PontoOperationJournal(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val gson = Gson()
 
+    /**
+     * O código de acesso é o que identifica a tentativa.
+     *
+     * A impressão digital é um SHA-256 do código, nunca o código em claro: se
+     * alguém ler este diário, encontra a prova de que a mesma tentativa se
+     * repetiu, e não o passe para sair. Repetir o mesmo código para a mesma
+     * pessoa reaproveita o UUID — é exactamente o caso "toquei duas vezes" e
+     * tem de continuar a ser uma única batida.
+     */
     @Synchronized
-    fun prepare(collaboratorId: String, embedding: FloatArray): String {
-        require(embedding.isNotEmpty() && embedding.all { it.isFinite() })
-        return prepareInternal(collaboratorId, fingerprint(embedding))
-    }
-
-    @Synchronized
-    fun prepareAction(collaboratorId: String, action: String): String {
-        val normalized = action.trim().uppercase()
-        require(normalized == "INICIAR" || normalized == "FINALIZAR")
-        return prepareInternal(collaboratorId, "action:$normalized")
+    fun prepareCode(collaboratorId: String, code: String): String {
+        val normalized = code.trim().uppercase()
+        require(normalized.isNotBlank())
+        return prepareInternal(collaboratorId, fingerprint("codigo:$normalized"))
     }
 
     private fun prepareInternal(collaboratorId: String, operationFingerprint: String): String {
@@ -63,9 +65,9 @@ class PontoOperationJournal(context: Context) {
         val active = current.operations.filter { now - it.createdAtMillis <= OPERATION_TTL_MILLIS }
         val pruned = active.size != current.operations.size
 
-        // Uma resposta incerta tem prioridade mesmo se uma nova captura produzir
-        // embedding ligeiramente diferente. Primeiro precisamos reconciliar a
-        // mutação que pode já ter sido COMMITada pelo servidor.
+        // Uma resposta incerta tem prioridade mesmo que a pessoa digite outro
+        // código. Primeiro precisamos reconciliar a mutação que pode já ter sido
+        // COMMITada pelo servidor.
         val uncertain = active.firstOrNull { it.collaboratorId == collaboratorId && it.uncertain }
         if (uncertain != null) {
             if (pruned) write(PontoOperationJournalPayload(active))
@@ -73,7 +75,7 @@ class PontoOperationJournal(context: Context) {
         }
 
         val sameAttempt = active.firstOrNull {
-            it.collaboratorId == collaboratorId && it.embeddingFingerprint == operationFingerprint
+            it.collaboratorId == collaboratorId && it.operationFingerprint == operationFingerprint
         }
         if (sameAttempt != null) {
             if (pruned) write(PontoOperationJournalPayload(active))
@@ -83,7 +85,7 @@ class PontoOperationJournal(context: Context) {
         val operation = PendingPontoOperation(
             operationId = UUID.randomUUID().toString(),
             collaboratorId = collaboratorId,
-            embeddingFingerprint = operationFingerprint,
+            operationFingerprint = operationFingerprint,
             createdAtMillis = now,
         )
         val next = active.filterNot { it.collaboratorId == collaboratorId } + operation
@@ -145,14 +147,9 @@ class PontoOperationJournal(context: Context) {
         }
     }
 
-    private fun fingerprint(embedding: FloatArray): String {
+    private fun fingerprint(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteBuffer.allocate(Float.SIZE_BYTES)
-        embedding.forEach { value ->
-            buffer.clear()
-            buffer.putInt(java.lang.Float.floatToIntBits(value))
-            digest.update(buffer.array())
-        }
+        digest.update(value.toByteArray(Charsets.UTF_8))
         return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 
@@ -203,7 +200,7 @@ class PontoOperationJournal(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "pontocafe_ponto_operations_secure"
-        private const val PAYLOAD_KEY = "operation_journal"
+        private const val PAYLOAD_KEY = "operation_journal_v2"
         private const val KEY_ALIAS = "pontocafe_ponto_operations_key"
         private const val OPERATION_TTL_MILLIS = 30L * 60L * 1000L
         private const val MAX_OPERATIONS = 32

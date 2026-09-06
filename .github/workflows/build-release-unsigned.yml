@@ -55,25 +55,16 @@ jobs:
           echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
           echo "Building PontoCafe $VERSION_NAME ($VERSION_CODE)"
 
-      - name: Prepare exact FaceNet model
-        shell: bash
-        run: |
-          mkdir -p app/src/main/assets
-          curl -fL --retry 8 --retry-delay 3 \
-            'https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/289bc10420aad15fed99094eee364eb24f908ecc/app/src/main/assets/facenet.tflite' \
-            -o app/src/main/assets/facenet.tflite
-          test "$(git hash-object app/src/main/assets/facenet.tflite)" = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
-
       - name: Unit tests and Release build
         shell: bash
         run: gradle --no-daemon --stacktrace :app:testReleaseUnitTest :app:assembleRelease
 
-      - name: Verify FaceNet inside APK
+      - name: Verify no face-recognition asset inside APK
         shell: bash
         run: |
           INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
           test -f "$INPUT"
-          unzip -l "$INPUT" | grep -q 'assets/facenet.tflite'
+          ! unzip -l "$INPUT" | grep -q 'facenet'
 
       - name: Zipalign Release
         shell: bash

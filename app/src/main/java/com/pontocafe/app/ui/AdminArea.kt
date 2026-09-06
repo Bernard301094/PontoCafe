@@ -140,13 +140,6 @@ fun AdminArea(
                         onBack = reliabilityViewModel::closeDetail,
                     )
                 }
-                ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
-                    BiometricDiagnosticsScreen(
-                        adminViewModel = viewModel,
-                        viewModel = reliabilityViewModel,
-                        onBack = reliabilityViewModel::closeDetail,
-                    )
-                }
                 ReliabilityDestination.SYNC_CENTER -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
                     SyncCenterScreen(
                         viewModel = reliabilityViewModel,
@@ -167,12 +160,11 @@ fun AdminArea(
 
     BackHandler(enabled = state.destination != AdminDestination.LOADING) {
         when (state.destination) {
-            AdminDestination.NEW_COLLABORATOR,
-            AdminDestination.BIOMETRIC_ENROLLMENT -> viewModel.voltarColaboradores()
+            AdminDestination.NEW_COLLABORATOR -> viewModel.voltarColaboradores()
 
             AdminDestination.NEW_ACCOUNT,
             AdminDestination.USER_DETAIL,
-            AdminDestination.AUTHORIZATION,
+            AdminDestination.ACCESS_CODES,
             AdminDestination.AUDIT -> viewModel.voltarHome()
 
             AdminDestination.COLLABORATORS,
@@ -261,7 +253,7 @@ fun AdminArea(
                                 PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
                                     PontoCafeListSkeletonScreen(
                                         title = "Pessoas",
-                                        eyebrow = "Equipe, biometria e acessos",
+                                        eyebrow = "Equipe, códigos e acessos",
                                         rows = 5,
                                         showMetrics = true,
                                     )
@@ -303,10 +295,6 @@ fun AdminArea(
                     }
                 }
 
-                BiometricRegistrationSuccessFeedback(
-                    message = state.mensagem,
-                    onDismiss = viewModel::limparFeedback,
-                )
             }
         }
         return
@@ -342,13 +330,20 @@ fun AdminArea(
             AdminDestination.USER_DETAIL -> PontoCafeResponsivePage(maxContentWidth = 840.dp) {
                 AdminUserDetailScreen(viewModel)
             }
-            AdminDestination.AUTHORIZATION -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
-                AdminAuthorizationScreen(viewModel)
+            AdminDestination.ACCESS_CODES -> PontoCafeResponsivePage(maxContentWidth = 960.dp) {
+                AccessCodeScreen(
+                    colaboradores = state.colaboradores,
+                    codigosAtivos = state.codigosAtivos,
+                    codigoEmitido = state.codigoEmitido,
+                    carregando = state.carregando,
+                    erro = state.erro,
+                    onGerar = viewModel::emitirCodigo,
+                    onCancelar = viewModel::cancelarCodigo,
+                    onFechar = viewModel::limparCodigoEmitido,
+                    onAtualizar = viewModel::atualizarCodigos,
+                )
             }
             AdminDestination.NEW_COLLABORATOR -> AdminNewCollaboratorScreen(viewModel)
-            AdminDestination.BIOMETRIC_ENROLLMENT -> PontoCafeResponsivePage(maxContentWidth = 840.dp) {
-                AdminBiometricEnrollmentScreen(viewModel)
-            }
             AdminDestination.AUDIT -> PontoCafeResponsivePage(maxContentWidth = 1080.dp) {
                 AdminAuditScreen(viewModel)
             }

@@ -4,13 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.pontocafe.app.BuildConfig
-import com.pontocafe.app.avatar.PontoAvatarRuntime
 import java.security.cert.CertPathValidatorException
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody
 import org.json.JSONObject
 import retrofit2.HttpException
@@ -20,7 +17,6 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
-import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -32,14 +28,22 @@ data class PausaSupervisor(
     val inicioLocal: String,
     val fimLocal: String? = null,
     val limiteSegundos: Int,
+    /**
+     * Tolerância que correu antes de o limite começar a contar. Todo cálculo de
+     * "está atrasado?" no Supervisor tem de somar isto ao limite — senão a
+     * pessoa aparece em vermelho um minuto antes da hora.
+     */
+    val carenciaSegundos: Int = 0,
     val foraHorario: Boolean,
     val tempoSegundos: Int? = null,
     val duracaoSegundos: Int? = null,
+    /** Tempo já descontado da carência: é este que se compara ao limite. */
+    val tempoContadoSegundos: Int? = null,
+    val emCarencia: Boolean? = null,
     val excedeuLimite: Boolean? = null,
     val colaboradorId: String,
     val nome: String,
     val setor: String?,
-    val avatarUrl: String? = null,
     val clienteAtualizadoEmMillis: Long = 0L,
 )
 
@@ -76,22 +80,6 @@ data class SupervisorReportResponse(
 data class CollaboratorMutationResponse(
     val ok: Boolean = true,
     val excluido: Boolean? = null,
-    val rostoExcluido: Boolean? = null,
-)
-
-data class AvatarMutationResponse(
-    val ok: Boolean,
-    val colaboradorId: String,
-    val avatarUrl: String? = null,
-    val bytes: Int? = null,
-)
-
-data class CancelAuthorizationRequest(val colaboradorId: String)
-
-data class CancelAuthorizationResponse(
-    val ok: Boolean,
-    val cancelada: Boolean,
-    val id: String,
 )
 
 data class TemporaryPasswordChangeRequest(val newPassword: String)
@@ -112,12 +100,13 @@ interface SupervisorApi {
         @Query("inicio") inicio: String,
         @Query("fim") fim: String,
     ): ResponseBody
-    @POST("supervisor/autorizacoes") suspend fun createAuthorization(
-        @Body body: CreateAuthorizationRequest,
-    ): AuthorizationCreatedResponse
-    @POST("supervisor/autorizacoes/cancelar") suspend fun cancelAuthorization(
-        @Body body: CancelAuthorizationRequest,
-    ): CancelAuthorizationResponse
+    @GET("supervisor/codigos") suspend fun accessCodes(): AccessCodesResponse
+    @POST("supervisor/codigos") suspend fun createAccessCode(
+        @Body body: CreateAccessCodeRequest,
+    ): AccessCodeCreatedResponse
+    @POST("supervisor/codigos/cancelar") suspend fun cancelAccessCode(
+        @Body body: CancelAccessCodeRequest,
+    ): CancelAccessCodeResponse
     // Ambas existem no Worker: finalizar desde 88bc890, iniciar desde a migração
     // 011. Ver backend/src/routes/manual-pause-routes.ts.
     @POST("supervisor/pausas/manual/iniciar") suspend fun iniciarPausaManual(
@@ -128,16 +117,6 @@ interface SupervisorApi {
     ): FinalizarPausaManualResponse
     @GET("gestao/colaboradores") suspend fun collaborators(): ColaboradoresResponse
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
-    @PUT("gestao/colaboradores/{id}/avatar") suspend fun uploadAvatar(
-        @Path("id") id: String,
-        @Body body: okhttp3.RequestBody,
-    ): AvatarMutationResponse
-    @POST("gestao/colaboradores/{id}/avatar/excluir") suspend fun deleteAvatar(@Path("id") id: String): AvatarMutationResponse
-    @PUT("gestao/colaboradores/{id}/biometria") suspend fun saveBiometric(
-        @Path("id") id: String,
-        @Body body: BiometricEnrollmentRequest,
-    ): BiometricEnrollmentResponse
-    @POST("gestao/colaboradores/{id}/biometria/excluir") suspend fun deleteBiometric(@Path("id") id: String): CollaboratorMutationResponse
     @POST("gestao/colaboradores/{id}/excluir") suspend fun deleteCollaborator(@Path("id") id: String): CollaboratorMutationResponse
 }
 
@@ -228,16 +207,17 @@ class SupervisorRepository(
     suspend fun historico(data: String? = null) = api.historico(data).pausas
     suspend fun report(inicio: String, fim: String) = api.report(inicio, fim)
     suspend fun reportCsv(inicio: String, fim: String): ByteArray = api.reportCsv(inicio, fim).bytes()
-    suspend fun createAuthorization(colaboradorId: String, motivo: String) =
-        api.createAuthorization(CreateAuthorizationRequest(colaboradorId, motivo.trim()))
-    suspend fun cancelAuthorization(colaboradorId: String) =
-        api.cancelAuthorization(CancelAuthorizationRequest(colaboradorId))
+    suspend fun accessCodes(): AccessCodesResponse = api.accessCodes()
+    suspend fun createAccessCode(colaboradorId: String, motivo: String?) =
+        api.createAccessCode(CreateAccessCodeRequest(colaboradorId, motivo?.trim()?.ifBlank { null }))
+    suspend fun cancelAccessCode(colaboradorId: String) =
+        api.cancelAccessCode(CancelAccessCodeRequest(colaboradorId))
     suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
         api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
     suspend fun finalizarPausaManual(colaboradorId: String, motivo: String) =
         api.finalizarPausaManual(FinalizarPausaManualRequest(colaboradorId, motivo.trim()))
     suspend fun collaborators() = api.collaborators().colaboradores
-        .sortedWith(compareBy<Colaborador> { it.rostoCadastrado }.thenBy { it.nome.lowercase() })
+        .sortedBy { it.nome.lowercase() }
 
     suspend fun createCollaborator(name: String, sector: String?, shift: String?) = api.createCollaborator(
         CreateCollaboratorRequest(
@@ -247,34 +227,6 @@ class SupervisorRepository(
         ),
     )
 
-    suspend fun uploadAvatar(collaboratorId: String, webp: ByteArray): AvatarMutationResponse {
-        require(webp.isNotEmpty()) { "Avatar vazio." }
-        val body = webp.toRequestBody("image/webp".toMediaType())
-        return api.uploadAvatar(collaboratorId, body).also { result ->
-            PontoAvatarRuntime.avatarUpdated(collaboratorId, result.avatarUrl)
-        }
-    }
-
-    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse =
-        api.deleteAvatar(collaboratorId).also { PontoAvatarRuntime.avatarUpdated(collaboratorId, null) }
-
-    suspend fun saveBiometric(
-        collaboratorId: String,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
-        samples: List<FloatArray> = emptyList(),
-    ) = api.saveBiometric(
-        collaboratorId,
-        BiometricEnrollmentRequest(
-            embedding = embedding.toList(),
-            modelo = model,
-            versaoModelo = modelVersion,
-            amostras = samples.takeIf { it.isNotEmpty() }?.map { it.toList() },
-        ),
-    )
-
-    suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
     suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
 
     suspend fun signOutSupervisor() {

@@ -15,7 +15,7 @@ const supervisorShell = readFileSync(
   'utf8',
 )
 const kiosk = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
   'utf8',
 )
 

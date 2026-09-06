@@ -1,5 +1,11 @@
 # Auditoria UI/UX e responsividade — PontoCafe
 
+> **Documento histórico.** Este inventário descreve a interface anterior ao
+> código de acesso: ele fala de câmera, guia facial, liveness e cadastro de
+> rosto, telas que deixaram de existir. As conclusões sobre responsividade,
+> breakpoints e componentes compartilhados continuam válidas; o mapa de telas
+> não. Ver `README.md` para o fluxo atual.
+
 > Inventário inicial registrado antes de qualquer alteração visual nesta branch.
 > Branch de trabalho: `agent/ui-ux-responsive-redesign`.
 

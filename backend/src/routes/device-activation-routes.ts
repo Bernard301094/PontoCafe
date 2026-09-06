@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
-import { biometricKey, config } from '../config.js'
+import { config, encryptionKey } from '../config.js'
 import { query } from '../db.js'
 import {
   decryptDeviceRegistrationToken,
@@ -82,7 +82,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
         fingerprint,
         deviceId,
       }
-      const encryptedToken = encryptDeviceRegistrationToken(token, biometricKey(), registrationContext)
+      const encryptedToken = encryptDeviceRegistrationToken(token, encryptionKey(), registrationContext)
 
       stage = 'DEVICE_ATOMIC_CREATE'
       const created = await query<DeviceRegistrationRow>(
@@ -224,7 +224,7 @@ deviceActivationRoutes.post('/device-activation', async (c) => {
           registration.token_ciphertext,
           registration.token_iv,
           registration.token_auth_tag,
-          biometricKey(),
+          encryptionKey(),
           {
             idempotencyKey: registration.idempotency_key,
             actorId: registration.ator_auth_id,

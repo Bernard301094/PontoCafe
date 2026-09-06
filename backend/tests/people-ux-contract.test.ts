@@ -20,11 +20,11 @@ test('Pessoas usa a experiência V4 no shell administrativo', () => {
   assert.match(adminArea, /AdminPeopleScreenV4\(/)
 })
 
-test('Pessoas separa colaboradores de acessos e mantém pendências como filtro', () => {
+test('Pessoas separa colaboradores de acessos e filtra quem está em pausa', () => {
   assert.match(screen, /AdminPeopleSection\.COLLABORATORS/)
   assert.match(screen, /AdminPeopleSection\.ACCESS/)
-  assert.match(screen, /PeopleFaceFilter\.PENDING/)
-  assert.match(screen, /pendingFaces/)
+  assert.match(screen, /PeopleFaceFilter\.EM_PAUSA/)
+  assert.match(screen, /emPausaAgora/)
   assert.match(screen, /PeopleSectionSwitch/)
 })
 

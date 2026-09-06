@@ -1,22 +1,20 @@
-import type { AvatarBucket } from './avatar-storage.js'
-
 type WorkerEnv = {
   HYPERDRIVE?: { connectionString: string }
   CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string }
-  AVATARS?: AvatarBucket
   BETTER_AUTH_SECRET?: string
   CODE_PEPPER?: string
+  /** Nome novo da chave de cifra. `BIOMETRIC_MASTER_KEY` continua aceite. */
+  APP_ENCRYPTION_KEY?: string
   BIOMETRIC_MASTER_KEY?: string
   FIRST_ADMIN_SETUP_KEY?: string
   APP_TIMEZONE?: string
   SESSION_TTL_HOURS?: string
-  FACE_MATCH_THRESHOLD?: string
-  FACE_IDENTIFICATION_MARGIN?: string
-  FACE_ENROLLMENT_DUPLICATE_THRESHOLD?: string
-  AUTHORIZATION_TTL_SECONDS?: string
-  FACE_VERIFICATION_TTL_SECONDS?: string
+  ACCESS_CODE_TTL_SECONDS?: string
+  ACCESS_CODE_MAX_ATTEMPTS?: string
+  ACCESS_CODE_ATTEMPT_WINDOW_SECONDS?: string
+  COFFEE_GRACE_SECONDS?: string
   OFFLINE_MAX_EVENT_AGE_HOURS?: string
-  BIOMETRIC_RETENTION_DAYS?: string
+  ACCESS_CODE_RETENTION_DAYS?: string
   PONTO_OPERATION_RETENTION_DAYS?: string
   DEVICE_HEALTH_RETENTION_DAYS?: string
   DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS?: string
@@ -37,8 +35,13 @@ function copyTextBinding(env: WorkerEnv, name: keyof WorkerEnv) {
 }
 
 function assertRequiredRuntimeConfig() {
-  const required = ['DATABASE_URL', 'CODE_PEPPER', 'BIOMETRIC_MASTER_KEY'] as const
-  const missing = required.filter((name) => !process.env[name]?.trim())
+  const required = ['DATABASE_URL', 'CODE_PEPPER'] as const
+  const missing: string[] = required.filter((name) => !process.env[name]?.trim())
+  // Uma das duas basta: ambientes já implantados continuam com a variável
+  // antiga, novos podem usar só a nova.
+  if (!process.env.APP_ENCRYPTION_KEY?.trim() && !process.env.BIOMETRIC_MASTER_KEY?.trim()) {
+    missing.push('APP_ENCRYPTION_KEY')
+  }
   if (missing.length > 0) {
     throw new Error(`Configuração ausente: ${missing.join(', ')}`)
   }
@@ -47,17 +50,17 @@ function assertRequiredRuntimeConfig() {
 const textBindingNames = [
   'BETTER_AUTH_SECRET',
   'CODE_PEPPER',
+  'APP_ENCRYPTION_KEY',
   'BIOMETRIC_MASTER_KEY',
   'FIRST_ADMIN_SETUP_KEY',
   'APP_TIMEZONE',
   'SESSION_TTL_HOURS',
-  'FACE_MATCH_THRESHOLD',
-  'FACE_IDENTIFICATION_MARGIN',
-  'FACE_ENROLLMENT_DUPLICATE_THRESHOLD',
-  'AUTHORIZATION_TTL_SECONDS',
-  'FACE_VERIFICATION_TTL_SECONDS',
+  'ACCESS_CODE_TTL_SECONDS',
+  'ACCESS_CODE_MAX_ATTEMPTS',
+  'ACCESS_CODE_ATTEMPT_WINDOW_SECONDS',
+  'COFFEE_GRACE_SECONDS',
   'OFFLINE_MAX_EVENT_AGE_HOURS',
-  'BIOMETRIC_RETENTION_DAYS',
+  'ACCESS_CODE_RETENTION_DAYS',
   'PONTO_OPERATION_RETENTION_DAYS',
   'DEVICE_HEALTH_RETENTION_DAYS',
   'DEVICE_REGISTRATION_IDEMPOTENCY_TTL_SECONDS',
@@ -67,7 +70,7 @@ const textBindingNames = [
 ] as const satisfies ReadonlyArray<keyof WorkerEnv>
 
 function safeBindingDiagnostics(env: WorkerEnv) {
-  const known = ['HYPERDRIVE', 'AVATARS', 'CF_VERSION_METADATA', ...textBindingNames] as const
+  const known = ['HYPERDRIVE', 'CF_VERSION_METADATA', ...textBindingNames] as const
 
   return {
     nomes: Object.keys(env).sort(),
@@ -124,7 +127,8 @@ async function runScheduledMaintenance(env: WorkerEnv): Promise<void> {
   const { withRequestDatabase } = await import('./db.js')
   await withRequestDatabase(connectionString, async () => {
     const {
-      cleanupExpiredBiometrics,
+      cleanupAccessCodeAttempts,
+      cleanupExpiredAccessCodes,
       cleanupExpiredDeviceHealthTelemetry,
       cleanupExpiredDeviceRegistrations,
       cleanupExpiredPontoOperations,
@@ -132,13 +136,15 @@ async function runScheduledMaintenance(env: WorkerEnv): Promise<void> {
     const deviceRegistrations = await cleanupExpiredDeviceRegistrations()
     const pontoOperations = await cleanupExpiredPontoOperations()
     const deviceHealth = await cleanupExpiredDeviceHealthTelemetry()
-    const biometrics = await cleanupExpiredBiometrics()
+    const accessCodes = await cleanupExpiredAccessCodes()
+    const accessCodeAttempts = await cleanupAccessCodeAttempts()
     console.log(JSON.stringify({
       evento: 'scheduled_maintenance',
       deviceRegistrations,
       pontoOperations,
       deviceHealth,
-      biometrics,
+      accessCodes,
+      accessCodeAttempts,
     }))
   })
 }

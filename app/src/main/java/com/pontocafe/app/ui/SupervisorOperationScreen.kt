@@ -242,7 +242,6 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
         }
     }
 
-    val pendingFaces = remember(state.colaboradores) { state.colaboradores.filter { !it.rostoCadastrado }.sortedBy { it.nome.lowercase() } }
     val nowSnapshot = System.currentTimeMillis()
     val overdue = state.pausasAtivas.count { supervisorOperationSeconds(it, nowSnapshot) > it.limiteSegundos }
     val operationItems = remember(state.pausasAtivas, testPause, state.ultimaAtualizacaoAoVivoEmMillis) {
@@ -281,7 +280,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                     PcHeroStat(value = "$overdue", label = "Acima do limite", modifier = Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    PcHeroStat(value = "${pendingFaces.size}", label = "Rostos pendentes", modifier = Modifier.weight(1f))
+                    PcHeroStat(value = "${state.codigosAtivos.size}", label = "Códigos vivos", modifier = Modifier.weight(1f))
                     PcHeroStat(value = "${state.colaboradores.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
                 }
             }
@@ -403,13 +402,10 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                 item("actions-title") { SectionTitle("Ações rápidas", "Tarefas mais usadas durante a operação.") }
                 item("actions") {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PcActionTile("Autorizar exceção", "Liberar uma pausa fora da janela normal", Icons.Default.Coffee, viewModel::abrirAutorizacao)
+                        PcActionTile("Gerar código de café", "Emitir o passe de saída e retorno de alguém", Icons.Default.Coffee, viewModel::abrirCodigos)
                         PcActionTile("Histórico por data", "Escolher um dia e abrir cada registro", Icons.Default.CalendarMonth, { viewModel.abrirHistorico() })
-                        PcActionTile("Pessoas e biometria", "Cadastrar, atualizar ou excluir colaboradores e rostos", Icons.Default.PersonSearch, viewModel::abrirColaboradores)
+                        PcActionTile("Pessoas", "Cadastrar, editar ou excluir colaboradores", Icons.Default.PersonSearch, viewModel::abrirColaboradores)
                     }
-                }
-                if (pendingFaces.isNotEmpty()) {
-                    item("pending") { PcActionTile("${pendingFaces.size} biometria(s) pendente(s)", "Abra Pessoas para concluir os registros faciais.", Icons.Default.Face, viewModel::abrirColaboradores) }
                 }
                 item("refresh") {
                     PcSecondaryButton(
@@ -422,7 +418,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                 }
             }
             SupervisorQuickOverridePill(
-                onClick = viewModel::abrirAutorizacao,
+                onClick = viewModel::abrirCodigos,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
@@ -437,7 +433,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
 /**
  * Pílula flutuante persistente para a única ação de "override manual" real
  * desta tela (autorizar uma exceção de pausa). Não inclui atalhos para
- * sincronizar catálogo facial ou disparar pausa por outra pessoa -- nenhum
+ * sincronizar catálogo ou disparar pausa por outra pessoa -- nenhum
  * dos dois tem um método correspondente em SupervisorViewModel.
  */
 @Composable

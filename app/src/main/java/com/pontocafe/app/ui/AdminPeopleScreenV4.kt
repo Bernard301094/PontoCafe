@@ -91,7 +91,6 @@ fun AdminPeopleScreenV4(
     val listState = rememberLazyListState()
     val adminSessionStore = remember(context) { SecureAdminSessionStore(context.applicationContext, "admin") }
     // Vida longa: antes era remember, e o cache morria ao sair da tela.
-    val avatarRepository = remember(adminSessionStore) { PontoRepositories.admin(adminSessionStore) }
     val activeAccount = remember(adminSessionStore) { adminSessionStore.activeAccount() }
     val adminDisplayName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: "Administrador"
 
@@ -102,7 +101,6 @@ fun AdminPeopleScreenV4(
     var accessFilter by rememberSaveable { mutableStateOf(AccessProfileFilter.ALL) }
     var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Colaborador?>(null) }
-    var deletingBiometric by remember { mutableStateOf<Colaborador?>(null) }
     var deletingCollaborator by remember { mutableStateOf<Colaborador?>(null) }
     var importPreview by remember { mutableStateOf<CsvImportPreview?>(null) }
     var selectionMode by rememberSaveable { mutableStateOf(false) }
@@ -111,39 +109,8 @@ fun AdminPeopleScreenV4(
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var shiftFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
-    var avatarBusyId by remember { mutableStateOf<String?>(null) }
-    var avatarError by remember { mutableStateOf<String?>(null) }
-    var avatarMessage by remember { mutableStateOf<String?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     var showToolsMenu by remember { mutableStateOf(false) }
-
-    avatarTarget?.let { target ->
-        CollaboratorAvatarSourceDialog(
-            collaboratorName = target.nome,
-            onDismiss = { avatarTarget = null },
-            onImageReady = { optimized ->
-                avatarBusyId = target.id
-                avatarError = null
-                avatarMessage = null
-                scope.launch {
-                    runCatching {
-                        avatarRepository.uploadAvatar(target.id, optimized)
-                        optimized.size
-                    }.onSuccess { bytes ->
-                        avatarBusyId = null
-                        avatarTarget = null
-                        avatarMessage = "Avatar de ${target.nome} otimizado para ${String.format("%.1f", bytes / 1024.0)} KB."
-                        viewModel.abrirColaboradores()
-                    }.onFailure { error ->
-                        avatarBusyId = null
-                        avatarError = error.message ?: "Não foi possível salvar o avatar."
-                    }
-                }
-            },
-            onError = { message -> avatarError = message },
-        )
-    }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -183,18 +150,6 @@ fun AdminPeopleScreenV4(
             viewModel.editarColaborador(collaborator, name, sector, shift)
             editing = null
         }
-    }
-
-    deletingBiometric?.let { collaborator ->
-        DeleteBiometricDialogV4(
-            collaborator = collaborator,
-            loading = reliabilityState.loading,
-            onDismiss = { if (!reliabilityState.loading) deletingBiometric = null },
-            onConfirm = {
-                reliabilityViewModel.deleteBiometric(collaborator.id)
-                deletingBiometric = null
-            },
-        )
     }
 
     deletingCollaborator?.let { collaborator ->
@@ -241,7 +196,7 @@ fun AdminPeopleScreenV4(
     }
 
     val allCollaborators = state.colaboradores.sortedBy { it.nome.lowercase() }
-    val pendingFaces = allCollaborators.count { !it.rostoCadastrado }
+    val emPausaAgora = allCollaborators.count { it.emPausa }
     val query = search.trim()
 
     val sectors = allCollaborators
@@ -261,13 +216,13 @@ fun AdminPeopleScreenV4(
                 it.setor.orEmpty().contains(query, true) ||
                 it.turno.orEmpty().contains(query, true)
         }
-        .filter { faceFilter != PeopleFaceFilter.PENDING || !it.rostoCadastrado }
+        .filter { faceFilter != PeopleFaceFilter.EM_PAUSA || it.emPausa }
         .filter { sectorFilter == null || it.setor.orEmpty().equals(sectorFilter, ignoreCase = true) }
         .filter { shiftFilter == null || it.turno.orEmpty().equals(shiftFilter, ignoreCase = true) }
         .toList()
     val collaborators = when (peopleSort) {
         PeopleSort.PRIORITY -> filteredCollaborators.sortedWith(
-            compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }),
+            compareBy<Colaborador>({ !it.emPausa }, { it.nome.lowercase() }),
         )
         PeopleSort.NAME -> filteredCollaborators.sortedBy { it.nome.lowercase() }
         PeopleSort.SECTOR -> filteredCollaborators.sortedWith(
@@ -312,30 +267,6 @@ fun AdminPeopleScreenV4(
         )
     }
 
-    fun openAvatar(person: Colaborador) {
-        avatarError = null
-        avatarMessage = null
-        avatarTarget = person
-    }
-
-    fun removeAvatar(person: Colaborador) {
-        avatarBusyId = person.id
-        avatarError = null
-        avatarMessage = null
-        scope.launch {
-            runCatching { avatarRepository.deleteAvatar(person.id) }
-                .onSuccess {
-                    avatarBusyId = null
-                    avatarMessage = "Avatar de ${person.nome} removido."
-                    viewModel.abrirColaboradores()
-                }
-                .onFailure { error ->
-                    avatarBusyId = null
-                    avatarError = error.message ?: "Não foi possível remover o avatar."
-                }
-        }
-    }
-
     PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
             .navigationBarsPadding()
@@ -352,15 +283,11 @@ fun AdminPeopleScreenV4(
         if (!expandedLayout && selectedPerson != null && !selectionMode && section == AdminPeopleSection.COLLABORATORS) {
             PersonActionBottomSheet(
                 person = selectedPerson,
-                loading = state.carregando || reliabilityState.loading || avatarBusyId == selectedPerson.id,
+                loading = state.carregando || reliabilityState.loading,
                 onDismiss = { selectedPersonId = null },
-                onBiometric = {
+                onGerarCodigo = {
                     selectedPersonId = null
-                    viewModel.cadastrarOuAtualizarRosto(selectedPerson)
-                },
-                onAvatar = {
-                    selectedPersonId = null
-                    openAvatar(selectedPerson)
+                    viewModel.emitirCodigo(selectedPerson, null)
                 },
                 onHistory = {
                     selectedPersonId = null
@@ -369,18 +296,6 @@ fun AdminPeopleScreenV4(
                 onEdit = {
                     selectedPersonId = null
                     editing = selectedPerson
-                },
-                onDeleteAvatar = if (selectedPerson.avatarUrl.isNullOrBlank()) null else {
-                    {
-                        selectedPersonId = null
-                        removeAvatar(selectedPerson)
-                    }
-                },
-                onDeleteFace = if (!selectedPerson.rostoCadastrado) null else {
-                    {
-                        selectedPersonId = null
-                        deletingBiometric = selectedPerson
-                    }
                 },
                 onDeleteCollaborator = {
                     selectedPersonId = null
@@ -402,7 +317,7 @@ fun AdminPeopleScreenV4(
                 if (!compactHeight) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         PcHeroStat(value = "${allCollaborators.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
-                        PcHeroStat(value = "$pendingFaces", label = "Rosto pendente", modifier = Modifier.weight(1f))
+                        PcHeroStat(value = "$emPausaAgora", label = "Em pausa", modifier = Modifier.weight(1f))
                         PcHeroStat(value = "${state.usuarios.size}", label = "Acessos", modifier = Modifier.weight(1f))
                     }
                 }
@@ -461,17 +376,6 @@ fun AdminPeopleScreenV4(
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
                     ReliabilityFeedback(reliabilityViewModel)
-                    PcFeedbackBanner(
-                        message = avatarError,
-                        tone = PontoCafeTone.DANGER,
-                        onDismiss = { avatarError = null },
-                    )
-                    PcFeedbackBanner(
-                        message = avatarMessage,
-                        tone = PontoCafeTone.SUCCESS,
-                        onDismiss = { avatarMessage = null },
-                        autoDismissMillis = 4_000L,
-                    )
                 }
 
                 if (selectionMode) {
@@ -546,7 +450,7 @@ fun AdminPeopleScreenV4(
                     PeopleFaceFilterRow(
                         selected = faceFilter,
                         total = allCollaborators.size,
-                        pending = pendingFaces,
+                        pending = emPausaAgora,
                         activeExtraFilters = activeExtraFilters,
                         sort = peopleSort,
                         onSelected = { faceFilter = it },
@@ -592,7 +496,6 @@ fun AdminPeopleScreenV4(
                                     }
                                 } else {
                                     items(collaborators, key = { "person-v5-${it.id}" }) { collaborator ->
-                                        val avatarLoading = avatarBusyId == collaborator.id
                                         PeoplePersonCard(
                                             person = collaborator,
                                             selected = if (selectionMode) {
@@ -601,7 +504,7 @@ fun AdminPeopleScreenV4(
                                                 collaborator.id == selectedPersonId
                                             },
                                             selectionMode = selectionMode,
-                                            loading = state.carregando || reliabilityState.loading || avatarLoading,
+                                            loading = state.carregando || reliabilityState.loading,
                                             onClick = {
                                                 if (selectionMode) {
                                                     selectedIds = if (collaborator.id in selectedIds) {
@@ -616,7 +519,7 @@ fun AdminPeopleScreenV4(
                                             onSelected = { checked ->
                                                 selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
                                             },
-                                            onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                            onGerarCodigo = { viewModel.emitirCodigo(collaborator, null) },
                                             modifier = Modifier.animateItem(),
                                         )
                                     }
@@ -625,13 +528,10 @@ fun AdminPeopleScreenV4(
 
                             PersonDetailPanel(
                                 person = selectedPerson,
-                                loading = state.carregando || reliabilityState.loading || (selectedPerson != null && avatarBusyId == selectedPerson.id),
-                                onBiometric = viewModel::cadastrarOuAtualizarRosto,
-                                onAvatar = ::openAvatar,
+                                loading = state.carregando || reliabilityState.loading,
+                                onGerarCodigo = { pessoa -> viewModel.emitirCodigo(pessoa, null) },
                                 onHistory = { reliabilityViewModel.openHistory(it.id) },
                                 onEdit = { editing = it },
-                                onDeleteAvatar = ::removeAvatar,
-                                onDeleteFace = { deletingBiometric = it },
                                 onDeleteCollaborator = { deletingCollaborator = it },
                                 modifier = Modifier.weight(.52f),
                             )
@@ -659,12 +559,11 @@ fun AdminPeopleScreenV4(
                                 }
                             } else {
                                 items(collaborators, key = { "person-v5-${it.id}" }) { collaborator ->
-                                    val avatarLoading = avatarBusyId == collaborator.id
                                     PeoplePersonCard(
                                         person = collaborator,
                                         selected = collaborator.id in selectedIds,
                                         selectionMode = selectionMode,
-                                        loading = state.carregando || reliabilityState.loading || avatarLoading,
+                                        loading = state.carregando || reliabilityState.loading,
                                         onClick = {
                                             if (selectionMode) {
                                                 selectedIds = if (collaborator.id in selectedIds) {
@@ -679,7 +578,7 @@ fun AdminPeopleScreenV4(
                                         onSelected = { checked ->
                                             selectedIds = if (checked) selectedIds + collaborator.id else selectedIds - collaborator.id
                                         },
-                                        onBiometric = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
+                                        onGerarCodigo = { viewModel.emitirCodigo(collaborator, null) },
                                         modifier = Modifier.animateItem(),
                                     )
                                 }
@@ -840,36 +739,6 @@ private fun DeleteCollaboratorDialogV4(
     )
 }
 
-@Composable
-private fun DeleteBiometricDialogV4(
-    collaborator: Colaborador,
-    loading: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text("Excluir biometria facial?") },
-        text = {
-            PcDialogBody {
-                Text("Todos os registros de rosto de ${collaborator.nome} serão apagados definitivamente.")
-                Text(
-                    "O colaborador e seu histórico permanecem. Para usar o Ponto novamente, será necessário cadastrar o rosto.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            PcDangerButton(
-                text = "Excluir rosto",
-                onClick = onConfirm,
-                enabled = !loading,
-                loading = loading,
-            )
-        },
-        dismissButton = { TextButton(onDismiss, enabled = !loading) { Text("Cancelar") } },
-    )
-}
 
 @Composable
 private fun ImportPreviewDialogV4(

@@ -63,15 +63,6 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare exact FaceNet model
-        shell: bash
-        run: |
-          mkdir -p app/src/main/assets
-          curl -fL --retry 8 --retry-delay 3 \
-            'https://raw.githubusercontent.com/shubham0204/FaceRecognition_With_FaceNet_Android/289bc10420aad15fed99094eee364eb24f908ecc/app/src/main/assets/facenet.tflite' \
-            -o app/src/main/assets/facenet.tflite
-          test "$(git hash-object app/src/main/assets/facenet.tflite)" = "8254aabae5cc73b8d2c15e7c589730eb3c264b87"
-
       - name: Release unit tests and compile
         shell: bash
         run: gradle --no-daemon --stacktrace :app:testReleaseUnitTest :app:assembleRelease
@@ -81,5 +72,7 @@ jobs:
         run: |
           APK='app/build/outputs/apk/release/app-release-unsigned.apk'
           test -f "$APK"
-          unzip -l "$APK" | grep -q 'assets/facenet.tflite'
-          echo "Release candidate compiled with exact FaceNet asset."
+          # O Ponto deixou de reconhecer rostos: nenhum modelo facial pode
+          # voltar ao APK, nem a permissão de câmera.
+          ! unzip -l "$APK" | grep -q 'facenet'
+          echo "Release candidate compiled without any face-recognition asset."

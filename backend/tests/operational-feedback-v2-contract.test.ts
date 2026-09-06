@@ -19,7 +19,7 @@ const pontoFlow = readFileSync(
   'utf8',
 )
 const faceGuide = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/KioskFaceGuide.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
   'utf8',
 )
 const material = readFileSync(
@@ -31,7 +31,7 @@ const voice = readFileSync(
   'utf8',
 )
 const capturePolicy = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/camera/FaceCapturePolicy.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/domain/AccessCode.kt', import.meta.url),
   'utf8',
 )
 
@@ -88,10 +88,12 @@ test('estado da voz neural fica diagnosticável sem retirar fallback Android', (
   assert.match(voice, /VOICE_PLAYBACK_FAILED/)
 })
 
-test('feedback operacional não reduz geometria biométrica de identificação', () => {
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_YAW = 12f/)
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_PITCH = 12f/)
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_ROLL = 8f/)
+test('o alfabeto do código de acesso evita os caracteres que se confundem', () => {
+  // I, L, O e U ficam de fora: os três primeiros somem contra 1 e 0 num papel
+  // escrito à pressa, e o U evita que um sorteio produza palavra ofensiva.
+  assert.match(capturePolicy, /const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"/)
+  assert.match(capturePolicy, /'I', 'L' -> '1'/)
+  assert.match(capturePolicy, /'O' -> '0'/)
   assert.doesNotMatch(supervisorAlerts, /faceThreshold|cosine|embedding/)
   assert.doesNotMatch(material, /faceThreshold|cosine|embedding/)
 })

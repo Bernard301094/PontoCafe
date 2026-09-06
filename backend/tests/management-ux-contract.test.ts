@@ -25,9 +25,8 @@ test('Gestão organiza ações por operação e confiabilidade', () => {
   assert.match(management, /title = "Confiabilidade e controle"/)
   assert.match(management, /Dispositivos/)
   assert.match(management, /Sincronização/)
-  assert.match(management, /Autorizações/)
+  assert.match(management, /Códigos de café/)
   assert.match(management, /Modo terminal/)
-  assert.match(management, /Biometria/)
   assert.match(management, /Diagnóstico/)
   assert.match(management, /Auditoria/)
 })
@@ -81,7 +80,7 @@ test('teste operacional deixa de competir com as ações principais', () => {
   assert.match(management, /PcAdminVisualTestTool/)
 })
 
-test('Gestão permanece alinhada à versão 1.0.0 atual', () => {
-  assert.match(gradle, /versionCode = 100/)
-  assert.match(gradle, /versionName = "1\.0\.0"/)
+test('Gestão permanece alinhada à versão 1.1.0 atual', () => {
+  assert.match(gradle, /versionCode = 110/)
+  assert.match(gradle, /versionName = "1\.1\.0"/)
 })

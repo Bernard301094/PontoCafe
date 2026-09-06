@@ -1,5 +1,5 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
-import { config, biometricKey } from './config.js'
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { config } from './config.js'
 import { generateDeviceActivationCode } from './device-activation-code.js'
 
 export const newId = () => randomUUID()
@@ -16,31 +16,16 @@ export function secureHexEquals(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-export function encryptEmbedding(embedding: number[]) {
-  const iv = randomBytes(12)
-  const cipher = createCipheriv('aes-256-gcm', biometricKey(), iv)
-  const plaintext = Buffer.from(JSON.stringify(embedding), 'utf8')
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  return { ciphertext, iv, authTag: cipher.getAuthTag() }
-}
-
-export function decryptEmbedding(ciphertext: Buffer, iv: Buffer, authTag: Buffer): number[] {
-  const decipher = createDecipheriv('aes-256-gcm', biometricKey(), iv)
-  decipher.setAuthTag(authTag)
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
-  const parsed = JSON.parse(plaintext)
-  if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== 'number' || !Number.isFinite(value))) throw new Error('Template facial inválido')
-  return parsed
-}
-
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return -1
-  let dot = 0, normA = 0, normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-  if (normA === 0 || normB === 0) return -1
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+/**
+ * Comparação de códigos de acesso em tempo constante.
+ *
+ * O código já vem normalizado dos dois lados (maiúsculas, alfabeto fixo, 6
+ * caracteres), então um comprimento diferente só acontece com dado corrompido —
+ * e nesse caso responder de imediato não revela nada sobre o segredo.
+ */
+export function secureCodeEquals(a: string, b: string): boolean {
+  if (a.length !== b.length || a.length === 0) return false
+  const left = Buffer.from(a, 'utf8')
+  const right = Buffer.from(b, 'utf8')
+  return left.length === right.length && timingSafeEqual(left, right)
 }

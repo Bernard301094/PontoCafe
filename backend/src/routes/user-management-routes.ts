@@ -69,10 +69,13 @@ userManagementRoutes.post('/usuarios', async (c) => {
   if (!body.ok) return body.response
 
   const actor = c.get('user')
-  const supervisor = isSupervisorProfile(body.data.perfil)
+  // O perfil sai do corpo para uma variável própria porque o estreitamento do
+  // type guard não sobrevive ao acesso de propriedade em `body.data`.
+  const perfil = body.data.perfil
+  const supervisor = isSupervisorProfile(perfil)
   const role = supervisor ? 'user' : 'admin'
   const normalizedProfile = supervisor ? 'SUPERVISOR' : 'ADMIN'
-  const turno = supervisor ? supervisorShift(body.data.perfil, body.data.turno) : null
+  const turno = supervisor ? supervisorShift(perfil, body.data.turno) : null
   if (supervisor && !turno) return c.json({ erro: 'Informe o turno do Supervisor.' }, 400)
 
   const temporaryPassword = supervisor ? (body.data.senha ?? generateTemporaryPassword()) : null

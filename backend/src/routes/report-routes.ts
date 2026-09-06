@@ -49,7 +49,7 @@ reportRoutes.get('/relatorios/resumo', async (c) => {
     `select count(*)::int as "totalPausas",
             count(distinct colaborador_id)::int as colaboradores,
             round(avg(extract(epoch from (coalesce(fim_em,now())-inicio_em))))::int as "mediaSegundos",
-            count(*) filter (where fim_em is not null and extract(epoch from (fim_em-inicio_em))>limite_segundos)::int as "acimaLimite",
+            count(*) filter (where fim_em is not null and extract(epoch from (fim_em-inicio_em))>(limite_segundos+carencia_segundos))::int as "acimaLimite",
             count(*) filter (where fora_horario)::int as "foraHorario"
        from pausas_cafe
       where (inicio_em at time zone $1)::date between $2::date and $3::date`,
@@ -64,7 +64,7 @@ reportRoutes.get('/relatorios/resumo', async (c) => {
   }>(
     `select (inicio_em at time zone $1)::date::text as data,
             count(*)::int as pausas,
-            count(*) filter (where fim_em is not null and extract(epoch from (fim_em-inicio_em))>limite_segundos)::int as "acimaLimite",
+            count(*) filter (where fim_em is not null and extract(epoch from (fim_em-inicio_em))>(limite_segundos+carencia_segundos))::int as "acimaLimite",
             count(*) filter (where fora_horario)::int as "foraHorario"
        from pausas_cafe
       where (inicio_em at time zone $1)::date between $2::date and $3::date
@@ -83,11 +83,11 @@ reportRoutes.get('/relatorios/resumo', async (c) => {
             c.nome,
             count(*)::int as ocorrencias,
             max(extract(epoch from (p.fim_em-p.inicio_em)))::int as "maiorDuracaoSegundos",
-            sum(greatest(0,extract(epoch from (p.fim_em-p.inicio_em))-p.limite_segundos))::int as "excessoTotalSegundos"
+            sum(greatest(0,extract(epoch from (p.fim_em-p.inicio_em))-p.limite_segundos-p.carencia_segundos))::int as "excessoTotalSegundos"
        from pausas_cafe p
        join colaboradores c on c.id=p.colaborador_id
       where p.fim_em is not null
-        and extract(epoch from (p.fim_em-p.inicio_em))>p.limite_segundos
+        and extract(epoch from (p.fim_em-p.inicio_em))>(p.limite_segundos+p.carencia_segundos)
         and (p.inicio_em at time zone $1)::date between $2::date and $3::date
       group by c.id,c.nome
       order by "excessoTotalSegundos" desc,"maiorDuracaoSegundos" desc
@@ -117,7 +117,9 @@ reportRoutes.get('/relatorios/csv', async (c) => {
     inicio: string
     fim: string | null
     duracaoSegundos: number | null
+    tempoContadoSegundos: number | null
     limiteSegundos: number
+    carenciaSegundos: number
     foraHorario: boolean
   }>(
     `select (p.inicio_em at time zone $1)::date::text as data,
@@ -125,7 +127,12 @@ reportRoutes.get('/relatorios/csv', async (c) => {
             to_char(p.inicio_em at time zone $1,'HH24:MI:SS') as inicio,
             case when p.fim_em is null then null else to_char(p.fim_em at time zone $1,'HH24:MI:SS') end as fim,
             case when p.fim_em is null then null else floor(extract(epoch from (p.fim_em-p.inicio_em)))::int end as "duracaoSegundos",
+            case
+              when p.fim_em is null then null
+              else greatest(0,floor(extract(epoch from (p.fim_em-p.inicio_em)))::int - p.carencia_segundos)
+            end as "tempoContadoSegundos",
             p.limite_segundos as "limiteSegundos",
+            p.carencia_segundos as "carenciaSegundos",
             p.fora_horario as "foraHorario"
        from pausas_cafe p
        join colaboradores c on c.id=p.colaborador_id
@@ -140,9 +147,16 @@ reportRoutes.get('/relatorios/csv', async (c) => {
     if (/^[=+\-@]/.test(text)) text = `'${text}`
     return `"${text.replace(/"/g, '""')}"`
   }
-  const header = ['data','nome','setor','periodo','inicio','fim','duracao_segundos','limite_segundos','fora_horario']
+  // `duracao_segundos` é o tempo total fora; `tempo_contado_segundos` é o que se
+  // compara ao limite, já sem a carência. As duas colunas coexistem porque um
+  // relatório de jornada precisa das duas leituras.
+  const header = [
+    'data','nome','setor','periodo','inicio','fim',
+    'duracao_segundos','carencia_segundos','tempo_contado_segundos','limite_segundos','fora_horario',
+  ]
   const lines = rows.rows.map((row) => [
-    row.data,row.nome,row.setor,row.periodo,row.inicio,row.fim,row.duracaoSegundos,row.limiteSegundos,row.foraHorario,
+    row.data,row.nome,row.setor,row.periodo,row.inicio,row.fim,
+    row.duracaoSegundos,row.carenciaSegundos,row.tempoContadoSegundos,row.limiteSegundos,row.foraHorario,
   ].map(escapeCsv).join(','))
   const csv = `\uFEFF${header.join(',')}\n${lines.join('\n')}`
 

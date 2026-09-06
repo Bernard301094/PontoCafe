@@ -18,15 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.pontocafe.app.AdminViewModel
 import java.util.Locale
-
-/**
- * Compatibility aliases for UI names that were renamed in the 0.7 ViewModel.
- * Keeping them here avoids duplicating state or regressing the current domain API.
- */
-val AdminViewModel.faceModelReady: Boolean
-    get() = embeddingEngine.isReady
 
 /**
  * Compact progress summary shared by Admin/Supervisor people dashboards.

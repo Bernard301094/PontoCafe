@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.1.0 — Código de acesso substitui o reconhecimento facial
+
+### O novo fluxo
+- O Supervisor emite um código de **6 caracteres** para quem vai tomar café. A mesma pessoa usa esse código para sair e para voltar.
+- No quiosque a pessoa procura o próprio nome, seleciona-o e digita o código num teclado restrito ao alfabeto do passe.
+- **Quem decide se é saída ou retorno é o servidor**, nunca o aparelho: existe uma única mutação (`POST /ponto/pausas/registrar`). Isso elimina a classe de erros em que um cliente offline ou desatualizado tenta fechar uma pausa que nunca abriu.
+- O código nasce preso a um colaborador. Um código correto apresentado com o nome errado é recusado.
+- Uma saída e um retorno, garantidos pelo esquema (`ck_codigo_acesso_sequencia`). Depois disso o código está esgotado.
+- A validade governa apenas a **saída**. Depois de sair, o código continua valendo para o retorno sem prazo — recusá-lo deixaria a pausa aberta para sempre.
+- Emitir um código novo cancela o pendente; emitir enquanto a pessoa está em pausa é recusado, para nunca haver dois códigos vivos disputando o mesmo fecho.
+- 8 tentativas erradas em 5 minutos bloqueiam temporariamente aquele colaborador no quiosque. Cada recusa fica em auditoria com dispositivo e motivo.
+
+### Tolerância de 1 minuto
+- O limite de 15 minutos só começa a contar 1 minuto depois do registro da saída: na prática a pessoa fica 16 minutos fora.
+- A tolerância fica gravada **por pausa** (`pausas_cafe.carencia_segundos`), para que um relatório antigo seja lido com a tolerância que valeu naquele dia.
+- Relatórios, CSV, tela ao vivo e alertas do Supervisor passam a comparar contra `limite + carência`. Antes, o mesmo retorno de 16 minutos apareceria como 1 minuto de atraso.
+- O comprovante de saída mostra as três horas: registro, início da contagem e prazo de retorno.
+
+### Reconhecimento facial removido
+- `012_access_codes.sql` apaga `templates_faciais`, `verificacoes_faciais` e `autorizacoes`. **Migração destrutiva — faça backup antes.**
+- Saem do APK: CameraX, ML Kit, TFLite, o modelo FaceNet e a permissão `android.permission.CAMERA`.
+- Saem do backend: identificação 1:N, confirmação 1:1, catálogo facial, calibração, diagnóstico biométrico, política de duplicidade e as rotas de avatar/R2.
+- O avatar do colaborador também sai: sem reconhecimento, a foto deixava de provar qualquer coisa. A lista mostra iniciais.
+- As Autorizações de pausa fora de horário deixam de existir como conceito separado: emitir um código **é** a liberação.
+- O horário deixa de ser um portão e passa a ser a etiqueta MANHÃ/TARDE dos relatórios. Um código válido libera o café a qualquer hora, marcando a pausa como `fora_horario`.
+
+### Offline
+- A fila offline guarda o código digitado em vez do embedding facial — cada evento passou de centenas de KB para um punhado de bytes.
+- Sem rede o aparelho não valida o código: aceita o registro e deixa a validação para a sincronização, com a hora real do quiosque. Um código errado vira falha nominal na central de sincronismo, não uma pausa não autorizada.
+
+### Voz
+- As instruções faciais (piscar, virar, centralizar) saem. Entram: "toque no seu nome", "digite o código de seis caracteres" e "digite o mesmo código que usou para sair".
+- A recusa passa a falar o motivo exato devolvido pelo servidor: código inválido, expirado, bloqueado por tentativas, pausa já utilizada ou pausa já aberta.
+
+### Configuração
+- Novas variáveis: `ACCESS_CODE_TTL_SECONDS` (900), `ACCESS_CODE_MAX_ATTEMPTS` (8), `ACCESS_CODE_ATTEMPT_WINDOW_SECONDS` (300), `COFFEE_GRACE_SECONDS` (60), `ACCESS_CODE_RETENTION_DAYS` (90).
+- Saem: `FACE_MATCH_THRESHOLD`, `FACE_IDENTIFICATION_MARGIN`, `FACE_ENROLLMENT_DUPLICATE_THRESHOLD`, `FACE_VERIFICATION_TTL_SECONDS`, `AUTHORIZATION_TTL_SECONDS`, `BIOMETRIC_RETENTION_DAYS`.
+- `BIOMETRIC_MASTER_KEY` passa a chamar-se `APP_ENCRYPTION_KEY` — já não cifra biometria, cifra o token de registro de dispositivo. **O nome antigo continua aceito**, então nenhum ambiente implantado precisa ser reconfigurado.
+- O binding R2 `AVATARS` sai do `wrangler.jsonc`.
+
+### Documentação
+- `docs/PRIVACIDADE_BIOMETRICA.md` vira `docs/PRIVACIDADE_DADOS.md`, reescrito para o passe operacional.
+- `docs/BIOMETRIC_IDENTIFICATION_SECURITY_AUDIT.md` é removido: audita um sistema que já não existe.
+
 ## 1.0.0 — Release Candidate · observabilidade, hardening e gate de produção
 
 ### Saúde do sistema e frota

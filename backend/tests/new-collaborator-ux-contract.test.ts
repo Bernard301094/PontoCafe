@@ -7,11 +7,11 @@ const screen = readFileSync(
   'utf8',
 )
 
-test('cadastro de colaborador mantém rascunho e fluxo facial existente', () => {
+test('cadastro de colaborador mantém rascunho e leva ao código de acesso', () => {
   assert.match(screen, /FormDraftRegistry\.adminCollaborator\(viewModel\)/)
   assert.match(screen, /trackCollaboratorDraftSubmission/)
   assert.match(screen, /viewModel\.criarColaborador\(cleanName, cleanSector, cleanShift\)/)
-  assert.match(screen, /Salvar e cadastrar rosto/)
+  assert.match(screen, /Salvar colaborador/)
 })
 
 test('cadastro usa UX guiada para setor e turno', () => {
@@ -27,7 +27,7 @@ test('ação principal informa o que falta e fica separada do conteúdo', () => 
   assert.match(screen, /bottomBar = \{/)
   assert.match(screen, /CollaboratorBottomActions/)
   assert.match(screen, /Informe o nome completo para continuar/)
-  assert.match(screen, /Tudo pronto\. O próximo passo será o cadastro facial/)
+  assert.match(screen, /Tudo pronto\. Depois é só gerar um código/)
 })
 
 test('supervisor continua como conta de acesso, não colaborador facial', () => {

@@ -53,6 +53,5 @@ test('filtros adicionais cobrem setor e turno sem alterar regra de negócio', ()
 test('ações destrutivas ficam atrás de Mais opções', () => {
   assert.match(shared, /Mais opções/)
   assert.match(shared, /AnimatedVisibility\(showMore\)/)
-  assert.match(shared, /Excluir biometria/)
   assert.match(shared, /Excluir colaborador/)
 })

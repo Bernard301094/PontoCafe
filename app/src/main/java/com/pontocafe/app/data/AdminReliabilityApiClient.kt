@@ -69,9 +69,7 @@ data class CollaboratorDeleteResponse(
     val colaboradorId: String,
     val nome: String,
     val excluido: Boolean,
-    val templatesExcluidos: Int = 0,
-    val verificacoesRevogadas: Int = 0,
-    val autorizacoesCanceladas: Int = 0,
+    val codigosCancelados: Int = 0,
     val historicoPreservado: Boolean = true,
 )
 
@@ -83,7 +81,6 @@ data class CollaboratorHistoryPerson(
     val ativo: Boolean,
     val criadoEm: String,
     val atualizadoEm: String,
-    val rostoCadastrado: Boolean,
 )
 data class CollaboratorHistorySummary(
     val totalPausas: Int,
@@ -99,93 +96,35 @@ data class CollaboratorHistoryPause(
     val inicioLocal: String,
     val fimLocal: String?,
     val duracaoSegundos: Int?,
+    val tempoContadoSegundos: Int? = null,
     val limiteSegundos: Int,
+    val carenciaSegundos: Int = 0,
     val foraHorario: Boolean,
     val excedeuLimite: Boolean,
 )
-data class BiometricAuditItem(
-    val acao: String,
+data class CollaboratorAccessCodeEvent(
+    val id: String,
     val criadoEm: String,
-    val atorTipo: String,
-    val atorNome: String?,
+    val expiraEm: String?,
+    val saidaEm: String?,
+    val retornoEm: String?,
+    val canceladoEm: String?,
+    val motivo: String?,
+    val emitidoPor: String?,
+    val emitidoPorTipo: String?,
 )
-data class CollaboratorBiometricHistory(
-    val cadastrada: Boolean,
-    val modelo: String?,
-    val versaoModelo: String?,
-    val criadaEm: String?,
-    val atualizadaEm: String?,
-    val retencaoDias: Int,
-    val eventos: List<BiometricAuditItem>,
+data class CollaboratorAccessCodeHistory(
+    val retencaoDias: Int = 0,
+    val eventos: List<CollaboratorAccessCodeEvent> = emptyList(),
 )
 data class CollaboratorHistoryResponse(
     val colaborador: CollaboratorHistoryPerson,
     val periodoDias: Int,
     val resumo: CollaboratorHistorySummary,
     val pausas: List<CollaboratorHistoryPause>,
-    val biometria: CollaboratorBiometricHistory,
+    val codigosAcesso: CollaboratorAccessCodeHistory? = null,
 )
 
-data class CalibrationRequest(
-    val embedding: List<Float>,
-    val modelo: String,
-    val versaoModelo: String,
-)
-data class CalibrationNearest(
-    val colaboradorId: String,
-    val nome: String,
-    val score: Double?,
-)
-data class CalibrationResponse(
-    val colaboradorId: String,
-    val nome: String,
-    val score: Double?,
-    val outroMaisProximo: CalibrationNearest?,
-    val margem: Double?,
-    val limiar: Double,
-    val margemMinima: Double,
-    val aprovado: Boolean,
-)
-data class BiometricModelSummary(
-    val modelo: String,
-    val versaoModelo: String,
-    val total: Int,
-)
-data class BiometricCatalogCollisionPair(
-    val colaboradorAId: String,
-    val colaboradorANome: String,
-    val colaboradorBId: String,
-    val colaboradorBNome: String,
-    val score: Double,
-)
-data class BiometricCatalogCollisionSummary(
-    val limiteRisco: Double,
-    val paresEmRisco: Int,
-    val paresCriticos: Int,
-    val maiorSimilaridade: Double?,
-    val pares: List<BiometricCatalogCollisionPair>,
-)
-data class BiometricSummaryResponse(
-    val colaboradoresAtivos: Int,
-    val biometriaCadastrada: Int,
-    val biometriaPendente: Int,
-    val templateMaisAntigoEm: String?,
-    val modelos: List<BiometricModelSummary>,
-    val limiar: Double,
-    val margemMinima: Double,
-    val limiarDuplicidade: Double,
-    val colisoesCatalogo: BiometricCatalogCollisionSummary? = null,
-    val retencaoDias: Int,
-)
-data class RetentionCleanupResponse(
-    val ok: Boolean,
-    val removidos: Int,
-    val retencaoDias: Int,
-)
-data class BiometricDeleteResponse(
-    val ok: Boolean,
-    val rostoExcluido: Boolean,
-)
 
 data class DiagnosticDatabase(
     val status: String,
@@ -201,7 +140,7 @@ data class DiagnosticOperation(
 data class DiagnosticIntegrity(
     val pausasUltimas24h: Int = 0,
     val operacoesProtegidasUltimas24h: Int = 0,
-    val registroRapidoUltimas24h: Int = 0,
+    val registrosPorCodigoUltimas24h: Int = 0,
     val iniciosUltimas24h: Int = 0,
     val retornosUltimas24h: Int = 0,
 )
@@ -227,13 +166,19 @@ data class DiagnosticFleet(
     val alertasSaude: Int = 0,
     val dispositivos: List<DiagnosticFleetDevice>? = emptyList(),
 )
+data class DiagnosticAccessCodes(
+    val pendentes: Int = 0,
+    val emUso: Int = 0,
+    val tentativasInvalidasUltimas24h: Int = 0,
+)
 data class DiagnosticConfiguration(
     val timezone: String,
     val sessaoHoras: Int,
-    val limiteFacial: Double,
-    val margemFacial: Double,
+    val codigoValidadeSegundos: Int = 0,
+    val codigoMaxTentativas: Int = 0,
+    val carenciaSegundos: Int = 0,
     val offlineMaxHoras: Int,
-    val retencaoBiometricaDias: Int,
+    val retencaoCodigosDias: Int = 0,
     val androidMaisRecente: String,
     val androidMinimo: String,
 )
@@ -244,6 +189,7 @@ data class DiagnosticResponse(
     val operacao: DiagnosticOperation,
     val integridade: DiagnosticIntegrity? = null,
     val frota: DiagnosticFleet? = null,
+    val codigosAcesso: DiagnosticAccessCodes? = null,
     val configuracao: DiagnosticConfiguration,
 )
 
@@ -270,16 +216,7 @@ interface AdminReliabilityApi {
     @POST("gestao/colaboradores/{id}/excluir")
     suspend fun deleteCollaborator(@Path("id") collaboratorId: String): CollaboratorDeleteResponse
 
-    @POST("gestao/colaboradores/{id}/biometria/calibrar")
-    suspend fun calibrate(
-        @Path("id") collaboratorId: String,
-        @Body body: CalibrationRequest,
-    ): CalibrationResponse
 
-    @GET("gestao/biometria/resumo") suspend fun biometricSummary(): BiometricSummaryResponse
-    @POST("gestao/biometria/retencao/executar") suspend fun runRetentionCleanup(): RetentionCleanupResponse
-    @POST("gestao/colaboradores/{id}/biometria/excluir")
-    suspend fun deleteBiometric(@Path("id") collaboratorId: String): BiometricDeleteResponse
 
     @GET("admin/diagnostico") suspend fun diagnostic(): DiagnosticResponse
 }
@@ -298,16 +235,6 @@ class AdminReliabilityRepository(
         api.updateCollaborators(BulkCollaboratorRequest(ids, sector, shift, active))
     suspend fun deleteCollaborator(collaboratorId: String) = api.deleteCollaborator(collaboratorId)
 
-    suspend fun calibrate(
-        collaboratorId: String,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
-    ) = api.calibrate(collaboratorId, CalibrationRequest(embedding.toList(), model, modelVersion))
-
-    suspend fun biometricSummary() = api.biometricSummary()
-    suspend fun runRetentionCleanup() = api.runRetentionCleanup()
-    suspend fun deleteBiometric(collaboratorId: String) = api.deleteBiometric(collaboratorId)
     suspend fun diagnostic() = api.diagnostic()
 
     companion object {

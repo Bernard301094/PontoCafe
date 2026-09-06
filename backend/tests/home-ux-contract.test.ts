@@ -33,7 +33,7 @@ test('dashboard prioriza operação atual e atenção', () => {
 test('ações rápidas ficam próximas do topo', () => {
   assert.match(home, /"Ações rápidas"/)
   assert.match(home, /title = "Pessoas"/)
-  assert.match(home, /title = "Autorizar"/)
+  assert.match(home, /title = "Códigos"/)
   assert.match(home, /title = "Dispositivos"/)
 })
 

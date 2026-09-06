@@ -187,7 +187,7 @@ fun SystemDiagnosticsScreen(
                         item("integrity-note") {
                             PcStateBanner(
                                 title = "Replay seguro ativo",
-                                supportingText = "Registro rápido protegido: ${integrityState.registroRapidoUltimas24h}. Em caso de resposta de rede incerta, o mesmo UUID pode ser reconciliado sem reinterpretar a pausa.",
+                                supportingText = "Registro rápido protegido: ${integrityState.registrosPorCodigoUltimas24h}. Em caso de resposta de rede incerta, o mesmo UUID pode ser reconciliado sem reinterpretar a pausa.",
                                 tone = PontoCafeTone.INFO,
                             )
                         }
@@ -255,9 +255,10 @@ fun SystemDiagnosticsScreen(
                             rows = listOf(
                                 "Timezone" to diagnostic.configuracao.timezone,
                                 "Sessão" to "${diagnostic.configuracao.sessaoHoras} h",
-                                "Reconhecimento facial" to "${diagnostic.configuracao.limiteFacial} · margem ${diagnostic.configuracao.margemFacial}",
+                                "Validade do código" to "${diagnostic.configuracao.codigoValidadeSegundos / 60} min · máx. ${diagnostic.configuracao.codigoMaxTentativas} tentativas",
+                                "Tolerância antes do limite" to "${diagnostic.configuracao.carenciaSegundos} s",
                                 "Offline máximo" to "${diagnostic.configuracao.offlineMaxHoras} h",
-                                "Retenção biométrica" to "${diagnostic.configuracao.retencaoBiometricaDias} dias",
+                                "Retenção de códigos" to "${diagnostic.configuracao.retencaoCodigosDias} dias",
                                 "Android mais recente" to diagnostic.configuracao.androidMaisRecente,
                                 "Android mínimo" to diagnostic.configuracao.androidMinimo,
                             ),
