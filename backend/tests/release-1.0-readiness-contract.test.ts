@@ -76,6 +76,19 @@ test('os dois caminhos de deploy carimbam a revisão e conferem se ela chegou', 
       /rev-parse', 'HEAD'\]/,
       `${label} precisa usar o SHA completo na revisão`,
     )
+    // O retry tem de esperar a versão certa, não só uma resposta que funcione:
+    // um 200 vindo da versão anterior é indistinguível de sucesso, e foi assim
+    // que um deploy bom foi anunciado como falha.
+    assert.match(
+      source,
+      /if \(!until \|\| until\(payload\)\) return payload/,
+      `${label} precisa repetir enquanto a resposta for de uma versão anterior`,
+    )
+    assert.match(
+      source,
+      /until: \(payload\) => payload\.(workerVersionTag|backendRevision) ===/,
+      `${label} precisa dizer qual versão está a esperar`,
+    )
   }
 })
 
