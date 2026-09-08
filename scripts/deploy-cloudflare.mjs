@@ -120,7 +120,7 @@ const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
 
 try {
-  console.log('\n[4/6] Ensuring private avatar storage...')
+  console.log('\n[4/6] Preparing encrypted runtime secrets...')
 
   const secrets = Object.fromEntries(
     requiredSecrets.map((name) => [name, process.env[name]]),
