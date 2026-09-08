@@ -78,6 +78,8 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     var pauseFilter by rememberSaveable { mutableStateOf(OperationalPauseFilter.TODOS) }
     var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
+    // Alertas que o Supervisor já dispensou com um deslize, nesta sessão.
+    var alertasDispensados by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var manualClosePause by remember { mutableStateOf<OperationalPauseItem?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
     val sessionStore = remember(context, state.sessaoAdministrativa) {
@@ -318,7 +320,17 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         )
                     }
                 }
-                alert?.let { currentAlert -> item("activity-${currentAlert.id}") { SupervisorLiveActivityAlertBanner(currentAlert) } }
+                // Dispensados ficam só nesta sessão: o alerta é derivado do estado
+                // ao vivo, então persistir a dispensa esconderia um problema que
+                // pode continuar a acontecer amanhã.
+                alert?.takeIf { it.id !in alertasDispensados }?.let { currentAlert ->
+                    item("activity-${currentAlert.id}") {
+                        SupervisorLiveActivityAlertBanner(
+                            alert = currentAlert,
+                            onDispensar = { alertasDispensados = alertasDispensados + currentAlert.id },
+                        )
+                    }
+                }
                 item("alert-center") {
                     SupervisorOperationalAlertCenter(
                         history = alertHistory,

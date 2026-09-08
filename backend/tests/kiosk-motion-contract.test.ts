@@ -77,3 +77,25 @@ test('o arco de contagem é desenhado, não recomposto', () => {
   assert.match(feed, /sweepAngle = 360f \* \(1f - fracao\)/)
   assert.match(feed, /style = Stroke\(width = traco, cap = StrokeCap\.Round\)/)
 })
+
+test('todo número de métrica rola, e um alerta pode ser dispensado', () => {
+  const home = read('app/src/main/java/com/pontocafe/app/ui/AdminHomeScreenV2.kt')
+  const alerts = read('app/src/main/java/com/pontocafe/app/ui/SupervisorLiveAlerts.kt')
+  const operacao = read('app/src/main/java/com/pontocafe/app/ui/SupervisorOperationScreen.kt')
+
+  // Três dos quatro tiles já rolavam; o quarto escrevia o número cru, e a
+  // diferença aparecia com eles lado a lado na mesma tela.
+  assert.match(home, /Text\(animatedMetricValue\(value\), style = MaterialTheme\.typography\.titleMedium/)
+
+  // O alerta é derivado do estado ao vivo e não tinha como ser dispensado:
+  // quem já leu "Maria excedeu o limite" continuava com o aviso no topo
+  // enquanto tratava do assunto.
+  assert.match(alerts, /SwipeToDismissBox\(/)
+  assert.match(alerts, /onDispensar: \(\) -> Unit = \{\}/)
+  assert.match(alerts, /dismissState\.progress\.coerceIn\(0f, 1f\)/)
+
+  // A dispensa é da sessão, não persistida: o alerta descreve uma condição que
+  // pode voltar a acontecer amanhã, e escondê-la para sempre seria pior.
+  assert.match(operacao, /var alertasDispensados by remember/)
+  assert.match(operacao, /it\.id !in alertasDispensados/)
+})
