@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.sp
 import com.pontocafe.app.data.AccessCodeCreatedResponse
 import com.pontocafe.app.data.AccessCodeItem
 import com.pontocafe.app.data.Colaborador
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 
 /**
@@ -118,10 +121,17 @@ fun AccessCodeScreen(
     // A lista de códigos vivos envelhece sozinha (expira, alguém sai, alguém
     // volta). Sem este refresh o Supervisor ficaria a olhar para um estado
     // antigo enquanto decide se emite outro.
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(20_000L)
-            onAtualizar()
+    //
+    // Preso ao ciclo de vida: sem isto o laço continuava a bater no servidor de
+    // vinte em vinte segundos com o app em segundo plano, a gastar bateria e
+    // rede para atualizar uma tela que ninguém está a ver.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(20_000L)
+                onAtualizar()
+            }
         }
     }
 

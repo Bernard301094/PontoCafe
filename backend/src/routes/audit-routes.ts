@@ -59,6 +59,8 @@ auditRoutes.get('/operacao/resumo', async (c) => {
     supervisoresAtivos: number
     administradoresAtivos: number
     pausasAbertas: number
+    registrosManuais7Dias: number
+    supervisoresComRegistroManual: number
   }>(
     `select
        (select count(*)::int from colaboradores where ativo=true) as "colaboradoresAtivos",
@@ -71,7 +73,19 @@ auditRoutes.get('/operacao/resumo', async (c) => {
        (select count(*)::int from dispositivos where ativo=false) as "dispositivosInativos",
        (select count(*)::int from "user" where role='user' and coalesce(banned,false)=false) as "supervisoresAtivos",
        (select count(*)::int from "user" where role='admin' and coalesce(banned,false)=false) as "administradoresAtivos",
-       (select count(*)::int from pausas_cafe where fim_em is null) as "pausasAbertas"`,
+       (select count(*)::int from pausas_cafe where fim_em is null) as "pausasAbertas",
+       -- Registro manual é a única forma de abrir ou fechar uma pausa sem o
+       -- código. Fica em auditoria, mas auditoria que ninguém lê é arquivo
+       -- morto: o contador põe o número onde o Admin já olha todos os dias.
+       (select count(*)::int from pausas_cafe
+         where (inicio_registrado_manualmente or fim_registrado_manualmente)
+           and coalesce(fim_registrado_em, inicio_registrado_em, inicio_em) > now() - interval '7 days'
+       ) as "registrosManuais7Dias",
+       (select count(distinct coalesce(fim_ator_auth_id, inicio_ator_auth_id))::int
+          from pausas_cafe
+         where (inicio_registrado_manualmente or fim_registrado_manualmente)
+           and coalesce(fim_registrado_em, inicio_registrado_em, inicio_em) > now() - interval '7 days'
+       ) as "supervisoresComRegistroManual"`,
   )
 
   return c.json({ resumo: result.rows[0] })

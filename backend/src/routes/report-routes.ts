@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
+import { anomalyReport } from '../anomaly-report.js'
 import { query } from '../db.js'
 
 export const reportRoutes = new Hono<AppEnv>()
@@ -164,4 +165,25 @@ reportRoutes.get('/relatorios/csv', async (c) => {
   c.header('Content-Disposition', `attachment; filename="pontocafe-${parsed.data.inicio}-${parsed.data.fim}.csv"`)
   c.header('Cache-Control', 'no-store')
   return c.body(csv)
+})
+
+/**
+ * Sinais de que uma pausa pode não ter acontecido como está registada.
+ *
+ * Devolve uma lista ordenada para alguém olhar, e nada mais: o servidor não
+ * bloqueia, não notifica e não pune. Ver anomaly-report.ts para o que cada
+ * sinal significa e para o que ele deliberadamente NÃO prova.
+ */
+reportRoutes.get('/relatorios/anomalias', async (c) => {
+  const parsed = parsePeriod(c)
+  if (!parsed.success) {
+    return c.json({ erro: parsed.error.issues[0]?.message || 'Informe início e fim em YYYY-MM-DD.' }, 400)
+  }
+
+  const linhas = await anomalyReport(parsed.data.inicio, parsed.data.fim)
+  return c.json({
+    inicio: parsed.data.inicio,
+    fim: parsed.data.fim,
+    pessoas: linhas,
+  })
 })

@@ -37,11 +37,11 @@ enum class AdminDestination {
 /**
  * Tamanho mínimo do motivo de um registro manual.
  *
- * Espelha `z.string().trim().min(3)` das rotas de pausa manual (iniciar e
+ * Espelha `MOTIVO_MINIMO` das rotas de pausa manual (iniciar e
  * finalizar). Se os dois divergirem, o campo aceita e a rede recusa — o pior
  * dos dois mundos.
  */
-internal const val MOTIVO_MANUAL_MINIMO = 3
+internal const val MOTIVO_MANUAL_MINIMO = 20
 
 data class AdminUiState(
     val destination: AdminDestination = AdminDestination.LOADING,
@@ -466,7 +466,10 @@ class AdminViewModel(
         // um motivo que ia ser recusado do outro lado -- e a pessoa via um erro
         // de validação vindo da rede em vez de um aviso imediato no campo.
         if (motivo.trim().length < MOTIVO_MANUAL_MINIMO) {
-            state = state.copy(erro = "Informe o motivo do registro manual.")
+            state = state.copy(
+                erro = "Descreva o motivo em pelo menos $MOTIVO_MANUAL_MINIMO caracteres. " +
+                    "Quem ler a auditoria daqui a seis meses precisa entender o que aconteceu.",
+            )
             return
         }
         viewModelScope.launch {
