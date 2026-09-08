@@ -18,7 +18,7 @@ test('a rota de abertura manual existe e esta montada nos dois prefixos', () => 
 
 test('a abertura manual exige motivo e grava quem a fez', () => {
   assert.match(routes, /const iniciarManualSchema = z\.object\(/)
-  assert.match(routes, /motivo: z\.string\(\)\.trim\(\)\.min\(3\)\.max\(200\)/)
+  assert.match(routes, /motivo: z\.string\(\)\.trim\(\)\.min\(MOTIVO_MINIMO\)\.max\(200\)/)
   assert.match(routes, /inicio_registrado_manualmente,inicio_motivo_manual/)
   assert.match(routes, /inicio_ator_auth_id,inicio_ator_tipo,inicio_registrado_em/)
   assert.match(routes, /'PAUSA_INICIADA_MANUALMENTE','PAUSA'/)
@@ -82,14 +82,17 @@ test('o minimo do motivo e o mesmo no campo e na rota', () => {
     'utf8',
   )
 
-  // O cliente validava 2 e o servidor exige 3: um motivo de duas letras passava
-  // no campo e voltava recusado pela rede. Um limite so, escrito uma vez.
-  assert.ok(admin.includes('internal const val MOTIVO_MANUAL_MINIMO = 3'))
-  assert.ok(routes.includes('motivo: z.string().trim().min(3).max(200)'), 'a rota exige 3')
+  // O cliente validava 2 e o servidor exigia 3: um motivo de duas letras passava
+  // no campo e voltava recusado pela rede. Agora o limite é um só, escrito uma
+  // vez, e são 20 — porque 3 aceita "esq", e quem lê a auditoria seis meses
+  // depois precisa de uma frase.
+  assert.ok(admin.includes('internal const val MOTIVO_MANUAL_MINIMO = 20'))
+  assert.ok(routes.includes('const MOTIVO_MINIMO = 20'), 'a rota exige uma frase, não uma sigla')
 
   for (const [label, fonte] of [['admin', admin], ['supervisor', supervisor]] as const) {
+    // O fecho do parêntese importa: sem ele, "< 2" casa dentro de "< 20".
     assert.ok(
-      !fonte.includes('motivo.trim().length < 2'),
+      !fonte.includes('motivo.trim().length < 2)'),
       `${label} não pode validar um mínimo diferente do da rota`,
     )
     assert.ok(

@@ -501,7 +501,10 @@ class SupervisorViewModel(
         // um motivo que ia ser recusado do outro lado -- e a pessoa via um erro
         // de validação vindo da rede em vez de um aviso imediato no campo.
         if (motivo.trim().length < MOTIVO_MANUAL_MINIMO) {
-            state = state.copy(erro = "Informe o motivo do registro manual.")
+            state = state.copy(
+                erro = "Descreva o motivo em pelo menos $MOTIVO_MANUAL_MINIMO caracteres. " +
+                    "Quem ler a auditoria daqui a seis meses precisa entender o que aconteceu.",
+            )
             return
         }
         viewModelScope.launch {
@@ -535,7 +538,10 @@ class SupervisorViewModel(
         // um motivo que ia ser recusado do outro lado -- e a pessoa via um erro
         // de validação vindo da rede em vez de um aviso imediato no campo.
         if (motivo.trim().length < MOTIVO_MANUAL_MINIMO) {
-            state = state.copy(erro = "Informe o motivo do registro manual.")
+            state = state.copy(
+                erro = "Descreva o motivo em pelo menos $MOTIVO_MANUAL_MINIMO caracteres. " +
+                    "Quem ler a auditoria daqui a seis meses precisa entender o que aconteceu.",
+            )
             return
         }
         viewModelScope.launch {

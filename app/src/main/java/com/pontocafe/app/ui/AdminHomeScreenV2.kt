@@ -89,6 +89,8 @@ fun AdminHomeScreenV2(
     val codigosPendentes = summary?.codigosPendentes ?: 0
     val activeDevices = summary?.dispositivosAtivos ?: 0
     val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
+    val registrosManuais = summary?.registrosManuais7Dias ?: 0
+    val supervisoresComManual = summary?.supervisoresComRegistroManual ?: 0
     val online = state.erro == null
 
     val context = LocalContext.current
@@ -105,6 +107,12 @@ fun AdminHomeScreenV2(
 
     var livePauses by remember { mutableStateOf<List<PausaSupervisor>>(emptyList()) }
     var livePausesLoaded by remember { mutableStateOf(false) }
+    // A tela mostrava a última lista conhecida para sempre: se a rede caísse,
+    // o Admin continuava a ver gente "no café" que já tinha voltado há vinte
+    // minutos, sem nada a dizer que aquilo estava velho. O Supervisor já
+    // avisava; aqui a mesma informação aparecia sem ressalva nenhuma.
+    var ultimaAtualizacaoAoVivo by remember { mutableStateOf<Long?>(null) }
+    var conexaoAoVivoOk by remember { mutableStateOf(true) }
     var pauseFilter by remember { mutableStateOf(OperationalPauseFilter.TODOS) }
     var selectedOperationalPause by remember { mutableStateOf<OperationalPauseItem?>(null) }
     var manualClosePause by remember { mutableStateOf<OperationalPauseItem?>(null) }
@@ -147,7 +155,10 @@ fun AdminHomeScreenV2(
                     .onSuccess { pausas ->
                         livePauses = pausas
                         livePausesLoaded = true
+                        ultimaAtualizacaoAoVivo = System.currentTimeMillis()
+                        conexaoAoVivoOk = true
                     }
+                    .onFailure { conexaoAoVivoOk = false }
                 delay(5_000)
             }
         }
@@ -454,6 +465,15 @@ fun AdminHomeScreenV2(
                     }
                 }
 
+                // Antes dos painéis, em qualquer layout: quem lê "3 pessoas no
+                // café" precisa de saber se isso é de agora ou de meia hora atrás.
+                item("live-freshness") {
+                    AdminLiveFreshnessBanner(
+                        conexaoOk = conexaoAoVivoOk,
+                        ultimaAtualizacaoMillis = ultimaAtualizacaoAoVivo,
+                    )
+                }
+
                 if (responsive.isExpanded && responsive.supportsTwoColumns) {
                     item("desktop-dashboard") {
                         Row(
@@ -485,10 +505,13 @@ fun AdminHomeScreenV2(
                                 activeSupervisors = activeSupervisors,
                                 codigosPendentes = codigosPendentes,
                                 devicesWithoutPin = devicesWithoutPin,
+                                registrosManuais = registrosManuais,
+                                supervisoresComManual = supervisoresComManual,
                                 onPeopleClick = viewModel::abrirColaboradores,
                                 onCodesClick = viewModel::abrirCodigos,
                                 onDevicesClick = onDevicesClick,
                                 onNewSupervisor = viewModel::abrirNovaConta,
+                                onAuditClick = viewModel::abrirAuditoria,
                                 modifier = Modifier.weight(.88f),
                             )
                         }
@@ -521,10 +544,13 @@ fun AdminHomeScreenV2(
                             activeSupervisors = activeSupervisors,
                             codigosPendentes = codigosPendentes,
                             devicesWithoutPin = devicesWithoutPin,
+                            registrosManuais = registrosManuais,
+                            supervisoresComManual = supervisoresComManual,
                             onPeopleClick = viewModel::abrirColaboradores,
                             onCodesClick = viewModel::abrirCodigos,
                             onDevicesClick = onDevicesClick,
                             onNewSupervisor = viewModel::abrirNovaConta,
+                            onAuditClick = viewModel::abrirAuditoria,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -742,10 +768,13 @@ private fun AdminHomeReadinessPanel(
     activeSupervisors: Int,
     codigosPendentes: Int,
     devicesWithoutPin: Int,
+    registrosManuais: Int,
+    supervisoresComManual: Int,
     onPeopleClick: () -> Unit,
     onCodesClick: () -> Unit,
     onDevicesClick: () -> Unit,
     onNewSupervisor: () -> Unit,
+    onAuditClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -803,10 +832,25 @@ private fun AdminHomeReadinessPanel(
             if (devicesWithoutPin > 0) {
                 OperationalAlertCard(
                     "$devicesWithoutPin dispositivo(s) sem PIN próprio",
-                    "Defina um PIN individual para cada ponto.",
+                    // Sem PIN, sair do modo quiosque e mudar o relógio do Android
+                    // é trivial -- e sem rede o horário do registro vem daí.
+                    "Sem PIN, qualquer pessoa sai do modo quiosque e altera a hora do aparelho.",
                     "Gerenciar dispositivos",
                     onDevicesClick,
-                    PontoCafeTone.WARNING,
+                    PontoCafeTone.DANGER,
+                )
+            }
+            if (registrosManuais > 0) {
+                OperationalAlertCard(
+                    "$registrosManuais registro(s) manual(is) em 7 dias",
+                    if (supervisoresComManual == 1) {
+                        "Feitos por 1 pessoa. Registro manual dispensa o código: confira os motivos na auditoria."
+                    } else {
+                        "Feitos por $supervisoresComManual pessoas. Registro manual dispensa o código: confira os motivos na auditoria."
+                    },
+                    "Abrir auditoria",
+                    onAuditClick,
+                    if (registrosManuais > 10) PontoCafeTone.WARNING else PontoCafeTone.INFO,
                 )
             }
             if (activeSupervisors == 0) {
@@ -892,4 +936,52 @@ private fun AdminHomeSectionHeader(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * Idade dos dados ao vivo do Início.
+ *
+ * O painel mostrava a última lista conhecida indefinidamente. Com a rede em
+ * baixo, "3 pessoas no café" continuava no ecrã depois de as três já terem
+ * voltado — e nada distinguia isso de um dado de agora. Uma lista velha sem
+ * ressalva é pior do que uma lista vazia: parece informação.
+ *
+ * A contagem só corre enquanto há algo a envelhecer e a tela está visível.
+ */
+@Composable
+private fun AdminLiveFreshnessBanner(
+    conexaoOk: Boolean,
+    ultimaAtualizacaoMillis: Long?,
+) {
+    // Fresco e ligado: nao ha nada a dizer. Um banner verde permanente a dizer
+    // "esta tudo bem" so ocupa a tela e ensina a ignorar banners.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var agora by remember(ultimaAtualizacaoMillis) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(lifecycleOwner, ultimaAtualizacaoMillis, conexaoOk) {
+        if (ultimaAtualizacaoMillis == null) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                agora = System.currentTimeMillis()
+                delay(5_000L)
+            }
+        }
+    }
+
+    val segundos = ultimaAtualizacaoMillis?.let { ((agora - it) / 1_000L).coerceAtLeast(0L) }
+    val desatualizado = segundos != null && segundos >= 30
+    if (conexaoOk && !desatualizado) return
+
+    PcStateBanner(
+        title = when {
+            segundos == null -> "Conectando ao painel operacional"
+            !conexaoOk -> "Conexão instável"
+            else -> "Dados de há ${segundos}s"
+        },
+        supportingText = if (segundos == null) {
+            "A lista de quem está no café aparece assim que a primeira consulta responder."
+        } else {
+            "Os últimos dados válidos continuam visíveis, mas podem já não refletir quem está no café."
+        },
+        tone = PontoCafeTone.WARNING,
+    )
 }

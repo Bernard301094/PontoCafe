@@ -57,6 +57,9 @@ import com.pontocafe.app.data.PausaSupervisor
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 
 private const val OPERATIONAL_ATTENTION_SECONDS = 120
@@ -244,11 +247,16 @@ val LocalOperationalNow = staticCompositionLocalOf<State<Long>> {
 
 @Composable
 fun OperationalClockProvider(content: @Composable () -> Unit) {
-    val agora = produceState(System.currentTimeMillis()) {
-        while (true) {
-            val instante = System.currentTimeMillis()
-            value = instante
-            delay(1_000L - instante % 1_000L)
+    // Preso ao ciclo de vida: um relógio a acordar de segundo a segundo com o
+    // app em segundo plano é trabalho para desenhar uma tela que ninguém vê.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val agora = produceState(System.currentTimeMillis(), lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val instante = System.currentTimeMillis()
+                value = instante
+                delay(1_000L - instante % 1_000L)
+            }
         }
     }
     CompositionLocalProvider(LocalOperationalNow provides agora) { content() }

@@ -35,9 +35,18 @@ import { parseJson } from './shared.js'
 
 const uuidSchema = z.string().uuid()
 
+/**
+ * Tamanho mínimo da justificativa de um registro manual.
+ *
+ * Eram 3 caracteres, e 3 aceita 'esq'. Uma justificativa que cabe numa sigla
+ * não é justificativa: quem lê a auditoria seis meses depois precisa de saber
+ * o que aconteceu, e é essa pessoa que este mínimo protege — não quem escreve.
+ */
+const MOTIVO_MINIMO = 20
+
 const finalizarManualSchema = z.object({
   colaboradorId: uuidSchema,
-  motivo: z.string().trim().min(3).max(200),
+  motivo: z.string().trim().min(MOTIVO_MINIMO).max(200),
 })
 
 type ManualFinishResponse = {
@@ -127,7 +136,7 @@ async function finalizarPausaManual(
 
 const iniciarManualSchema = z.object({
   colaboradorId: uuidSchema,
-  motivo: z.string().trim().min(3).max(200),
+  motivo: z.string().trim().min(MOTIVO_MINIMO).max(200),
 })
 
 type ManualStartResponse = {

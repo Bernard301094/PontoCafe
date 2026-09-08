@@ -92,6 +92,9 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -329,11 +332,17 @@ private fun KioskOperationalPanel(
     modifier: Modifier = Modifier,
 ) {
     var agora by remember { mutableStateOf(ZonedDateTime.now(KIOSK_ZONE)) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val instante = ZonedDateTime.now(KIOSK_ZONE)
-            agora = instante
-            delay(1_000L - (instante.nano / 1_000_000L))
+    // Preso ao ciclo de vida. O quiosque fica quase sempre em primeiro plano,
+    // mas quando alguém entra na área restrita este relógio continuava a acordar
+    // de segundo a segundo por trás, sem ninguém para o ler.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val instante = ZonedDateTime.now(KIOSK_ZONE)
+                agora = instante
+                delay(1_000L - (instante.nano / 1_000_000L))
+            }
         }
     }
 

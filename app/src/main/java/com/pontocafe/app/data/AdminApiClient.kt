@@ -177,6 +177,15 @@ data class AdminOperationalSummary(
     val supervisoresAtivos: Int,
     val administradoresAtivos: Int,
     val pausasAbertas: Int,
+    /**
+     * Pausas abertas ou fechadas sem o código, nos últimos 7 dias.
+     *
+     * É a única forma de registrar ponto sem a pessoa apresentar o código, e
+     * fica em auditoria — mas auditoria que ninguém abre é arquivo morto. O
+     * número existe para aparecer onde o Admin já olha todos os dias.
+     */
+    val registrosManuais7Dias: Int = 0,
+    val supervisoresComRegistroManual: Int = 0,
 )
 data class AdminOperationalSummaryResponse(val resumo: AdminOperationalSummary)
 
