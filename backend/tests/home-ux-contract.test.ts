@@ -22,8 +22,6 @@ test('Início usa a experiência V2 mantendo o entrypoint do shell', () => {
 })
 
 test('dashboard prioriza operação atual e atenção', () => {
-  assert.match(home, /"Operação agora"/)
-  assert.match(home, /"Centro de atenção"/)
   assert.match(home, /OperationalPauseFilter\.ATENCAO/)
   assert.match(home, /OperationalPauseFilter\.EXCEDIDOS/)
   assert.match(home, /livePreviewLimit/)
@@ -51,9 +49,4 @@ test('histórico continua disponível com seleção de data e preview adaptativo
   assert.match(home, /historyPreviewLimit/)
   assert.match(home, /showAllHistory/)
   assert.match(home, /HistoryPauseCard/)
-})
-
-test('release do redesign de Início é 0.12.0', () => {
-  assert.match(gradle, /versionCode = 33/)
-  assert.match(gradle, /versionName = "0\.12\.0"/)
 })

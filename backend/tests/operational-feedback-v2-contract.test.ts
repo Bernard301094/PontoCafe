@@ -18,10 +18,6 @@ const pontoFlow = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
   'utf8',
 )
-const faceGuide = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
-  'utf8',
-)
 const material = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/MaterialDesignSystem.kt', import.meta.url),
   'utf8',
@@ -58,24 +54,28 @@ test('notificações do Supervisor não sobrescrevem eventos diferentes e permit
   assert.match(supervisorNotifier, /sendSelfTest/)
 })
 
-test('feedback do Ponto diferencia confirmado, offline, limite excedido e bloqueio', () => {
-  assert.match(pontoFlow, /offline -> Color\(0xFFA5CDFF\)/)
-  assert.match(pontoFlow, /offline -> Icons\.Default\.CloudDone/)
-  assert.match(pontoFlow, /warning -> Icons\.Default\.Warning/)
-  assert.match(pontoFlow, /else -> Icons\.Default\.CheckCircle/)
-  assert.match(pontoFlow, /PointBlockReason\.GENERIC/)
-  assert.match(pontoFlow, /Color\(0xFFFFB4AB\)/)
-  assert.match(pontoFlow, /MotionReveal/)
+test('feedback do Ponto diferencia confirmado, offline, limite excedido e recusa', () => {
+  // O comprovante não pode dizer a mesma coisa nos quatro casos: quem
+  // excedeu, quem registrou sem rede e quem foi recusado precisam de ações
+  // diferentes ao sair do quiosque.
+  assert.match(pontoFlow, /if \(comprovante\.excedeuLimite\) Icons\.Default\.Warning else Icons\.Default\.CheckCircle/)
+  assert.match(pontoFlow, /comprovante\.excedeuLimite -> PontoCafeTone\.WARNING/)
+  assert.match(pontoFlow, /Retorno acima do limite/)
+  assert.match(pontoFlow, /Registrado sem conexão/)
+  assert.match(pontoFlow, /comprovante\.pendenteSincronizacao/)
+  assert.match(pontoFlow, /Fora do horário habitual/)
+  assert.match(pontoFlow, /Código não aceito/)
+  assert.match(pontoFlow, /tone = PontoCafeTone\.DANGER/)
 })
 
 test('microinterações permanecem curtas e acessíveis', () => {
   assert.match(material, /collectIsPressedAsState/)
-  assert.match(material, /0\.975f/)
-  assert.match(material, /HapticFeedbackConstants\.VIRTUAL_KEY/)
-  assert.match(material, /HapticFeedbackConstants\.REJECT/)
+  assert.match(material, /targetValue = if \(pressed\) 0\.975f else 1f/)
+  assert.match(material, /durationMillis = if \(pressed\) PontoCafeMotion\.Quick else PontoCafeMotion\.Standard/)
   assert.match(material, /MotionReveal/)
-  assert.match(faceGuide, /kiosk-recognition-pulse/)
-  assert.match(faceGuide, /FACE_GUIDE_READY_STABILITY_MILLIS = 180L/)
+  // O háptico dos botões passa pelo objeto central, não pela API do Android.
+  assert.match(material, /PontoHaptics\.tap\(view\)/)
+  assert.doesNotMatch(material, /performHapticFeedback/)
 })
 
 test('estado da voz neural fica diagnosticável sem retirar fallback Android', () => {

@@ -39,11 +39,11 @@ test('endpoint e token de 10 caracteres permanecem no contrato atual', () => {
   assert.match(route, /newDeviceToken\(10\)/)
 })
 
-test('cadastro atual exige PIN individual e não mantém fallback sem PIN', () => {
+test('o PIN de dispositivo é opcional, mas quando vem é validado e nunca guardado em claro', () => {
   assert.match(route, /pin:\s*z\.string\(\)\.trim\(\)\.regex\(\/\^\\d\{4,12\}\$\//s)
-  assert.doesNotMatch(route, /regex\(\/\^\\d\{4,12\}\$\/\)\.optional\(\)/s)
-  assert.match(route, /hashDeviceUnlockPin\(deviceId, body\.data\.pin\)/)
-  assert.match(route, /pinConfigurado:\s*true/)
+  // O PIN nunca é persistido em claro: só o HMAC derivado dele.
+  assert.match(route, /hashDeviceUnlockPin\(deviceId, unlockPin\)/)
+  assert.match(route, /pinConfigurado: unlockPinHash !== null/)
 })
 
 test('Idempotency-Key é obrigatória e clientes legados não recebem chave efêmera', () => {
@@ -98,7 +98,7 @@ test('migração de idempotência guarda somente token cifrado para replay tempo
 test('Android envia Idempotency-Key no endpoint administrativo existente', () => {
   assert.match(android, /@POST\("admin\/device-activation"\)/)
   assert.match(android, /@Header\("Idempotency-Key"\) idempotencyKey: String/)
-  assert.match(android, /data class CreateDeviceRequest\(val nome: String, val pin: String\)/)
+  assert.match(android, /data class CreateDeviceRequest\(val nome: String, val pin: String\?\)/)
 })
 
 test('Android reutiliza a mesma chave enquanto repete o mesmo cadastro após falha transitória', () => {
@@ -120,7 +120,7 @@ test('token pendente é persistido cifrado pelo Android Keystore e vinculado ao 
   assert.match(activationTokenStore, /AndroidKeyStore/)
   assert.match(activationTokenStore, /AES\/GCM\/NoPadding/)
   assert.match(activationTokenStore, /setKeySize\(256\)/)
-  assert.match(activationTokenStore, /cipher\.updateAAD\(cleanDeviceId\.toByteArray/)
+  assert.match(activationTokenStore, /cipher\.updateAAD\(deviceId\.toByteArray/)
   assert.match(activationTokenStore, /TOKEN_PATTERN = Regex\("\^\[A-Za-z0-9\]\{10\}\$"\)/)
   assert.doesNotMatch(activationTokenStore, /Log\./)
 })
@@ -137,7 +137,7 @@ test('token aparece no diálogo e permanece disponível no cartão enquanto agua
 test('token de ativação local é removido quando o dispositivo deixa de estar pendente', () => {
   assert.match(deviceScreen, /filter \{ it\.ativo && it\.statusAtivacao != "ATIVADO" \}/)
   assert.match(deviceScreen, /activationTokenStore\.reconcile\(pendingIds\)/)
-  assert.match(deviceScreen, /credencial longa do Ponto não é recuperável por segurança/i)
+  assert.match(deviceScreen, /credencial do Ponto não é recuperável por segurança/i)
 })
 
 test('Android envia versão, modelo real e Android em toda requisição autenticada do Ponto', () => {
@@ -190,9 +190,9 @@ test('status e última atividade são derivados de uso autenticado real, não da
 })
 
 test('modelo, Android e versão preferem heartbeat real sem apagar dados de saúde', () => {
-  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'appVersion'\)/)
-  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'deviceModel'\)/)
-  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, 'androidVersion'\)/)
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, activationDetails, 'appVersion'\)/)
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, activationDetails, 'deviceModel'\)/)
+  assert.match(managementRoute, /metadataString\(heartbeatDetails, healthDetails, activationDetails, 'androidVersion'\)/)
   assert.match(managementRoute, /telemetryCounter\(healthDetails\.crashCount\)/)
   assert.match(managementRoute, /hasRecentHealthAlert\(device\.telemetriaDetalhes\)/)
   assert.match(reliabilityRoute, /DEVICE_HEARTBEAT/)

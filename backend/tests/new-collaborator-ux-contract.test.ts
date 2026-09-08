@@ -19,7 +19,8 @@ test('cadastro usa UX guiada para setor e turno', () => {
   assert.match(screen, /state\.colaboradores/)
   assert.match(screen, /LazyRow/)
   assert.match(screen, /CollaboratorShiftOptions = listOf\("A", "B", "C"\)/)
-  assert.match(screen, /ShiftOptionCard/)
+  assert.match(screen, /items\(CollaboratorShiftOptions, key = \{ "shift-\$it" \}\)/)
+  assert.match(screen, /FilterChip\(/)
 })
 
 test('ação principal informa o que falta e fica separada do conteúdo', () => {
@@ -31,7 +32,9 @@ test('ação principal informa o que falta e fica separada do conteúdo', () => 
 })
 
 test('supervisor continua como conta de acesso, não colaborador facial', () => {
-  assert.match(screen, /Supervisor e Administrador são contas de acesso/)
-  assert.match(screen, /Cadastrar supervisor \/ conta de acesso/)
+  // Confundir as duas coisas é o erro clássico desta tela: um Supervisor não
+  // bate ponto, e um colaborador não faz login.
+  assert.match(screen, /Contas de Supervisor e Administrador ficam separadas/)
+  assert.match(screen, /Cadastrar Supervisor \/ conta de acesso/)
   assert.match(screen, /onSupervisor = viewModel::abrirNovaConta/)
 })

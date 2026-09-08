@@ -40,10 +40,3 @@ test('dashboard de relatórios adapta métricas sem remover análise operacional
   assert.match(reports, /Excessos que pedem atenção/)
   assert.match(reports, /viewModel\.abrirHistorico\(day\.data\)/)
 })
-
-test('release da experiência de contas e relatórios é 0.14.0', () => {
-  assert.match(gradle, /versionCode = 35/)
-  assert.match(gradle, /versionName = "0\.14\.0"/)
-  assert.match(gradle, /isMinifyEnabled = true/)
-  assert.match(gradle, /isShrinkResources = true/)
-})

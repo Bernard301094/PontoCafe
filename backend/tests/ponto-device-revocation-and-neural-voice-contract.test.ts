@@ -15,6 +15,8 @@ const apiClient = read('../../app/src/main/java/com/pontocafe/app/data/ApiClient
 const authRuntime = read('../../app/src/main/java/com/pontocafe/app/data/DeviceAuthorizationRuntime.kt')
 const offlineStore = read('../../app/src/main/java/com/pontocafe/app/data/SecurePontoOfflineStore.kt')
 const mainActivity = read('../../app/src/main/java/com/pontocafe/app/MainActivity.kt')
+const navigationPolicy = read('../../app/src/main/java/com/pontocafe/app/MainNavigationPolicy.kt')
+const gradle = read('../../app/build.gradle.kts')
 const supervisorScreen = read('../../app/src/main/java/com/pontocafe/app/ui/SupervisorOperationScreen.kt')
 const appHealth = read('../../app/src/main/java/com/pontocafe/app/data/AppHealthMonitor.kt')
 const application = read('../src/application.ts')
@@ -49,14 +51,18 @@ test('token local não autoriza câmera antes da validação autoritativa', () =
 })
 
 test('CHECKING usa tela de validação e nunca pisca formulário de token', () => {
-  const checkingBranch = mainActivity.indexOf(
-    'state.deviceAuthorizationState == DeviceAuthorizationState.CHECKING',
+  // A ordem das telas saiu de um `when` inline na Activity para uma função pura
+  // em MainNavigationPolicy.kt. É lá que o invariante vive agora — e é lá que
+  // ele pode ser verificado sem regex sobre uma Activity de 500 linhas.
+  const checkingBranch = navigationPolicy.indexOf(
+    'deviceAuthorizationState == DeviceAuthorizationState.CHECKING',
   )
-  const setupBranch = mainActivity.indexOf('!state.deviceConfigured -> {')
+  const setupBranch = navigationPolicy.indexOf('!deviceConfigured ->')
 
   assert.ok(checkingBranch >= 0, 'branch CHECKING precisa existir')
   assert.ok(setupBranch > checkingBranch, 'CHECKING precisa ser resolvido antes do DeviceSetupScreen')
-  assert.match(mainActivity, /DeviceAuthorizationState\.CHECKING[\s\S]*PontoDeviceAuthorizationScreen/)
+  assert.match(navigationPolicy, /CHECKING -> PontoScreenRoute\.CHECKING_DEVICE/)
+  assert.match(mainActivity, /PontoScreenRoute\.CHECKING_DEVICE[\s\S]*PontoDeviceAuthorizationScreen/)
   assert.match(startupProvisioning, /Validando dispositivo/)
   assert.match(startupProvisioning, /código de ativação não será solicitado/)
 })
@@ -89,7 +95,8 @@ test('teste neural só confirma sucesso após PlaybackCompleted', () => {
 })
 
 test('instalação do Ponto baixa voz natural, valida playback real e só então libera uso persistente', () => {
-  assert.match(mainActivity, /!naturalVoiceReadyForSession[\s\S]*PontoNaturalVoiceProvisioningScreen/)
+  assert.match(navigationPolicy, /!naturalVoiceReadyForSession -> PontoScreenRoute\.NEEDS_VOICE_SETUP/)
+  assert.match(mainActivity, /PontoScreenRoute\.NEEDS_VOICE_SETUP[\s\S]*PontoNaturalVoiceProvisioningScreen/)
   assert.match(startupProvisioning, /PontoNeuralVoiceRuntime\.prewarm\(appContext\)/)
   assert.match(startupProvisioning, /PontoNeuralVoiceRuntime\.speak\(/)
   assert.match(
@@ -99,17 +106,20 @@ test('instalação do Ponto baixa voz natural, valida playback real e só então
   assert.match(startupProvisioning, /verified_voice_version/)
   assert.match(startupProvisioning, /Usar Ponto temporariamente com voz do Android/)
   assert.doesNotMatch(startupProvisioning, /PontoVoiceRuntime\.speak/)
-  assert.match(neuralVoice, /ensureModelInstalled\(context\)/)
-  assert.match(neuralVoice, /VOICE_MODEL_INSTALLED/)
+  // O modelo deixou de ser baixado em cada quiosque: vem empacotado no APK.
+  assert.match(neuralVoice, /MODEL_ASSET_DIR = "voice\//)
 })
 
-test('instalador neural tolera links TAR internos, valida download e repete falhas transitórias', () => {
-  assert.match(neuralVoice, /MODEL_INSTALL_ATTEMPTS = 3/)
-  assert.match(neuralVoice, /VOICE_DOWNLOAD_LENGTH_MISMATCH/)
-  assert.match(neuralVoice, /materializeArchiveLinks/)
-  assert.match(neuralVoice, /archiveLinkTarget/)
-  assert.match(neuralVoice, /VOICE_ARCHIVE_LINK_OUTSIDE_ROOT/)
-  assert.doesNotMatch(neuralVoice, /VOICE_ARCHIVE_LINK_REJECTED/)
+test('o modelo de voz é validado no build e empacotado, nunca baixado em campo', () => {
+  assert.match(neuralVoice, /MODEL_SHA256 = "[0-9a-f]{64}"/)
+  assert.match(neuralVoice, /MODEL_SIZE_BYTES = [\d_]+L/)
+  assert.match(gradle, /prepareVoiceModel/)
+  assert.match(gradle, /voiceModelSha256/)
+  assert.doesNotMatch(neuralVoice, /HttpURLConnection|URL\(voiceModelUrl/)
+  // Sem download em campo não há extração de TAR: os códigos de falha do
+  // instalador antigo (links fora da raiz do arquivo) deixaram de existir.
+  assert.doesNotMatch(neuralVoice, /VOICE_ARCHIVE_LINK/)
+  // O que sobrevive é o diagnóstico: uma falha de voz precisa dizer o porquê.
   assert.match(neuralVoice, /lastFailureCode/)
   assert.match(startupProvisioning, /Código técnico:/)
 })

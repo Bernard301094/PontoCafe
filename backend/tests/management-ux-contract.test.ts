@@ -60,7 +60,7 @@ test('cada período distingue horários do tempo máximo de café', () => {
 test('resumo usa duração configurada de verdade e não um valor fixo', () => {
   assert.match(management, /val durationSummary = remember\(reliability\.rules\)/)
   assert.match(management, /map \{ PontoCafeRules\.formatDuration\(it\.limiteSegundos\) \}/)
-  assert.match(management, /durationSummary = durationSummary/)
+  assert.match(management, /PcHeroStat\(value = durationSummary, label = "Tempo configurado"/)
   assert.doesNotMatch(management, /value = "15 min"/)
 })
 
