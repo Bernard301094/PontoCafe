@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pontocafe.app.PontoCafeUiState
 import com.pontocafe.app.PontoCafeViewModel
 import com.pontocafe.app.PontoStep
 import com.pontocafe.app.TipoComprovantePonto
@@ -183,6 +186,9 @@ fun PontoFlowHost(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val compactHeight = maxHeight < 640.dp
+        // Capturado aqui: dentro do Column o receptor implícito passa a ser o
+        // ColumnScope e maxWidth deixa de estar acessível.
+        val larga = maxWidth >= 840.dp && !compactHeight
 
         Column(
             modifier = Modifier
@@ -207,31 +213,41 @@ fun PontoFlowHost(
                 onAccess = { restrictedAreaRequest = RestrictedAreaRequest.LOGIN },
             )
 
-            AnimatedContent(
-                targetState = state.passo,
-                transitionSpec = {
-                    fadeIn(tween(PontoCafeMotion.Standard)) togetherWith
-                        fadeOut(tween(PontoCafeMotion.Quick))
-                },
-                label = "ponto-step",
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) { passo ->
-                when (passo) {
-                    PontoStep.ESCOLHER_PESSOA -> CollaboratorPickerStep(
+            // O quiosque lia só a ALTURA. Num tablet de parede de 1280dp o
+            // fluxo desenhava uma coluna estreita de telefone com metade do
+            // ecrã vazio — e é o aparelho que fica ligado o dia inteiro.
+            // A partir da largura de tablet o passo fica à esquerda e o painel
+            // operacional à direita.
+            if (larga) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    KioskStepContent(
                         viewModel = viewModel,
                         compactHeight = compactHeight,
                         onInteracao = { wakeTick += 1 },
+                        modifier = Modifier
+                            .weight(.6f)
+                            .fillMaxHeight(),
                     )
-
-                    PontoStep.DIGITAR_CODIGO -> AccessCodeStep(
-                        viewModel = viewModel,
-                        compactHeight = compactHeight,
+                    KioskOperationalPanel(
+                        state = state,
+                        modifier = Modifier
+                            .weight(.4f)
+                            .fillMaxHeight(),
                     )
-
-                    PontoStep.COMPROVANTE -> ReceiptStep(viewModel = viewModel)
                 }
+            } else {
+                KioskStepContent(
+                    viewModel = viewModel,
+                    compactHeight = compactHeight,
+                    onInteracao = { wakeTick += 1 },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
             }
         }
 
@@ -250,6 +266,174 @@ fun PontoFlowHost(
             onWake = { wakeTick += 1 },
             modifier = Modifier.fillMaxSize(),
         )
+    }
+}
+
+/** Os três passos, extraídos para poderem viver sozinhos ou dentro do split. */
+@Composable
+private fun KioskStepContent(
+    viewModel: PontoCafeViewModel,
+    compactHeight: Boolean,
+    onInteracao: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedContent(
+        targetState = viewModel.state.passo,
+        transitionSpec = {
+            fadeIn(tween(PontoCafeMotion.Standard)) togetherWith
+                fadeOut(tween(PontoCafeMotion.Quick))
+        },
+        label = "ponto-step",
+        modifier = modifier,
+    ) { passo ->
+        when (passo) {
+            PontoStep.ESCOLHER_PESSOA -> CollaboratorPickerStep(
+                viewModel = viewModel,
+                compactHeight = compactHeight,
+                onInteracao = onInteracao,
+            )
+
+            PontoStep.DIGITAR_CODIGO -> AccessCodeStep(
+                viewModel = viewModel,
+                compactHeight = compactHeight,
+            )
+
+            PontoStep.COMPROVANTE -> ReceiptStep(viewModel = viewModel)
+        }
+    }
+}
+
+/**
+ * Painel direito do quiosque de parede.
+ *
+ * Mostra só o que é da própria operação de quem está em frente ao aparelho:
+ * hora, data, o passo em que está e o nome que ele mesmo escolheu. Nada de
+ * terceiros — nem quem saiu, nem quem voltou, nem a que horas. O quiosque fica
+ * num corredor, e o resto do sistema foi construído para que ele não aprenda
+ * quem tomou café: a lista já vem cortada do servidor por essa razão. Um mural
+ * de pausas alheias aqui desfaria isso de uma vez.
+ *
+ * O relógio é a única animação da tela. Acorda uma vez por segundo, alinhado à
+ * viragem do segundo em vez de um `delay(1000)` que iria derivando, e morre com
+ * a composição — num aparelho ligado 24 h isso é a diferença entre um timer e
+ * um vazamento.
+ */
+@Composable
+private fun KioskOperationalPanel(
+    state: PontoCafeUiState,
+    modifier: Modifier = Modifier,
+) {
+    var agora by remember { mutableStateOf(ZonedDateTime.now(KIOSK_ZONE)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val instante = ZonedDateTime.now(KIOSK_ZONE)
+            agora = instante
+            delay(1_000L - (instante.nano / 1_000_000L))
+        }
+    }
+
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(PontoCafeSpacing.xl),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+                Text(
+                    agora.format(DateTimeFormatter.ofPattern("HH:mm", Locale("pt", "BR"))),
+                    style = MaterialTheme.typography.displayLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    agora.format(DateTimeFormatter.ofPattern("EEEE, d 'de' MMMM", Locale("pt", "BR")))
+                        .replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            HorizontalDivider()
+
+            val (titulo, apoio) = when (state.passo) {
+                PontoStep.ESCOLHER_PESSOA ->
+                    "Toque no seu nome" to
+                        "Depois vem o código de ${AccessCode.LENGTH} caracteres que o Supervisor entregou."
+
+                PontoStep.DIGITAR_CODIGO -> if (state.acaoEsperada == "RETORNO") {
+                    "Digite o mesmo código" to "É o código que você usou para sair. Ele não expira para o retorno."
+                } else {
+                    "Digite o código" to "O código vale por poucos minutos depois de gerado."
+                }
+
+                PontoStep.COMPROVANTE ->
+                    "Registro concluído" to "O comprovante fecha sozinho e volta para a lista de nomes."
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+                Text(
+                    titulo,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    apoio,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // O nome só aparece depois de a própria pessoa se ter escolhido —
+            // é dela, e some no momento em que o comprovante fecha.
+            state.selecionado?.let { pessoa ->
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(PontoCafeSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                    ) {
+                        InitialAvatar(name = pessoa.nome, avatarSize = 48.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                pessoa.nome,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                if (state.acaoEsperada == "RETORNO") "Registrando o retorno" else "Registrando a saída",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            if (state.modoOffline) {
+                PcStateBanner(
+                    title = "Sem conexão",
+                    supportingText = if (state.eventosPendentes > 0) {
+                        "${state.eventosPendentes} registro(s) guardados neste aparelho, à espera da rede."
+                    } else {
+                        "Os registros ficam guardados no aparelho e sobem quando a rede voltar."
+                    },
+                    tone = PontoCafeTone.WARNING,
+                )
+            }
+        }
     }
 }
 
