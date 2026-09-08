@@ -848,7 +848,9 @@ private fun AdminHomeMiniStat(
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             Column {
-                Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                // Era o único tile de métrica que ainda escrevia o número cru:
+                // os outros três já rolavam, e a diferença aparecia lado a lado.
+                Text(animatedMetricValue(value), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

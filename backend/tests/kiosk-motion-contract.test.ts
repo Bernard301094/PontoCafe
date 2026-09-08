@@ -77,3 +77,56 @@ test('o arco de contagem é desenhado, não recomposto', () => {
   assert.match(feed, /sweepAngle = 360f \* \(1f - fracao\)/)
   assert.match(feed, /style = Stroke\(width = traco, cap = StrokeCap\.Round\)/)
 })
+
+test('todo número de métrica rola, e um alerta pode ser dispensado', () => {
+  const home = read('app/src/main/java/com/pontocafe/app/ui/AdminHomeScreenV2.kt')
+  const alerts = read('app/src/main/java/com/pontocafe/app/ui/SupervisorLiveAlerts.kt')
+  const operacao = read('app/src/main/java/com/pontocafe/app/ui/SupervisorOperationScreen.kt')
+
+  // Três dos quatro tiles já rolavam; o quarto escrevia o número cru, e a
+  // diferença aparecia com eles lado a lado na mesma tela.
+  assert.match(home, /Text\(animatedMetricValue\(value\), style = MaterialTheme\.typography\.titleMedium/)
+
+  // O alerta é derivado do estado ao vivo e não tinha como ser dispensado:
+  // quem já leu "Maria excedeu o limite" continuava com o aviso no topo
+  // enquanto tratava do assunto.
+  assert.match(alerts, /SwipeToDismissBox\(/)
+  assert.match(alerts, /onDispensar: \(\) -> Unit = \{\}/)
+  assert.match(alerts, /dismissState\.progress\.coerceIn\(0f, 1f\)/)
+
+  // A dispensa é da sessão, não persistida: o alerta descreve uma condição que
+  // pode voltar a acontecer amanhã, e escondê-la para sempre seria pior.
+  assert.match(operacao, /var alertasDispensados by remember/)
+  assert.match(operacao, /it\.id !in alertasDispensados/)
+})
+
+test('a telemetria mostra estado, e nenhuma animação fica em laço', () => {
+  const sync = read('app/src/main/java/com/pontocafe/app/ui/SyncCenterScreen.kt')
+  const diag = read('app/src/main/java/com/pontocafe/app/ui/SystemDiagnosticsScreen.kt')
+  const central = read('app/src/main/java/com/pontocafe/app/ui/OperationalAlertCenter.kt')
+
+  // A fila era só uma contagem em texto: "7" não diz se aquilo anda ou está
+  // parado, que é a pergunta de quem abre a tela depois de uma manhã sem rede.
+  assert.match(sync, /private fun SyncProgressRing\(/)
+  assert.match(sync, /sweepAngle = 360f \* fracao/)
+  // Chegar a zero e ficar a pulsar seria movimento permanente a dizer que já
+  // não há nada a fazer: a onda corre uma vez, na transição.
+  assert.match(sync, /LaunchedEffect\(concluido\)/)
+
+  // O flash não dispara na primeira leitura -- abrir a tela com o sistema em
+  // atenção não é uma mudança de estado, e piscar aí seria alarme falso.
+  assert.match(diag, /var primeiraLeitura by remember/)
+  assert.match(diag, /Modifier\.drawWithContent \{/)
+
+  // O sino balança quando chega aviso, e só então.
+  assert.match(central, /LaunchedEffect\(unread\)/)
+  assert.match(central, /transformOrigin = TransformOrigin\(0\.5f, 0\.1f\)/)
+
+  for (const [label, fonte] of [['sync', sync], ['diagnóstico', diag], ['alertas', central]] as const) {
+    assert.doesNotMatch(
+      fonte,
+      /rememberInfiniteTransition|infiniteRepeatable/,
+      `${label} não pode animar em laço: são telas que ficam abertas por minutos`,
+    )
+  }
+})

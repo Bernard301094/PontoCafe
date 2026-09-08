@@ -44,6 +44,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import java.time.Instant
@@ -102,6 +110,14 @@ fun SyncCenterScreen(
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.lg),
             ) {
                 item("feedback") { ReliabilityFeedback(viewModel) }
+
+                item("sync-ring") {
+                    SyncProgressRing(
+                        pendentes = snapshot?.pending?.size ?: 0,
+                        comFalha = snapshot?.pending?.count { it.falha != null } ?: 0,
+                        sincronizando = state.loading,
+                    )
+                }
 
                 item("status") {
                     PcKeyValueCard(
@@ -337,3 +353,113 @@ private fun formatInstant(value: String): String = runCatching {
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
 }.getOrDefault(value.take(16).replace('T', ' '))
+
+/**
+ * Anel de sincronização.
+ *
+ * A fila era só uma contagem em texto. Num aparelho que passou a manhã sem
+ * rede, saber que faltam "7" não diz se aquilo está a andar ou parado -- e é
+ * essa a pergunta de quem abre esta tela.
+ *
+ * O anel enche conforme a fila esvazia. Ao chegar a zero, uma onda verde sai
+ * dele e apaga-se: uma vez só, e só na transição. Chegar a zero e ficar a
+ * pulsar seria movimento permanente a dizer que já não há nada a fazer.
+ */
+@Composable
+private fun SyncProgressRing(
+    pendentes: Int,
+    comFalha: Int,
+    sincronizando: Boolean,
+) {
+    val semantic = LocalPontoCafeSemanticColors.current
+    // O maior tamanho já visto define o denominador: sem ele, uma fila de 7
+    // que baixa para 3 pareceria estar a encher em vez de a esvaziar.
+    var maiorFila by remember { mutableIntStateOf(pendentes) }
+    LaunchedEffect(pendentes) { if (pendentes > maiorFila) maiorFila = pendentes }
+    val concluido = pendentes == 0 && maiorFila > 0
+
+    val fracao by animateFloatAsState(
+        targetValue = if (maiorFila <= 0) 1f else 1f - (pendentes.toFloat() / maiorFila).coerceIn(0f, 1f),
+        animationSpec = tween(PontoCafeMotion.Slow, easing = PontoCafeMotion.StandardEasing),
+        label = "sync-progress",
+    )
+    val onda = remember { Animatable(0f) }
+    LaunchedEffect(concluido) {
+        if (concluido) {
+            onda.snapTo(0f)
+            onda.animateTo(1f, tween(PontoCafeMotion.Slow))
+        }
+    }
+
+    val cor = when {
+        comFalha > 0 -> semantic.critical
+        concluido -> semantic.success
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    PcSectionSurface {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .drawBehind {
+                        val progresso = onda.value
+                        if (concluido && progresso < 1f) {
+                            drawCircle(
+                                color = cor,
+                                radius = size.minDimension / 2f * (1f + progresso * 0.6f),
+                                alpha = (1f - progresso) * 0.4f,
+                            )
+                        }
+                        val traco = 6.dp.toPx()
+                        drawArc(
+                            color = cor.copy(alpha = 0.18f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = traco, cap = StrokeCap.Round),
+                        )
+                        drawArc(
+                            color = cor,
+                            startAngle = -90f,
+                            sweepAngle = 360f * fracao,
+                            useCenter = false,
+                            style = Stroke(width = traco, cap = StrokeCap.Round),
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (concluido) "OK" else animatedMetricValue(pendentes.toString()),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    when {
+                        sincronizando -> "Sincronizando…"
+                        comFalha > 0 -> "$comFalha registro(s) com falha"
+                        pendentes > 0 -> "$pendentes registro(s) na fila"
+                        else -> "Tudo sincronizado"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (pendentes > 0) {
+                        "Os registros ficam cifrados no aparelho até o servidor confirmar."
+                    } else {
+                        "Nenhum registro de ponto aguardando envio."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}

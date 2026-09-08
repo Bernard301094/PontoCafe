@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,9 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.OperationalAlertHistoryItem
 import java.time.Instant
@@ -67,6 +71,21 @@ fun SupervisorOperationalAlertCenter(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
+                // O sino balança quando chega aviso novo -- e só então. Uma
+                // animação em laço aqui seria movimento permanente no canto do
+                // ecrã de quem passa o dia nesta tela; o que se quer é marcar a
+                // chegada, não pedir atenção continuamente.
+                val balanco = remember { Animatable(0f) }
+                LaunchedEffect(unread) {
+                    if (unread > 0) {
+                        repeat(3) { volta ->
+                            val lado = if (volta % 2 == 0) 1f else -1f
+                            balanco.animateTo(lado * (12f - volta * 3f), PontoSprings.Shake)
+                        }
+                        balanco.animateTo(0f, PontoSprings.Shake)
+                    }
+                }
+
                 Surface(
                     modifier = Modifier.size(40.dp),
                     shape = MaterialTheme.shapes.medium,
@@ -77,6 +96,12 @@ fun SupervisorOperationalAlertCenter(
                             Icons.Default.Notifications,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.graphicsLayer {
+                                rotationZ = balanco.value
+                                // O pivô fica no topo: um sino roda pendurado
+                                // pela alça, não pelo meio.
+                                transformOrigin = TransformOrigin(0.5f, 0.1f)
+                            },
                         )
                     }
                 }

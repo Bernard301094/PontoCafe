@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,12 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.OperationalAlertHistoryStore
 import com.pontocafe.app.data.PausaSupervisor
@@ -288,8 +295,24 @@ fun rememberSupervisorLiveActivityAlert(
     return transientAlert ?: latestReturnAlert
 }
 
+/**
+ * Banner do alerta ao vivo, dispensável por deslize.
+ *
+ * Antes não havia como o dispensar: o alerta é derivado do estado ao vivo, e
+ * ficava no ecrã até o próprio estado mudar. Quem já viu "Maria excedeu o
+ * limite" não tem como dizer que viu, e o aviso continua a ocupar o topo da
+ * lista enquanto ele trata do assunto.
+ *
+ * O deslize não resolve a pausa nem toca em nada no servidor -- é só o
+ * Supervisor a dizer "li isto". [onDispensar] guarda essa decisão para a sessão,
+ * e um alerta novo (id diferente) volta a aparecer.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
+fun SupervisorLiveActivityAlertBanner(
+    alert: SupervisorLiveAlert,
+    onDispensar: () -> Unit = {},
+) {
     var visible by remember(alert.id) { mutableStateOf(false) }
     LaunchedEffect(alert.id) { visible = true }
 
@@ -326,6 +349,40 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
             targetOffsetY = { -it / 4 },
         ),
     ) {
+        val dismissState = rememberSwipeToDismissBoxState(
+            confirmValueChange = { valor ->
+                val dispensou = valor != SwipeToDismissBoxValue.Settled
+                if (dispensou) onDispensar()
+                dispensou
+            },
+        )
+
+        SwipeToDismissBox(
+            state = dismissState,
+            backgroundContent = {
+                // O fundo só aparece enquanto o dedo arrasta, e o ícone cresce
+                // com a distância -- é o que diz que soltar agora dispensa.
+                val progresso = dismissState.progress.coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = PontoCafeSpacing.md),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.graphicsLayer {
+                            val escala = 0.6f + progresso * 0.4f
+                            scaleX = escala
+                            scaleY = escala
+                            alpha = progresso
+                        },
+                    )
+                }
+            },
+        ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -354,6 +411,7 @@ fun SupervisorLiveActivityAlertBanner(alert: SupervisorLiveAlert) {
                     )
                 }
             }
+        }
         }
     }
 }
