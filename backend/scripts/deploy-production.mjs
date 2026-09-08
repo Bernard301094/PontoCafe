@@ -56,8 +56,21 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchJson(url, attempts = 8) {
+/**
+ * Busca até a resposta ser a esperada — não até a requisição funcionar.
+ *
+ * Esta distinção derrubou um deploy que tinha corrido bem: o retry só repetia
+ * quando a chamada falhava, e uma resposta 200 vinda da versão ANTERIOR conta
+ * como sucesso. Como a publicação leva mais alguns segundos a chegar a todas as
+ * bordas, o script lia a versão velha, dava por confirmado que nada mudou e
+ * abortava — anunciando falha num deploy que estava no ar.
+ *
+ * Um verificador que grita em deploys bons é pior do que não ter verificador:
+ * ensina quem opera a ignorá-lo.
+ */
+async function fetchJson(url, { attempts = 20, delayMs = 3_000, until } = {}) {
   let lastError
+  let lastPayload
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -71,13 +84,17 @@ async function fetchJson(url, attempts = 8) {
         throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`)
       }
 
-      return JSON.parse(text)
+      const payload = JSON.parse(text)
+      lastPayload = payload
+      if (!until || until(payload)) return payload
+      lastError = new Error('A resposta ainda é de uma versão anterior.')
     } catch (error) {
       lastError = error
-      if (attempt < attempts) await sleep(2_000)
     }
+    if (attempt < attempts) await sleep(delayMs)
   }
 
+  if (lastPayload) return lastPayload
   throw lastError
 }
 
@@ -115,7 +132,11 @@ runWrangler([
 ])
 
 console.log(`\n[4/4] Verificando Worker publicado em ${productionUrl}...`)
-const status = await fetchJson(`${productionUrl}/app-status`)
+// Espera a borda servir a versão que acabou de subir, em vez de ler a
+// anterior e concluir que o deploy falhou.
+const status = await fetchJson(`${productionUrl}/app-status`, {
+  until: (payload) => payload.workerVersionTag === revision,
+})
 const health = await fetchJson(`${productionUrl}/health`)
 
 if (status.workerVersionTag !== revision) {

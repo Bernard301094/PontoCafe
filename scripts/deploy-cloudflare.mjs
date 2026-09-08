@@ -85,8 +85,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchJson(url, attempts = 10) {
+/**
+ * Fetches until the answer is the expected one -- not until the request works.
+ *
+ * The retry used to fire only when the call failed, and a 200 served by the
+ * PREVIOUS version counts as a success. A publish takes a few more seconds to
+ * reach every edge, so the script read the old version, concluded nothing had
+ * changed and aborted -- reporting failure on a deploy that was live. A checker
+ * that cries wolf on good deploys teaches whoever operates it to ignore it.
+ */
+async function fetchJson(url, { attempts = 20, delayMs = 3_000, until } = {}) {
   let lastError
+  let lastPayload
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetch(url, {
@@ -95,12 +105,16 @@ async function fetchJson(url, attempts = 10) {
       })
       const text = await response.text()
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 300)}`)
-      return JSON.parse(text)
+      const payload = JSON.parse(text)
+      lastPayload = payload
+      if (!until || until(payload)) return payload
+      lastError = new Error('The response still comes from an earlier version.')
     } catch (error) {
       lastError = error
-      if (attempt < attempts) await sleep(2_000)
     }
+    if (attempt < attempts) await sleep(delayMs)
   }
+  if (lastPayload) return lastPayload
   throw lastError
 }
 
@@ -138,7 +152,11 @@ try {
   ], { inherit: true })
 
   console.log(`\n[6/6] Verifying deployed Worker at ${productionUrl}...`)
-  const status = await fetchJson(`${productionUrl}/app-status`)
+  // Wait for the edge to serve the version that was just published, instead of
+  // reading the previous one and concluding the deploy failed.
+  const status = await fetchJson(`${productionUrl}/app-status`, {
+    until: (payload) => payload.backendRevision === backendRevision,
+  })
   const health = await fetchJson(`${productionUrl}/health`)
 
   if (status.backendRevision !== backendRevision) {

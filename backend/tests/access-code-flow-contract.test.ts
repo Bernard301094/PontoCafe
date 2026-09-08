@@ -227,3 +227,29 @@ test('o teclado do quiosque só oferece o alfabeto do código', () => {
   assert.match(kiosk, /AccessCode\.LENGTH/)
   assert.match(accessCodeScreen, /codigoFormatado/)
 })
+
+test('o quiosque de parede usa a largura, e sem expor terceiros', () => {
+  // O fluxo lia só a altura: num tablet de 1280dp desenhava uma coluna
+  // estreita de telefone com metade do ecrã vazia.
+  assert.match(kiosk, /val larga = maxWidth >= 840\.dp && !compactHeight/)
+  assert.match(kiosk, /KioskOperationalPanel\(/)
+  assert.match(kiosk, /\.weight\(\.6f\)/)
+  assert.match(kiosk, /\.weight\(\.4f\)/)
+
+  // O painel direito mostra a operação de quem está em frente ao aparelho, e
+  // nada de terceiros. O quiosque fica num corredor, e a lista já vem cortada
+  // do servidor justamente para ele não aprender quem tomou café — um mural de
+  // pausas alheias aqui desfaria isso.
+  const painel = kiosk.slice(kiosk.indexOf('private fun KioskOperationalPanel'))
+  const corpo = painel.slice(0, painel.indexOf('\n@Composable'))
+  for (const vazamento of ['pausasAtivas', 'livePauses', 'historico', 'colaboradores']) {
+    assert.ok(
+      !corpo.includes(vazamento),
+      `o painel do quiosque não pode ler ${vazamento}: é estado de terceiros num ecrã público`,
+    )
+  }
+
+  // O relógio é a única animação da tela: acorda alinhado à viragem do segundo
+  // em vez de derivar com delay(1000), e morre com a composição.
+  assert.match(corpo, /delay\(1_000L - \(instante\.nano \/ 1_000_000L\)\)/)
+})
