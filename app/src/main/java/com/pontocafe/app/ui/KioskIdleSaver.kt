@@ -36,6 +36,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -116,6 +118,30 @@ fun KioskIdleSaver(
             label = "kiosk-idle-breathe",
         )
 
+        // Anti-burn-in. O texto respira no mesmo sítio há horas, e num painel
+        // AMOLED ligado 24 h isso queima a silhueta das letras de forma
+        // permanente. A cada minuto o bloco muda de canto dentro de uma janela
+        // de +-15dp -- longe de mais para queimar, perto de mais para alguém
+        // reparar. O passeio é uma lista fixa e não um sorteio, para que dois
+        // minutos seguidos nunca calhem no mesmo ponto.
+        var canto by remember { mutableIntStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(60_000L)
+                canto = (canto + 1) % 4
+            }
+        }
+        val deslocamentoX by animateFloatAsState(
+            targetValue = if (canto == 0 || canto == 3) -15f else 15f,
+            animationSpec = tween(PontoCafeMotion.Slow),
+            label = "kiosk-idle-shift-x",
+        )
+        val deslocamentoY by animateFloatAsState(
+            targetValue = if (canto < 2) -15f else 15f,
+            animationSpec = tween(PontoCafeMotion.Slow),
+            label = "kiosk-idle-shift-y",
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -137,7 +163,11 @@ fun KioskIdleSaver(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .padding(32.dp)
-                    .graphicsLayer { alpha = breathe },
+                    .graphicsLayer {
+                        alpha = breathe
+                        translationX = deslocamentoX * density
+                        translationY = deslocamentoY * density
+                    },
             ) {
                 Text(
                     "Toque para bater o ponto",

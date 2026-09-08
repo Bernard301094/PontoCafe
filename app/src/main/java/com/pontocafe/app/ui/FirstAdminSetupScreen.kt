@@ -1,6 +1,13 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -148,7 +155,30 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             )
         }
 
-        when (step) {
+        // As duas etapas trocavam de conteúdo instantaneamente, e nada dizia
+        // para que lado se andou. O deslize dá a direção: avançar entra pela
+        // direita, voltar entra pela esquerda -- é o que transforma dois ecrãs
+        // separados num percurso.
+        AnimatedContent(
+            targetState = step,
+            transitionSpec = {
+                val avancando = targetState > initialState
+                val entra = if (avancando) 1 else -1
+                (
+                    slideInHorizontally(
+                        animationSpec = tween(PontoCafeMotion.Emphasized, easing = PontoCafeMotion.EmphasizedEasing),
+                        initialOffsetX = { largura -> entra * largura / 4 },
+                    ) + fadeIn(tween(PontoCafeMotion.Standard))
+                ) togetherWith (
+                    slideOutHorizontally(
+                        animationSpec = tween(PontoCafeMotion.Standard),
+                        targetOffsetX = { largura -> -entra * largura / 6 },
+                    ) + fadeOut(tween(PontoCafeMotion.Quick))
+                )
+            },
+            label = "primeiro-admin-etapa",
+        ) { etapa ->
+        when (etapa) {
             0 -> {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     OutlinedTextField(
@@ -247,7 +277,10 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                 )
             }
         }
+        }
 
+        // Fora do AnimatedContent: sair da instalação vale nas duas etapas, e
+        // um botão que desliza junto com o conteúdo parece parte da etapa.
         PcSecondaryButton(
             text = "Voltar ao Ponto Café",
             onClick = onClose,

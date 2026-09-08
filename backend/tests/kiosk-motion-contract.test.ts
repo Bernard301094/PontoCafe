@@ -156,3 +156,22 @@ test('a força da senha é medida uma vez só, e responde "já chega?"', () => {
   assert.match(forca, /fun PontoPasswordConfirmation\(/)
   assert.match(supervisor, /PontoPasswordConfirmation\(/)
 })
+
+test('o quiosque em repouso passeia o texto, e a instalação mostra a direção', () => {
+  const idle = read('app/src/main/java/com/pontocafe/app/ui/KioskIdleSaver.kt')
+  const setup = read('app/src/main/java/com/pontocafe/app/ui/FirstAdminSetupScreen.kt')
+
+  // O texto respirava sempre no mesmo sítio. Num AMOLED ligado 24 h isso queima
+  // a silhueta das letras de forma permanente -- e o quiosque nunca desliga.
+  assert.match(idle, /delay\(60_000L\)/)
+  assert.match(idle, /canto = \(canto \+ 1\) % 4/)
+  assert.match(idle, /translationX = deslocamentoX \* density/)
+  // Lista fixa e não sorteio: dois minutos seguidos nunca podem calhar no
+  // mesmo ponto, que é justamente o caso que o passeio existe para evitar.
+  assert.doesNotMatch(idle, /Random|nextInt/)
+
+  // As duas etapas trocavam instantaneamente e nada dizia para que lado se
+  // andou. O sentido do deslize é o que faz dois ecrãs virarem um percurso.
+  assert.match(setup, /val avancando = targetState > initialState/)
+  assert.match(setup, /slideInHorizontally\(/)
+})
