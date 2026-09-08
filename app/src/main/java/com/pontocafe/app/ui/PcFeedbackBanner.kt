@@ -33,6 +33,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import com.pontocafe.app.AdminReliabilityViewModel
+import com.pontocafe.app.AdminViewModel
 import kotlinx.coroutines.delay
 
 /**
@@ -128,6 +132,86 @@ fun PcFeedbackBanner(
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Fechar aviso", tint = content)
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Aviso das operações de confiabilidade (edição em lote, exclusão, histórico).
+ *
+ * Vivia dentro de `AdminManagementScreenV2.kt`, um invólucro de 118 linhas que
+ * só reencaminhava para a V3 -- cinco telas importavam a tela de Gestão inteira
+ * para usar este aviso. Mora aqui, junto dos outros.
+ */
+@Composable
+fun ReliabilityFeedback(viewModel: AdminReliabilityViewModel) {
+    val state = viewModel.state
+    val message = state.message
+
+    LaunchedEffect(message) {
+        if (message != null) {
+            delay(3_500)
+            if (viewModel.state.message == message) {
+                viewModel.clearFeedback()
+            }
+        }
+    }
+
+    message?.let {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = PontoCafeSpacing.md,
+                        top = PontoCafeSpacing.xs,
+                        bottom = PontoCafeSpacing.xs,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    text = it,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                IconButton(onClick = viewModel::clearFeedback) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar aviso",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+    }
+
+    state.error?.let { error ->
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = PontoCafeSpacing.md,
+                        top = PontoCafeSpacing.xs,
+                        bottom = PontoCafeSpacing.xs,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    text = error,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                IconButton(onClick = viewModel::clearFeedback) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar erro",
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
                 }
             }
         }

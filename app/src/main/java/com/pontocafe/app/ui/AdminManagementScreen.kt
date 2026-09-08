@@ -100,7 +100,7 @@ private data class ManagementAction(
 )
 
 @Composable
-fun AdminManagementScreenV3(
+fun AdminManagementScreen(
     viewModel: AdminViewModel,
     reliabilityViewModel: AdminReliabilityViewModel,
     onDevicesClick: () -> Unit,

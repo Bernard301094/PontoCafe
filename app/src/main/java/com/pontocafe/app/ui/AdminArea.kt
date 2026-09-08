@@ -242,7 +242,7 @@ fun AdminArea(
                     label = "admin-primary-navigation",
                 ) { destination ->
                     when (destination) {
-                        AdminPrimaryDestination.HOME -> AdminPanelScreen(
+                        AdminPrimaryDestination.HOME -> AdminHomeScreenV2(
                             viewModel = viewModel,
                             onClose = onClose,
                             onDevicesClick = { setDevicesOpen(true) },
@@ -282,7 +282,7 @@ fun AdminArea(
                                     )
                                 }
                             } else {
-                                AdminManagementScreenV2(
+                                AdminManagementScreen(
                                     viewModel = viewModel,
                                     reliabilityViewModel = reliabilityViewModel,
                                     onDevicesClick = { setDevicesOpen(true) },
