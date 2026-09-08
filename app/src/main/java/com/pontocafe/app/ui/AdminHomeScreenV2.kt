@@ -714,12 +714,14 @@ private fun AdminHomeAttentionPanel(
                     icon = Icons.Default.Coffee,
                 )
             } else {
-                visibleItems.forEach { item ->
-                    OperationalPauseCompactCard(
-                        item,
-                        onClick = { onItemClick(item) },
-                        onCloseManually = { onCloseManually(item) },
-                    )
+                OperationalClockProvider {
+                    visibleItems.forEach { item ->
+                        OperationalPauseCompactCard(
+                            item,
+                            onClick = { onItemClick(item) },
+                            onCloseManually = { onCloseManually(item) },
+                        )
+                    }
                 }
                 if (filteredCount > visibleItems.size || showAll) {
                     PcSecondaryButton(

@@ -47,3 +47,33 @@ test('uma recusa treme, e a mola diz "não" melhor que um tween linear', () => {
   assert.match(kiosk, /\.shakeOnChange\(error\)/)
   assert.match(lock, /\.shakeOnChange\(message\)/)
 })
+
+test('a lista operacional tem um relógio, não um por cartão', () => {
+  const feed = read('app/src/main/java/com/pontocafe/app/ui/OperationalPauseFeed.kt')
+  const home = read('app/src/main/java/com/pontocafe/app/ui/AdminHomeScreenV2.kt')
+  const operacao = read('app/src/main/java/com/pontocafe/app/ui/SupervisorOperationScreen.kt')
+
+  // Cada cartão mantinha o seu ticker: com vinte pessoas em pausa eram vinte
+  // corrotinas e vinte recomposições por segundo, todas a calcular o mesmo
+  // instante. E acordava a cada 1000 ms, derivando ao longo do dia.
+  assert.match(feed, /val LocalOperationalNow = staticCompositionLocalOf<State<Long>>/)
+  assert.match(feed, /delay\(1_000L - instante % 1_000L\)/)
+  assert.doesNotMatch(feed, /LaunchedEffect\(pause\.id, pause\.clienteAtualizadoEmMillis\)/)
+
+  // As duas telas que mostram a lista precisam fornecer o relógio, senão os
+  // cartões recebem o padrão parado.
+  assert.match(home, /OperationalClockProvider \{/)
+  assert.match(operacao, /OperationalClockProvider \{/)
+})
+
+test('o arco de contagem é desenhado, não recomposto', () => {
+  const feed = read('app/src/main/java/com/pontocafe/app/ui/OperationalPauseFeed.kt')
+
+  // O arco diz quanto resta sem obrigar a ler um número. O valor do relógio é
+  // lido DENTRO do drawBehind: o traço muda a cada segundo e o cartão não
+  // recompõe -- que é o ponto de o ter tirado do corpo do composable.
+  assert.match(feed, /Modifier\.drawBehind \{/)
+  assert.match(feed, /operationalPauseElapsed\(pause, relogio\.value\)/)
+  assert.match(feed, /sweepAngle = 360f \* \(1f - fracao\)/)
+  assert.match(feed, /style = Stroke\(width = traco, cap = StrokeCap\.Round\)/)
+})

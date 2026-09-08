@@ -42,6 +42,15 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.AdminTestPause
 import com.pontocafe.app.data.PausaSupervisor
@@ -218,6 +227,33 @@ fun OperationalPauseOverview(
     }
 }
 
+/**
+ * O relógio da operação, um só para toda a lista.
+ *
+ * Cada cartão mantinha o seu: com vinte pessoas em pausa eram vinte corrotinas
+ * e vinte recomposições por segundo, todas a calcular o mesmo instante. Aqui
+ * uma corrotina acorda alinhada à viragem do segundo -- e não a cada 1000 ms,
+ * que iria derivando -- e todos os cartões leem o mesmo valor.
+ *
+ * Quem não fornecer o relógio recebe um que não anda: é melhor um cartão
+ * parado, e visivelmente parado, do que vinte relógios a competir.
+ */
+val LocalOperationalNow = staticCompositionLocalOf<State<Long>> {
+    mutableLongStateOf(System.currentTimeMillis())
+}
+
+@Composable
+fun OperationalClockProvider(content: @Composable () -> Unit) {
+    val agora = produceState(System.currentTimeMillis()) {
+        while (true) {
+            val instante = System.currentTimeMillis()
+            value = instante
+            delay(1_000L - instante % 1_000L)
+        }
+    }
+    CompositionLocalProvider(LocalOperationalNow provides agora) { content() }
+}
+
 @Composable
 fun OperationalPauseCompactCard(
     item: OperationalPauseItem,
@@ -226,15 +262,8 @@ fun OperationalPauseCompactCard(
     onCloseManually: (() -> Unit)? = null,
 ) {
     val pause = item.pause
-    var now by remember(pause.id, pause.clienteAtualizadoEmMillis) {
-        mutableLongStateOf(System.currentTimeMillis())
-    }
-    LaunchedEffect(pause.id, pause.clienteAtualizadoEmMillis) {
-        while (true) {
-            delay(1_000)
-            now = System.currentTimeMillis()
-        }
-    }
+    val relogio = LocalOperationalNow.current
+    val now = relogio.value
 
     val elapsed = operationalPauseElapsed(pause, now)
     val remaining = (pause.limiteEfetivoSegundos - elapsed).coerceAtLeast(0)
@@ -287,9 +316,43 @@ fun OperationalPauseCompactCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                CollaboratorAvatar(
-                    name = pause.nome,
-                )
+                // O arco em volta do avatar diz quanto resta sem obrigar a ler
+                // um número: cheio no início, some conforme o tempo passa, e
+                // vira crítico antes de estourar. É desenhado com o valor lido
+                // dentro do drawBehind -- o traço muda a cada segundo sem que o
+                // cartão recomponha.
+                Box(
+                    modifier = Modifier.drawBehind {
+                        val decorridoAgora = operationalPauseElapsed(pause, relogio.value)
+                        val fracao = if (pause.limiteEfetivoSegundos <= 0) {
+                            1f
+                        } else {
+                            (decorridoAgora.toFloat() / pause.limiteEfetivoSegundos).coerceIn(0f, 1f)
+                        }
+                        val traco = 3.dp.toPx()
+                        val folga = traco * 1.6f
+                        drawArc(
+                            color = semanticColor.copy(alpha = 0.18f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            topLeft = Offset(-folga, -folga),
+                            size = Size(size.width + folga * 2, size.height + folga * 2),
+                            style = Stroke(width = traco, cap = StrokeCap.Round),
+                        )
+                        drawArc(
+                            color = semanticColor,
+                            startAngle = -90f,
+                            sweepAngle = 360f * (1f - fracao),
+                            useCenter = false,
+                            topLeft = Offset(-folga, -folga),
+                            size = Size(size.width + folga * 2, size.height + folga * 2),
+                            style = Stroke(width = traco, cap = StrokeCap.Round),
+                        )
+                    },
+                ) {
+                    CollaboratorAvatar(name = pause.nome)
+                }
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),

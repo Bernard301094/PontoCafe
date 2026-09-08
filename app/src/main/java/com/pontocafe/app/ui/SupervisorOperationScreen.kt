@@ -288,6 +288,9 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
     ) {
     PontoCafeResponsivePage(maxContentWidth = PontoCafeDimensions.detailContentWidth) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
+            // Um relógio para a lista inteira. Cada cartão mantinha o seu, e nesta
+            // tela é normal haver dez ou vinte pausas abertas ao mesmo tempo.
+            OperationalClockProvider {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().navigationBarsPadding(),
@@ -416,6 +419,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                         loading = state.carregando,
                     )
                 }
+            }
             }
             SupervisorQuickOverridePill(
                 onClick = viewModel::abrirCodigos,
