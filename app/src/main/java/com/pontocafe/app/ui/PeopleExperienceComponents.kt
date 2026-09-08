@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
@@ -22,21 +23,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -58,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -199,6 +196,14 @@ internal fun PeopleSearchField(
     )
 }
 
+/**
+ * Filtros da lista.
+ *
+ * Eram quatro chips numa faixa rolável e o último ("Ordenar: …") ficava
+ * cortado na borda da tela, parecendo defeito. A ordenação passou para dentro
+ * da folha de filtros, onde já vivem os outros critérios, e o chip só anuncia
+ * quantos filtros estão ativos.
+ */
 @Composable
 internal fun PeopleFaceFilterRow(
     selected: PeopleFaceFilter,
@@ -210,10 +215,11 @@ internal fun PeopleFaceFilterRow(
     onOpenFilters: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ajustes = activeExtraFilters + if (sort != PeopleSort.PRIORITY) 1 else 0
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-        contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
+        contentPadding = PaddingValues(end = PontoCafeSpacing.md),
     ) {
         item {
             FilterChip(
@@ -231,7 +237,7 @@ internal fun PeopleFaceFilterRow(
         }
         item {
             FilterChip(
-                selected = activeExtraFilters > 0,
+                selected = ajustes > 0,
                 onClick = onOpenFilters,
                 leadingIcon = {
                     Icon(
@@ -240,16 +246,7 @@ internal fun PeopleFaceFilterRow(
                         modifier = Modifier.size(17.dp),
                     )
                 },
-                label = {
-                    Text(if (activeExtraFilters > 0) "Filtros $activeExtraFilters" else "Filtros")
-                },
-            )
-        }
-        item {
-            FilterChip(
-                selected = sort != PeopleSort.PRIORITY,
-                onClick = onOpenFilters,
-                label = { Text("Ordenar: ${sort.label}") },
+                label = { Text(if (ajustes > 0) "Filtros $ajustes" else "Filtros") },
             )
         }
     }
@@ -300,6 +297,16 @@ internal fun PeopleSectionSwitch(
     }
 }
 
+/**
+ * Uma pessoa na lista de gestão.
+ *
+ * Linha, e não cartão: a operação tem quase cem colaboradores, e um bloco alto
+ * com um botão de largura total por pessoa transformava a lista numa rolagem
+ * sem fim onde o botão laranja repetido era a única coisa visível. Aqui o nome
+ * manda, o estado vem por cor no ponto do avatar e numa linha de apoio, e a
+ * emissão do código é uma ação curta à direita — presente só para quem pode
+ * receber um código agora.
+ */
 @Composable
 internal fun PeoplePersonCard(
     person: Colaborador,
@@ -312,15 +319,31 @@ internal fun PeoplePersonCard(
     modifier: Modifier = Modifier,
 ) {
     val semantic = LocalPontoCafeSemanticColors.current
-    val borderColor = when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = .55f)
-        person.emPausa -> semantic.warning.copy(alpha = .28f)
-        else -> MaterialTheme.colorScheme.outlineVariant
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale = rememberPcPressScale(interactionSource)
+    val podeGerar = !selectionMode && !person.emPausa && !person.codigoAtivo
 
-    Card(
+    val apoio: String
+    val apoioCor: Color
+    when {
+        person.emPausa -> {
+            apoio = "No café agora"
+            apoioCor = semantic.warning
+        }
+        person.codigoAtivo -> {
+            apoio = "Código aguardando saída"
+            apoioCor = semantic.success
+        }
+        else -> {
+            apoio = listOfNotNull(person.setor, person.turno)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+                .ifBlank { "Sem setor definido" }
+            apoioCor = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    }
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .pcPressScale(pressScale)
@@ -333,97 +356,82 @@ internal fun PeoplePersonCard(
             },
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .42f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
-        border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(0.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = .38f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        border = if (selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .55f))
+        } else {
+            null
+        },
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier
+                .heightIn(min = 62.dp)
+                .padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = onSelected,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Selecionar ${person.nome}"
-                        },
-                    )
-                }
-
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    InitialAvatar(name = person.nome)
-                    // Sinal real (em pausa / com código vivo) -- não existe conceito
-                    // de "online" para colaboradores, que não fazem login no
-                    // sistema, então o ponto usa o único status por pessoa que
-                    // de fato existe.
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
-                            .background(
-                                peopleStatusDotColor(person, semantic),
-                                CircleShape,
-                            ),
-                    )
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = person.nome,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = listOfNotNull(person.setor, person.turno)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · ")
-                            .ifBlank { "Sem setor/turno" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    StatusPill(
-                        text = peopleStatusLabel(person),
-                        tone = peopleStatusTone(person),
-                    )
-                }
-
-                if (!selectionMode) {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Abrir ${person.nome}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = onSelected,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Selecionar ${person.nome}"
+                    },
+                )
             }
 
-            if (!selectionMode && !person.emPausa && !person.codigoAtivo) {
-                PcPrimaryButton(
-                    text = "Gerar código",
-                    onClick = onGerarCodigo,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !loading,
-                    loading = loading,
+            Box(contentAlignment = Alignment.BottomEnd) {
+                InitialAvatar(name = person.nome, avatarSize = 42.dp)
+                // Sinal real (em pausa / com código vivo) -- não existe conceito
+                // de "online" para colaboradores, que não fazem login no
+                // sistema, então o ponto usa o único status por pessoa que
+                // de fato existe.
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
+                        .background(peopleStatusDotColor(person, semantic), CircleShape),
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = person.nome,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = apoio,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = apoioCor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (podeGerar) {
+                PcCompactAction(
+                    text = "Gerar",
                     icon = Icons.Default.Coffee,
+                    onClick = onGerarCodigo,
+                    enabled = !loading,
+                    contentDescription = "Gerar código de café para ${person.nome}",
+                )
+            } else if (!selectionMode) {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Abrir ${person.nome}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

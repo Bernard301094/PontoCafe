@@ -267,6 +267,14 @@ fun AdminPeopleScreenV4(
         )
     }
 
+    // Gerar um código sem o mostrar não serve para nada: o Supervisor precisa
+    // lê-lo em voz alta para quem está do outro lado do balcão. A tela emitia
+    // e deixava só a mensagem de sucesso -- os seis caracteres ficavam no
+    // estado sem nunca aparecerem em lado nenhum.
+    state.codigoEmitido?.let { emitido ->
+        PcIssuedCodeDialog(codigo = emitido, onDismiss = viewModel::limparCodigoEmitido)
+    }
+
     PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
             .navigationBarsPadding()
@@ -314,12 +322,20 @@ fun AdminPeopleScreenV4(
                     onProfileClick = { showAccountSheet = true },
                     onBackToPonto = onClose,
                 )
+                // Os três números que viviam aqui (colaboradores, em pausa,
+                // acessos) são exatamente os que os chips logo abaixo já
+                // mostram. Repeti-los custava perto de um quinto da altura da
+                // tela; uma linha de contexto diz o que falta e devolve a lista.
                 if (!compactHeight) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PcHeroStat(value = "${allCollaborators.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
-                        PcHeroStat(value = "$emPausaAgora", label = "Em pausa", modifier = Modifier.weight(1f))
-                        PcHeroStat(value = "${state.usuarios.size}", label = "Acessos", modifier = Modifier.weight(1f))
-                    }
+                    Text(
+                        if (emPausaAgora > 0) {
+                            "$emPausaAgora no café agora · ${allCollaborators.size} colaboradores"
+                        } else {
+                            "Ninguém no café agora · ${allCollaborators.size} colaboradores"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+                    )
                 }
             },
         ) {
@@ -339,40 +355,6 @@ fun AdminPeopleScreenV4(
                     .padding(horizontal = pagePadding),
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                if (section == AdminPeopleSection.COLLABORATORS) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Box {
-                            IconButton(onClick = { showToolsMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Mais ações")
-                            }
-                            DropdownMenu(
-                                expanded = showToolsMenu,
-                                onDismissRequest = { showToolsMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Importar CSV") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain"))
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas") },
-                                    onClick = {
-                                        showToolsMenu = false
-                                        selectionMode = !selectionMode
-                                        section = AdminPeopleSection.COLLABORATORS
-                                        selectedPersonId = null
-                                        if (!selectionMode) selectedIds = emptySet()
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.GroupWork, contentDescription = null) },
-                                )
-                            }
-                        }
-                    }
-                }
-
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                     AdminFeedback(viewModel)
                     ReliabilityFeedback(reliabilityViewModel)
@@ -423,21 +405,62 @@ fun AdminPeopleScreenV4(
                         }
                     }
                 } else {
-                    PeopleSectionSwitch(
-                        collaboratorSelected = section == AdminPeopleSection.COLLABORATORS,
-                        collaboratorCount = allCollaborators.size,
-                        accessCount = state.usuarios.size,
-                        onCollaborators = {
-                            section = AdminPeopleSection.COLLABORATORS
-                            search = ""
-                            selectedPersonId = null
-                        },
-                        onAccess = {
-                            section = AdminPeopleSection.ACCESS
-                            search = ""
-                            selectedPersonId = null
-                        },
-                    )
+                    // O menu de ferramentas ocupava uma linha inteira só para
+                    // si, acima da lista. Ao lado do seletor de seção ele não
+                    // custa altura nenhuma e fica no mesmo alcance do polegar.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    ) {
+                        PeopleSectionSwitch(
+                            collaboratorSelected = section == AdminPeopleSection.COLLABORATORS,
+                            collaboratorCount = allCollaborators.size,
+                            accessCount = state.usuarios.size,
+                            onCollaborators = {
+                                section = AdminPeopleSection.COLLABORATORS
+                                search = ""
+                                selectedPersonId = null
+                            },
+                            onAccess = {
+                                section = AdminPeopleSection.ACCESS
+                                search = ""
+                                selectedPersonId = null
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (section == AdminPeopleSection.COLLABORATORS) {
+                            Box {
+                                IconButton(onClick = { showToolsMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "Mais ações")
+                                }
+                                DropdownMenu(
+                                    expanded = showToolsMenu,
+                                    onDismissRequest = { showToolsMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Importar CSV") },
+                                        onClick = {
+                                            showToolsMenu = false
+                                            fileLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain"))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (selectionMode) "Cancelar seleção" else "Selecionar pessoas") },
+                                        onClick = {
+                                            showToolsMenu = false
+                                            selectionMode = !selectionMode
+                                            section = AdminPeopleSection.COLLABORATORS
+                                            selectedPersonId = null
+                                            if (!selectionMode) selectedIds = emptySet()
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.GroupWork, contentDescription = null) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 PeopleSearchField(

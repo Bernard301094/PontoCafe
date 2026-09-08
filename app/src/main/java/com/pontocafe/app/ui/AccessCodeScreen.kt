@@ -1,5 +1,6 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,23 +9,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -49,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pontocafe.app.data.AccessCodeCreatedResponse
@@ -57,12 +63,42 @@ import com.pontocafe.app.data.Colaborador
 import kotlinx.coroutines.delay
 
 /**
+ * Estado de um passe, do ponto de vista de quem opera a tela.
+ *
+ * A API devolve `estado` como texto; traduzi-lo uma vez aqui evita que cada
+ * parte da interface refaça a mesma comparação de strings e chegue a
+ * conclusões diferentes sobre o que oferecer.
+ */
+internal enum class AccessCodeState { NENHUM, AGUARDANDO_SAIDA, EM_PAUSA, EXPIRADO }
+
+internal fun AccessCodeItem?.state(): AccessCodeState = when {
+    this == null -> AccessCodeState.NENHUM
+    estado == "EM_PAUSA" -> AccessCodeState.EM_PAUSA
+    estado == "AGUARDANDO_SAIDA" -> AccessCodeState.AGUARDANDO_SAIDA
+    else -> AccessCodeState.EXPIRADO
+}
+
+internal fun AccessCodeState.label(): String = when (this) {
+    AccessCodeState.NENHUM -> "Sem código"
+    AccessCodeState.AGUARDANDO_SAIDA -> "Aguardando saída"
+    AccessCodeState.EM_PAUSA -> "Em pausa"
+    AccessCodeState.EXPIRADO -> "Código expirado"
+}
+
+internal fun AccessCodeState.tone(): PontoCafeTone = when (this) {
+    AccessCodeState.NENHUM -> PontoCafeTone.NEUTRAL
+    AccessCodeState.AGUARDANDO_SAIDA -> PontoCafeTone.SUCCESS
+    AccessCodeState.EM_PAUSA -> PontoCafeTone.INFO
+    AccessCodeState.EXPIRADO -> PontoCafeTone.WARNING
+}
+
+/**
  * Emissão do código de acesso ao café.
  *
  * Uma tela, usada por Admin e Supervisor: procurar a pessoa, tocar em GERAR, e
- * ditar os seis caracteres que aparecem em letras grandes. A lista abaixo mostra
- * quem já tem passe vivo e em que estado — é onde o Supervisor confere quem
- * ainda não voltou.
+ * ditar os seis caracteres que aparecem em letras grandes. Quem já tem passe
+ * vivo sobe para o topo da lista — é o que o Supervisor precisa ver primeiro
+ * para saber quem ainda não voltou.
  */
 @Composable
 fun AccessCodeScreen(
@@ -91,19 +127,30 @@ fun AccessCodeScreen(
 
     val porColaborador = remember(codigosAtivos) { codigosAtivos.associateBy { it.colaboradorId } }
     val termo = busca.trim()
-    val filtrados = remember(termo, colaboradores) {
-        if (termo.isEmpty()) {
-            colaboradores
-        } else {
-            colaboradores.filter {
-                it.nome.contains(termo, ignoreCase = true) ||
-                    it.setor.orEmpty().contains(termo, ignoreCase = true)
+    val filtrados = remember(termo, colaboradores, porColaborador) {
+        colaboradores
+            .filter { pessoa ->
+                termo.isEmpty() ||
+                    pessoa.nome.contains(termo, ignoreCase = true) ||
+                    pessoa.setor.orEmpty().contains(termo, ignoreCase = true)
             }
-        }
+            // Quem tem passe vivo primeiro: é a única parte da lista que muda
+            // sozinha e a única que pode exigir uma ação agora.
+            .sortedWith(
+                compareBy<Colaborador> {
+                    when (porColaborador[it.id].state()) {
+                        AccessCodeState.EM_PAUSA -> 0
+                        AccessCodeState.AGUARDANDO_SAIDA -> 1
+                        else -> 2
+                    }
+                }.thenBy { it.nome.lowercase() },
+            )
     }
+    val emPausaAgora = codigosAtivos.count { it.estado == "EM_PAUSA" }
+    val aguardando = codigosAtivos.count { it.estado == "AGUARDANDO_SAIDA" }
 
     alvo?.let { colaborador ->
-        IssueCodeDialog(
+        PcIssueCodeDialog(
             colaborador = colaborador,
             carregando = carregando,
             onDismiss = { alvo = null },
@@ -115,7 +162,7 @@ fun AccessCodeScreen(
     }
 
     codigoEmitido?.let { emitido ->
-        IssuedCodeDialog(codigo = emitido, onDismiss = onFechar)
+        PcIssuedCodeDialog(codigo = emitido, onDismiss = onFechar)
     }
 
     Column(
@@ -124,19 +171,22 @@ fun AccessCodeScreen(
             .padding(horizontal = PontoCafeSpacing.md),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        Text(
-            "Códigos de café",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .padding(top = PontoCafeSpacing.sm)
-                .semantics { heading() },
-        )
-        Text(
-            "Gere um código para quem vai tomar café. A mesma pessoa usa ele para sair e para voltar.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            modifier = Modifier.padding(top = PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "Códigos de café",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                "$aguardando aguardando saída · $emPausaAgora no café agora",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         erro?.let {
             PcStateBanner(
@@ -151,8 +201,17 @@ fun AccessCodeScreen(
             onValueChange = { busca = it },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Buscar pessoa") },
+            placeholder = { Text("Nome ou setor") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (busca.isNotBlank()) {
+                    IconButton(onClick = { busca = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Limpar busca")
+                    }
+                }
+            },
             singleLine = true,
+            shape = MaterialTheme.shapes.large,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Words,
                 imeAction = ImeAction.Search,
@@ -189,6 +248,12 @@ fun AccessCodeScreen(
     }
 }
 
+/**
+ * Uma linha da lista de códigos.
+ *
+ * Densa de propósito: numa operação com quase cem pessoas, um cartão alto por
+ * pessoa transforma a procura de quem ainda não voltou numa rolagem longa.
+ */
 @Composable
 private fun AccessCodeRow(
     colaborador: Colaborador,
@@ -197,92 +262,332 @@ private fun AccessCodeRow(
     onGerar: () -> Unit,
     onCancelar: () -> Unit,
 ) {
-    val emPausa = codigo?.estado == "EM_PAUSA"
-    val aguardando = codigo?.estado == "AGUARDANDO_SAIDA"
+    val estado = codigo.state()
 
-    PcSectionSurface(modifier = Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
                 InitialAvatar(name = colaborador.nome, avatarSize = 40.dp)
-                Spacer(Modifier.size(PontoCafeSpacing.xs))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         colaborador.nome,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    val detalhe = listOfNotNull(
-                        colaborador.setor?.takeIf { it.isNotBlank() },
-                        colaborador.turno?.takeIf { it.isNotBlank() }?.let { "Turno $it" },
-                    ).joinToString(" · ")
-                    if (detalhe.isNotBlank()) {
-                        Text(
-                            detalhe,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        colaboradorDetalhe(colaborador),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                StatusPill(
-                    text = when {
-                        emPausa -> "Em pausa"
-                        aguardando -> "Aguardando saída"
-                        codigo != null -> "Código expirado"
-                        else -> "Sem código"
-                    },
-                    tone = when {
-                        emPausa -> PontoCafeTone.INFO
-                        aguardando -> PontoCafeTone.SUCCESS
-                        codigo != null -> PontoCafeTone.WARNING
-                        else -> PontoCafeTone.NEUTRAL
-                    },
-                )
+                if (estado == AccessCodeState.NENHUM || estado == AccessCodeState.EXPIRADO) {
+                    PcCompactAction(
+                        text = "Gerar",
+                        icon = Icons.Default.Coffee,
+                        onClick = onGerar,
+                        enabled = !carregando,
+                        contentDescription = "Gerar código para ${colaborador.nome}",
+                    )
+                } else {
+                    StatusPill(text = estado.label(), tone = estado.tone())
+                }
             }
 
-            if (codigo != null) {
+            if (codigo != null && estado != AccessCodeState.EXPIRADO) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                 ) {
-                    CodeChip(codigo.codigoFormatado)
+                    AccessCodeChip(codigo.codigoFormatado)
                     Text(
-                        when {
-                            emPausa -> "Válido para o retorno"
-                            aguardando -> "Expira em ${codigo.expiraEmSegundos / 60} min"
-                            else -> "Já não vale para sair"
+                        if (estado == AccessCodeState.EM_PAUSA) {
+                            "Válido para o retorno, sem prazo"
+                        } else {
+                            "Expira em ${expiracaoCurta(codigo.expiraEmSegundos)}"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                PcPrimaryButton(
-                    text = if (codigo == null || !aguardando) "Gerar código" else "Gerar outro",
-                    onClick = onGerar,
-                    // Emitir enquanto a pessoa está fora criaria um segundo código
-                    // vivo e deixaria em aberto qual deles fecha a pausa. O
-                    // servidor recusa; a interface nem chega a oferecer.
-                    enabled = !carregando && !emPausa,
-                    icon = Icons.Default.Coffee,
-                    modifier = Modifier.weight(1f),
-                )
-                if (aguardando) {
-                    PcSecondaryButton(
-                        text = "Cancelar",
-                        onClick = onCancelar,
-                        enabled = !carregando,
-                    )
+                    if (estado == AccessCodeState.AGUARDANDO_SAIDA) {
+                        TextButton(onClick = onCancelar, enabled = !carregando) { Text("Cancelar") }
+                        // Emitir enquanto a pessoa está fora criaria um segundo
+                        // código vivo e deixaria em aberto qual deles fecha a
+                        // pausa. O servidor recusa; a interface nem oferece.
+                        PcCompactAction(
+                            text = "Outro",
+                            icon = Icons.Default.Coffee,
+                            onClick = onGerar,
+                            enabled = !carregando,
+                            contentDescription = "Gerar outro código para ${colaborador.nome}",
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * Atalho de emissão para telas que não são a de códigos.
+ *
+ * Existe porque o caminho real do Supervisor começa no Início: alguém pede café
+ * na frente dele. Obrigá-lo a navegar até outra área para o gesto mais
+ * frequente do dia é o que tornava a tela inicial decorativa.
+ */
 @Composable
-private fun CodeChip(codigoFormatado: String) {
+internal fun AccessCodeQuickIssueCard(
+    colaboradores: List<Colaborador>,
+    codigosAtivos: List<AccessCodeItem>,
+    carregando: Boolean,
+    erro: String?,
+    maxResultados: Int,
+    onGerar: (Colaborador) -> Unit,
+    onVerTodos: () -> Unit,
+    onTentarNovamente: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var busca by remember { mutableStateOf("") }
+    val termo = busca.trim()
+    val porColaborador = remember(codigosAtivos) { codigosAtivos.associateBy { it.colaboradorId } }
+
+    val resultados = remember(termo, colaboradores, porColaborador) {
+        if (termo.isEmpty()) {
+            // Sem busca, a lista útil não é "as primeiras pessoas do alfabeto":
+            // é quem tem passe vivo agora, que é onde há decisão a tomar.
+            colaboradores
+                .filter { porColaborador[it.id].state() != AccessCodeState.NENHUM }
+                .sortedBy { it.nome.lowercase() }
+        } else {
+            colaboradores.filter {
+                it.nome.contains(termo, ignoreCase = true) ||
+                    it.setor.orEmpty().contains(termo, ignoreCase = true)
+            }
+        }
+    }
+    val visiveis = resultados.take(maxResultados)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(PontoCafeSpacing.xs)
+                            .size(20.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Gerar código de café",
+                        modifier = Modifier.semantics { heading() },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Busque a pessoa e toque em Gerar. O código aparece em letras grandes para ditar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (carregando) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            OutlinedTextField(
+                value = busca,
+                onValueChange = { busca = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Nome ou setor") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (busca.isNotBlank()) {
+                        IconButton(onClick = { busca = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Limpar busca")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = MaterialTheme.shapes.large,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    imeAction = ImeAction.Search,
+                ),
+            )
+
+            when {
+                erro != null -> {
+                    PcStateBanner(
+                        title = "Lista indisponível",
+                        supportingText = erro,
+                        tone = PontoCafeTone.WARNING,
+                    )
+                    PcSecondaryButton(
+                        text = "Tentar novamente",
+                        onClick = onTentarNovamente,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                visiveis.isEmpty() -> Text(
+                    if (termo.isEmpty()) {
+                        "Nenhum código vivo agora. Digite um nome para gerar."
+                    } else {
+                        "Ninguém corresponde a esta busca."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                else -> Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+                    visiveis.forEach { pessoa ->
+                        AccessCodeQuickRow(
+                            colaborador = pessoa,
+                            codigo = porColaborador[pessoa.id],
+                            carregando = carregando,
+                            onGerar = { onGerar(pessoa) },
+                        )
+                    }
+                    if (resultados.size > visiveis.size) {
+                        Text(
+                            "… e mais ${resultados.size - visiveis.size}. Refine a busca ou abra a lista completa.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            PcSecondaryButton(
+                text = "Abrir códigos de café",
+                onClick = onVerTodos,
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Default.Coffee,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccessCodeQuickRow(
+    colaborador: Colaborador,
+    codigo: AccessCodeItem?,
+    carregando: Boolean,
+    onGerar: () -> Unit,
+) {
+    val estado = codigo.state()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = PontoCafeDimensions.minimumTouchTarget),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+    ) {
+        InitialAvatar(name = colaborador.nome, avatarSize = 34.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                colaborador.nome,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                when (estado) {
+                    AccessCodeState.EM_PAUSA -> "No café · código válido para o retorno"
+                    AccessCodeState.AGUARDANDO_SAIDA ->
+                        "${codigo?.codigoFormatado.orEmpty()} · expira em ${expiracaoCurta(codigo?.expiraEmSegundos ?: 0)}"
+                    else -> colaboradorDetalhe(colaborador)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (estado == AccessCodeState.EM_PAUSA) {
+            StatusPill(text = "Em pausa", tone = PontoCafeTone.INFO)
+        } else {
+            PcCompactAction(
+                text = if (estado == AccessCodeState.AGUARDANDO_SAIDA) "Outro" else "Gerar",
+                icon = Icons.Default.Coffee,
+                onClick = onGerar,
+                enabled = !carregando,
+                contentDescription = "Gerar código para ${colaborador.nome}",
+            )
+        }
+    }
+}
+
+/**
+ * Botão pequeno para a ação de uma linha — alto o bastante para o dedo, curto o
+ * bastante para caber ao lado do nome sem empurrar a lista para baixo.
+ */
+@Composable
+internal fun PcCompactAction(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 40.dp)
+            .semantics { this.contentDescription = contentDescription },
+        enabled = enabled,
+        shape = MaterialTheme.shapes.small,
+        contentPadding = PaddingValues(horizontal = PontoCafeSpacing.sm, vertical = 0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp))
+        Text(
+            text,
+            modifier = Modifier.padding(start = 5.dp),
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+internal fun AccessCodeChip(codigoFormatado: String) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -296,8 +601,23 @@ private fun CodeChip(codigoFormatado: String) {
     }
 }
 
+internal fun colaboradorDetalhe(colaborador: Colaborador): String = listOfNotNull(
+    colaborador.setor?.takeIf { it.isNotBlank() },
+    colaborador.turno?.takeIf { it.isNotBlank() }?.let { "Turno $it" },
+).joinToString(" · ").ifBlank { "Sem setor definido" }
+
+/**
+ * "Expira em 0 min" é o pior texto possível para uma janela de dois minutos:
+ * quem lê conclui que já perdeu o código quando ainda tem 50 segundos.
+ */
+internal fun expiracaoCurta(segundos: Int): String = when {
+    segundos <= 0 -> "instantes"
+    segundos < 60 -> "$segundos s"
+    else -> "${segundos / 60} min"
+}
+
 @Composable
-private fun IssueCodeDialog(
+internal fun PcIssueCodeDialog(
     colaborador: Colaborador,
     carregando: Boolean,
     onDismiss: () -> Unit,
@@ -347,7 +667,7 @@ private fun IssueCodeDialog(
  * alguém do outro lado do balcão. Um chip discreto na lista não serve para isso.
  */
 @Composable
-private fun IssuedCodeDialog(
+internal fun PcIssuedCodeDialog(
     codigo: AccessCodeCreatedResponse,
     onDismiss: () -> Unit,
 ) {
@@ -387,7 +707,7 @@ private fun IssuedCodeDialog(
                     )
                 }
                 Text(
-                    "Vale por ${codigo.expiraEmSegundos / 60} minutos para a SAÍDA. Depois de sair, " +
+                    "Vale por ${expiracaoCurta(codigo.expiraEmSegundos)} para a SAÍDA. Depois de sair, " +
                         "o mesmo código continua válido para o RETORNO, sem prazo.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

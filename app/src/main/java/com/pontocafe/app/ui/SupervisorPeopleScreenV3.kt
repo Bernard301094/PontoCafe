@@ -182,6 +182,14 @@ fun SupervisorPeopleScreenV3(
         )
     }
 
+    // Gerar um código sem o mostrar não serve para nada: o Supervisor precisa
+    // lê-lo em voz alta para quem está do outro lado do balcão. A tela emitia
+    // e deixava só a mensagem de sucesso -- os seis caracteres ficavam no
+    // estado sem nunca aparecerem em lado nenhum.
+    state.codigoEmitido?.let { emitido ->
+        PcIssuedCodeDialog(codigo = emitido, onDismiss = viewModel::limparCodigoEmitido)
+    }
+
     PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
             .navigationBarsPadding()
@@ -219,11 +227,18 @@ fun SupervisorPeopleScreenV3(
                     onProfileClick = { showAccountSheet = true },
                     onBackToPonto = onClose,
                 )
+                // Mesma decisão da tela de Admin: os dois números repetiam os
+                // chips logo abaixo e custavam quase um quinto da altura útil.
                 if (!compactHeight) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PcHeroStat(value = "${all.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
-                        PcHeroStat(value = "$pending", label = "Em pausa", modifier = Modifier.weight(1f))
-                    }
+                    Text(
+                        if (pending > 0) {
+                            "$pending no café agora · ${all.size} colaboradores"
+                        } else {
+                            "Ninguém no café agora · ${all.size} colaboradores"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+                    )
                 }
             },
         ) {

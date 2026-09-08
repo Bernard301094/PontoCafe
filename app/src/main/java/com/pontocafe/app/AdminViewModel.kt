@@ -48,6 +48,15 @@ data class AdminUiState(
     val resumoOperacional: AdminOperationalSummary? = null,
     val codigosAtivos: List<AccessCodeItem> = emptyList(),
     val codigoEmitido: AccessCodeCreatedResponse? = null,
+    /**
+     * Carga do atalho de códigos do Início.
+     *
+     * Separada de [carregando] e de [erro] de propósito: é um carregamento de
+     * fundo que ninguém pediu, e não pode desabilitar botões da tela inteira
+     * nem abrir um banner vermelho por cima do painel operacional.
+     */
+    val codigosAtalhoCarregando: Boolean = false,
+    val codigosAtalhoErro: String? = null,
     val manualPunchResult: ManualPunchResult? = null,
     val mensagem: String? = null,
     val erro: String? = null,
@@ -344,6 +353,36 @@ class AdminViewModel(
         viewModelScope.launch {
             runCatching { repository.accessCodes() }
                 .onSuccess { state = state.copy(codigosAtivos = it.codigos) }
+        }
+    }
+
+    /**
+     * Prepara o atalho de emissão do Início sem sair do Início.
+     *
+     * `abrirCodigos` carregaria os mesmos dados, mas troca a destination — e a
+     * tela inicial navegaria sozinha ao abrir. Aqui o carregamento é de fundo:
+     * não mexe em `carregando` nem em `erro`, para não desabilitar o resto da
+     * tela nem transformar um Worker desatualizado num banner vermelho por
+     * cima do painel operacional.
+     */
+    fun carregarAtalhoDeCodigos() {
+        if (state.codigosAtalhoCarregando) return
+        viewModelScope.launch {
+            state = state.copy(codigosAtalhoCarregando = true, codigosAtalhoErro = null)
+            runCatching { repository.collaborators() to repository.accessCodes() }
+                .onSuccess { (pessoas, codigos) ->
+                    state = state.copy(
+                        codigosAtalhoCarregando = false,
+                        colaboradores = pessoas,
+                        codigosAtivos = codigos.codigos,
+                    )
+                }
+                .onFailure {
+                    state = state.copy(
+                        codigosAtalhoCarregando = false,
+                        codigosAtalhoErro = AdminRepository.message(it),
+                    )
+                }
         }
     }
 

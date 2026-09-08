@@ -605,6 +605,16 @@ class AdminRepository(
                     "bloquear esta conexão. Se falhar em todas, confira data e hora automáticas."
             }
             if (error is HttpException) {
+                // Numa ação já autenticada, 404/405/501 não é erro de quem opera:
+                // é o app pedindo uma rota que este Worker ainda não tem. Repassar
+                // o "Rota não encontrada · ID PC-..." cru manda o Supervisor
+                // procurar o problema no lugar errado -- ele vai reconferir o
+                // colaborador, o código, a rede, e nada disso é a causa.
+                if (error.code() == 404 || error.code() == 405 || error.code() == 501) {
+                    return "O servidor está numa versão anterior a este aplicativo e ainda " +
+                        "não conhece esta função. Avise a equipe responsável para publicar " +
+                        "a atualização do servidor."
+                }
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
                 val json = runCatching { body?.let(::JSONObject) }.getOrNull()
                 val apiMessage = json?.optString("erro")?.takeIf { it.isNotBlank() }

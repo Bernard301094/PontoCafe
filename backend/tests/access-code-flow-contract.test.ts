@@ -181,6 +181,16 @@ test('a biometria não sobrevive em nenhuma camada', () => {
   assert.doesNotMatch(pontoApi, /embedding|verificacaoToken/i)
 })
 
+test('o primeiro passo do quiosque diz que é o primeiro, e usa a tela toda', () => {
+  // "Encontre o seu nome" não avisava que havia um segundo passo, e a lista de
+  // coluna única desperdiçava metade da largura do tablet que costuma ser o
+  // quiosque. A fala do passo e o título passam a dizer a mesma frase.
+  assert.match(kiosk, /PASSO 1 DE 2/)
+  assert.match(kiosk, /"Toque no seu nome"/)
+  assert.match(voiceGuidance, /Toque no seu nome/)
+  assert.match(kiosk, /GridCells\.Adaptive/)
+})
+
 test('o teclado do quiosque só oferece o alfabeto do código', () => {
   assert.match(kiosk, /AccessCode\.ALPHABET\.toList\(\)/)
   assert.match(kiosk, /AccessCode\.LENGTH/)

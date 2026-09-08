@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,13 +20,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -33,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Lock
@@ -69,6 +74,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -358,25 +364,51 @@ private fun CollaboratorPickerStep(
     ) {
         if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.xs))
 
-        Text(
-            "Encontre o seu nome",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(
-            "Depois de escolher, digite o código de ${AccessCode.LENGTH} caracteres que o Supervisor entregou.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // Passo numerado: quem chega ao quiosque precisa saber, sem ler nada
+        // mais, que isto tem duas etapas e que a segunda é o código.
+        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+            Text(
+                "PASSO 1 DE 2",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 1.sp,
+            )
+            Text(
+                "Toque no seu nome",
+                style = if (compactHeight) {
+                    MaterialTheme.typography.headlineSmall
+                } else {
+                    MaterialTheme.typography.headlineMedium
+                },
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                "Depois vem o código de ${AccessCode.LENGTH} caracteres que o Supervisor entregou.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         OutlinedTextField(
             value = state.busca,
             onValueChange = viewModel::atualizarBusca,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Buscar por nome ou setor") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 60.dp),
+            placeholder = { Text("Buscar por nome ou setor") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (state.busca.isNotBlank()) {
+                    IconButton(onClick = { viewModel.atualizarBusca("") }) {
+                        Icon(Icons.Default.Close, contentDescription = "Limpar busca")
+                    }
+                }
+            },
             singleLine = true,
+            shape = MaterialTheme.shapes.large,
+            textStyle = MaterialTheme.typography.titleMedium,
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Words,
                 imeAction = ImeAction.Search,
@@ -407,12 +439,25 @@ private fun CollaboratorPickerStep(
             }
 
             else -> {
-                LazyColumn(
+                Text(
+                    if (termo.isEmpty()) {
+                        "${filtrados.size} pessoas"
+                    } else {
+                        "${filtrados.size} resultado(s)"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // Grade adaptativa: no telefone dá uma coluna, no tablet que
+                // costuma ser o quiosque dá duas ou três. Uma lista de coluna
+                // única num ecrã de 10 polegadas desperdiça metade da largura e
+                // obriga a rolar por nomes que caberiam ao lado.
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 260.dp),
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        bottom = PontoCafeSpacing.lg,
-                    ),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    contentPadding = PaddingValues(bottom = PontoCafeSpacing.lg),
                 ) {
                     items(filtrados, key = { it.id }) { pessoa ->
                         CollaboratorRow(
@@ -435,30 +480,40 @@ private fun CollaboratorPickerStep(
     }
 }
 
+/**
+ * Um nome na grade do quiosque.
+ *
+ * Alvo grande e um só gesto: quem está aqui tem o café à espera e muitas vezes
+ * uma bandeja na outra mão. O galão à direita existe para dizer que o toque
+ * leva a algum lado, não para decorar.
+ */
 @Composable
 private fun CollaboratorRow(colaborador: Colaborador, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 68.dp)
+            .heightIn(min = 76.dp)
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = "Selecionar ${colaborador.nome}"
             },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            InitialAvatar(name = colaborador.nome, avatarSize = 44.dp)
+            InitialAvatar(name = colaborador.nome, avatarSize = 48.dp)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     colaborador.nome,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 val detalhe = listOfNotNull(
                     colaborador.setor?.takeIf { it.isNotBlank() },
@@ -469,9 +524,16 @@ private fun CollaboratorRow(colaborador: Colaborador, onClick: () -> Unit) {
                         detalhe,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
