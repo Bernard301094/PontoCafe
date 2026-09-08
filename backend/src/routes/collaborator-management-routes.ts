@@ -68,15 +68,35 @@ collaboratorManagementRoutes.get('/colaboradores', async (c) => {
   return c.json({ colaboradores: result.rows })
 })
 
+/**
+ * O índice `ux_colaborador_nome_ativo` recusa dois colaboradores ativos com o
+ * mesmo nome normalizado. Sem esta tradução o operador levaria um 500 genérico
+ * e não saberia que o problema é o nome — ia tentar de novo, e de novo.
+ */
+function nomeDuplicado(erro: unknown): boolean {
+  return typeof erro === 'object' && erro !== null &&
+    (erro as { code?: unknown }).code === '23505' &&
+    String((erro as { constraint?: unknown }).constraint ?? '').includes('ux_colaborador_nome_ativo')
+}
+
+const ERRO_NOME_DUPLICADO =
+  'Já existe um colaborador ativo com este nome. No quiosque, dois nomes iguais ' +
+  'deixam a pessoa sem saber em qual tocar — use um sobrenome a mais para distinguir.'
+
 collaboratorManagementRoutes.post('/colaboradores', async (c) => {
   const body = await parseJson(c, collaboratorInput)
   if (!body.ok) return body.response
 
   const id = newId()
-  await query(
-    'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,null,$2,$3,$4)',
-    [id, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
-  )
+  try {
+    await query(
+      'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,null,$2,$3,$4)',
+      [id, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
+    )
+  } catch (erro) {
+    if (nomeDuplicado(erro)) return c.json({ erro: ERRO_NOME_DUPLICADO }, 409)
+    throw erro
+  }
 
   await audit(c, 'CRIAR_COLABORADOR', id, { nome: body.data.nome })
   return c.json({ id, ...body.data, ativo: true, emPausa: false, codigoAtivo: false }, 201)
@@ -93,7 +113,10 @@ collaboratorManagementRoutes.put('/colaboradores/:id', async (c) => {
   const body = await parseJson(c, collaboratorInput)
   if (!body.ok) return body.response
 
-  const result = await transaction(async (client) => {
+  // Renomear alguém para um nome já em uso colide no mesmo índice da criação.
+  let result
+  try {
+    result = await transaction(async (client) => {
     const previous = await client.query<{
       id: string
       nome: string
@@ -134,7 +157,11 @@ collaboratorManagementRoutes.put('/colaboradores/:id', async (c) => {
     )
 
     return row
-  })
+    })
+  } catch (erro) {
+    if (nomeDuplicado(erro)) return c.json({ erro: ERRO_NOME_DUPLICADO }, 409)
+    throw erro
+  }
 
   if (!result) return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
   return c.json(result)
