@@ -83,7 +83,15 @@ async function fetchJson(url, attempts = 8) {
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const revision = output('git', ['rev-parse', '--short=12', 'HEAD'], repoRoot)
-
+// A tag do Worker é curta porque é o que cabe na lista de versões do painel;
+// BACKEND_REVISION é o SHA inteiro, igual ao que scripts/deploy-cloudflare.mjs
+// publica -- os dois caminhos de deploy têm de descrever o mesmo commit da
+// mesma forma, senão /app-status responde uma coisa num deploy e outra no
+// seguinte.
+const backendRevision = output('git', ['rev-parse', 'HEAD'], repoRoot)
+if (!/^[0-9a-f]{40}$/i.test(backendRevision)) {
+  throw new Error(`Revisão Git inválida: ${backendRevision}`)
+}
 
 console.log(`\n[1/4] Validando backend ${expectedApiVersion} · ${revision}...`)
 run(npmCommand, ['run', 'validate'])
@@ -98,6 +106,12 @@ runWrangler([
   revision,
   '--message',
   `PontoCafe ${expectedApiVersion} · ${revision}`,
+  // Sem isto o Worker herda o BACKEND_REVISION que já estava gravado -- e o
+  // wrangler.jsonc usa keep_vars, então o valor antigo sobrevive a cada
+  // publicação. Foi exactamente o que aconteceu: o Worker rodava o código do
+  // merge e /app-status apontava para um commit de duas semanas antes.
+  '--var',
+  `BACKEND_REVISION:${backendRevision}`,
 ])
 
 console.log(`\n[4/4] Verificando Worker publicado em ${productionUrl}...`)
@@ -107,6 +121,15 @@ const health = await fetchJson(`${productionUrl}/health`)
 if (status.workerVersionTag !== revision) {
   throw new Error(
     `Deploy não confirmado: /app-status retornou workerVersionTag=${String(status.workerVersionTag)}; esperado=${revision}.`,
+  )
+}
+
+// A tag confirma que a publicação chegou; a revisão confirma que o campo de
+// diagnóstico descreve o código que está a correr. Conferir só a tag deixou
+// passar meses de /app-status a apontar para o commit errado.
+if (status.backendRevision !== backendRevision) {
+  throw new Error(
+    `Revisão não confirmada: /app-status retornou backendRevision=${String(status.backendRevision)}; esperado=${backendRevision}.`,
   )
 }
 
@@ -123,6 +146,7 @@ if (health.status !== 'ok' || health.banco !== 'ok') {
 console.log('\nDeploy confirmado com sucesso.')
 console.log(JSON.stringify({
   revision,
+  backendRevision: status.backendRevision,
   expectedApiVersion,
   workerVersionId: status.workerVersionId,
   workerVersionTag: status.workerVersionTag,

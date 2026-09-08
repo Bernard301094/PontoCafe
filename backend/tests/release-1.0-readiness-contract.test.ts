@@ -49,6 +49,36 @@ test('backend e os dois caminhos de deploy publicam a mesma versão 1.0.0', () =
   assert.doesNotMatch(deployProduction, /status\.apiVersion !== '0\.7\.0'/)
 })
 
+test('os dois caminhos de deploy carimbam a revisão e conferem se ela chegou', () => {
+  // O wrangler.jsonc usa keep_vars, então um BACKEND_REVISION já gravado
+  // sobrevive a qualquer publicação que não o reescreva. Foi assim que o
+  // /app-status passou a descrever um commit de duas semanas antes do código
+  // que estava realmente a correr: o deploy do backend carimbava só a tag da
+  // versão, e a verificação final só olhava para essa tag.
+  for (const [label, source] of [
+    ['deploy-production', deployProduction],
+    ['deploy-cloudflare', deployCloudflare],
+  ] as const) {
+    assert.match(
+      source,
+      /'--var',\s*\r?\n?\s*`BACKEND_REVISION:\$\{backendRevision\}`/,
+      `${label} precisa publicar BACKEND_REVISION`,
+    )
+    assert.match(
+      source,
+      /status\.backendRevision !== backendRevision/,
+      `${label} precisa confirmar a revisão publicada`,
+    )
+    // O SHA inteiro nos dois: uma revisão curta num e longa no outro faria o
+    // mesmo commit aparecer com dois nomes conforme o caminho usado.
+    assert.match(
+      source,
+      /rev-parse', 'HEAD'\]/,
+      `${label} precisa usar o SHA completo na revisão`,
+    )
+  }
+})
+
 test('deploy Cloudflare exige validação, release contract e dry-run antes de publicar', () => {
   assert.match(deployCloudflare, /\['--workspace', 'backend', 'run', 'validate'\]/)
   assert.match(deployCloudflare, /\['run', 'release:check'\]/)
