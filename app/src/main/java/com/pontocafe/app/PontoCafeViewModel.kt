@@ -690,7 +690,11 @@ class PontoCafeViewModel(
             erro = null,
             mensagem = null,
         )
-        carregarColaboradores(force = false)
+        // force, e não o refresh de 5 minutos: quem acabou de registar o retorno
+        // fechou a pausa do período e o servidor já não a devolve na lista. Com
+        // o cache, essa pessoa continuaria visível por até cinco minutos — e a
+        // seguinte a chegar ao quiosque veria um nome que não faz mais nada.
+        carregarColaboradores(force = true)
         atualizarConectividadeESincronizar()
     }
 

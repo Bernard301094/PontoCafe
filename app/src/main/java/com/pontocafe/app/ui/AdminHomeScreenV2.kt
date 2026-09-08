@@ -124,7 +124,21 @@ fun AdminHomeScreenV2(
 
     // O Início é onde o Supervisor está quando alguém pede café. Carregar as
     // pessoas e os códigos vivos aqui é o que permite emitir sem navegar.
-    LaunchedEffect(Unit) { viewModel.carregarAtalhoDeCodigos() }
+    //
+    // E recarregar: sem isto, quem registou o retorno continuaria no cartão até
+    // o Supervisor sair e voltar à tela. O primeiro passe é visível (mostra o
+    // indicador); os seguintes são silenciosos, para o cartão não piscar de
+    // vinte em vinte segundos.
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var primeira = true
+            while (true) {
+                viewModel.carregarAtalhoDeCodigos(silencioso = !primeira)
+                primeira = false
+                delay(20_000)
+            }
+        }
+    }
 
     LaunchedEffect(lifecycleOwner, adminLiveRepository) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {

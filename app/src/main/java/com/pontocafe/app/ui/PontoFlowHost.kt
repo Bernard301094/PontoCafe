@@ -26,9 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,7 +33,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Coffee
@@ -226,6 +222,7 @@ fun PontoFlowHost(
                     PontoStep.ESCOLHER_PESSOA -> CollaboratorPickerStep(
                         viewModel = viewModel,
                         compactHeight = compactHeight,
+                        onInteracao = { wakeTick += 1 },
                     )
 
                     PontoStep.DIGITAR_CODIGO -> AccessCodeStep(
@@ -339,21 +336,27 @@ private fun KioskTopBar(
 private fun CollaboratorPickerStep(
     viewModel: PontoCafeViewModel,
     compactHeight: Boolean,
+    onInteracao: () -> Unit,
 ) {
     val state = viewModel.state
+    var seletorAberto by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.carregarColaboradores(force = false) }
 
-    val termo = state.busca.trim()
-    val filtrados = remember(termo, state.colaboradores) {
-        if (termo.isEmpty()) {
-            state.colaboradores
-        } else {
-            state.colaboradores.filter { pessoa ->
-                pessoa.nome.contains(termo, ignoreCase = true) ||
-                    pessoa.setor.orEmpty().contains(termo, ignoreCase = true)
-            }
-        }
+    if (seletorAberto) {
+        PcCollaboratorPickerSheet(
+            pessoas = state.colaboradores,
+            titulo = "Toque no seu nome",
+            onDismiss = { seletorAberto = false },
+            onEscolher = { pessoa ->
+                seletorAberto = false
+                viewModel.selecionarColaborador(pessoa)
+            },
+            onInteracao = { onInteracao() },
+            vazioTitulo = "Nenhum colaborador disponível",
+            vazioTexto = "Ou todos já tomaram café neste período, ou ninguém foi cadastrado ainda. " +
+                "Fale com o Supervisor.",
+        )
     }
 
     Column(
@@ -362,7 +365,7 @@ private fun CollaboratorPickerStep(
             .padding(horizontal = PontoCafeSpacing.md),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.xs))
+        if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.lg))
 
         // Passo numerado: quem chega ao quiosque precisa saber, sem ler nada
         // mais, que isto tem duas etapas e que a segunda é o código.
@@ -391,83 +394,42 @@ private fun CollaboratorPickerStep(
             )
         }
 
-        OutlinedTextField(
-            value = state.busca,
-            onValueChange = viewModel::atualizarBusca,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 60.dp),
-            placeholder = { Text("Buscar por nome ou setor") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (state.busca.isNotBlank()) {
-                    IconButton(onClick = { viewModel.atualizarBusca("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Limpar busca")
-                    }
-                }
-            },
-            singleLine = true,
-            shape = MaterialTheme.shapes.large,
-            textStyle = MaterialTheme.typography.titleMedium,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Words,
-                imeAction = ImeAction.Search,
-            ),
-        )
+        Spacer(Modifier.height(PontoCafeSpacing.xs))
 
         when {
             state.carregandoColaboradores && state.colaboradores.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }
 
-            filtrados.isEmpty() -> {
-                PcEmptyState(
-                    title = if (state.colaboradores.isEmpty()) {
-                        "Nenhum colaborador disponível"
-                    } else {
-                        "Nenhum nome corresponde à busca"
-                    },
-                    supportingText = if (state.colaboradores.isEmpty()) {
-                        "Peça ao Supervisor para cadastrar as pessoas na área restrita."
-                    } else {
-                        "Confira a escrita ou apague a busca para ver a lista inteira."
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
             else -> {
-                Text(
-                    if (termo.isEmpty()) {
-                        "${filtrados.size} pessoas"
-                    } else {
-                        "${filtrados.size} resultado(s)"
+                // Seletor fechado em vez da lista inteira: a grade de noventa e
+                // seis nomes obrigava a rolar antes de qualquer coisa e enchia a
+                // tela de gente que não é você. A busca vive dentro da folha,
+                // onde há uma lista para ela filtrar.
+                PcCollaboratorPickerField(
+                    selecionado = null,
+                    placeholder = "Selecione seu nome",
+                    onClick = {
+                        onInteracao()
+                        seletorAberto = true
                     },
-                    style = MaterialTheme.typography.labelLarge,
+                    grande = true,
+                )
+                Text(
+                    if (state.colaboradores.isEmpty()) {
+                        "Ninguém disponível neste período."
+                    } else {
+                        "${state.colaboradores.size} pessoas podem tomar café neste período."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // Grade adaptativa: no telefone dá uma coluna, no tablet que
-                // costuma ser o quiosque dá duas ou três. Uma lista de coluna
-                // única num ecrã de 10 polegadas desperdiça metade da largura e
-                // obriga a rolar por nomes que caberiam ao lado.
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 260.dp),
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    contentPadding = PaddingValues(bottom = PontoCafeSpacing.lg),
-                ) {
-                    items(filtrados, key = { it.id }) { pessoa ->
-                        CollaboratorRow(
-                            colaborador = pessoa,
-                            onClick = { viewModel.selecionarColaborador(pessoa) },
-                        )
-                    }
-                }
             }
         }
+
+        Spacer(Modifier.weight(1f))
 
         state.erro?.let { erro ->
             PcStateBanner(
@@ -475,64 +437,6 @@ private fun CollaboratorPickerStep(
                 supportingText = erro,
                 tone = PontoCafeTone.DANGER,
                 modifier = Modifier.padding(bottom = PontoCafeSpacing.sm),
-            )
-        }
-    }
-}
-
-/**
- * Um nome na grade do quiosque.
- *
- * Alvo grande e um só gesto: quem está aqui tem o café à espera e muitas vezes
- * uma bandeja na outra mão. O galão à direita existe para dizer que o toque
- * leva a algum lado, não para decorar.
- */
-@Composable
-private fun CollaboratorRow(colaborador: Colaborador, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 76.dp)
-            .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "Selecionar ${colaborador.nome}"
-            },
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-        ) {
-            InitialAvatar(name = colaborador.nome, avatarSize = 48.dp)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    colaborador.nome,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val detalhe = listOfNotNull(
-                    colaborador.setor?.takeIf { it.isNotBlank() },
-                    colaborador.turno?.takeIf { it.isNotBlank() }?.let { "Turno $it" },
-                ).joinToString(" · ")
-                if (detalhe.isNotBlank()) {
-                    Text(
-                        detalhe,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

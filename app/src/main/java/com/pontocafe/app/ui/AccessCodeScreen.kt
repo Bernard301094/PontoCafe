@@ -112,7 +112,7 @@ fun AccessCodeScreen(
     onFechar: () -> Unit,
     onAtualizar: () -> Unit,
 ) {
-    var busca by remember { mutableStateOf("") }
+    var seletorAberto by remember { mutableStateOf(false) }
     var alvo by remember { mutableStateOf<Colaborador?>(null) }
 
     // A lista de códigos vivos envelhece sozinha (expira, alguém sai, alguém
@@ -126,28 +126,59 @@ fun AccessCodeScreen(
     }
 
     val porColaborador = remember(codigosAtivos) { codigosAtivos.associateBy { it.colaboradorId } }
-    val termo = busca.trim()
-    val filtrados = remember(termo, colaboradores, porColaborador) {
+
+    // Quem pode receber um passe agora. Sai daqui quem já fechou a pausa deste
+    // período — não pode tomar outro café até o próximo — e quem está no café
+    // neste momento, porque emitir um segundo código vivo deixaria em aberto
+    // qual deles fecha a pausa. Os dois voltam sozinhos: um no próximo período,
+    // o outro ao registar o retorno.
+    val disponiveis = remember(colaboradores) {
         colaboradores
-            .filter { pessoa ->
-                termo.isEmpty() ||
-                    pessoa.nome.contains(termo, ignoreCase = true) ||
-                    pessoa.setor.orEmpty().contains(termo, ignoreCase = true)
+            .filter { !it.pausaPeriodoConcluida && !it.emPausa }
+            .sortedBy { it.nome.lowercase() }
+    }
+
+    // A lista fixa da tela é a dos passes vivos, e só ela: é o que muda sozinho
+    // e o que exige uma decisão agora. Quem voltou some daqui no refresh
+    // seguinte, porque o servidor deixa de devolver o código.
+    val vivos = remember(codigosAtivos, colaboradores) {
+        val porId = colaboradores.associateBy { it.id }
+        codigosAtivos
+            .map { item ->
+                item to (
+                    porId[item.colaboradorId]
+                        ?: Colaborador(
+                            id = item.colaboradorId,
+                            nome = item.nome,
+                            setor = item.setor,
+                            turno = item.turno,
+                        )
+                    )
             }
-            // Quem tem passe vivo primeiro: é a única parte da lista que muda
-            // sozinha e a única que pode exigir uma ação agora.
             .sortedWith(
-                compareBy<Colaborador> {
-                    when (porColaborador[it.id].state()) {
-                        AccessCodeState.EM_PAUSA -> 0
-                        AccessCodeState.AGUARDANDO_SAIDA -> 1
-                        else -> 2
-                    }
-                }.thenBy { it.nome.lowercase() },
+                compareBy<Pair<AccessCodeItem, Colaborador>> {
+                    if (it.first.estado == "EM_PAUSA") 0 else 1
+                }.thenBy { it.second.nome.lowercase() },
             )
     }
+
     val emPausaAgora = codigosAtivos.count { it.estado == "EM_PAUSA" }
     val aguardando = codigosAtivos.count { it.estado == "AGUARDANDO_SAIDA" }
+
+    if (seletorAberto) {
+        PcCollaboratorPickerSheet(
+            pessoas = disponiveis,
+            titulo = "Gerar código para",
+            onDismiss = { seletorAberto = false },
+            onEscolher = { pessoa ->
+                seletorAberto = false
+                alvo = pessoa
+            },
+            vazioTitulo = "Ninguém disponível agora",
+            vazioTexto = "Ou todos já tomaram café neste período, ou os que faltam estão no café " +
+                "neste momento. A lista se refaz sozinha no próximo período.",
+        )
+    }
 
     alvo?.let { colaborador ->
         PcIssueCodeDialog(
@@ -182,7 +213,8 @@ fun AccessCodeScreen(
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                "$aguardando aguardando saída · $emPausaAgora no café agora",
+                "$aguardando aguardando saída · $emPausaAgora no café agora · " +
+                    "${disponiveis.size} disponíveis",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -196,36 +228,25 @@ fun AccessCodeScreen(
             )
         }
 
-        OutlinedTextField(
-            value = busca,
-            onValueChange = { busca = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Buscar pessoa") },
-            placeholder = { Text("Nome ou setor") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (busca.isNotBlank()) {
-                    IconButton(onClick = { busca = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Limpar busca")
-                    }
-                }
-            },
-            singleLine = true,
-            shape = MaterialTheme.shapes.large,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Words,
-                imeAction = ImeAction.Search,
-            ),
+        // Seletor fechado em vez dos noventa e seis nomes abertos. A busca vive
+        // dentro da folha, onde há uma lista para ela filtrar.
+        PcCollaboratorPickerField(
+            selecionado = null,
+            placeholder = "Escolher pessoa e gerar código",
+            onClick = { seletorAberto = true },
+            enabled = !carregando && disponiveis.isNotEmpty(),
+            grande = true,
         )
 
-        if (filtrados.isEmpty()) {
+        if (vivos.isEmpty()) {
             PcEmptyState(
-                title = "Nenhuma pessoa encontrada",
-                supportingText = if (colaboradores.isEmpty()) {
+                title = "Nenhum código vivo",
+                supportingText = if (disponiveis.isEmpty() && colaboradores.isEmpty()) {
                     "Cadastre os colaboradores antes de gerar códigos."
                 } else {
-                    "Confira a escrita ou limpe a busca."
+                    "Escolha uma pessoa acima para emitir o primeiro."
                 },
+                icon = Icons.Default.Coffee,
                 modifier = Modifier.weight(1f),
             )
         } else {
@@ -234,10 +255,10 @@ fun AccessCodeScreen(
                 verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
                 contentPadding = PaddingValues(bottom = PontoCafeSpacing.lg),
             ) {
-                items(filtrados, key = { it.id }) { pessoa ->
+                items(vivos, key = { it.first.id }) { (codigo, pessoa) ->
                     AccessCodeRow(
                         colaborador = pessoa,
-                        codigo = porColaborador[pessoa.id],
+                        codigo = codigo,
                         carregando = carregando,
                         onGerar = { alvo = pessoa },
                         onCancelar = { onCancelar(pessoa) },
@@ -375,10 +396,15 @@ internal fun AccessCodeQuickIssueCard(
                 .filter { porColaborador[it.id].state() != AccessCodeState.NENHUM }
                 .sortedBy { it.nome.lowercase() }
         } else {
-            colaboradores.filter {
-                it.nome.contains(termo, ignoreCase = true) ||
-                    it.setor.orEmpty().contains(termo, ignoreCase = true)
-            }
+            // Buscar só oferece quem pode receber um passe agora: quem já fechou
+            // a pausa do período não pode tomar outro café até o próximo, e quem
+            // está no café tem um código vivo que ainda vai fechar a pausa.
+            colaboradores
+                .filter { !it.pausaPeriodoConcluida && !it.emPausa }
+                .filter {
+                    it.nome.contains(termo, ignoreCase = true) ||
+                        it.setor.orEmpty().contains(termo, ignoreCase = true)
+                }
         }
     }
     val visiveis = resultados.take(maxResultados)

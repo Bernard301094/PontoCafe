@@ -4,6 +4,7 @@ import type { AppEnv } from '../auth-runtime.js'
 import { config } from '../config.js'
 import { query } from '../db.js'
 import { ACCESS_CODE_LENGTH } from '../domain/access-code.js'
+import { CURRENT_PERIOD_CTE, periodPauseDoneSql } from '../ponto-period.js'
 import { deviceTokenMiddleware } from './shared.js'
 
 export const pontoRoutes = new Hono<AppEnv>()
@@ -15,14 +16,24 @@ pontoRoutes.use('*', deviceTokenMiddleware)
  * É a primeira coisa que a pessoa toca no novo fluxo — escolhe-se aqui, e só
  * depois se digita o código. Por isso devolve apenas o mínimo para desenhar a
  * lista: nada de código, nada de estado de pausa de terceiros.
+ *
+ * Quem já fechou a pausa deste período hoje sai da lista aqui, no servidor, e
+ * não por um sinalizador que o quiosque filtraria. É menos informação a sair
+ * daqui, não mais: o aparelho recebe uma lista mais curta em vez de aprender
+ * quem tomou café. Quem está no café **agora** continua na lista — é essa
+ * pessoa que ainda precisa do quiosque para registar o retorno.
  */
 pontoRoutes.get('/colaboradores', async (c) => {
   const busca = c.req.query('q')?.trim() ?? ''
   const result = await query(
-    `select id,matricula,nome,setor,turno from colaboradores
-     where ativo=true and ($1='' or nome ilike '%'||$1||'%' or coalesce(matricula,'') ilike '%'||$1||'%')
-     order by nome limit 100`,
-    [busca],
+    `with ${CURRENT_PERIOD_CTE}
+     select col.id,col.matricula,col.nome,col.setor,col.turno
+       from colaboradores col
+      where col.ativo=true
+        and ($2='' or col.nome ilike '%'||$2||'%' or coalesce(col.matricula,'') ilike '%'||$2||'%')
+        and not ${periodPauseDoneSql('col.id')}
+      order by col.nome limit 100`,
+    [config.appTimezone, busca],
   )
   return c.json({ colaboradores: result.rows })
 })

@@ -365,10 +365,10 @@ class AdminViewModel(
      * tela nem transformar um Worker desatualizado num banner vermelho por
      * cima do painel operacional.
      */
-    fun carregarAtalhoDeCodigos() {
+    fun carregarAtalhoDeCodigos(silencioso: Boolean = false) {
         if (state.codigosAtalhoCarregando) return
         viewModelScope.launch {
-            state = state.copy(codigosAtalhoCarregando = true, codigosAtalhoErro = null)
+            state = state.copy(codigosAtalhoCarregando = !silencioso, codigosAtalhoErro = null)
             runCatching { repository.collaborators() to repository.accessCodes() }
                 .onSuccess { (pessoas, codigos) ->
                     state = state.copy(
