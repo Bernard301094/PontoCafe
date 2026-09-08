@@ -145,3 +145,40 @@ test('o alfabeto do código de acesso evita os caracteres que se confundem', () 
   assert.doesNotMatch(supervisorAlerts, /faceThreshold|cosine|embedding/)
   assert.doesNotMatch(material, /faceThreshold|cosine|embedding/)
 })
+
+test('o brilho do esqueleto é um só, e não recompõe a cada frame', () => {
+  const skeleton = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoCafeSkeleton.kt', import.meta.url),
+    'utf8',
+  )
+
+  // Havia duas implementações do mesmo brilho, em arquivos diferentes, com
+  // curvas e intervalos diferentes: duas telas a carregar lado a lado pulsavam
+  // fora de fase. Agora só existe uma.
+  assert.match(skeleton, /fun PontoCafeLoadingSkeleton\(/)
+  assert.match(skeleton, /fun PontoCafeListSkeletonScreen\(/)
+  assert.equal(
+    (skeleton.match(/rememberInfiniteTransition\(label/g) ?? []).length,
+    1,
+    'só pode existir uma animação de brilho no projeto',
+  )
+
+  // E a opacidade é lida na fase de desenho. Lida durante a composição, cada
+  // frame do brilho recompunha a árvore inteira do esqueleto -- exatamente
+  // enquanto a tela ainda está a buscar dados.
+  assert.match(skeleton, /private fun rememberSkeletonAlpha\(\): State<Float>/)
+  assert.match(skeleton, /graphicsLayer \{ this\.alpha = 0\.06f \+ 0\.08f \* alpha\.value \}/)
+})
+
+test('o shell chama as telas direto, sem invólucros de compatibilidade', () => {
+  const area = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminArea.kt', import.meta.url),
+    'utf8',
+  )
+  // `AdminPanelScreen` e `AdminManagementScreenV2` eram arquivos inteiros cuja
+  // única função era reencaminhar a chamada para a versão real.
+  assert.doesNotMatch(area, /AdminPanelScreen/)
+  assert.doesNotMatch(area, /AdminManagementScreenV2/)
+  assert.doesNotMatch(area, /AdminManagementScreenV3/)
+  assert.match(area, /AdminManagementScreen\(/)
+})

@@ -17,7 +17,9 @@ const supervisorShell = readFileSync(
 
 test('skeleton reutilizável preserva a estrutura visual de listas', () => {
   assert.match(skeleton, /fun PontoCafeListSkeletonScreen\(/)
-  assert.match(skeleton, /fun PontoCafeSkeletonRow\(/)
+  // `PontoCafeSkeletonRow` foi removida: era pública e não tinha um único
+  // chamador. O que desenha a linha continua, usado pela tela de lista.
+  assert.match(skeleton, /private fun PontoCafeSkeletonRowContent\(/)
   assert.match(skeleton, /rememberInfiniteTransition/)
   assert.match(skeleton, /PontoCafePremium\.glassStrong/)
 })

@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const management = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminManagementScreenV3.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminManagementScreen.kt', import.meta.url),
   'utf8',
 )
 const compatibility = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminManagementScreenV2.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminArea.kt', import.meta.url),
   'utf8',
 )
 const gradle = readFileSync(
@@ -16,8 +16,8 @@ const gradle = readFileSync(
 )
 
 test('Gestão usa a experiência V3 sem quebrar o shell existente', () => {
-  assert.match(compatibility, /AdminManagementScreenV3\(/)
-  assert.match(management, /fun AdminManagementScreenV3\(/)
+  assert.match(compatibility, /AdminManagementScreen\(/)
+  assert.match(management, /fun AdminManagementScreen\(/)
 })
 
 test('Gestão organiza ações por operação e confiabilidade', () => {

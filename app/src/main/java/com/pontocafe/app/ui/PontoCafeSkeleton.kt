@@ -28,8 +28,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -38,9 +40,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 
 @Composable
-private fun rememberSkeletonAlpha(): Float {
+private fun rememberSkeletonAlpha(): State<Float> {
     val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
+    return transition.animateFloat(
         initialValue = 0.42f,
         targetValue = 0.92f,
         animationSpec = infiniteRepeatable(
@@ -49,20 +51,22 @@ private fun rememberSkeletonAlpha(): Float {
         ),
         label = "skeleton-alpha",
     )
-    return alpha
 }
 
 @Composable
 private fun SkeletonBlock(
     modifier: Modifier,
     shape: Shape = RoundedCornerShape(999.dp),
-    alpha: Float,
+    alpha: State<Float>,
 ) {
+    // A opacidade é lida DENTRO do graphicsLayer, e não durante a composição.
+    // Lida fora, cada frame do brilho recompunha a árvore inteira do esqueleto
+    // -- justamente enquanto a tela ainda está a buscar dados e a CPU faz falta.
+    val base = MaterialTheme.colorScheme.onSurface
     Box(
-        modifier = modifier.background(
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f + 0.08f * alpha),
-            shape = shape,
-        ),
+        modifier = modifier
+            .graphicsLayer { this.alpha = 0.06f + 0.08f * alpha.value }
+            .background(color = base, shape = shape),
     )
 }
 
@@ -70,7 +74,7 @@ private fun SkeletonBlock(
 private fun PontoCafeSkeletonRowContent(
     modifier: Modifier,
     compact: Boolean,
-    alpha: Float,
+    alpha: State<Float>,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -118,20 +122,7 @@ private fun PontoCafeSkeletonRowContent(
 }
 
 @Composable
-fun PontoCafeSkeletonRow(
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
-) {
-    val alpha = rememberSkeletonAlpha()
-    PontoCafeSkeletonRowContent(
-        modifier = modifier,
-        compact = compact,
-        alpha = alpha,
-    )
-}
-
-@Composable
-private fun SkeletonMetricStrip(alpha: Float) {
+private fun SkeletonMetricStrip(alpha: State<Float>) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
@@ -204,6 +195,46 @@ fun PontoCafeListSkeletonScreen(
                 modifier = Modifier,
                 compact = false,
                 alpha = sharedAlpha,
+            )
+        }
+    }
+}
+
+/**
+ * Esqueleto curto para blocos dentro de uma tela já desenhada.
+ *
+ * Vivia em `LoadingSkeleton.kt` com uma segunda implementação do mesmo brilho —
+ * outra `rememberInfiniteTransition`, outra curva, outro intervalo de opacidade.
+ * Duas telas a carregar lado a lado pulsavam fora de fase, e o defeito de
+ * recomposição por frame estava duplicado. Passa a usar o mesmo brilho de
+ * [PontoCafeListSkeletonScreen].
+ */
+@Composable
+fun PontoCafeLoadingSkeleton(
+    modifier: Modifier = Modifier,
+    rows: Int = 3,
+) {
+    val alpha = rememberSkeletonAlpha()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                stateDescription = "Carregando conteúdo"
+            },
+        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+    ) {
+        SkeletonBlock(
+            modifier = Modifier.width(150.dp).height(22.dp),
+            shape = RoundedCornerShape(8.dp),
+            alpha = alpha,
+        )
+        repeat(rows.coerceIn(1, 6)) {
+            SkeletonBlock(
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                shape = RoundedCornerShape(14.dp),
+                alpha = alpha,
             )
         }
     }

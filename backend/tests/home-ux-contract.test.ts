@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const entry = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminPanelScreen.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminArea.kt', import.meta.url),
   'utf8',
 )
 const home = readFileSync(
@@ -15,7 +15,7 @@ const gradle = readFileSync(
   'utf8',
 )
 
-test('Início usa a experiência V2 mantendo o entrypoint do shell', () => {
+test('Início é chamado direto pelo shell, sem invólucro de compatibilidade', () => {
   assert.match(entry, /AdminHomeScreenV2\(/)
   assert.match(home, /fun AdminHomeScreenV2\(/)
   assert.match(home, /title = "Início"/)
