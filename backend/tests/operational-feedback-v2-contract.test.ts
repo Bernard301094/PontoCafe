@@ -145,3 +145,33 @@ test('o alfabeto do código de acesso evita os caracteres que se confundem', () 
   assert.doesNotMatch(supervisorAlerts, /faceThreshold|cosine|embedding/)
   assert.doesNotMatch(material, /faceThreshold|cosine|embedding/)
 })
+
+test('os previews cobrem os componentes que cortam no A55', () => {
+  const previews = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoPreviews.kt', import.meta.url),
+    'utf8',
+  )
+
+  // Os componentes onde o texto realmente corta: linha de pessoa, seletor,
+  // cartao de pausa, barra de senha e tiles de metrica.
+  for (const alvo of [
+    'PeoplePersonCard(',
+    'PcCollaboratorPickerField(',
+    'OperationalPauseCompactCard(',
+    'PontoPasswordStrength(',
+    'PcMetricTile(',
+  ]) {
+    assert.ok(previews.includes(alvo), `falta preview de ${alvo}`)
+  }
+
+  // Nome longo nos dados de exemplo. Um preview com 'Ana Silva' passa em
+  // qualquer largura e nao prova nada; o que corta e o nome de quatro partes.
+  assert.ok(previews.includes('Maria Aparecida de Souza Nascimento'))
+
+  // Todo preview aparece nos dois aparelhos. So telefone deixa passar layout
+  // esticado a 1280dp; so tablet deixa passar texto cortado a 411dp.
+  const comTelefone = (previews.match(/device = PREVIEW_PHONE/g) ?? []).length
+  const comQuiosque = (previews.match(/device = PREVIEW_KIOSK/g) ?? []).length
+  assert.equal(comTelefone, comQuiosque, 'cada preview precisa do par telefone/quiosque')
+  assert.ok(comTelefone >= 8, 'cobertura minima de previews')
+})
