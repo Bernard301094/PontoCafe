@@ -109,6 +109,14 @@ fun AccessCodeScreen(
     codigosAtivos: List<AccessCodeItem>,
     codigoEmitido: AccessCodeCreatedResponse?,
     carregando: Boolean,
+    /**
+     * Quem tem uma emissão em curso. Nulo quando não há nenhuma.
+     *
+     * [carregando] é de tela inteira: usá-lo em cada linha desativava os botões
+     * "Gerar" de toda a lista ao emitir para uma pessoa só, e o efeito é o de
+     * todos terem sido premidos ao mesmo tempo.
+     */
+    ocupadoId: String?,
     erro: String?,
     onGerar: (Colaborador, String?) -> Unit,
     onCancelar: (Colaborador) -> Unit,
@@ -269,7 +277,7 @@ fun AccessCodeScreen(
                     AccessCodeRow(
                         colaborador = pessoa,
                         codigo = codigo,
-                        carregando = carregando,
+                        ocupado = ocupadoId == pessoa.id,
                         onGerar = { alvo = pessoa },
                         onCancelar = { onCancelar(pessoa) },
                     )
@@ -289,7 +297,9 @@ fun AccessCodeScreen(
 private fun AccessCodeRow(
     colaborador: Colaborador,
     codigo: AccessCodeItem?,
-    carregando: Boolean,
+    // Desta pessoa, e não da tela: só a linha de quem está a receber o código
+    // é que reage.
+    ocupado: Boolean,
     onGerar: () -> Unit,
     onCancelar: () -> Unit,
 ) {
@@ -330,7 +340,7 @@ private fun AccessCodeRow(
                         text = "Gerar",
                         icon = Icons.Default.Coffee,
                         onClick = onGerar,
-                        enabled = !carregando,
+                        enabled = !ocupado,
                         contentDescription = "Gerar código para ${colaborador.nome}",
                     )
                 } else {
@@ -357,7 +367,7 @@ private fun AccessCodeRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (estado == AccessCodeState.AGUARDANDO_SAIDA) {
-                        TextButton(onClick = onCancelar, enabled = !carregando) { Text("Cancelar") }
+                        TextButton(onClick = onCancelar, enabled = !ocupado) { Text("Cancelar") }
                         // Emitir enquanto a pessoa está fora criaria um segundo
                         // código vivo e deixaria em aberto qual deles fecha a
                         // pausa. O servidor recusa; a interface nem oferece.
@@ -365,7 +375,7 @@ private fun AccessCodeRow(
                             text = "Outro",
                             icon = Icons.Default.Coffee,
                             onClick = onGerar,
-                            enabled = !carregando,
+                            enabled = !ocupado,
                             contentDescription = "Gerar outro código para ${colaborador.nome}",
                         )
                     }
@@ -387,6 +397,8 @@ internal fun AccessCodeQuickIssueCard(
     colaboradores: List<Colaborador>,
     codigosAtivos: List<AccessCodeItem>,
     carregando: Boolean,
+    /** Quem tem emissão em curso. Ver [AccessCodeScreen]. */
+    ocupadoId: String?,
     erro: String?,
     maxResultados: Int,
     onGerar: (Colaborador) -> Unit,
@@ -511,7 +523,7 @@ internal fun AccessCodeQuickIssueCard(
                         AccessCodeQuickRow(
                             colaborador = pessoa,
                             codigo = porColaborador[pessoa.id],
-                            carregando = carregando,
+                            ocupado = ocupadoId == pessoa.id,
                             onGerar = { onGerar(pessoa) },
                         )
                     }
@@ -539,7 +551,7 @@ internal fun AccessCodeQuickIssueCard(
 private fun AccessCodeQuickRow(
     colaborador: Colaborador,
     codigo: AccessCodeItem?,
-    carregando: Boolean,
+    ocupado: Boolean,
     onGerar: () -> Unit,
 ) {
     val estado = codigo.state()
@@ -579,7 +591,7 @@ private fun AccessCodeQuickRow(
                 text = if (estado == AccessCodeState.AGUARDANDO_SAIDA) "Outro" else "Gerar",
                 icon = Icons.Default.Coffee,
                 onClick = onGerar,
-                enabled = !carregando,
+                enabled = !ocupado,
                 contentDescription = "Gerar código para ${colaborador.nome}",
             )
         }

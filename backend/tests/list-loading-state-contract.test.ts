@@ -85,3 +85,45 @@ test('trocar de aba não recarrega do zero o que já está em memória', () => {
     )
   }
 })
+
+test('nenhuma lista com botão Gerar usa o sinalizador de tela inteira', () => {
+  // A primeira correção cobriu só Pessoas, e o mesmo defeito continuou vivo nas
+  // outras duas telas que têm botão "Gerar" por linha: Códigos de café e o
+  // cartão de atalho do Início. Emitir para uma pessoa desativava a lista toda,
+  // e o efeito é o de todos os botões terem sido premidos ao mesmo tempo.
+  //
+  // Este teste olha as TRÊS, para a próxima tela com lista não repetir o erro.
+  const codigos = read('app/src/main/java/com/pontocafe/app/ui/AccessCodeScreen.kt')
+
+  // Cada linha recebe se ELA está ocupada, não se a tela está.
+  assert.ok(codigos.includes('ocupadoId: String?'), 'a tela precisa saber QUEM está ocupado')
+  assert.ok(codigos.includes('ocupado = ocupadoId == pessoa.id'), 'a linha compara o id')
+  assert.ok(codigos.includes('ocupado: Boolean'), 'a linha recebe só o seu próprio estado')
+
+  // E os três chamadores fornecem-no.
+  for (const tela of [
+    'app/src/main/java/com/pontocafe/app/ui/AdminArea.kt',
+    'app/src/main/java/com/pontocafe/app/ui/SupervisorNavigationShell.kt',
+    'app/src/main/java/com/pontocafe/app/ui/AdminHomeScreenV2.kt',
+  ]) {
+    assert.ok(
+      read(tela).includes('ocupadoId = state.colaboradorOcupadoId'),
+      `${tela} precisa passar quem está ocupado`,
+    )
+  }
+
+  // Nenhum PcCompactAction -- o botão das linhas -- pode voltar a ler a flag
+  // global. Os controles únicos (seletor, diálogo) podem, e por isso a busca é
+  // só dentro das chamadas do botão de linha.
+  let from = 0
+  for (;;) {
+    const at = codigos.indexOf('PcCompactAction(', from)
+    if (at < 0) break
+    const chamada = codigos.slice(at, at + 320)
+    assert.ok(
+      !chamada.includes('enabled = !carregando'),
+      'um botão de linha voltou a usar o sinalizador de tela inteira',
+    )
+    from = at + 16
+  }
+})

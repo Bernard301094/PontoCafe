@@ -120,6 +120,7 @@ fun SupervisorAreaShell(
                     codigosAtivos = state.codigosAtivos,
                     codigoEmitido = state.codigoEmitido,
                     carregando = state.carregando,
+                    ocupadoId = state.colaboradorOcupadoId,
                     erro = state.erro,
                     onGerar = viewModel::emitirCodigo,
                     onCancelar = viewModel::cancelarCodigo,
