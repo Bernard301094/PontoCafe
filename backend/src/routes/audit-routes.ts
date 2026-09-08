@@ -51,7 +51,8 @@ auditRoutes.get('/auditoria', async (c) => {
 auditRoutes.get('/operacao/resumo', async (c) => {
   const result = await query<{
     colaboradoresAtivos: number
-    rostosPendentes: number
+    codigosPendentes: number
+    codigosEmUso: number
     dispositivosAtivos: number
     dispositivosSemPin: number
     dispositivosInativos: number
@@ -61,9 +62,10 @@ auditRoutes.get('/operacao/resumo', async (c) => {
   }>(
     `select
        (select count(*)::int from colaboradores where ativo=true) as "colaboradoresAtivos",
-       (select count(*)::int from colaboradores c where c.ativo=true and not exists (
-          select 1 from templates_faciais t where t.colaborador_id=c.id
-       )) as "rostosPendentes",
+       (select count(*)::int from codigos_acesso
+         where cancelado_em is null and saida_em is null and expira_em>now()) as "codigosPendentes",
+       (select count(*)::int from codigos_acesso
+         where cancelado_em is null and saida_em is not null and retorno_em is null) as "codigosEmUso",
        (select count(*)::int from dispositivos where ativo=true) as "dispositivosAtivos",
        (select count(*)::int from dispositivos where ativo=true and unlock_pin_hash is null) as "dispositivosSemPin",
        (select count(*)::int from dispositivos where ativo=false) as "dispositivosInativos",

@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
@@ -80,7 +81,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                 backLabel = "Pessoas",
             )
             Text(
-                "Cadastro para reconhecimento facial no modo Ponto",
+                "Cadastro de quem registra pausa no quiosque",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
             )
@@ -104,11 +105,10 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                     PcHeroCard(
                         title = "Cadastro para o modo Ponto",
-                        supportingText = "Depois de salvar os dados, a câmera abrirá automaticamente para registrar as 5 amostras faciais.",
-                        icon = Icons.Default.Face,
+                        supportingText = "Depois de salvar, gere um código sempre que esta pessoa for tomar café.",
+                        icon = Icons.Default.Coffee,
                         tone = PontoCafeTone.INFO,
                     )
-                    UpcomingEnrollmentPreview()
                     if (cleanName.isNotBlank() || cleanSector.isNotBlank()) {
                         StatusPill("Rascunho salvo neste aparelho", PontoCafeTone.NEUTRAL)
                     }
@@ -223,7 +223,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
                         cleanName.length < 2 -> "Informe o nome completo."
                         cleanSector.isBlank() -> "Informe ou selecione o setor."
                         cleanShift !in SupervisorShiftOptions -> "Selecione o turno."
-                        else -> "Ao continuar, abriremos o cadastro facial."
+                        else -> "Ao continuar, o colaborador é salvo e já pode receber um código."
                     },
                     tone = if (ready) PontoCafeTone.SUCCESS else PontoCafeTone.NEUTRAL,
                 )
@@ -231,7 +231,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
 
             item("save") {
                 PcPrimaryButton(
-                    text = "Salvar e cadastrar rosto",
+                    text = "Salvar colaborador",
                     icon = Icons.Default.Face,
                     onClick = {
                         draftState.markSubmitted()

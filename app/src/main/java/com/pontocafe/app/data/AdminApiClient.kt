@@ -1,10 +1,7 @@
 package com.pontocafe.app.data
 
 import com.pontocafe.app.BuildConfig
-import com.pontocafe.app.avatar.PontoAvatarRuntime
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
@@ -172,7 +169,8 @@ data class AuditEventsResponse(val eventos: List<AuditEvent>)
 
 data class AdminOperationalSummary(
     val colaboradoresAtivos: Int,
-    val rostosPendentes: Int,
+    val codigosPendentes: Int,
+    val codigosEmUso: Int,
     val dispositivosAtivos: Int,
     val dispositivosSemPin: Int,
     val dispositivosInativos: Int,
@@ -202,26 +200,9 @@ data class DeviceCreatedResponse(
     val aviso: String,
 )
 
-data class CreateAuthorizationRequest(
-    val colaboradorId: String,
-    val motivo: String,
-)
-
-data class AuthorizationCreatedResponse(
-    val id: String,
-    val liberada: Boolean,
-    val colaboradorNome: String,
-    val periodo: String,
-    val periodoDefinidoAutomaticamente: Boolean = true,
-    val expiraEm: String?,
-    val expiraEmSegundos: Int,
-    val usoUnico: Boolean = true,
-    val aviso: String,
-)
-
 /**
  * Registro manual de ponto (saída ou retorno) feito por Admin/Supervisor
- * quando o reconhecimento facial falhou ou a pessoa esqueceu de marcar --
+ * quando o código falhou ou a pessoa esqueceu de marcar no quiosque --
  * ver proposta "Registro Manual de Ponto". A sessão autenticada de quem
  * registra substitui o verificacaoToken biométrico; por isso exige motivo,
  * fica marcado registradoManualmente e é auditado do lado do servidor.
@@ -311,21 +292,6 @@ data class UpdateCollaboratorRequest(
     val turno: String?,
 )
 
-data class BiometricEnrollmentRequest(
-    val embedding: List<Float>,
-    val modelo: String,
-    val versaoModelo: String,
-    val amostras: List<List<Float>>? = null,
-)
-
-data class BiometricEnrollmentResponse(
-    val ok: Boolean,
-    val colaboradorId: String,
-    val dimensao: Int,
-    val verificacaoDuplicidade: Boolean? = null,
-    val limiteDuplicidade: Double? = null,
-)
-
 data class SimpleAdminResponse(
     val ok: Boolean = true,
     val ativo: Boolean? = null,
@@ -381,17 +347,11 @@ interface AdminApi {
     @POST("gestao/colaboradores") suspend fun createCollaborator(@Body body: CreateCollaboratorRequest): Colaborador
     @PUT("gestao/colaboradores/{id}")
     suspend fun updateCollaborator(@Path("id") id: String, @Body body: UpdateCollaboratorRequest): Colaborador
-    @PUT("gestao/colaboradores/{id}/avatar")
-    suspend fun uploadAvatar(@Path("id") id: String, @Body body: okhttp3.RequestBody): AvatarMutationResponse
-    @POST("gestao/colaboradores/{id}/avatar/excluir")
-    suspend fun deleteAvatar(@Path("id") id: String): AvatarMutationResponse
-    @PUT("gestao/colaboradores/{id}/biometria")
-    suspend fun saveBiometric(@Path("id") id: String, @Body body: BiometricEnrollmentRequest): BiometricEnrollmentResponse
-
-    @POST("admin/autorizacoes") suspend fun createAuthorization(@Body body: CreateAuthorizationRequest): AuthorizationCreatedResponse
-    @POST("admin/autorizacoes/cancelar") suspend fun cancelAuthorization(
-        @Body body: CancelAuthorizationRequest,
-    ): CancelAuthorizationResponse
+    @GET("admin/codigos") suspend fun accessCodes(): AccessCodesResponse
+    @POST("admin/codigos") suspend fun createAccessCode(@Body body: CreateAccessCodeRequest): AccessCodeCreatedResponse
+    @POST("admin/codigos/cancelar") suspend fun cancelAccessCode(
+        @Body body: CancelAccessCodeRequest,
+    ): CancelAccessCodeResponse
 
     // Ambas existem no Worker: finalizar desde 88bc890, iniciar desde a migração
     // 011. Ver backend/src/routes/manual-pause-routes.ts.
@@ -543,7 +503,7 @@ class AdminRepository(
     suspend fun appStatus() = api.appStatus()
 
     // A lista de colaboradores é operacional e pode mudar por endpoints de
-    // biometria/gestão que pertencem a outro repositório. Por isso não retornamos
+    // gestão que pertencem a outro repositório. Por isso não retornamos
     // uma cópia potencialmente obsoleta daqui: sempre buscamos o estado atual do
     // servidor e apenas guardamos a última leitura para diagnóstico/compatibilidade.
     suspend fun collaborators(): List<Colaborador> =
@@ -575,48 +535,25 @@ class AdminRepository(
         return updated
     }
 
-    suspend fun uploadAvatar(collaboratorId: String, webp: ByteArray): AvatarMutationResponse {
-        require(webp.isNotEmpty()) { "Avatar vazio." }
-        val result = api.uploadAvatar(collaboratorId, webp.toRequestBody("image/webp".toMediaType()))
-        collaboratorsCache = null
-        PontoAvatarRuntime.avatarUpdated(collaboratorId, result.avatarUrl)
-        return result
-    }
+    suspend fun accessCodes(): AccessCodesResponse = api.accessCodes()
 
-    suspend fun deleteAvatar(collaboratorId: String): AvatarMutationResponse {
-        val result = api.deleteAvatar(collaboratorId)
-        collaboratorsCache = null
-        PontoAvatarRuntime.avatarUpdated(collaboratorId, null)
-        return result
-    }
-
-    suspend fun saveBiometric(
-        collaboratorId: String,
-        embedding: FloatArray,
-        model: String,
-        modelVersion: String,
-        samples: List<FloatArray> = emptyList(),
-    ): BiometricEnrollmentResponse {
-        val result = api.saveBiometric(
-            collaboratorId,
-            BiometricEnrollmentRequest(
-                embedding = embedding.toList(),
-                modelo = model,
-                versaoModelo = modelVersion,
-                amostras = samples.takeIf { it.isNotEmpty() }?.map { it.toList() },
-            ),
+    suspend fun createAccessCode(collaboratorId: String, reason: String?): AccessCodeCreatedResponse {
+        val result = api.createAccessCode(
+            CreateAccessCodeRequest(collaboratorId, reason?.trim()?.ifBlank { null }),
         )
+        // A lista de pessoas mostra quem tem passe vivo; emitir um muda essa
+        // coluna e o resumo operacional.
         collaboratorsCache = null
         summaryCache = null
         return result
     }
 
-    suspend fun createAuthorization(collaboratorId: String, reason: String) = api.createAuthorization(
-        CreateAuthorizationRequest(collaboratorId, reason.trim()),
-    )
-
-    suspend fun cancelAuthorization(collaboratorId: String) =
-        api.cancelAuthorization(CancelAuthorizationRequest(collaboratorId))
+    suspend fun cancelAccessCode(collaboratorId: String): CancelAccessCodeResponse {
+        val result = api.cancelAccessCode(CancelAccessCodeRequest(collaboratorId))
+        collaboratorsCache = null
+        summaryCache = null
+        return result
+    }
 
     suspend fun iniciarPausaManual(colaboradorId: String, motivo: String) =
         api.iniciarPausaManual(RegistrarPausaManualRequest(colaboradorId, motivo.trim()))
@@ -668,6 +605,16 @@ class AdminRepository(
                     "bloquear esta conexão. Se falhar em todas, confira data e hora automáticas."
             }
             if (error is HttpException) {
+                // Numa ação já autenticada, 404/405/501 não é erro de quem opera:
+                // é o app pedindo uma rota que este Worker ainda não tem. Repassar
+                // o "Rota não encontrada · ID PC-..." cru manda o Supervisor
+                // procurar o problema no lugar errado -- ele vai reconferir o
+                // colaborador, o código, a rede, e nada disso é a causa.
+                if (error.code() == 404 || error.code() == 405 || error.code() == 501) {
+                    return "O servidor está numa versão anterior a este aplicativo e ainda " +
+                        "não conhece esta função. Avise a equipe responsável para publicar " +
+                        "a atualização do servidor."
+                }
                 val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
                 val json = runCatching { body?.let(::JSONObject) }.getOrNull()
                 val apiMessage = json?.optString("erro")?.takeIf { it.isNotBlank() }

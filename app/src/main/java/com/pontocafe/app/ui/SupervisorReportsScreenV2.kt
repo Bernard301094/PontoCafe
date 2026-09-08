@@ -510,7 +510,6 @@ fun SupervisorReportsScreenV2(
                                 ) {
                                     CollaboratorAvatar(
                                         name = delay.nome,
-                                        avatarUrl = collaboratorById[delay.colaboradorId]?.avatarUrl,
                                         avatarSize = 40.dp,
                                     )
                                     Column(modifier = Modifier.weight(1f)) {

@@ -58,8 +58,13 @@ async function finalizarPausaManual(
   ator: { id: string; nome: string; papel: 'ADMIN' | 'SUPERVISOR' },
 ): Promise<ManualFinishResponse | { erro: string; status: number }> {
   return transaction(async (client) => {
-    const open = await client.query<{ id: string; inicio_em: string; limite_segundos: number }>(
-      `select id,inicio_em::text,limite_segundos from pausas_cafe
+    const open = await client.query<{
+      id: string
+      inicio_em: string
+      limite_segundos: number
+      carencia_segundos: number
+    }>(
+      `select id,inicio_em::text,limite_segundos,carencia_segundos from pausas_cafe
         where colaborador_id=$1 and fim_em is null
         order by inicio_em desc limit 1 for update`,
       [colaboradorId],
@@ -101,7 +106,7 @@ async function finalizarPausaManual(
           motivo,
           duracaoSegundos: row.duracao_segundos,
           limiteSegundos: open.rows[0].limite_segundos,
-          excedeuLimite: row.duracao_segundos > open.rows[0].limite_segundos,
+          excedeuLimite: row.duracao_segundos > (open.rows[0].limite_segundos + open.rows[0].carencia_segundos),
         }),
       ],
     )
@@ -113,7 +118,7 @@ async function finalizarPausaManual(
       fimLocal: horario.rows[0]!.fim_local,
       duracaoSegundos: row.duracao_segundos,
       limiteSegundos: open.rows[0].limite_segundos,
-      excedeuLimite: row.duracao_segundos > open.rows[0].limite_segundos,
+      excedeuLimite: row.duracao_segundos > (open.rows[0].limite_segundos + open.rows[0].carencia_segundos),
       registradoManualmente: true as const,
       registradoPor: { atorTipo: ator.papel, atorNome: ator.nome },
     }

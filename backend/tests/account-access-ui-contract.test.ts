@@ -23,7 +23,9 @@ test('nova conta mantém o fluxo real do AdminViewModel', () => {
 
 test('criação de acesso usa o design system Material 3 e contexto operacional', () => {
   assert.match(screen, /AccountAccessContextCard/)
-  assert.match(screen, /Supervisor recomendado/)
+  assert.match(screen, /Acesso ao sistema/)
+  assert.match(screen, /senha temporária é gerada pelo sistema/)
+  assert.match(screen, /trocada no primeiro acesso/)
   assert.match(form, /PcSectionSurface/)
   assert.match(materialDesignSystem, /fun PcSectionSurface\(/)
   assert.match(materialDesignSystem, /surfaceContainerLow/)
@@ -37,6 +39,7 @@ test('formulário guia senha e bloqueia submissão incompleta', () => {
   assert.match(form, /passwordHasLetter/)
   assert.match(form, /passwordHasDigit/)
   assert.match(form, /passwordsMatch/)
-  assert.match(form, /Conter letras e números/)
-  assert.match(form, /enabled = !carregando && validationError == null/)
+  assert.match(form, /A senha deve combinar letras e números\./)
+  assert.match(form, /enabled = validationError == null/)
+  assert.match(form, /if \(validationError == null && !carregando\)/)
 })

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
@@ -22,20 +23,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -57,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -73,10 +71,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.data.Colaborador
 
-internal enum class PeopleFaceFilter { ALL, PENDING }
+/** Filtro rápido da lista: todos, ou apenas quem está fora agora. */
+internal enum class PeopleFaceFilter { ALL, EM_PAUSA }
 
 internal enum class PeopleSort(val label: String) {
-    PRIORITY("Pendências primeiro"),
+    PRIORITY("Em pausa primeiro"),
     NAME("Nome A–Z"),
     SECTOR("Setor"),
 }
@@ -93,7 +92,7 @@ internal fun PeopleCompactSummary(
             .fillMaxWidth()
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append("$total colaboradores. $pending com rosto pendente")
+                    append("$total colaboradores. $pending em pausa agora")
                     accessCount?.let { append(". $it acessos") }
                 }
             },
@@ -118,7 +117,7 @@ internal fun PeopleCompactSummary(
                         )
                         Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            "$pending pendente${if (pending == 1) "" else "s"}",
+                            "$pending em pausa",
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (pending > 0) {
                                 LocalPontoCafeSemanticColors.current.warning
@@ -146,7 +145,7 @@ internal fun PeopleCompactSummary(
                     )
                     Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        "$pending ${if (pending == 1) "rosto pendente" else "rostos pendentes"}",
+                        "$pending em pausa",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (pending > 0) {
                             LocalPontoCafeSemanticColors.current.warning
@@ -197,6 +196,14 @@ internal fun PeopleSearchField(
     )
 }
 
+/**
+ * Filtros da lista.
+ *
+ * Eram quatro chips numa faixa rolável e o último ("Ordenar: …") ficava
+ * cortado na borda da tela, parecendo defeito. A ordenação passou para dentro
+ * da folha de filtros, onde já vivem os outros critérios, e o chip só anuncia
+ * quantos filtros estão ativos.
+ */
 @Composable
 internal fun PeopleFaceFilterRow(
     selected: PeopleFaceFilter,
@@ -208,10 +215,11 @@ internal fun PeopleFaceFilterRow(
     onOpenFilters: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ajustes = activeExtraFilters + if (sort != PeopleSort.PRIORITY) 1 else 0
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-        contentPadding = PaddingValues(end = PontoCafeSpacing.xs),
+        contentPadding = PaddingValues(end = PontoCafeSpacing.md),
     ) {
         item {
             FilterChip(
@@ -222,14 +230,14 @@ internal fun PeopleFaceFilterRow(
         }
         item {
             FilterChip(
-                selected = selected == PeopleFaceFilter.PENDING,
-                onClick = { onSelected(PeopleFaceFilter.PENDING) },
-                label = { Text("Pendentes $pending") },
+                selected = selected == PeopleFaceFilter.EM_PAUSA,
+                onClick = { onSelected(PeopleFaceFilter.EM_PAUSA) },
+                label = { Text("Em pausa $pending") },
             )
         }
         item {
             FilterChip(
-                selected = activeExtraFilters > 0,
+                selected = ajustes > 0,
                 onClick = onOpenFilters,
                 leadingIcon = {
                     Icon(
@@ -238,16 +246,7 @@ internal fun PeopleFaceFilterRow(
                         modifier = Modifier.size(17.dp),
                     )
                 },
-                label = {
-                    Text(if (activeExtraFilters > 0) "Filtros $activeExtraFilters" else "Filtros")
-                },
-            )
-        }
-        item {
-            FilterChip(
-                selected = sort != PeopleSort.PRIORITY,
-                onClick = onOpenFilters,
-                label = { Text("Ordenar: ${sort.label}") },
+                label = { Text(if (ajustes > 0) "Filtros $ajustes" else "Filtros") },
             )
         }
     }
@@ -298,6 +297,16 @@ internal fun PeopleSectionSwitch(
     }
 }
 
+/**
+ * Uma pessoa na lista de gestão.
+ *
+ * Linha, e não cartão: a operação tem quase cem colaboradores, e um bloco alto
+ * com um botão de largura total por pessoa transformava a lista numa rolagem
+ * sem fim onde o botão laranja repetido era a única coisa visível. Aqui o nome
+ * manda, o estado vem por cor no ponto do avatar e numa linha de apoio, e a
+ * emissão do código é uma ação curta à direita — presente só para quem pode
+ * receber um código agora.
+ */
 @Composable
 internal fun PeoplePersonCard(
     person: Colaborador,
@@ -306,125 +315,123 @@ internal fun PeoplePersonCard(
     loading: Boolean,
     onClick: () -> Unit,
     onSelected: (Boolean) -> Unit,
-    onBiometric: () -> Unit,
+    onGerarCodigo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val semantic = LocalPontoCafeSemanticColors.current
-    val borderColor = when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = .55f)
-        !person.rostoCadastrado -> semantic.warning.copy(alpha = .28f)
-        else -> MaterialTheme.colorScheme.outlineVariant
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale = rememberPcPressScale(interactionSource)
+    val podeGerar = !selectionMode && !person.emPausa && !person.codigoAtivo
 
-    Card(
+    val apoio: String
+    val apoioCor: Color
+    when {
+        person.emPausa -> {
+            apoio = "No café agora"
+            apoioCor = semantic.warning
+        }
+        person.codigoAtivo -> {
+            apoio = "Código aguardando saída"
+            apoioCor = semantic.success
+        }
+        else -> {
+            apoio = listOfNotNull(person.setor, person.turno)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+                .ifBlank { "Sem setor definido" }
+            apoioCor = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    }
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .pcPressScale(pressScale)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 stateDescription = buildString {
-                    append(if (person.rostoCadastrado) "Biometria pronta" else "Rosto pendente")
+                    append(peopleStatusLabel(person))
                     if (selectionMode) append(if (selected) ". Selecionado" else ". Não selecionado")
                 }
             },
         onClick = onClick,
         interactionSource = interactionSource,
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .42f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
-        border = BorderStroke(1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(0.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = .38f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        border = if (selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .55f))
+        } else {
+            null
+        },
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier
+                .heightIn(min = 62.dp)
+                .padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                if (selectionMode) {
-                    Checkbox(
-                        checked = selected,
-                        onCheckedChange = onSelected,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Selecionar ${person.nome}"
-                        },
-                    )
-                }
-
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    CollaboratorAvatar(
-                        name = person.nome,
-                        avatarUrl = person.avatarUrl,
-                    )
-                    // Sinal real (biometria pronta/pendente) -- não existe conceito
-                    // de "online" para colaboradores, que não fazem login no
-                    // sistema, então o ponto usa o único status por pessoa que
-                    // de fato existe.
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
-                            .background(
-                                if (person.rostoCadastrado) semantic.success else semantic.warning,
-                                CircleShape,
-                            ),
-                    )
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = person.nome,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = listOfNotNull(person.setor, person.turno)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · ")
-                            .ifBlank { "Sem setor/turno" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    StatusPill(
-                        text = if (person.rostoCadastrado) "Biometria pronta" else "Rosto pendente",
-                        tone = if (person.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-                    )
-                }
-
-                if (!selectionMode) {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Abrir ${person.nome}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = onSelected,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Selecionar ${person.nome}"
+                    },
+                )
             }
 
-            if (!selectionMode && !person.rostoCadastrado) {
-                PcPrimaryButton(
-                    text = "Cadastrar rosto",
-                    onClick = onBiometric,
-                    modifier = Modifier.fillMaxWidth(),
+            Box(contentAlignment = Alignment.BottomEnd) {
+                InitialAvatar(name = person.nome, avatarSize = 42.dp)
+                // Sinal real (em pausa / com código vivo) -- não existe conceito
+                // de "online" para colaboradores, que não fazem login no
+                // sistema, então o ponto usa o único status por pessoa que
+                // de fato existe.
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
+                        .background(peopleStatusDotColor(person, semantic), CircleShape),
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = person.nome,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = apoio,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = apoioCor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (podeGerar) {
+                PcCompactAction(
+                    text = "Gerar",
+                    icon = Icons.Default.Coffee,
+                    onClick = onGerarCodigo,
                     enabled = !loading,
-                    loading = loading,
-                    icon = Icons.Default.Face,
+                    contentDescription = "Gerar código de café para ${person.nome}",
+                )
+            } else if (!selectionMode) {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Abrir ${person.nome}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -435,12 +442,9 @@ internal fun PeoplePersonCard(
 private fun PersonActionContent(
     person: Colaborador,
     loading: Boolean,
-    onBiometric: () -> Unit,
-    onAvatar: () -> Unit,
+    onGerarCodigo: () -> Unit,
     onHistory: (() -> Unit)?,
     onEdit: (() -> Unit)?,
-    onDeleteAvatar: (() -> Unit)?,
-    onDeleteFace: (() -> Unit)?,
     onDeleteCollaborator: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -455,7 +459,7 @@ private fun PersonActionContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            CollaboratorAvatar(person.nome, person.avatarUrl)
+            InitialAvatar(name = person.nome)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     person.nome,
@@ -475,18 +479,17 @@ private fun PersonActionContent(
             }
         }
 
-        StatusPill(
-            text = if (person.rostoCadastrado) "Biometria pronta" else "Rosto pendente",
-            tone = if (person.rostoCadastrado) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
-        )
+        StatusPill(text = peopleStatusLabel(person), tone = peopleStatusTone(person))
 
         PcPrimaryButton(
-            text = if (person.rostoCadastrado) "Atualizar biometria" else "Cadastrar biometria",
-            onClick = onBiometric,
+            text = if (person.codigoAtivo) "Gerar outro código" else "Gerar código",
+            onClick = onGerarCodigo,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
+            // Emitir enquanto a pessoa está fora criaria um segundo código vivo,
+            // e deixaria em aberto qual deles fecha a pausa.
+            enabled = !loading && !person.emPausa,
             loading = loading,
-            icon = Icons.Default.Face,
+            icon = Icons.Default.Coffee,
         )
 
         HorizontalDivider()
@@ -511,15 +514,7 @@ private fun PersonActionContent(
             )
         }
 
-        PcSecondaryButton(
-            text = if (person.avatarUrl.isNullOrBlank()) "Definir avatar" else "Alterar avatar",
-            onClick = onAvatar,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !loading,
-            icon = Icons.Default.CameraAlt,
-        )
-
-        if (onDeleteAvatar != null || onDeleteFace != null || onDeleteCollaborator != null) {
+        if (onDeleteCollaborator != null) {
             TextButton(
                 onClick = { showMore = !showMore },
                 modifier = Modifier.fillMaxWidth(),
@@ -534,30 +529,6 @@ private fun PersonActionContent(
 
         AnimatedVisibility(showMore) {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                if (!person.avatarUrl.isNullOrBlank() && onDeleteAvatar != null) {
-                    OutlinedButton(
-                        onClick = onDeleteAvatar,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !loading,
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Remover avatar", modifier = Modifier.padding(start = 7.dp))
-                    }
-                }
-
-                if (person.rostoCadastrado && onDeleteFace != null) {
-                    OutlinedButton(
-                        onClick = onDeleteFace,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !loading,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = .40f)),
-                    ) {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Excluir biometria", modifier = Modifier.padding(start = 7.dp))
-                    }
-                }
-
                 if (onDeleteCollaborator != null) {
                     OutlinedButton(
                         onClick = onDeleteCollaborator,
@@ -581,12 +552,9 @@ internal fun PersonActionBottomSheet(
     person: Colaborador,
     loading: Boolean,
     onDismiss: () -> Unit,
-    onBiometric: () -> Unit,
-    onAvatar: () -> Unit,
+    onGerarCodigo: () -> Unit,
     onHistory: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
-    onDeleteAvatar: (() -> Unit)? = null,
-    onDeleteFace: (() -> Unit)? = null,
     onDeleteCollaborator: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -594,12 +562,9 @@ internal fun PersonActionBottomSheet(
             PersonActionContent(
                 person = person,
                 loading = loading,
-                onBiometric = onBiometric,
-                onAvatar = onAvatar,
+                onGerarCodigo = onGerarCodigo,
                 onHistory = onHistory,
                 onEdit = onEdit,
-                onDeleteAvatar = onDeleteAvatar,
-                onDeleteFace = onDeleteFace,
                 onDeleteCollaborator = onDeleteCollaborator,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -611,12 +576,9 @@ internal fun PersonActionBottomSheet(
 internal fun PersonDetailPanel(
     person: Colaborador?,
     loading: Boolean,
-    onBiometric: (Colaborador) -> Unit,
-    onAvatar: (Colaborador) -> Unit,
+    onGerarCodigo: (Colaborador) -> Unit,
     onHistory: ((Colaborador) -> Unit)? = null,
     onEdit: ((Colaborador) -> Unit)? = null,
-    onDeleteAvatar: ((Colaborador) -> Unit)? = null,
-    onDeleteFace: ((Colaborador) -> Unit)? = null,
     onDeleteCollaborator: ((Colaborador) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -648,12 +610,9 @@ internal fun PersonDetailPanel(
             PersonActionContent(
                 person = person,
                 loading = loading,
-                onBiometric = { onBiometric(person) },
-                onAvatar = { onAvatar(person) },
+                onGerarCodigo = { onGerarCodigo(person) },
                 onHistory = onHistory?.let { callback -> { callback(person) } },
                 onEdit = onEdit?.let { callback -> { callback(person) } },
-                onDeleteAvatar = onDeleteAvatar?.let { callback -> { callback(person) } },
-                onDeleteFace = onDeleteFace?.let { callback -> { callback(person) } },
                 onDeleteCollaborator = onDeleteCollaborator?.let { callback -> { callback(person) } },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -748,4 +707,28 @@ internal fun PeopleFilterSheet(
             )
         }
     }
+}
+
+/**
+ * Estado visível de uma pessoa na lista de gestão.
+ *
+ * Substitui o antigo "biometria pronta / rosto pendente". Não ter código não é
+ * pendência nenhuma: é o estado normal de quem não está tomando café agora.
+ */
+private fun peopleStatusLabel(person: Colaborador): String = when {
+    person.emPausa -> "Em pausa"
+    person.codigoAtivo -> "Código ativo"
+    else -> "Disponível"
+}
+
+private fun peopleStatusTone(person: Colaborador): PontoCafeTone = when {
+    person.emPausa -> PontoCafeTone.WARNING
+    person.codigoAtivo -> PontoCafeTone.SUCCESS
+    else -> PontoCafeTone.NEUTRAL
+}
+
+private fun peopleStatusDotColor(person: Colaborador, semantic: PontoCafeSemanticColors) = when {
+    person.emPausa -> semantic.warning
+    person.codigoAtivo -> semantic.success
+    else -> semantic.info
 }

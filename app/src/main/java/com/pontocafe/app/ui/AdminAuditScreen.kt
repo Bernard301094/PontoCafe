@@ -71,7 +71,7 @@ import java.time.format.DateTimeFormatter
 private enum class AuditCategory(val label: String) {
     ALL("Todos"),
     PEOPLE("Pessoas"),
-    BIOMETRIC("Biometria"),
+    CODIGOS("Códigos"),
     DEVICES("Dispositivos"),
     SECURITY("Segurança"),
 }
@@ -465,7 +465,7 @@ private fun auditTargetName(event: AuditEvent): String? = event.detalhes?.get("n
     ?: event.entidadeId?.takeIf { it.isNotBlank() }?.let { "Referência: ${it.take(12)}" }
 
 private fun auditCategory(event: AuditEvent): AuditCategory = when {
-    event.acao.contains("BIOMETR", ignoreCase = true) || event.acao.contains("ROSTO", ignoreCase = true) -> AuditCategory.BIOMETRIC
+    event.acao.contains("CODIGO", ignoreCase = true) -> AuditCategory.CODIGOS
     event.acao.contains("COLABORADOR", ignoreCase = true) || event.entidade?.contains("colaborador", ignoreCase = true) == true -> AuditCategory.PEOPLE
     event.acao.contains("DISPOSITIVO", ignoreCase = true) || event.acao.contains("TOKEN", ignoreCase = true) || event.acao.contains("PIN", ignoreCase = true) -> AuditCategory.DEVICES
     else -> AuditCategory.SECURITY
@@ -474,7 +474,7 @@ private fun auditCategory(event: AuditEvent): AuditCategory = when {
 private fun auditActionTone(action: String): PontoCafeTone = when {
     action.contains("EXCLUIR", ignoreCase = true) -> PontoCafeTone.DANGER
     action.contains("DESATIVAR", ignoreCase = true) || action.contains("TENTATIVA", ignoreCase = true) -> PontoCafeTone.WARNING
-    action.contains("BIOMETR", ignoreCase = true) || action.contains("ROSTO", ignoreCase = true) -> PontoCafeTone.INFO
+    action.contains("CODIGO", ignoreCase = true) -> PontoCafeTone.INFO
     else -> PontoCafeTone.NEUTRAL
 }
 
@@ -515,9 +515,9 @@ private fun auditActionLabel(action: String): String = when (action) {
     "ALTERAR_REGRA_CAFE" -> "Regra de café alterada"
     "EDITAR_COLABORADOR" -> "Dados do colaborador corrigidos"
     "EXCLUIR_COLABORADOR" -> "Colaborador removido da operação"
-    "CADASTRAR_ROSTO" -> "Biometria facial cadastrada"
-    "ATUALIZAR_ROSTO" -> "Biometria facial atualizada"
-    "EXCLUIR_ROSTO" -> "Biometria facial excluída"
+    "EMITIR_CODIGO_ACESSO" -> "Código de café emitido"
+    "CANCELAR_CODIGO_ACESSO" -> "Código de café cancelado"
+    "CODIGO_ACESSO_TENTATIVA_INVALIDA" -> "Código recusado no quiosque"
     "ALTERAR_PIN_DISPOSITIVO" -> "PIN de dispositivo alterado"
     "RENOMEAR_DISPOSITIVO" -> "Dispositivo renomeado"
     "DESATIVAR_DISPOSITIVO" -> "Dispositivo desativado"

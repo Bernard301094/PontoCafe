@@ -18,10 +18,6 @@ const pontoFlow = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
   'utf8',
 )
-const faceGuide = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/KioskFaceGuide.kt', import.meta.url),
-  'utf8',
-)
 const material = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/MaterialDesignSystem.kt', import.meta.url),
   'utf8',
@@ -31,7 +27,7 @@ const voice = readFileSync(
   'utf8',
 )
 const capturePolicy = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/camera/FaceCapturePolicy.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/domain/AccessCode.kt', import.meta.url),
   'utf8',
 )
 
@@ -58,24 +54,28 @@ test('notificações do Supervisor não sobrescrevem eventos diferentes e permit
   assert.match(supervisorNotifier, /sendSelfTest/)
 })
 
-test('feedback do Ponto diferencia confirmado, offline, limite excedido e bloqueio', () => {
-  assert.match(pontoFlow, /offline -> Color\(0xFFA5CDFF\)/)
-  assert.match(pontoFlow, /offline -> Icons\.Default\.CloudDone/)
-  assert.match(pontoFlow, /warning -> Icons\.Default\.Warning/)
-  assert.match(pontoFlow, /else -> Icons\.Default\.CheckCircle/)
-  assert.match(pontoFlow, /PointBlockReason\.GENERIC/)
-  assert.match(pontoFlow, /Color\(0xFFFFB4AB\)/)
-  assert.match(pontoFlow, /MotionReveal/)
+test('feedback do Ponto diferencia confirmado, offline, limite excedido e recusa', () => {
+  // O comprovante não pode dizer a mesma coisa nos quatro casos: quem
+  // excedeu, quem registrou sem rede e quem foi recusado precisam de ações
+  // diferentes ao sair do quiosque.
+  assert.match(pontoFlow, /if \(comprovante\.excedeuLimite\) Icons\.Default\.Warning else Icons\.Default\.CheckCircle/)
+  assert.match(pontoFlow, /comprovante\.excedeuLimite -> PontoCafeTone\.WARNING/)
+  assert.match(pontoFlow, /Retorno acima do limite/)
+  assert.match(pontoFlow, /Registrado sem conexão/)
+  assert.match(pontoFlow, /comprovante\.pendenteSincronizacao/)
+  assert.match(pontoFlow, /Fora do horário habitual/)
+  assert.match(pontoFlow, /Código não aceito/)
+  assert.match(pontoFlow, /tone = PontoCafeTone\.DANGER/)
 })
 
 test('microinterações permanecem curtas e acessíveis', () => {
   assert.match(material, /collectIsPressedAsState/)
-  assert.match(material, /0\.975f/)
-  assert.match(material, /HapticFeedbackConstants\.VIRTUAL_KEY/)
-  assert.match(material, /HapticFeedbackConstants\.REJECT/)
+  assert.match(material, /targetValue = if \(pressed\) 0\.975f else 1f/)
+  assert.match(material, /durationMillis = if \(pressed\) PontoCafeMotion\.Quick else PontoCafeMotion\.Standard/)
   assert.match(material, /MotionReveal/)
-  assert.match(faceGuide, /kiosk-recognition-pulse/)
-  assert.match(faceGuide, /FACE_GUIDE_READY_STABILITY_MILLIS = 180L/)
+  // O háptico dos botões passa pelo objeto central, não pela API do Android.
+  assert.match(material, /PontoHaptics\.tap\(view\)/)
+  assert.doesNotMatch(material, /performHapticFeedback/)
 })
 
 test('estado da voz neural fica diagnosticável sem retirar fallback Android', () => {
@@ -88,10 +88,12 @@ test('estado da voz neural fica diagnosticável sem retirar fallback Android', (
   assert.match(voice, /VOICE_PLAYBACK_FAILED/)
 })
 
-test('feedback operacional não reduz geometria biométrica de identificação', () => {
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_YAW = 12f/)
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_PITCH = 12f/)
-  assert.match(capturePolicy, /MAX_IDENTIFICATION_ROLL = 8f/)
+test('o alfabeto do código de acesso evita os caracteres que se confundem', () => {
+  // I, L, O e U ficam de fora: os três primeiros somem contra 1 e 0 num papel
+  // escrito à pressa, e o U evita que um sorteio produza palavra ofensiva.
+  assert.match(capturePolicy, /const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"/)
+  assert.match(capturePolicy, /'I', 'L' -> '1'/)
+  assert.match(capturePolicy, /'O' -> '0'/)
   assert.doesNotMatch(supervisorAlerts, /faceThreshold|cosine|embedding/)
   assert.doesNotMatch(material, /faceThreshold|cosine|embedding/)
 })

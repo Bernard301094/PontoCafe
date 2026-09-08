@@ -13,7 +13,7 @@ const adminViewModel = readFileSync(
 
 test('admin sign-in ends after server authentication and token persistence', () => {
   const match = adminApi.match(
-    /suspend fun signIn\(email: String, senha: String\) \{([\s\S]*?)\n    \}\n\n    suspend fun signOut/,
+    /suspend fun signIn\(email: String, senha: String\) \{([\s\S]*?)\r?\n    \}\r?\n\r?\n    suspend fun signOut/,
   )
   assert.ok(match, 'AdminRepository.signIn should be discoverable')
   const body = match[1]
@@ -25,7 +25,7 @@ test('admin sign-in ends after server authentication and token persistence', () 
 
 test('admin authorization is checked separately and auth failures clear only the active session', () => {
   const match = adminApi.match(
-    /suspend fun users\(\): List<AdminUser> \{([\s\S]*?)\n    \}\n\n    suspend fun createUser/,
+    /suspend fun users\(\): List<AdminUser> \{([\s\S]*?)\r?\n    \}\r?\n\r?\n    suspend fun createUser/,
   )
   assert.ok(match, 'AdminRepository.users should be discoverable')
   const body = match[1]

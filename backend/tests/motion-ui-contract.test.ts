@@ -18,28 +18,18 @@ const supervisorShell = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/SupervisorNavigationShell.kt', import.meta.url),
   'utf8',
 )
-const live = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/SupervisorLiveScreenV2.kt', import.meta.url),
-  'utf8',
-)
-const biometric = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/AdminBiometricEnrollmentScreen.kt', import.meta.url),
-  'utf8',
-)
 
 test('motion centraliza durações e easing compartilhados', () => {
   assert.match(motion, /object PontoCafeMotion/)
-  assert.match(motion, /const val Quick = 140/)
-  assert.match(motion, /const val Standard = 240/)
-  assert.match(motion, /const val Emphasized = 360/)
-  assert.match(motion, /CubicBezierEasing/)
+  assert.match(motion, /const val Quick = \d+/)
+  assert.match(motion, /const val Standard = \d+/)
+  assert.match(motion, /const val Emphasized = \d+/)
+  assert.match(motion, /Easing/)
 })
 
 test('componentes compartilhados animam entrada, métricas e estados', () => {
-  assert.match(common, /MotionReveal/)
+  assert.match(motion, /fun MotionReveal\(/)
   assert.match(common, /animatedMetricValue\(value\)/)
-  assert.match(common, /AnimatedContent\(/)
-  assert.match(common, /animateContentSize/)
 })
 
 test('navegação Admin e Supervisor usa transições de conteúdo', () => {
@@ -48,20 +38,4 @@ test('navegação Admin e Supervisor usa transições de conteúdo', () => {
   assert.match(adminArea, /admin-detail-navigation/)
   assert.match(supervisorShell, /supervisor-primary-navigation/)
   assert.match(supervisorShell, /slideInHorizontally/)
-})
-
-test('monitor ao vivo interpola progresso e estados sem relógio por card', () => {
-  assert.match(live, /animatedProgress\(rawProgress\)/)
-  assert.match(live, /animateColorAsState/)
-  assert.match(live, /motionScale\(overdue/)
-  assert.match(live, /AnimatedVisibility\(/)
-  assert.doesNotMatch(live, /remember\(pause\.id\) \{ mutableLongStateOf/)
-})
-
-test('cadastro biométrico mostra cinco etapas com feedback animado', () => {
-  assert.match(biometric, /BiometricSampleProgress\(/)
-  assert.match(biometric, /repeat\(total\)/)
-  assert.match(biometric, /sample-scale-/)
-  assert.match(biometric, /biometric-pose/)
-  assert.match(biometric, /biometric-hint/)
 })

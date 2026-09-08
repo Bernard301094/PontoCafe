@@ -33,12 +33,12 @@ A API concentra autenticação, autorização, regras de horário, geração/val
 
 ## Armazenamento biométrico
 
-A foto capturada no cadastramento deve ser usada somente para produzir o embedding/template facial. Após o processamento, a imagem bruta deve ser descartada, salvo se existir uma necessidade operacional e base legal específica para conservá-la.
+O reconhecimento facial foi removido. A liberação da pausa é um código de 6 caracteres emitido por Admin/Supervisor, preso a um colaborador, válido para uma saída e um retorno. Ver `docs/PRIVACIDADE_DADOS.md`.
 
 Fluxo:
 
 ```text
-Câmera -> detecção facial -> embedding -> criptografia -> PostgreSQL
+Supervisor emite código -> pessoa digita no quiosque -> servidor decide saída/retorno -> PostgreSQL
 ```
 
 O banco armazena somente o blob cifrado, a identificação do modelo e sua versão.

@@ -1,6 +1,11 @@
 import type { PoolClient } from 'pg'
 
-export type PontoOperationType = 'REGISTRO_RAPIDO' | 'INICIAR' | 'FINALIZAR'
+/**
+ * `REGISTRO` é o único tipo que o quiosque produz desde os códigos de acesso.
+ * Os outros três continuam declarados porque o diário já gravado tem linhas
+ * deles e a reconciliação precisa de as saber ler.
+ */
+export type PontoOperationType = 'REGISTRO' | 'REGISTRO_RAPIDO' | 'INICIAR' | 'FINALIZAR'
 
 export type PontoOperationIdentity = {
   operationId: string

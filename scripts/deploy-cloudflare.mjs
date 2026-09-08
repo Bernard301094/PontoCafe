@@ -8,14 +8,13 @@ import { fileURLToPath } from 'node:url'
 const requiredSecrets = [
   'BETTER_AUTH_SECRET',
   'CODE_PEPPER',
-  'BIOMETRIC_MASTER_KEY',
+  'APP_ENCRYPTION_KEY',
   'FIRST_ADMIN_SETUP_KEY',
 ]
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const backendDir = fileURLToPath(new URL('../backend/', import.meta.url))
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
-const avatarBucketName = 'pontocafe-avatars'
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 
@@ -82,23 +81,6 @@ function runWrangler(args, options = {}) {
   return run(npxCommand, ['wrangler', ...args], { ...options, cwd: backendDir })
 }
 
-function ensureAvatarBucket() {
-  console.log(`Checking private R2 bucket ${avatarBucketName}...`)
-  const current = runWrangler(['r2', 'bucket', 'list'])
-  if (current.toLowerCase().includes(avatarBucketName.toLowerCase())) {
-    console.log(`R2 bucket ${avatarBucketName}: already available.`)
-    return
-  }
-
-  console.log(`Creating private R2 bucket ${avatarBucketName}...`)
-  runWrangler(['r2', 'bucket', 'create', avatarBucketName], { inherit: true })
-
-  const confirmed = runWrangler(['r2', 'bucket', 'list'])
-  if (!confirmed.toLowerCase().includes(avatarBucketName.toLowerCase())) {
-    throw new Error(`R2 bucket ${avatarBucketName} was not visible after creation.`)
-  }
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -138,8 +120,7 @@ const directory = await mkdtemp(join(tmpdir(), 'pontocafe-secrets-'))
 const secretsFile = join(directory, 'runtime-secrets.json')
 
 try {
-  console.log('\n[4/6] Ensuring private avatar storage...')
-  ensureAvatarBucket()
+  console.log('\n[4/6] Preparing encrypted runtime secrets...')
 
   const secrets = Object.fromEntries(
     requiredSecrets.map((name) => [name, process.env[name]]),
@@ -192,7 +173,6 @@ try {
     minimumAndroidVersion: status.minimumAndroidVersion,
     workerVersionId: status.workerVersionId ?? null,
     workerVersionTag: status.workerVersionTag ?? null,
-    avatarBucket: avatarBucketName,
     banco: health.banco,
   }, null, 2))
 } finally {

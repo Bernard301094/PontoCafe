@@ -28,7 +28,7 @@ test('a abertura manual nao faz verificacao previa; quem recusa e a base', () =>
   // Decisao explicita: quem usa esta rota esta a corrigir algo ja quebrado, e as
   // recusas do fluxo biometrico bloqueiam justamente essa correcao. O que NAO se
   // aceita e um erro de base a sair como 500 na cara do operador.
-  const encontrada = routes.match(/async function iniciarPausaManual\([\s\S]*?\n\}\n/)
+  const encontrada = routes.match(/async function iniciarPausaManual\([\s\S]*?\r?\n\}\r?\n/)
   assert.ok(encontrada, 'iniciarPausaManual deve ser localizavel')
   const corpo = encontrada[0]
 

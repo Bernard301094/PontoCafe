@@ -19,24 +19,23 @@ const mainActivity = readFileSync(
   'utf8',
 )
 
-test('tema premium envolve toda a aplicação', () => {
+test('o tema envolve toda a aplicação e segue o modo claro/escuro do sistema', () => {
   assert.match(mainActivity, /PontoCafeTheme\s*\{/)
-  assert.match(theme, /PontoCafeAppBackground\(content = content\)/)
-  assert.match(theme, /background = Color\.Transparent/)
-  assert.match(theme, /PontoCafePremium\.backgroundTop/)
-  assert.doesNotMatch(theme, /isSystemInDarkTheme/)
+  assert.match(theme, /fun PontoCafeTheme\(/)
+  assert.match(theme, /darkTheme: Boolean = isSystemInDarkTheme\(\)/)
+  // O fundo é aplicado uma vez, por dentro do tema: nenhuma tela precisa
+  // (nem deve) desenhar o seu próprio gradiente de fundo.
+  assert.match(theme, /PontoCafeAppBackground\(darkTheme = darkTheme, content = content\)/)
+  assert.match(theme, /colorScheme = if \(darkTheme\) PontoCafeDarkColors else PontoCafeLightColors/)
+  assert.match(theme, /LocalPontoCafeSemanticColors provides semanticColors/)
 })
 
-test('design system compartilhado usa vidro e borda premium', () => {
-  assert.match(common, /PontoCafePremium\.glassStrong/)
-  assert.match(common, /PontoCafePremium\.border/)
-  assert.match(common, /shadowElevation = 4\.dp/)
-})
-
-test('área protegida usa a experiência premium de segurança', () => {
+test('área protegida deixa claro o que está bloqueado e como sair', () => {
   assert.match(lock, /ÁREA PROTEGIDA/)
-  assert.match(lock, /Sessão protegida/)
+  assert.match(lock, /Sessão ativa neste dispositivo/)
   assert.match(lock, /Icons\.Default\.Fingerprint/)
-  assert.match(lock, /Continuar no Ponto Café/)
-  assert.match(lock, /PontoCafePremium\.glassStrong/)
+  assert.match(lock, /Desbloquear Ponto Café/)
+  // A saída para o Ponto tem de estar sempre visível: sem ela, um quiosque
+  // com sessão de Admin salva ficaria preso na tela de bloqueio.
+  assert.match(lock, /Voltar ao Ponto Café/)
 })

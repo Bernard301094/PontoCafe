@@ -15,9 +15,12 @@ type DiagnosticCounters = {
   sessoes_ativas: string
   pausas_24h: string
   operacoes_24h: string
-  registro_rapido_24h: string
+  registros_codigo_24h: string
   inicios_24h: string
   retornos_24h: string
+  codigos_pendentes: string
+  codigos_em_uso: string
+  tentativas_invalidas_24h: string
 }
 
 type FleetRow = {
@@ -87,9 +90,12 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
               (select count(*) from session where "expiresAt">now())::text as sessoes_ativas,
               (select count(*) from pausas_cafe where inicio_em>=now()-interval '24 hours')::text as pausas_24h,
               (select count(*) from operacoes_ponto_idempotentes where criado_em>=now()-interval '24 hours')::text as operacoes_24h,
-              (select count(*) from operacoes_ponto_idempotentes where criado_em>=now()-interval '24 hours' and tipo='REGISTRO_RAPIDO')::text as registro_rapido_24h,
-              (select count(*) from operacoes_ponto_idempotentes where criado_em>=now()-interval '24 hours' and tipo='INICIAR')::text as inicios_24h,
-              (select count(*) from operacoes_ponto_idempotentes where criado_em>=now()-interval '24 hours' and tipo='FINALIZAR')::text as retornos_24h`,
+              (select count(*) from operacoes_ponto_idempotentes where criado_em>=now()-interval '24 hours' and tipo='REGISTRO')::text as registros_codigo_24h,
+              (select count(*) from pausas_cafe where inicio_em>=now()-interval '24 hours')::text as inicios_24h,
+              (select count(*) from pausas_cafe where fim_em>=now()-interval '24 hours')::text as retornos_24h,
+              (select count(*) from codigos_acesso where cancelado_em is null and saida_em is null and expira_em>now())::text as codigos_pendentes,
+              (select count(*) from codigos_acesso where cancelado_em is null and saida_em is not null and retorno_em is null)::text as codigos_em_uso,
+              (select count(*) from auditoria where acao='CODIGO_ACESSO_TENTATIVA_INVALIDA' and criado_em>=now()-interval '24 hours')::text as tentativas_invalidas_24h`,
     )
     const row = database.rows[0]
 
@@ -182,9 +188,14 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
       integridade: {
         pausasUltimas24h: parseCounter(row?.pausas_24h),
         operacoesProtegidasUltimas24h: parseCounter(row?.operacoes_24h),
-        registroRapidoUltimas24h: parseCounter(row?.registro_rapido_24h),
+        registrosPorCodigoUltimas24h: parseCounter(row?.registros_codigo_24h),
         iniciosUltimas24h: parseCounter(row?.inicios_24h),
         retornosUltimas24h: parseCounter(row?.retornos_24h),
+      },
+      codigosAcesso: {
+        pendentes: parseCounter(row?.codigos_pendentes),
+        emUso: parseCounter(row?.codigos_em_uso),
+        tentativasInvalidasUltimas24h: parseCounter(row?.tentativas_invalidas_24h),
       },
       frota: {
         totalAtivos: activeDevices.length,
@@ -197,10 +208,11 @@ reliabilityRoutes.get('/diagnostico', async (c) => {
       configuracao: {
         timezone: config.appTimezone,
         sessaoHoras: config.sessionTtlHours,
-        limiteFacial: config.faceThreshold,
-        margemFacial: config.faceIdentificationMargin,
+        codigoValidadeSegundos: config.accessCodeTtlSeconds,
+        codigoMaxTentativas: config.accessCodeMaxAttempts,
+        carenciaSegundos: config.coffeeGraceSeconds,
         offlineMaxHoras: config.offlineMaxEventAgeHours,
-        retencaoBiometricaDias: config.biometricRetentionDays,
+        retencaoCodigosDias: config.accessCodeRetentionDays,
         androidMaisRecente: config.latestAndroidVersion,
         androidMinimo: config.minimumAndroidVersion,
       },

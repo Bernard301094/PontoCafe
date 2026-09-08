@@ -1,3 +1,4 @@
+import './helpers/test-env.js'
 import assert from 'node:assert/strict'
 import { Hono } from 'hono'
 import test from 'node:test'

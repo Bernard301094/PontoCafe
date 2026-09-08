@@ -4,15 +4,13 @@ import { secureHeaders } from 'hono/secure-headers'
 import { auth, type AppEnv } from './auth-runtime.js'
 import { config } from './config.js'
 import { query } from './db.js'
+import { ACCESS_CODE_LENGTH } from './domain/access-code.js'
 import { errorPayload, logServerError, requestIdMiddleware } from './observability.js'
-import { adminBiometricDeletionRoutes } from './routes/admin-biometric-deletion-routes.js'
+import { accessCodeRoutes } from './routes/access-code-routes.js'
 import { adminRoutes } from './routes/admin-routes.js'
 import { adminManualPauseRoutes, supervisorManualPauseRoutes } from './routes/manual-pause-routes.js'
 import { auditRoutes } from './routes/audit-routes.js'
 import { authRoutes } from './routes/auth-routes.js'
-import { authorizationRoutes } from './routes/authorization-routes.js'
-import { avatarManagementRoutes, avatarMediaRoutes, avatarPontoRoutes } from './routes/avatar-routes.js'
-import { biometricCalibrationRoutes } from './routes/biometric-calibration-routes.js'
 import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
@@ -20,11 +18,9 @@ import { deviceManagementRoutes } from './routes/device-management-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { deviceTelemetryRoutes } from './routes/device-telemetry-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
-import { fastPontoRoutes } from './routes/fast-ponto-routes.js'
-import { idempotentPontoMutationRoutes } from './routes/idempotent-ponto-mutation-routes.js'
 import { liveRoutes } from './routes/live-routes.js'
-import { localBiometricRoutes } from './routes/local-biometric-routes.js'
 import { offlineRoutes } from './routes/offline-routes.js'
+import { pontoRegistrationRoutes } from './routes/ponto-registration-routes.js'
 import { pontoRoutes } from './routes/ponto-routes.js'
 import { pontoStatusRoutes } from './routes/ponto-status-routes.js'
 import { reliabilityRoutes } from './routes/reliability-routes.js'
@@ -34,7 +30,7 @@ import { setupRoutes } from './routes/setup-routes.js'
 import { userManagementRoutes } from './routes/user-management-routes.js'
 import { workforceRoutes } from './routes/workforce-routes.js'
 
-const API_VERSION = '1.0.0'
+const API_VERSION = '1.1.0'
 const app = new Hono<AppEnv>()
 
 app.use('*', requestIdMiddleware())
@@ -148,7 +144,9 @@ app.get('/app-status', (c) => {
     minimumAndroidVersion: config.minimumAndroidVersion,
     timezone: config.appTimezone,
     offlineMaxEventAgeHours: config.offlineMaxEventAgeHours,
-    biometricRetentionDays: config.biometricRetentionDays,
+    tamanhoCodigoAcesso: ACCESS_CODE_LENGTH,
+    codigoValidadeSegundos: config.accessCodeTtlSeconds,
+    carenciaSegundos: config.coffeeGraceSeconds,
     requestId: c.get('requestId'),
   })
 })
@@ -179,37 +177,21 @@ app.route('/admin', coffeeRuleRoutes)
 app.route('/admin', reliabilityRoutes)
 app.route('/admin', adminManualPauseRoutes)
 app.route('/admin', adminRoutes)
-app.route('/admin', authorizationRoutes)
+app.route('/admin', accessCodeRoutes)
 app.route('/admin', auditRoutes)
-app.route('/media', avatarMediaRoutes)
-// A exclusão biométrica destrutiva é Admin-only e precisa interceptar esta rota
-// antes da implementação compatível mantida em collaboratorManagementRoutes.
-app.route('/gestao', adminBiometricDeletionRoutes)
-// Upload/remoção de avatar é separado da biometria: a imagem é apenas visual e
-// fica em R2; o template facial continua cifrado e independente.
-app.route('/gestao', avatarManagementRoutes)
-// Calibração específica precisa preceder a versão compatível mantida em workforceRoutes.
-app.route('/gestao', biometricCalibrationRoutes)
 // Rotas específicas (importar/lote/histórico) precisam preceder /colaboradores/:id.
 app.route('/gestao', workforceRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)
 app.route('/ponto', deviceTelemetryRoutes)
-app.route('/ponto', avatarPontoRoutes)
-app.route('/ponto', localBiometricRoutes)
-// O fast-path vem antes das rotas legadas e é opcional para o APK: clientes
-// novos voltam automaticamente ao fluxo anterior caso esta rota ainda não esteja implantada.
-app.route('/ponto', fastPontoRoutes)
-// INICIAR/FINALIZAR precisam interceptar as rotas equivalentes de pontoRoutes
-// para garantir replay exactly-once também quando o fast-path não é utilizado.
-app.route('/ponto', idempotentPontoMutationRoutes)
+app.route('/ponto', pontoRegistrationRoutes)
 app.route('/ponto', pontoRoutes)
 app.route('/ponto', pontoStatusRoutes)
 app.route('/ponto', offlineRoutes)
 app.route('/supervisor', supervisorManualPauseRoutes)
 app.route('/supervisor', liveRoutes)
 app.route('/supervisor', reportRoutes)
-app.route('/supervisor', authorizationRoutes)
+app.route('/supervisor', accessCodeRoutes)
 
 app.notFound((c) => c.json(errorPayload(c, 'Rota não encontrada.', 'ROUTE_NOT_FOUND'), 404))
 app.onError((error, c) => {

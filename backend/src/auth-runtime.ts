@@ -2,7 +2,6 @@ import { betterAuth } from 'better-auth'
 import { admin, bearer } from 'better-auth/plugins'
 import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
-import type { AvatarBucket } from './avatar-storage.js'
 import { config } from './config.js'
 import { getPool, query } from './db.js'
 import { hashPassword, verifyPassword } from './password-crypto.js'
@@ -26,7 +25,6 @@ export type WorkerVersionMetadata = {
 export type RuntimeBindings = {
   FIRST_ADMIN_SETUP_KEY?: string
   CF_VERSION_METADATA?: WorkerVersionMetadata
-  AVATARS?: AvatarBucket
 }
 
 export type AppEnv = {

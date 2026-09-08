@@ -48,32 +48,9 @@ fun CollaboratorHistoryScreen(
 ) {
     val state = reliabilityViewModel.state
     val history = state.history
-    var deleteConfirmation by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    if (deleteConfirmation && history != null) {
-        AlertDialog(
-            onDismissRequest = { if (!state.loading) deleteConfirmation = false },
-            title = { Text("Excluir biometria?") },
-            text = {
-                PcDialogBody {
-                    Text("O histórico de pausas será preservado. ${history.colaborador.nome} precisará cadastrar o rosto novamente para usar reconhecimento facial.")
-                }
-            },
-            confirmButton = {
-                PcDangerButton(
-                    text = "Excluir biometria",
-                    onClick = {
-                        deleteConfirmation = false
-                        reliabilityViewModel.deleteBiometric(history.colaborador.id)
-                    },
-                    loading = state.loading,
-                )
-            },
-            dismissButton = { TextButton(onClick = { deleteConfirmation = false }) { Text("Cancelar") } },
-        )
-    }
-
+    
     PontoCafeResponsivePage(maxContentWidth = 900.dp) { responsive ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
@@ -116,10 +93,6 @@ fun CollaboratorHistoryScreen(
                     Text(
                         listOfNotNull(history.colaborador.setor, history.colaborador.turno).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Sem setor/turno" },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    StatusPill(
-                        if (history.biometria.cadastrada) "Biometria ativa" else "Biometria pendente",
-                        if (history.biometria.cadastrada) PontoCafeTone.SUCCESS else PontoCafeTone.WARNING,
                     )
                 }
             }
@@ -168,51 +141,58 @@ fun CollaboratorHistoryScreen(
             }
         }
 
-        item("biometric-title") { SectionTitle("Biometria", "Ciclo de vida e rastreabilidade do rosto cadastrado.") }
-        item("biometric") {
+        item("codes-title") { SectionTitle("Códigos de café", "Quem liberou cada pausa desta pessoa, e se o passe chegou a ser usado.") }
+        item("codes-summary") {
             Card(
                 Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                    Text(if (history.biometria.cadastrada) "Rosto cadastrado" else "Sem rosto cadastrado", style = MaterialTheme.typography.titleMedium)
-                    history.biometria.modelo?.let { Text("Modelo · $it") }
-                    history.biometria.versaoModelo?.let { Text("Versão · $it") }
-                    history.biometria.atualizadaEm?.let { Text("Última atualização · ${it.take(16).replace('T', ' ')}") }
+                    val historicoCodigos = history.codigosAcesso
                     Text(
-                        "Política de retenção · ${history.biometria.retencaoDias} dias após desativação",
+                        "${historicoCodigos?.eventos?.size ?: 0} código(s) emitidos recentemente",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Política de retenção · ${historicoCodigos?.retencaoDias ?: 0} dias após o código se esgotar",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    val collaborator = viewModel.state.colaboradores.firstOrNull { it.id == history.colaborador.id }
-                    if (collaborator != null) {
-                        PcPrimaryButton(
-                            text = if (history.biometria.cadastrada) "Recadastrar rosto" else "Cadastrar rosto",
-                            onClick = { viewModel.cadastrarOuAtualizarRosto(collaborator) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (history.biometria.cadastrada) {
-                        PcSecondaryButton(
-                            text = "Excluir biometria",
-                            onClick = { deleteConfirmation = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            contentColor = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                    Text(
+                        "Um código com saída registrada e sem retorno nunca é removido: é ele que ainda permite fechar aquela pausa.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
 
-        if (history.biometria.eventos.isNotEmpty()) {
-            item("bio-audit-title") { SectionTitle("Auditoria biométrica", "Quem cadastrou, testou ou excluiu a biometria.") }
-            items(history.biometria.eventos, key = { "bio-${it.criadoEm}-${it.acao}" }) { event ->
+        val eventosCodigo = history.codigosAcesso?.eventos.orEmpty()
+        if (eventosCodigo.isNotEmpty()) {
+            items(eventosCodigo, key = { "codigo-${it.id}" }) { evento ->
                 Card(Modifier.fillMaxWidth().animateItem()) {
                     Column(Modifier.padding(PontoCafeSpacing.md), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(event.acao.replace('_', ' '), style = MaterialTheme.typography.titleSmall)
-                        Text(event.atorNome ?: event.atorTipo, style = MaterialTheme.typography.bodySmall)
-                        Text(event.criadoEm.take(16).replace('T', ' '), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            when {
+                                evento.canceladoEm != null -> "Cancelado"
+                                evento.retornoEm != null -> "Usado na saída e no retorno"
+                                evento.saidaEm != null -> "Usado na saída · retorno pendente"
+                                else -> "Emitido e não usado"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        evento.emitidoPor?.let {
+                            Text("Emitido por $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        evento.motivo?.let {
+                            Text("Motivo · $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            evento.criadoEm.take(16).replace('T', ' '),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

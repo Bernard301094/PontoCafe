@@ -30,14 +30,14 @@ Resultado obrigatório:
 - [ ] workflow de CI aprovado;
 - [ ] `:app:testReleaseUnitTest` aprovado;
 - [ ] `:app:assembleRelease` aprovado;
-- [ ] FaceNet dentro do APK corresponde ao blob Git fixado pelo projeto.
+- [ ] APK não contém nenhum modelo facial nem a permissão de câmera.
 
 ## 3. Identidade da Release Android
 
 A candidata 1.0 deve manter:
 
-- `versionName = 1.0.0`;
-- `versionCode = 100`;
+- `versionName = 1.1.0`;
+- `versionCode = 110`;
 - `compileSdk = 36`;
 - `targetSdk = 36`;
 - Java 17;
@@ -52,28 +52,28 @@ Verificações manuais obrigatórias:
 - [ ] instalação como atualização da versão anterior funciona sem limpar os dados locais;
 - [ ] downgrade acidental não é aceito como procedimento operacional.
 
-## 4. Compatibilidade biométrica
+## 4. Código de acesso
 
-Não alterar na 1.0 sem uma calibração dedicada:
+Contrato que não muda sem decisão explícita:
 
-- FaceNet `facenet-128d-160-v1`;
-- 160×160;
-- embedding 128D;
-- CPU/XNNPACK, 2 threads;
-- crop canônico existente;
-- prewhitening existente;
-- normalização L2;
-- threshold de reconhecimento `0.72`;
-- margem de identificação `0.06`.
+- 6 caracteres, alfabeto Crockford Base32 (sem I, L, O e U);
+- preso a um colaborador desde a emissão;
+- uma saída e um retorno, nesta ordem;
+- a validade governa só a saída — o retorno nunca expira;
+- um código vivo por pessoa de cada vez;
+- tolerância de 1 minuto antes de o limite começar a contar, gravada por pausa.
 
 Testes físicos obrigatórios no APK Release assinado:
 
-- [ ] colaborador já cadastrado é reconhecido sem recadastro;
-- [ ] pessoa desconhecida não é aceita;
-- [ ] liveness por piscar/movimento continua obrigatório;
-- [ ] múltiplos rostos não geram batida indevida;
-- [ ] baixa confiança não é convertida em aceite;
-- [ ] calibração/diagnóstico continua exibindo score e margem sem persistir foto de teste.
+- [ ] código emitido para A é recusado quando B o digita;
+- [ ] o mesmo código abre a pausa e depois a fecha;
+- [ ] uma terceira apresentação do mesmo código é recusada;
+- [ ] código expirado é recusado na saída;
+- [ ] pessoa que já saiu consegue voltar mesmo depois de o prazo de saída passar;
+- [ ] emitir código para quem está em pausa é recusado;
+- [ ] 8 tentativas erradas bloqueiam temporariamente aquele colaborador;
+- [ ] o comprovante de saída mostra registro, início da contagem e prazo de retorno;
+- [ ] retorno aos 15 min 30 s **não** é excesso; aos 16 min 30 s é.
 
 ## 5. Ponto e integridade exactly-once
 
@@ -116,8 +116,7 @@ Validar sem modificar a regra de negócio existente:
 - [ ] rotação de token revoga o token anterior;
 - [ ] desativação de dispositivo impede novas batidas;
 - [ ] gestão de colaboradores;
-- [ ] cadastro/atualização biométrica;
-- [ ] avatar continua separado da biometria;
+- [ ] emissão e cancelamento de código;
 - [ ] relatórios PDF e CSV;
 - [ ] auditoria de ações administrativas.
 
@@ -161,12 +160,13 @@ Seguir `docs/DISASTER_RECOVERY.md`.
 
 ## 11. Privacidade e segurança
 
-Seguir `docs/PRIVACIDADE_BIOMETRICA.md`.
+Seguir `docs/PRIVACIDADE_DADOS.md`.
 
 - [ ] nenhuma credencial versionada no Git;
 - [ ] logs não expõem senha, token ou chave de banco;
-- [ ] telemetria de saúde não expõe biometria;
-- [ ] exclusão/retensão biométrica testada;
+- [ ] telemetria de saúde não expõe código de acesso;
+- [ ] retenção de códigos testada, e um código com saída sem retorno sobrevive à limpeza;
+- [ ] nenhuma rota de dispositivo devolve código em claro;
 - [ ] funções Admin/Supervisor respeitam autorização do backend;
 - [ ] dispositivo revogado perde acesso;
 - [ ] exportações e relatórios não concedem privilégios novos.

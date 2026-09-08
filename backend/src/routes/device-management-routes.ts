@@ -413,10 +413,6 @@ deviceManagementRoutes.post('/devices/:id/excluir', async (c) => {
           where id=$1`,
         [deviceId],
       )
-      await client.query(
-        'delete from verificacoes_faciais where dispositivo_id=$1 and usado_em is null',
-        [deviceId],
-      )
       await auditDevice(client, c.get('user').id, 'ARQUIVAR_DISPOSITIVO', deviceId, {
         nome: device.nome,
         registrosHistoricos: totalHistory,
@@ -427,7 +423,6 @@ deviceManagementRoutes.post('/devices/:id/excluir', async (c) => {
     }
 
     // Sem histórico de pausa, a exclusão física é segura.
-    await client.query('delete from verificacoes_faciais where dispositivo_id=$1', [deviceId])
     await auditDevice(client, c.get('user').id, 'EXCLUIR_DISPOSITIVO', deviceId, {
       nome: device.nome,
       exclusaoPermanente: true,

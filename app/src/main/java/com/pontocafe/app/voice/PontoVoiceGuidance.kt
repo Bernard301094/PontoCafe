@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.pontocafe.app.ComprovantePonto
 import com.pontocafe.app.PontoCafeViewModel
+import com.pontocafe.app.PontoStep
 import com.pontocafe.app.TipoComprovantePonto
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
@@ -31,96 +32,85 @@ data class PontoVoicePrompt(
     val countsTowardInstructionBudget: Boolean = false,
 )
 
+/**
+ * Os momentos do quiosque em que falar acrescenta alguma coisa.
+ *
+ * A lista encolheu de propósito quando o rosto saiu de cena: não há mais o que
+ * narrar sobre posicionamento, piscar ou luz. Sobrou o que a pessoa precisa
+ * saber quando está de pé em frente ao aparelho sem óculos.
+ */
 enum class PontoVoiceKioskCue {
-    CAMERA_PERMISSION_REQUIRED,
-    CAMERA_UNAVAILABLE,
-    MODEL_UNAVAILABLE,
-    MULTIPLE_FACES,
-    NO_FACE,
-    LOOK_AT_CAMERA,
-    BLINK,
-    OPEN_EYES,
-    TURN_LEFT,
-    TURN_RIGHT,
-    CENTER_FACE,
-    FACE_NOT_RECOGNIZED,
+    ESCOLHER_PESSOA,
+    DIGITAR_CODIGO_SAIDA,
+    DIGITAR_CODIGO_RETORNO,
 }
+
+/**
+ * Fallback usado só enquanto /app-status ainda não respondeu nesta sessão.
+ * O valor real vem do servidor (`config.accessCodeTtlSeconds`).
+ */
+private const val DEFAULT_CODE_VALIDITY_SECONDS = 120
 
 /**
  * Pure phrase policy. Keeping copy and cadence outside the speech engines makes
  * voice behavior deterministic and testable.
  */
 object PontoVoicePromptPolicy {
-    fun kiosk(cue: PontoVoiceKioskCue): PontoVoicePrompt = when (cue) {
-        PontoVoiceKioskCue.CAMERA_PERMISSION_REQUIRED -> prompt(
-            key = "camera-permission",
-            text = "Ative a câmera para bater o ponto.",
-            priority = PontoVoicePriority.CRITICAL,
-            cooldownMillis = 60_000L,
-        )
-        PontoVoiceKioskCue.CAMERA_UNAVAILABLE -> prompt(
-            key = "camera-unavailable",
-            text = "Câmera indisponível. Procure um responsável.",
-            priority = PontoVoicePriority.CRITICAL,
-            cooldownMillis = 60_000L,
-        )
-        PontoVoiceKioskCue.MODEL_UNAVAILABLE -> prompt(
-            key = "model-unavailable",
-            text = "Reconhecimento facial indisponível neste aparelho.",
-            priority = PontoVoicePriority.CRITICAL,
-            cooldownMillis = 60_000L,
-        )
-        PontoVoiceKioskCue.MULTIPLE_FACES -> prompt(
-            key = "multiple-faces",
-            text = "Apenas uma pessoa por vez. Deixe somente um rosto diante da câmera.",
-            priority = PontoVoicePriority.INSTRUCTION,
-            cooldownMillis = 15_000L,
-            stabilityDelayMillis = 1_200L,
-        )
-        PontoVoiceKioskCue.NO_FACE -> prompt(
-            key = "no-face",
-            text = "Aproxime-se e olhe para a câmera.",
+    /**
+     * [validadeSegundos] é a janela real que o servidor devolve em /app-status,
+     * nunca um número escrito à mão aqui. Se a operação decidir alargar ou
+     * encurtar o prazo, a fala acompanha sozinha — dizer "dois minutos" quando o
+     * servidor concede cinco seria pior do que não dizer nada.
+     */
+    fun kiosk(
+        cue: PontoVoiceKioskCue,
+        validadeSegundos: Int = DEFAULT_CODE_VALIDITY_SECONDS,
+    ): PontoVoicePrompt = when (cue) {
+        PontoVoiceKioskCue.ESCOLHER_PESSOA -> prompt(
+            key = "pick-person",
+            text = "Toque no seu nome na lista.",
             priority = PontoVoicePriority.LOW,
             cooldownMillis = 30_000L,
-            stabilityDelayMillis = 5_000L,
+            stabilityDelayMillis = 3_000L,
             interrupt = false,
         )
-        PontoVoiceKioskCue.LOOK_AT_CAMERA -> prompt(
-            key = "look-at-camera",
-            text = "Olhe para a câmera e mantenha o rosto centralizado.",
-            priority = PontoVoicePriority.LOW,
-            cooldownMillis = 15_000L,
-            stabilityDelayMillis = 1_800L,
+        // A janela é curta, então dizê-la é a informação mais útil do passo: quem
+        // souber que tem pouco tempo digita agora em vez de guardar o papel.
+        PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA -> prompt(
+            key = "type-code-out",
+            text = "Digite o código de seis caracteres que o supervisor entregou. " +
+                "Ele vale ${spokenDuration(validadeSegundos)} a partir do momento em que foi gerado.",
+            priority = PontoVoicePriority.INSTRUCTION,
+            cooldownMillis = 20_000L,
+            stabilityDelayMillis = 900L,
             interrupt = false,
         )
-        PontoVoiceKioskCue.BLINK -> livenessPrompt(
-            key = "blink",
-            text = "Pisque uma vez.",
+        // No retorno não há prazo nenhum, e dizer isso evita a pressa de quem
+        // acha que também vai perder o código enquanto volta.
+        PontoVoiceKioskCue.DIGITAR_CODIGO_RETORNO -> prompt(
+            key = "type-code-back",
+            text = "Digite o mesmo código que você usou para sair. Ele não expira para o retorno.",
+            priority = PontoVoicePriority.INSTRUCTION,
+            cooldownMillis = 20_000L,
+            stabilityDelayMillis = 900L,
+            interrupt = false,
         )
-        PontoVoiceKioskCue.OPEN_EYES -> livenessPrompt(
-            key = "open-eyes",
-            text = "Agora abra os olhos.",
-            stabilityDelayMillis = 250L,
-        )
-        PontoVoiceKioskCue.TURN_LEFT -> livenessPrompt(
-            key = "turn-left",
-            text = "Vire levemente para a esquerda.",
-        )
-        PontoVoiceKioskCue.TURN_RIGHT -> livenessPrompt(
-            key = "turn-right",
-            text = "Vire levemente para a direita.",
-        )
-        PontoVoiceKioskCue.CENTER_FACE -> livenessPrompt(
-            key = "center-face",
-            text = "Volte ao centro e olhe para a câmera.",
-            stabilityDelayMillis = 350L,
-        )
-        PontoVoiceKioskCue.FACE_NOT_RECOGNIZED -> prompt(
-            key = "face-not-recognized",
-            text = "Rosto não reconhecido. Olhe de frente, centralize o rosto e tente novamente.",
-            priority = PontoVoicePriority.RESULT,
-            cooldownMillis = 12_000L,
-        )
+    }
+
+    /**
+     * Duração falada em pt-BR. O motor lê "2" como "dois", então o número vai em
+     * dígito; o que se resolve aqui é o singular/plural e o caso de janelas
+     * menores que um minuto, onde "0 minutos" seria absurdo.
+     */
+    internal fun spokenDuration(totalSeconds: Int): String {
+        val safe = totalSeconds.coerceAtLeast(0)
+        if (safe < 60) return if (safe == 1) "1 segundo" else "$safe segundos"
+        val minutes = safe / 60
+        val seconds = safe % 60
+        val minutesText = if (minutes == 1) "1 minuto" else "$minutes minutos"
+        if (seconds == 0) return minutesText
+        val secondsText = if (seconds == 1) "1 segundo" else "$seconds segundos"
+        return "$minutesText e $secondsText"
     }
 
     fun receipt(comprovante: ComprovantePonto): PontoVoicePrompt {
@@ -161,19 +151,33 @@ object PontoVoicePromptPolicy {
         }
     }
 
-    fun blocked(motivo: String?): PontoVoicePrompt = when (motivo) {
-        "PAUSAS_DO_DIA_JA_UTILIZADAS" -> criticalPrompt(
-            "blocked-daily",
-            "Pausas de hoje já utilizadas. Não há mais pausa disponível para hoje.",
-        )
+    /** Recebe o `codigo` de erro devolvido pelo Worker, não uma frase livre. */
+    fun blocked(
+        motivo: String?,
+        validadeSegundos: Int = DEFAULT_CODE_VALIDITY_SECONDS,
+    ): PontoVoicePrompt = when (motivo) {
         "PAUSA_PERIODO_JA_UTILIZADA" -> criticalPrompt(
             "blocked-period",
             "Esta pausa já foi utilizada hoje. Nenhum novo registro foi criado.",
         )
-        "FORA_HORARIO",
-        "FORA_HORARIO_NAO_LIBERADO" -> criticalPrompt(
-            "blocked-outside-window",
-            "Fora do horário permitido. Solicite uma liberação ao supervisor.",
+        "CODIGO_INVALIDO" -> criticalPrompt(
+            "blocked-invalid-code",
+            "Código não aceito. Confira os seis caracteres com o supervisor.",
+        )
+        // Dizer só "expirou" faz a pessoa tentar de novo com o mesmo código.
+        // A fala precisa fechar a porta e apontar a saída na mesma frase.
+        "CODIGO_EXPIRADO" -> criticalPrompt(
+            "blocked-expired-code",
+            "Este código expirou. Ele vale apenas ${spokenDuration(validadeSegundos)} depois de gerado. " +
+                "Peça um código novo ao supervisor.",
+        )
+        "CODIGO_BLOQUEADO_TEMPORARIAMENTE" -> criticalPrompt(
+            "blocked-too-many-attempts",
+            "Muitas tentativas com código errado. Aguarde alguns minutos ou chame o supervisor.",
+        )
+        "PAUSA_JA_ABERTA" -> criticalPrompt(
+            "blocked-open-pause",
+            "Você já tem uma pausa aberta. Registre o retorno antes de sair de novo.",
         )
         else -> criticalPrompt(
             "blocked-generic",
@@ -185,19 +189,6 @@ object PontoVoicePromptPolicy {
         "registration-error",
         "Não foi possível registrar o ponto. Verifique a mensagem na tela.",
         cooldownMillis = 15_000L,
-    )
-
-    private fun livenessPrompt(
-        key: String,
-        text: String,
-        stabilityDelayMillis: Long = 450L,
-    ) = prompt(
-        key = key,
-        text = text,
-        priority = PontoVoicePriority.INSTRUCTION,
-        cooldownMillis = 12_000L,
-        stabilityDelayMillis = stabilityDelayMillis,
-        countsTowardInstructionBudget = true,
     )
 
     private fun criticalPrompt(
@@ -474,25 +465,41 @@ private class PontoTextToSpeech(context: Context) {
 fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
     val context = LocalContext.current
     val state = viewModel.state
-    val identificacao = state.identificacao
     val comprovante = state.comprovante
 
     LaunchedEffect(Unit) {
         PontoVoiceRuntime.prewarm(context)
     }
 
+    // O quiosque deixou de ter um estágio de "identificação": a pessoa escolhe
+    // o próprio nome e digita o código. A voz acompanha esses três passos e
+    // fala a recusa com o motivo exato que o servidor devolveu — "código não
+    // aceito" e "código expirado" pedem ações diferentes de quem está ali.
     val prompt = remember(
         comprovante,
-        identificacao?.acaoSugerida,
-        identificacao?.motivo,
+        state.passo,
+        state.acaoEsperada,
         state.erro,
+        state.erroCodigo,
+        state.selecionado?.id,
+        state.validadeCodigoSegundos,
     ) {
         when {
             comprovante != null -> PontoVoicePromptPolicy.receipt(comprovante)
-            identificacao?.acaoSugerida == "BLOQUEADO" ->
-                PontoVoicePromptPolicy.blocked(identificacao.motivo)
-            identificacao != null && !state.erro.isNullOrBlank() ->
-                PontoVoicePromptPolicy.genericRegistrationError()
+            !state.erro.isNullOrBlank() && state.selecionado != null ->
+                PontoVoicePromptPolicy.blocked(state.erroCodigo, state.validadeCodigoSegundos)
+            !state.erro.isNullOrBlank() -> PontoVoicePromptPolicy.genericRegistrationError()
+            state.passo == PontoStep.DIGITAR_CODIGO ->
+                PontoVoicePromptPolicy.kiosk(
+                    if (state.acaoEsperada == "RETORNO") {
+                        PontoVoiceKioskCue.DIGITAR_CODIGO_RETORNO
+                    } else {
+                        PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA
+                    },
+                    state.validadeCodigoSegundos,
+                )
+            state.passo == PontoStep.ESCOLHER_PESSOA ->
+                PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.ESCOLHER_PESSOA)
             else -> null
         }
     }

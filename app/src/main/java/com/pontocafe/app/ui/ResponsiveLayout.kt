@@ -139,9 +139,9 @@ fun rememberPontoCafeResponsiveInfo(): PontoCafeResponsiveInfo {
 /**
  * A mesma informação de [PontoCafeResponsivePage], sem a caixa que limita a largura.
  *
- * Telas de câmera (quiosque, cadastro biométrico) são full-bleed por natureza: a
+ * O quiosque é full-bleed por natureza: a
  * prévia ocupa a tela inteira e os controles são overlays alinhados às bordas.
- * Passá-las por [PontoCafeResponsivePage] centraria a câmera numa caixa de 960 dp.
+ * Passá-lo por [PontoCafeResponsivePage] centraria o teclado numa caixa de 960 dp.
  *
  * Sem esta variante cada uma dessas telas reinventava `maxHeight < 480.dp` por
  * conta própria — exatamente o que o cabeçalho deste arquivo pede para evitar, e o

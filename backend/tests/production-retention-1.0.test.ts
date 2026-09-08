@@ -16,7 +16,7 @@ test('1.0 limita crescimento dos diários técnicos', () => {
   assert.match(maintenance, /config\.pontoOperationRetentionDays/)
 
   assert.match(maintenance, /cleanupExpiredDeviceHealthTelemetry/)
-  assert.match(maintenance, /acao='APP_HEALTH'/)
+  assert.match(maintenance, /acao in [(]'APP_HEALTH','DEVICE_HEARTBEAT'[)]/)
   assert.match(maintenance, /config\.deviceHealthRetentionDays/)
 })
 
@@ -30,12 +30,13 @@ test('Cloudflare executa as limpezas no cron sem misturar dados de negócio', ()
 })
 
 test('exemplo de configuração acompanha os defaults seguros da Release', () => {
-  assert.match(envExample, /FACE_MATCH_THRESHOLD=0\.72/)
-  assert.match(envExample, /FACE_IDENTIFICATION_MARGIN=0\.06/)
-  assert.match(envExample, /FACE_ENROLLMENT_DUPLICATE_THRESHOLD=0\.78/)
-  assert.match(envExample, /AUTHORIZATION_TTL_SECONDS=600/)
+  assert.match(envExample, /ACCESS_CODE_TTL_SECONDS=120/)
+  assert.match(envExample, /ACCESS_CODE_MAX_ATTEMPTS=8/)
+  assert.match(envExample, /COFFEE_GRACE_SECONDS=60/)
+  assert.match(envExample, /ACCESS_CODE_RETENTION_DAYS=90/)
+  assert.doesNotMatch(envExample, /FACE_/)
   assert.match(envExample, /PONTO_OPERATION_RETENTION_DAYS=30/)
   assert.match(envExample, /DEVICE_HEALTH_RETENTION_DAYS=30/)
-  assert.match(envExample, /APP_LATEST_ANDROID_VERSION=1\.0\.0/)
-  assert.match(envExample, /APP_MIN_ANDROID_VERSION=0\.15\.0/)
+  assert.match(envExample, /APP_LATEST_ANDROID_VERSION=1\.1\.0/)
+  assert.match(envExample, /APP_MIN_ANDROID_VERSION=1\.1\.0/)
 })

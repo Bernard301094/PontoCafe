@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Security
@@ -84,8 +83,10 @@ fun AdminHomeScreenV2(
     val collaborators = summary?.colaboradoresAtivos ?: state.colaboradores.size
     val activeSupervisors = summary?.supervisoresAtivos
         ?: state.usuarios.count { it.ativo && it.perfil == "SUPERVISOR" }
-    val pendingFaces = summary?.rostosPendentes ?: state.colaboradores.count { !it.rostoCadastrado }
-    val registeredFaces = (collaborators - pendingFaces).coerceAtLeast(0)
+    // Quantas pessoas estão fora agora. Não é pendência de configuração —
+    // é o pulso da operação, e substitui o antigo contador de rostos por cadastrar.
+    val emPausaAgora = summary?.codigosEmUso ?: state.colaboradores.count { it.emPausa }
+    val codigosPendentes = summary?.codigosPendentes ?: 0
     val activeDevices = summary?.dispositivosAtivos ?: 0
     val devicesWithoutPin = summary?.dispositivosSemPin ?: 0
     val online = state.erro == null
@@ -120,6 +121,10 @@ fun AdminHomeScreenV2(
     var showHistoryCalendar by remember { mutableStateOf(false) }
     var showAllHistory by remember { mutableStateOf(false) }
     var selectedHistoryPause by remember { mutableStateOf<PausaSupervisor?>(null) }
+
+    // O Início é onde o Supervisor está quando alguém pede café. Carregar as
+    // pessoas e os códigos vivos aqui é o que permite emitir sem navegar.
+    LaunchedEffect(Unit) { viewModel.carregarAtalhoDeCodigos() }
 
     LaunchedEffect(lifecycleOwner, adminLiveRepository) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -224,6 +229,9 @@ fun AdminHomeScreenV2(
     selectedHistoryPause?.let { pause ->
         HistoryPauseDetailDialog(pause = pause, onDismiss = { selectedHistoryPause = null })
     }
+    state.codigoEmitido?.let { emitido ->
+        PcIssuedCodeDialog(codigo = emitido, onDismiss = viewModel::limparCodigoEmitido)
+    }
 
     if (showAccountSheet) {
         PcAccountProfileSheet(
@@ -318,7 +326,7 @@ fun AdminHomeScreenV2(
         val visibleLive = if (showAllLive) filteredItems else filteredItems.take(livePreviewLimit)
         val historyPreviewLimit = if (responsive.isExpanded) 5 else 3
         val visibleHistory = if (showAllHistory) sortedHistory else sortedHistory.take(historyPreviewLimit)
-        val hasPendingConfiguration = pendingFaces > 0 || devicesWithoutPin > 0 || activeSupervisors == 0
+        val hasPendingConfiguration = devicesWithoutPin > 0 || activeSupervisors == 0
 
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
@@ -337,14 +345,32 @@ fun AdminHomeScreenV2(
             ) {
                 item("feedback") { AdminFeedback(viewModel) }
 
-                // Sinal de status logo após o resumo -- antes só existia a versão
-                // "tudo certo" e ficava no fim da lista, depois do histórico inteiro,
-                // onde ninguém rolava até ver. Agora aparece sempre aqui em cima,
-                // nos dois sentidos: com ou sem pendência.
-                item("configuration-status") {
-                    if (hasPendingConfiguration) {
+                // Primeiro item da folha, antes de qualquer painel: emitir um
+                // código é o gesto mais frequente do dia e era o único que
+                // exigia navegar para outra área. O painel operacional continua
+                // logo abaixo -- ele informa, este age.
+                item("quick-code") {
+                    AccessCodeQuickIssueCard(
+                        colaboradores = state.colaboradores,
+                        codigosAtivos = state.codigosAtivos,
+                        carregando = state.codigosAtalhoCarregando || state.carregando,
+                        erro = state.codigosAtalhoErro,
+                        maxResultados = if (responsive.isCompact) 4 else 6,
+                        onGerar = { pessoa -> viewModel.emitirCodigo(pessoa, null) },
+                        onVerTodos = viewModel::abrirCodigos,
+                        onTentarNovamente = viewModel::carregarAtalhoDeCodigos,
+                    )
+                }
+
+                // Pendência de configuração aparece aqui em cima em vez de no fim
+                // da lista, depois do histórico inteiro, onde ninguém rolava até
+                // ver. O contrário -- "configuração em dia" -- não aparece: o
+                // painel de equipe logo abaixo já diz "Tudo pronto para operar",
+                // e dois avisos verdes na mesma tela só empurram a operação
+                // para baixo.
+                if (hasPendingConfiguration) {
+                    item("configuration-status") {
                         val pendingReasons = buildList {
-                            if (pendingFaces > 0) add("$pendingFaces pessoa(s) sem biometria cadastrada")
                             if (devicesWithoutPin > 0) add("$devicesWithoutPin dispositivo(s) sem PIN configurado")
                             if (activeSupervisors == 0) add("nenhum supervisor ativo")
                         }
@@ -355,20 +381,14 @@ fun AdminHomeScreenV2(
                             },
                             tone = PontoCafeTone.WARNING,
                         )
-                    } else if (collaborators > 0) {
-                        PcStateBanner(
-                            title = "Configuração em dia",
-                            supportingText = "Equipe, biometria, supervisão e dispositivos não apresentam pendências de configuração.",
-                            tone = PontoCafeTone.SUCCESS,
-                        )
                     }
                 }
 
                 item("quick-actions") {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         AdminHomeSectionHeader(
-                            title = "Ações rápidas",
-                            subtitle = "Acesso direto às tarefas administrativas mais usadas.",
+                            title = "Ir para",
+                            subtitle = "As outras áreas da administração.",
                         )
                         if (responsive.isNarrow || responsive.usesLargeText) {
                             Column(
@@ -377,14 +397,14 @@ fun AdminHomeScreenV2(
                             ) {
                                 AdminHomeQuickAction(
                                     title = "Pessoas",
-                                    icon = Icons.Default.PersonAdd,
+                                    icon = Icons.Default.Groups,
                                     onClick = viewModel::abrirColaboradores,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 AdminHomeQuickAction(
-                                    title = "Autorizar",
-                                    icon = Icons.Default.Coffee,
-                                    onClick = viewModel::abrirAutorizacao,
+                                    title = "Novo colaborador",
+                                    icon = Icons.Default.PersonAdd,
+                                    onClick = viewModel::abrirNovoColaborador,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 AdminHomeQuickAction(
@@ -400,14 +420,14 @@ fun AdminHomeScreenV2(
                         ) {
                             AdminHomeQuickAction(
                                 title = "Pessoas",
-                                icon = Icons.Default.PersonAdd,
+                                icon = Icons.Default.Groups,
                                 onClick = viewModel::abrirColaboradores,
                                 modifier = Modifier.weight(1f),
                             )
                             AdminHomeQuickAction(
-                                title = "Autorizar",
-                                icon = Icons.Default.Coffee,
-                                onClick = viewModel::abrirAutorizacao,
+                                title = "Novo colaborador",
+                                icon = Icons.Default.PersonAdd,
+                                onClick = viewModel::abrirNovoColaborador,
                                 modifier = Modifier.weight(1f),
                             )
                             AdminHomeQuickAction(
@@ -447,11 +467,12 @@ fun AdminHomeScreenV2(
 
                             AdminHomeReadinessPanel(
                                 collaborators = collaborators,
-                                registeredFaces = registeredFaces,
+                                emPausaAgora = emPausaAgora,
                                 activeSupervisors = activeSupervisors,
-                                pendingFaces = pendingFaces,
+                                codigosPendentes = codigosPendentes,
                                 devicesWithoutPin = devicesWithoutPin,
                                 onPeopleClick = viewModel::abrirColaboradores,
+                                onCodesClick = viewModel::abrirCodigos,
                                 onDevicesClick = onDevicesClick,
                                 onNewSupervisor = viewModel::abrirNovaConta,
                                 modifier = Modifier.weight(.88f),
@@ -482,11 +503,12 @@ fun AdminHomeScreenV2(
                     item("readiness") {
                         AdminHomeReadinessPanel(
                             collaborators = collaborators,
-                            registeredFaces = registeredFaces,
+                            emPausaAgora = emPausaAgora,
                             activeSupervisors = activeSupervisors,
-                            pendingFaces = pendingFaces,
+                            codigosPendentes = codigosPendentes,
                             devicesWithoutPin = devicesWithoutPin,
                             onPeopleClick = viewModel::abrirColaboradores,
+                            onCodesClick = viewModel::abrirCodigos,
                             onDevicesClick = onDevicesClick,
                             onNewSupervisor = viewModel::abrirNovaConta,
                             modifier = Modifier.fillMaxWidth(),
@@ -700,11 +722,12 @@ private fun AdminHomeAttentionPanel(
 @Composable
 private fun AdminHomeReadinessPanel(
     collaborators: Int,
-    registeredFaces: Int,
+    emPausaAgora: Int,
     activeSupervisors: Int,
-    pendingFaces: Int,
+    codigosPendentes: Int,
     devicesWithoutPin: Int,
     onPeopleClick: () -> Unit,
+    onCodesClick: () -> Unit,
     onDevicesClick: () -> Unit,
     onNewSupervisor: () -> Unit,
     modifier: Modifier = Modifier,
@@ -726,10 +749,10 @@ private fun AdminHomeReadinessPanel(
 
             if (collaborators > 0) {
                 ThinProgressSummary(
-                    registeredFaces,
+                    emPausaAgora,
                     collaborators,
-                    "Reconhecimento facial",
-                    "$registeredFaces de $collaborators colaboradores com rosto cadastrado",
+                    "Em pausa agora",
+                    "$emPausaAgora de $collaborators colaboradores estão no café neste momento",
                 )
             }
 
@@ -741,6 +764,7 @@ private fun AdminHomeReadinessPanel(
                     value = collaborators.toString(),
                     label = "Equipe",
                     icon = Icons.Default.Groups,
+                    onClick = onPeopleClick,
                     modifier = Modifier.weight(1f),
                 )
                 AdminHomeMiniStat(
@@ -751,13 +775,13 @@ private fun AdminHomeReadinessPanel(
                 )
             }
 
-            if (pendingFaces > 0) {
+            if (codigosPendentes > 0) {
                 OperationalAlertCard(
-                    "$pendingFaces rosto(s) aguardando cadastro",
-                    "Esses colaboradores ainda não conseguem utilizar reconhecimento facial.",
-                    "Abrir Pessoas",
-                    onPeopleClick,
-                    PontoCafeTone.WARNING,
+                    "$codigosPendentes código(s) aguardando saída",
+                    "Foram emitidos e ainda não foram apresentados no quiosque.",
+                    "Abrir códigos",
+                    onCodesClick,
+                    PontoCafeTone.INFO,
                 )
             }
             if (devicesWithoutPin > 0) {
@@ -772,16 +796,16 @@ private fun AdminHomeReadinessPanel(
             if (activeSupervisors == 0) {
                 OperationalAlertCard(
                     "Nenhum Supervisor ativo",
-                    "Cadastre uma conta de Supervisor para acompanhamento e autorizações.",
+                    "Cadastre uma conta de Supervisor para acompanhar a operação e emitir códigos.",
                     "Cadastrar Supervisor",
                     onNewSupervisor,
                     PontoCafeTone.INFO,
                 )
             }
-            if (pendingFaces == 0 && devicesWithoutPin == 0 && activeSupervisors > 0) {
+            if (devicesWithoutPin == 0 && activeSupervisors > 0) {
                 PcStateBanner(
                     title = "Tudo pronto para operar",
-                    supportingText = "Não há pendências de biometria, dispositivo ou supervisão.",
+                    supportingText = "Não há pendências de dispositivo ou supervisão.",
                     tone = PontoCafeTone.SUCCESS,
                 )
             }
@@ -795,14 +819,12 @@ private fun AdminHomeMiniStat(
     label: String,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    Surface(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            contentDescription = "$label: $value"
-        },
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
+    val semanticsModifier = modifier.semantics(mergeDescendants = true) {
+        contentDescription = "$label: $value"
+    }
+    val body: @Composable () -> Unit = {
         Row(
             modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -814,6 +836,23 @@ private fun AdminHomeMiniStat(
                 Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+
+    if (onClick == null) {
+        Surface(
+            modifier = semanticsModifier,
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            content = body,
+        )
+    } else {
+        Surface(
+            onClick = onClick,
+            modifier = semanticsModifier,
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            content = body,
+        )
     }
 }
 

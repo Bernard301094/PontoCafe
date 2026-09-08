@@ -20,7 +20,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.pontocafe.app.camera.LiteRtFaceEmbeddingEngine
 import com.pontocafe.app.data.AdminApiClient
 import com.pontocafe.app.data.AdminReliabilityApiClient
 import com.pontocafe.app.data.ApiClient
@@ -29,7 +28,6 @@ import com.pontocafe.app.data.AppNavigationStateStore
 import com.pontocafe.app.data.KioskModeStore
 import com.pontocafe.app.data.SecureAdminSessionStore
 import com.pontocafe.app.data.SecureDeviceTokenStore
-import com.pontocafe.app.data.SecureFaceCatalogStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
 import com.pontocafe.app.data.SupervisorApiClient
 import com.pontocafe.app.notifications.SupervisorAlertNotifier
@@ -62,7 +60,6 @@ class MainActivity : FragmentActivity() {
         appHealthMonitor = AppHealthMonitor(applicationContext).also { it.installCrashHandler() }
         SupervisorAlertNotifier.ensureChannel(applicationContext)
 
-        val faceEmbeddingEngine = LiteRtFaceEmbeddingEngine(applicationContext)
         val navigationStore = AppNavigationStateStore(applicationContext)
         val kioskModeStore = KioskModeStore(applicationContext)
         val kioskSettings = kioskModeStore.read()
@@ -71,29 +68,26 @@ class MainActivity : FragmentActivity() {
         }
 
         val deviceTokenStore = SecureDeviceTokenStore(applicationContext)
-        val faceCatalogStore = SecureFaceCatalogStore(applicationContext)
         val offlineStore = SecurePontoOfflineStore(applicationContext)
         val pontoRepository = ApiClient.create(applicationContext, deviceTokenStore)
         val pontoFactory = PontoCafeViewModelFactory {
             createPontoCafeViewModel(
                 repository = pontoRepository,
                 tokenStore = deviceTokenStore,
-                faceCatalogStore = faceCatalogStore,
                 offlineStore = offlineStore,
-                embeddingEngine = faceEmbeddingEngine,
             )
         }
 
         val adminSessionStore = SecureAdminSessionStore(applicationContext, "admin")
         val adminRepository = AdminApiClient.create(adminSessionStore)
         val adminReliabilityRepository = AdminReliabilityApiClient.create(adminSessionStore)
-        val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository, faceEmbeddingEngine) }
+        val adminFactory = AdminViewModelFactory { AdminViewModel(adminRepository) }
         val adminDeviceFactory = AdminDeviceViewModelFactory { AdminDeviceViewModel(adminRepository) }
 
         val supervisorSessionStore = SecureAdminSessionStore(applicationContext, "supervisor")
         val supervisorRepository = SupervisorApiClient.create(supervisorSessionStore = supervisorSessionStore)
         val supervisorFactory = SupervisorViewModelFactory {
-            SupervisorViewModel(supervisorRepository, faceEmbeddingEngine, faceCatalogStore, applicationContext)
+            SupervisorViewModel(supervisorRepository, applicationContext)
         }
 
         setContent {
@@ -266,11 +260,7 @@ class MainActivity : FragmentActivity() {
                                             repository = adminReliabilityRepository,
                                             pontoRepository = pontoRepository,
                                             offlineStore = offlineStore,
-                                            embeddingEngine = faceEmbeddingEngine,
-                                            onWorkforceChanged = {
-                                                faceCatalogStore.clear()
-                                                adminVm.abrirColaboradores()
-                                            },
+                                                                        onWorkforceChanged = { adminVm.abrirColaboradores() },
                                         )
                                     }
                                 }
@@ -305,7 +295,6 @@ class MainActivity : FragmentActivity() {
                                         ReliabilityDestination.COLLABORATOR_HISTORY -> {
                                             savedReliabilityCollaboratorId?.let { reliabilityVm.openHistory(it) }
                                         }
-                                        ReliabilityDestination.BIOMETRIC_DIAGNOSTICS -> reliabilityVm.openBiometricDiagnostics()
                                         ReliabilityDestination.SYNC_CENTER -> reliabilityVm.openSyncCenter()
                                         ReliabilityDestination.SYSTEM_DIAGNOSTICS -> reliabilityVm.openSystemDiagnostics()
                                         ReliabilityDestination.NONE,
@@ -409,7 +398,7 @@ class MainActivity : FragmentActivity() {
 
                                 LaunchedEffect(sincronizarCatalogoAoVoltar) {
                                     if (sincronizarCatalogoAoVoltar) {
-                                        vm.sincronizarBiometrias(force = true)
+                                        vm.carregarColaboradores(force = true)
                                         vm.atualizarConectividadeESincronizar()
                                         adminSessionDisponivel = adminSessionStore.hasToken()
                                         supervisorSessionDisponivel = supervisorSessionStore.hasToken()

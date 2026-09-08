@@ -6,11 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.pontocafe.app.camera.FaceEmbeddingEngine
-import com.pontocafe.app.camera.FaceFrame
 import com.pontocafe.app.data.AdminReliabilityRepository
-import com.pontocafe.app.data.BiometricSummaryResponse
-import com.pontocafe.app.data.CalibrationResponse
 import com.pontocafe.app.data.CoffeeRuleV2
 import com.pontocafe.app.data.CollaboratorHistoryResponse
 import com.pontocafe.app.data.CollaboratorImportItem
@@ -25,7 +21,6 @@ import kotlinx.coroutines.launch
 enum class ReliabilityDestination {
     NONE,
     COLLABORATOR_HISTORY,
-    BIOMETRIC_DIAGNOSTICS,
     SYNC_CENTER,
     SYSTEM_DIAGNOSTICS,
 }
@@ -36,8 +31,6 @@ data class AdminReliabilityUiState(
     val loading: Boolean = false,
     val rules: List<CoffeeRuleV2> = emptyList(),
     val history: CollaboratorHistoryResponse? = null,
-    val biometricSummary: BiometricSummaryResponse? = null,
-    val calibration: CalibrationResponse? = null,
     val diagnostic: DiagnosticResponse? = null,
     val syncCenter: SyncCenterSnapshot? = null,
     val lastImport: CollaboratorImportResponse? = null,
@@ -49,16 +42,12 @@ class AdminReliabilityViewModel(
     private val repository: AdminReliabilityRepository,
     private val pontoRepository: PontoCafeRepository,
     private val offlineStore: SecurePontoOfflineStore,
-    private val embeddingEngine: FaceEmbeddingEngine,
     private val onWorkforceChanged: () -> Unit,
 ) : ViewModel() {
 
     var state by mutableStateOf(AdminReliabilityUiState())
         private set
 
-    val faceModelReady: Boolean get() = embeddingEngine.isReady
-    val faceModelName: String get() = embeddingEngine.modelName
-    val faceModelVersion: String get() = embeddingEngine.modelVersion
 
     fun loadManagement() {
         if (state.loading) return
@@ -147,87 +136,12 @@ class AdminReliabilityViewModel(
                 .onSuccess { response ->
                     state = state.copy(
                         loading = false,
-                        message = "${response.nome} foi removido da equipe. Biometria excluída e histórico preservado.",
+                        message = "${response.nome} foi removido da equipe. Códigos pendentes cancelados e histórico preservado.",
                     )
                     onWorkforceChanged()
                     if (state.targetCollaboratorId == collaboratorId) {
                         closeDetail()
                     }
-                }
-                .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
-        }
-    }
-
-    fun openBiometricDiagnostics() {
-        viewModelScope.launch {
-            state = state.copy(
-                destination = ReliabilityDestination.BIOMETRIC_DIAGNOSTICS,
-                targetCollaboratorId = null,
-                loading = true,
-                biometricSummary = null,
-                calibration = null,
-                error = null,
-            )
-            runCatching { repository.biometricSummary() }
-                .onSuccess { state = state.copy(loading = false, biometricSummary = it) }
-                .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
-        }
-    }
-
-    fun calibrate(collaboratorId: String, frame: FaceFrame) {
-        if (state.loading || !embeddingEngine.isReady) {
-            if (!frame.bitmap.isRecycled) frame.bitmap.recycle()
-            return
-        }
-        viewModelScope.launch {
-            state = state.copy(loading = true, calibration = null, error = null, message = "Processando amostra de calibração...")
-            runCatching {
-                val embedding = embeddingEngine.embed(frame)
-                repository.calibrate(
-                    collaboratorId = collaboratorId,
-                    embedding = embedding,
-                    model = embeddingEngine.modelName,
-                    modelVersion = embeddingEngine.modelVersion,
-                )
-            }.onSuccess { result ->
-                state = state.copy(
-                    loading = false,
-                    calibration = result,
-                    message = if (result.aprovado) {
-                        "Amostra reconhecida com margem segura."
-                    } else {
-                        "Amostra abaixo dos critérios atuais. Repita em outra condição de luz/ângulo."
-                    },
-                )
-            }.onFailure { state = state.copy(loading = false, message = null, error = AdminReliabilityRepository.message(it)) }
-        }
-    }
-
-    fun deleteBiometric(collaboratorId: String) {
-        viewModelScope.launch {
-            state = state.copy(loading = true, error = null, message = null)
-            runCatching { repository.deleteBiometric(collaboratorId) }
-                .onSuccess {
-                    state = state.copy(loading = false, message = "Biometria excluída com sucesso.")
-                    onWorkforceChanged()
-                    if (state.targetCollaboratorId == collaboratorId) {
-                        openHistory(collaboratorId, state.history?.periodoDias ?: 30)
-                    }
-                }
-                .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
-        }
-    }
-
-    fun runRetentionCleanup() {
-        viewModelScope.launch {
-            state = state.copy(loading = true, error = null, message = null)
-            runCatching { repository.runRetentionCleanup() }
-                .onSuccess {
-                    state = state.copy(
-                        loading = false,
-                        message = "Retenção executada: ${it.removidos} biometria(s) removida(s). Política: ${it.retencaoDias} dias.",
-                    )
-                    openBiometricDiagnostics()
                 }
                 .onFailure { state = state.copy(loading = false, error = AdminReliabilityRepository.message(it)) }
         }
@@ -298,7 +212,6 @@ class AdminReliabilityViewModel(
             destination = ReliabilityDestination.NONE,
             targetCollaboratorId = null,
             history = null,
-            calibration = null,
             diagnostic = null,
             syncCenter = null,
             error = null,

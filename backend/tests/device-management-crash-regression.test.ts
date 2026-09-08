@@ -23,7 +23,7 @@ const adminDevicesUi = readFileSync(
   'utf8',
 )
 const kioskUi = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/FaceKioskScreen.kt', import.meta.url),
+  new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt', import.meta.url),
   'utf8',
 )
 const createRoute = readFileSync(

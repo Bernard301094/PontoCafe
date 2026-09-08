@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.CheckCircle
@@ -84,7 +85,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
         cleanName.length < 2 -> "Informe o nome completo para continuar."
         cleanSector.isBlank() -> "Informe ou selecione o setor."
         cleanShift !in CollaboratorShiftOptions -> "Selecione o turno do colaborador."
-        else -> "Tudo pronto. O próximo passo será o cadastro facial."
+        else -> "Tudo pronto. Depois é só gerar um código quando esta pessoa for tomar café."
     }
 
     PcHeroPage(
@@ -99,7 +100,7 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                 backLabel = "Pessoas",
             )
             Text(
-                "Cadastro para reconhecimento facial no modo Ponto",
+                "Cadastro de quem registra pausa no quiosque",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
             )
@@ -140,11 +141,10 @@ fun AdminNewCollaboratorScreen(viewModel: AdminViewModel) {
                     Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                         PcHeroCard(
                             title = "Cadastro para o modo Ponto",
-                            supportingText = "Cadastre somente pessoas que usarão reconhecimento facial para registrar a pausa. Contas de Supervisor e Administrador ficam separadas.",
-                            icon = Icons.Default.Face,
+                            supportingText = "Cadastre quem vai registrar pausa no quiosque. Contas de Supervisor e Administrador ficam separadas.",
+                            icon = Icons.Default.Coffee,
                             tone = PontoCafeTone.INFO,
                         )
-                        UpcomingEnrollmentPreview()
                         if (cleanName.isNotBlank() || cleanSector.isNotBlank()) {
                             StatusPill("Rascunho salvo neste aparelho", PontoCafeTone.NEUTRAL)
                         }
@@ -302,7 +302,7 @@ private fun CollaboratorBottomActions(
             }
 
             PcPrimaryButton(
-                text = "Salvar e cadastrar rosto",
+                text = "Salvar colaborador",
                 icon = Icons.Default.Face,
                 onClick = onSave,
                 modifier = Modifier.fillMaxWidth(),

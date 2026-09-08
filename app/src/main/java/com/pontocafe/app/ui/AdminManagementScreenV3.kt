@@ -198,11 +198,6 @@ fun AdminManagementScreenV3(
                     label = "Períodos ativos",
                     modifier = Modifier.weight(1f),
                 )
-                PcHeroStat(
-                    value = if (reliabilityViewModel.faceModelReady) "Pronta" else "Atenção",
-                    label = "Biometria local",
-                    modifier = Modifier.weight(1f),
-                )
                 PcHeroStat(value = durationSummary, label = "Tempo configurado", modifier = Modifier.weight(1f))
             }
         },
@@ -223,10 +218,10 @@ fun AdminManagementScreenV3(
                     onClick = onSyncClick,
                 ),
                 ManagementAction(
-                    title = "Autorizações",
-                    subtitle = "Exceções de pausa fora do horário",
+                    title = "Códigos de café",
+                    subtitle = "Gerar e cancelar os passes de pausa",
                     icon = Icons.Default.LockClock,
-                    onClick = viewModel::abrirAutorizacao,
+                    onClick = viewModel::abrirCodigos,
                 ),
                 ManagementAction(
                     title = "Modo terminal",
@@ -238,12 +233,6 @@ fun AdminManagementScreenV3(
         }
         val reliabilityActions = remember(reliabilityViewModel, viewModel) {
             listOf(
-                ManagementAction(
-                    title = "Biometria",
-                    subtitle = "Modelo, precisão, calibração e retenção",
-                    icon = Icons.Default.Fingerprint,
-                    onClick = reliabilityViewModel::openBiometricDiagnostics,
-                ),
                 ManagementAction(
                     title = "Diagnóstico",
                     subtitle = "Servidor, banco de dados e configuração",

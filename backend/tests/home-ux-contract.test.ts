@@ -22,18 +22,35 @@ test('Início usa a experiência V2 mantendo o entrypoint do shell', () => {
 })
 
 test('dashboard prioriza operação atual e atenção', () => {
-  assert.match(home, /"Operação agora"/)
-  assert.match(home, /"Centro de atenção"/)
   assert.match(home, /OperationalPauseFilter\.ATENCAO/)
   assert.match(home, /OperationalPauseFilter\.EXCEDIDOS/)
   assert.match(home, /livePreviewLimit/)
   assert.match(home, /showAllLive/)
 })
 
-test('ações rápidas ficam próximas do topo', () => {
-  assert.match(home, /"Ações rápidas"/)
+test('emitir um código é a primeira coisa que o Início oferece', () => {
+  // Emitir um passe é o gesto mais frequente do dia e era o único que obrigava
+  // a sair do Início: "Códigos" era um ladrilho entre outros, e a tela inicial
+  // só informava. O cartão de emissão passa a ser o primeiro item da folha,
+  // acima de qualquer painel.
+  assert.match(home, /AccessCodeQuickIssueCard\(/)
+  const atalho = home.indexOf('item("quick-code")')
+  const atencao = home.indexOf('AdminHomeAttentionPanel(')
+  assert.ok(atalho >= 0, 'o Início precisa do cartão de emissão')
+  assert.ok(atencao > atalho, 'o cartão de emissão precisa vir antes dos painéis')
+
+  // Sem esta carga o cartão abriria vazio: as pessoas só eram buscadas ao
+  // navegar para Pessoas ou para Códigos.
+  assert.match(home, /carregarAtalhoDeCodigos/)
+
+  // Gerar sem mostrar não serve para nada: o Supervisor lê os seis caracteres
+  // em voz alta para quem está do outro lado do balcão.
+  assert.match(home, /PcIssuedCodeDialog/)
+})
+
+test('as outras áreas continuam a um toque', () => {
+  assert.match(home, /"Ir para"/)
   assert.match(home, /title = "Pessoas"/)
-  assert.match(home, /title = "Autorizar"/)
   assert.match(home, /title = "Dispositivos"/)
 })
 
@@ -51,9 +68,4 @@ test('histórico continua disponível com seleção de data e preview adaptativo
   assert.match(home, /historyPreviewLimit/)
   assert.match(home, /showAllHistory/)
   assert.match(home, /HistoryPauseCard/)
-})
-
-test('release do redesign de Início é 0.12.0', () => {
-  assert.match(gradle, /versionCode = 33/)
-  assert.match(gradle, /versionName = "0\.12\.0"/)
 })

@@ -18,12 +18,12 @@ const liveAlerts = readFileSync(
   new URL('../../app/src/main/java/com/pontocafe/app/ui/SupervisorLiveAlerts.kt', import.meta.url),
   'utf8',
 )
-const biometricFeedback = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/BiometricRegistrationSuccessFeedback.kt', import.meta.url),
+const supervisorViewModel = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/SupervisorViewModel.kt', import.meta.url),
   'utf8',
 )
-const pointReceipt = readFileSync(
-  new URL('../../app/src/main/java/com/pontocafe/app/ui/PointReceiptScreen.kt', import.meta.url),
+const haptics = readFileSync(
+  new URL('../../app/src/main/java/com/pontocafe/app/haptics/PontoHaptics.kt', import.meta.url),
   'utf8',
 )
 const pointFlow = readFileSync(
@@ -64,24 +64,38 @@ test('alerta llega a NotificationManager con icono, canal y PendingIntent seguro
   assert.match(notifier, /setCategory\(NotificationCompat\.CATEGORY_EVENT\)/)
   assert.match(notifier, /setVisibility\(NotificationCompat\.VISIBILITY_PRIVATE\)/)
   assert.match(notifier, /setAutoCancel\(true\)/)
-  assert.match(notifier, /NotificationManagerCompat\.from\(appContext\)\.notify\(NOTIFICATION_ID, notification\)/)
+  assert.match(notifier, /val manager = NotificationManagerCompat\.from\(appContext\)/)
+  assert.match(notifier, /manager\.notify\(individualId, notification\)/)
+  assert.match(notifier, /manager\.notify\(GROUP_SUMMARY_ID, summary\)/)
   assert.match(notifier, /catch \(error: SecurityException\)/)
 })
 
 test('cada evento en vivo publica una sola notificación y no vibra por fuera del canal', () => {
-  assert.match(liveAlerts, /SupervisorAlertNotifier\.notify\(/)
-  assert.doesNotMatch(liveAlerts, /RingtoneManager/)
-  assert.doesNotMatch(liveAlerts, /VibrationEffect/)
-  assert.doesNotMatch(liveAlerts, /VibratorManager/)
-  assert.match(notifier, /private const val NOTIFICATION_ID = 4_201/)
+  // Quem dispara a notificação é o monitor de fundo do ViewModel, e não a
+  // tela: o alerta precisa sair mesmo com o Supervisor noutra aba.
+  assert.match(supervisorViewModel, /SupervisorAlertNotifier\.notify\(/)
+  for (const source of [liveAlerts, supervisorViewModel]) {
+    assert.doesNotMatch(source, /RingtoneManager/)
+    assert.doesNotMatch(source, /VibrationEffect/)
+    assert.doesNotMatch(source, /VibratorManager/)
+  }
+  // Um id derivado do evento evita que dois alertas se sobrescrevam; o id do
+  // resumo é reservado e nunca colide (ver stableNotificationId).
+  assert.match(notifier, /private const val GROUP_SUMMARY_ID = 4_201/)
+  assert.match(notifier, /stableNotificationId\(/)
 })
 
-test('hápticos de confirmación y rechazo usan compatibilidad anterior a API 30', () => {
-  for (const source of [biometricFeedback, pointReceipt, pointFlow]) {
-    assert.match(source, /HapticFeedbackConstantsCompat/)
-    assert.doesNotMatch(source, /import android\.view\.HapticFeedbackConstants/)
+test('o háptico vive num só lugar; nenhuma tela chama a API do Android direto', () => {
+  // O contrato deixou de ser um wrapper de compatibilidade por tela e passou a
+  // ser a centralização: PontoHaptics é o único arquivo autorizado a tocar
+  // performHapticFeedback/VibrationEffect. Espalhar isso pelas telas foi o que
+  // produziu, no passado, vibração inconsistente entre Android 11 e 14.
+  assert.match(haptics, /object PontoHaptics/)
+  assert.match(haptics, /performHapticFeedback\(HapticFeedbackConstants\.VIRTUAL_KEY\)/)
+  assert.match(haptics, /performHapticFeedback\(HapticFeedbackConstants\.REJECT\)/)
+  assert.match(haptics, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.S/)
+  for (const source of [pointFlow, liveAlerts, operation]) {
+    assert.doesNotMatch(source, /performHapticFeedback/)
+    assert.doesNotMatch(source, /VibrationEffect/)
   }
-  assert.match(biometricFeedback, /HapticFeedbackConstantsCompat\.CONFIRM/)
-  assert.match(pointReceipt, /HapticFeedbackConstantsCompat\.REJECT/)
-  assert.match(pointFlow, /HapticFeedbackConstantsCompat\.REJECT/)
 })

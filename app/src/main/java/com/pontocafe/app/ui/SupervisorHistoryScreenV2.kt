@@ -112,7 +112,7 @@ fun SupervisorHistoryScreenV2(viewModel: SupervisorViewModel) {
 
     val total = state.historico.size
     val overLimit = state.historico.count {
-        it.excedeuLimite ?: ((it.duracaoSegundos ?: it.tempoSegundos ?: 0) > it.limiteSegundos)
+        it.excedeuLimite ?: ((it.duracaoSegundos ?: it.tempoSegundos ?: 0) > it.limiteEfetivoSegundos)
     }
     val outside = state.historico.count { it.foraHorario }
 
@@ -358,7 +358,7 @@ internal fun HistoryPauseCard(
     modifier: Modifier = Modifier,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
-    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
+    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteEfetivoSegundos)
     val statusText = when {
         exceeded -> "Acima do limite"
         pause.foraHorario -> "Fora do horário"
@@ -411,7 +411,6 @@ internal fun HistoryPauseCard(
         ) {
             CollaboratorAvatar(
                 name = pause.nome,
-                avatarUrl = pause.avatarUrl,
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -459,7 +458,7 @@ internal fun HistoryPauseDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val duration = pause.duracaoSegundos ?: pause.tempoSegundos ?: 0
-    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteSegundos)
+    val exceeded = pause.excedeuLimite ?: (duration > pause.limiteEfetivoSegundos)
 
     AlertDialog(
         onDismissRequest = onDismiss,

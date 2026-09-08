@@ -82,7 +82,7 @@ fun SupervisorLoginScreenV2(
 
         PcHeroCard(
             title = "Operação do café",
-            supportingText = "Acompanhe pausas, autorizações, colaboradores, biometria e relatórios.",
+            supportingText = "Acompanhe pausas, emita códigos de café e consulte relatórios.",
             icon = Icons.Default.SupervisorAccount,
             tone = PontoCafeTone.INFO,
         )

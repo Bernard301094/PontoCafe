@@ -19,15 +19,10 @@ fun AdminViewModel.restaurarNavegacao(
         AdminDestination.USER_DETAIL -> {
             state.usuarios.firstOrNull { it.id == userId }?.let(::selecionarUsuario)
         }
-        AdminDestination.AUTHORIZATION -> abrirAutorizacao()
+        AdminDestination.ACCESS_CODES -> abrirCodigos()
         AdminDestination.SETTINGS -> abrirConfiguracoes()
         AdminDestination.COLLABORATORS -> abrirColaboradores()
         AdminDestination.NEW_COLLABORATOR -> abrirNovoColaborador()
-        AdminDestination.BIOMETRIC_ENROLLMENT -> {
-            state.colaboradores.firstOrNull { it.id == collaboratorId }
-                ?.let(::cadastrarOuAtualizarRosto)
-                ?: abrirColaboradores()
-        }
         AdminDestination.AUDIT -> abrirAuditoria()
         AdminDestination.HOME,
         AdminDestination.LOADING,

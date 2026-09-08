@@ -7,7 +7,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const backendDir = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(backendDir, '..')
 const productionUrl = (process.env.PONTOCAFE_PRODUCTION_URL || 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/$/, '')
-const avatarBucketName = 'pontocafe-avatars'
 const require = createRequire(import.meta.url)
 const backendPackage = require('../package.json')
 const expectedApiVersion = String(backendPackage.version || '').trim()
@@ -53,27 +52,6 @@ function output(command, args, cwd = backendDir) {
   }).trim()
 }
 
-function wranglerOutput(args) {
-  return output(process.execPath, [wranglerCli, ...args])
-}
-
-function ensureAvatarBucket() {
-  const currentBuckets = wranglerOutput(['r2', 'bucket', 'list'])
-  const normalized = currentBuckets.toLowerCase()
-  if (normalized.includes(avatarBucketName)) {
-    console.log(`R2 ${avatarBucketName}: já existe.`)
-    return
-  }
-
-  console.log(`Criando R2 privado ${avatarBucketName}...`)
-  runWrangler(['r2', 'bucket', 'create', avatarBucketName])
-
-  const afterCreate = wranglerOutput(['r2', 'bucket', 'list']).toLowerCase()
-  if (!afterCreate.includes(avatarBucketName)) {
-    throw new Error(`O bucket R2 ${avatarBucketName} não apareceu após a criação.`)
-  }
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -106,16 +84,14 @@ async function fetchJson(url, attempts = 8) {
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const revision = output('git', ['rev-parse', '--short=12', 'HEAD'], repoRoot)
 
-console.log(`\n[1/5] Garantindo armazenamento privado de avatar...`)
-ensureAvatarBucket()
 
-console.log(`\n[2/5] Validando backend ${expectedApiVersion} · ${revision}...`)
+console.log(`\n[1/4] Validando backend ${expectedApiVersion} · ${revision}...`)
 run(npmCommand, ['run', 'validate'])
 
-console.log(`\n[3/5] Validando bundle do Worker...`)
+console.log(`\n[2/4] Validando bundle do Worker...`)
 runWrangler(['deploy', '--dry-run'])
 
-console.log(`\n[4/5] Publicando Worker ${expectedApiVersion} com tag ${revision}...`)
+console.log(`\n[3/4] Publicando Worker ${expectedApiVersion} com tag ${revision}...`)
 runWrangler([
   'deploy',
   '--tag',
@@ -124,7 +100,7 @@ runWrangler([
   `PontoCafe ${expectedApiVersion} · ${revision}`,
 ])
 
-console.log(`\n[5/5] Verificando Worker publicado em ${productionUrl}...`)
+console.log(`\n[4/4] Verificando Worker publicado em ${productionUrl}...`)
 const status = await fetchJson(`${productionUrl}/app-status`)
 const health = await fetchJson(`${productionUrl}/health`)
 
@@ -148,7 +124,6 @@ console.log('\nDeploy confirmado com sucesso.')
 console.log(JSON.stringify({
   revision,
   expectedApiVersion,
-  avatarBucket: avatarBucketName,
   workerVersionId: status.workerVersionId,
   workerVersionTag: status.workerVersionTag,
   workerVersionTimestamp: status.workerVersionTimestamp,

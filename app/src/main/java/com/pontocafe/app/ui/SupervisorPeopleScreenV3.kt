@@ -64,8 +64,6 @@ fun SupervisorPeopleScreenV3(
             if (state.sessaoAdministrativa) "admin" else "supervisor",
         )
     }
-    // Vida longa: antes era remember, e o cache morria ao sair da tela.
-    val avatarRepository = remember(sessionStore) { PontoRepositories.supervisor(sessionStore) }
     val activeAccount = remember(sessionStore, state.sessaoAdministrativa) { sessionStore.activeAccount() }
     val accountProfileLabel = if (state.sessaoAdministrativa) "Administrador" else "Supervisor"
     val accountFallbackName = activeAccount?.name?.takeIf { it.isNotBlank() } ?: accountProfileLabel
@@ -74,43 +72,11 @@ fun SupervisorPeopleScreenV3(
     var faceFilter by rememberSaveable { mutableStateOf(PeopleFaceFilter.ALL) }
     var peopleSort by rememberSaveable { mutableStateOf(PeopleSort.PRIORITY) }
     var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
-    var deleteFace by remember { mutableStateOf<Colaborador?>(null) }
     var deleteCollaborator by remember { mutableStateOf<Colaborador?>(null) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var sectorFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var shiftFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var avatarTarget by remember { mutableStateOf<Colaborador?>(null) }
-    var avatarBusyId by remember { mutableStateOf<String?>(null) }
-    var avatarError by remember { mutableStateOf<String?>(null) }
-    var avatarMessage by remember { mutableStateOf<String?>(null) }
     var showAccountSheet by remember { mutableStateOf(false) }
-
-    avatarTarget?.let { target ->
-        CollaboratorAvatarSourceDialog(
-            collaboratorName = target.nome,
-            onDismiss = { avatarTarget = null },
-            onImageReady = { optimized ->
-                avatarBusyId = target.id
-                avatarError = null
-                avatarMessage = null
-                scope.launch {
-                    runCatching {
-                        avatarRepository.uploadAvatar(target.id, optimized)
-                        optimized.size
-                    }.onSuccess { bytes ->
-                        avatarBusyId = null
-                        avatarTarget = null
-                        avatarMessage = "Avatar de ${target.nome} otimizado para ${String.format("%.1f", bytes / 1024.0)} KB."
-                        viewModel.abrirColaboradores()
-                    }.onFailure { error ->
-                        avatarBusyId = null
-                        avatarError = error.message ?: "Não foi possível salvar o avatar."
-                    }
-                }
-            },
-            onError = { message -> avatarError = message },
-        )
-    }
 
     if (showAccountSheet) {
         PcAccountProfileSheet(
@@ -129,32 +95,6 @@ fun SupervisorPeopleScreenV3(
         )
     }
 
-    deleteFace?.let { collaborator ->
-        AlertDialog(
-            onDismissRequest = { if (!state.carregando) deleteFace = null },
-            title = { Text("Excluir biometria facial?") },
-            text = {
-                PcDialogBody {
-                    Text("O rosto de ${collaborator.nome} será removido. O colaborador continuará ativo e poderá cadastrar a biometria novamente.")
-                }
-            },
-            confirmButton = {
-                PcDangerButton(
-                    text = "Excluir rosto",
-                    onClick = {
-                        deleteFace = null
-                        viewModel.excluirRosto(collaborator)
-                    },
-                    enabled = !state.carregando,
-                    loading = state.carregando,
-                )
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteFace = null }, enabled = !state.carregando) { Text("Cancelar") }
-            },
-        )
-    }
-
     deleteCollaborator?.let { collaborator ->
         AlertDialog(
             onDismissRequest = { if (!state.carregando) deleteCollaborator = null },
@@ -164,7 +104,7 @@ fun SupervisorPeopleScreenV3(
                     Text("${collaborator.nome} deixará de aparecer imediatamente entre os colaboradores ativos.")
                     PcStateBanner(
                         title = "Histórico preservado",
-                        supportingText = "Pausas e auditoria anteriores continuam disponíveis. A biometria será excluída.",
+                        supportingText = "Pausas e auditoria anteriores continuam disponíveis. Qualquer código pendente é cancelado.",
                         tone = PontoCafeTone.INFO,
                     )
                 }
@@ -188,7 +128,7 @@ fun SupervisorPeopleScreenV3(
     }
 
     val all = state.colaboradores.sortedBy { it.nome.lowercase() }
-    val pending = all.count { !it.rostoCadastrado }
+    val pending = all.count { it.emPausa }
     val query = search.trim()
 
     val sectors = all
@@ -202,7 +142,7 @@ fun SupervisorPeopleScreenV3(
         .sortedBy { it.lowercase() }
 
     val filtered = all.asSequence()
-        .filter { faceFilter != PeopleFaceFilter.PENDING || !it.rostoCadastrado }
+        .filter { faceFilter != PeopleFaceFilter.EM_PAUSA || it.emPausa }
         .filter {
             query.isBlank() ||
                 it.nome.contains(query, true) ||
@@ -214,7 +154,7 @@ fun SupervisorPeopleScreenV3(
         .toList()
     val visible = when (peopleSort) {
         PeopleSort.PRIORITY -> filtered.sortedWith(
-            compareBy<Colaborador>({ it.rostoCadastrado }, { it.nome.lowercase() }),
+            compareBy<Colaborador>({ !it.emPausa }, { it.nome.lowercase() }),
         )
         PeopleSort.NAME -> filtered.sortedBy { it.nome.lowercase() }
         PeopleSort.SECTOR -> filtered.sortedWith(
@@ -242,28 +182,12 @@ fun SupervisorPeopleScreenV3(
         )
     }
 
-    fun openAvatar(person: Colaborador) {
-        avatarError = null
-        avatarMessage = null
-        avatarTarget = person
-    }
-
-    fun removeAvatar(person: Colaborador) {
-        avatarBusyId = person.id
-        avatarError = null
-        avatarMessage = null
-        scope.launch {
-            runCatching { avatarRepository.deleteAvatar(person.id) }
-                .onSuccess {
-                    avatarBusyId = null
-                    avatarMessage = "Avatar de ${person.nome} removido."
-                    viewModel.abrirColaboradores()
-                }
-                .onFailure { error ->
-                    avatarBusyId = null
-                    avatarError = error.message ?: "Não foi possível remover o avatar."
-                }
-        }
+    // Gerar um código sem o mostrar não serve para nada: o Supervisor precisa
+    // lê-lo em voz alta para quem está do outro lado do balcão. A tela emitia
+    // e deixava só a mensagem de sucesso -- os seis caracteres ficavam no
+    // estado sem nunca aparecerem em lado nenhum.
+    state.codigoEmitido?.let { emitido ->
+        PcIssuedCodeDialog(codigo = emitido, onDismiss = viewModel::limparCodigoEmitido)
     }
 
     PontoCafeResponsiveOverlayScreen(
@@ -280,27 +204,11 @@ fun SupervisorPeopleScreenV3(
         if (!expandedLayout && selectedPerson != null) {
             PersonActionBottomSheet(
                 person = selectedPerson,
-                loading = state.carregando || avatarBusyId == selectedPerson.id,
+                loading = state.carregando,
                 onDismiss = { selectedPersonId = null },
-                onBiometric = {
+                onGerarCodigo = {
                     selectedPersonId = null
-                    viewModel.cadastrarOuAtualizarRosto(selectedPerson)
-                },
-                onAvatar = {
-                    selectedPersonId = null
-                    openAvatar(selectedPerson)
-                },
-                onDeleteAvatar = if (selectedPerson.avatarUrl.isNullOrBlank()) null else {
-                    {
-                        selectedPersonId = null
-                        removeAvatar(selectedPerson)
-                    }
-                },
-                onDeleteFace = if (!selectedPerson.rostoCadastrado) null else {
-                    {
-                        selectedPersonId = null
-                        deleteFace = selectedPerson
-                    }
+                    viewModel.emitirCodigo(selectedPerson, null)
                 },
                 onDeleteCollaborator = {
                     selectedPersonId = null
@@ -319,11 +227,18 @@ fun SupervisorPeopleScreenV3(
                     onProfileClick = { showAccountSheet = true },
                     onBackToPonto = onClose,
                 )
+                // Mesma decisão da tela de Admin: os dois números repetiam os
+                // chips logo abaixo e custavam quase um quinto da altura útil.
                 if (!compactHeight) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
-                        PcHeroStat(value = "${all.size}", label = "Colaboradores", modifier = Modifier.weight(1f))
-                        PcHeroStat(value = "$pending", label = "Rosto pendente", modifier = Modifier.weight(1f))
-                    }
+                    Text(
+                        if (pending > 0) {
+                            "$pending no café agora · ${all.size} colaboradores"
+                        } else {
+                            "Ninguém no café agora · ${all.size} colaboradores"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+                    )
                 }
             },
         ) {
@@ -356,17 +271,6 @@ fun SupervisorPeopleScreenV3(
                             tone = PontoCafeTone.DANGER,
                         )
                     }
-                    PcFeedbackBanner(
-                        message = avatarError,
-                        tone = PontoCafeTone.DANGER,
-                        onDismiss = { avatarError = null },
-                    )
-                    PcFeedbackBanner(
-                        message = avatarMessage,
-                        tone = PontoCafeTone.SUCCESS,
-                        onDismiss = { avatarMessage = null },
-                        autoDismissMillis = 4_000L,
-                    )
                 }
 
                 PeopleSearchField(
@@ -413,10 +317,10 @@ fun SupervisorPeopleScreenV3(
                                     person = person,
                                     selected = person.id == selectedPersonId,
                                     selectionMode = false,
-                                    loading = state.carregando || avatarBusyId == person.id,
+                                    loading = state.carregando,
                                     onClick = { selectedPersonId = person.id },
                                     onSelected = {},
-                                    onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                    onGerarCodigo = { viewModel.emitirCodigo(person, null) },
                                     modifier = Modifier.animateItem(),
                                 )
                             }
@@ -424,11 +328,8 @@ fun SupervisorPeopleScreenV3(
 
                         PersonDetailPanel(
                             person = selectedPerson,
-                            loading = state.carregando || (selectedPerson != null && avatarBusyId == selectedPerson.id),
-                            onBiometric = viewModel::cadastrarOuAtualizarRosto,
-                            onAvatar = ::openAvatar,
-                            onDeleteAvatar = ::removeAvatar,
-                            onDeleteFace = { deleteFace = it },
+                            loading = state.carregando,
+                            onGerarCodigo = { pessoa -> viewModel.emitirCodigo(pessoa, null) },
                             onDeleteCollaborator = { deleteCollaborator = it },
                             modifier = Modifier.weight(.52f),
                         )
@@ -457,10 +358,10 @@ fun SupervisorPeopleScreenV3(
                                 person = person,
                                 selected = false,
                                 selectionMode = false,
-                                loading = state.carregando || avatarBusyId == person.id,
+                                loading = state.carregando,
                                 onClick = { selectedPersonId = person.id },
                                 onSelected = {},
-                                onBiometric = { viewModel.cadastrarOuAtualizarRosto(person) },
+                                onGerarCodigo = { viewModel.emitirCodigo(person, null) },
                                 modifier = Modifier.animateItem(),
                             )
                         }

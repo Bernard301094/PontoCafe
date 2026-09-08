@@ -80,7 +80,9 @@ test('auth runtime binds creation reset and login to the explicit provider', () 
   const admin = readFileSync(new URL('../src/routes/admin-routes.ts', import.meta.url), 'utf8')
 
   assert.match(runtime, /password:\s*\{\s*hash:\s*hashPassword,\s*verify:\s*verifyPassword/s)
-  assert.match(users, /authContext\.password\.hash\(body\.data\.senha\)/)
+  // Supervisores recebem senha temporária gerada; por isso o hash é calculado
+  // sobre `plaintextPassword`, e não diretamente sobre o corpo da requisição.
+  assert.match(users, /authContext\.password\.hash\(plaintextPassword\)/)
   assert.match(login, /authContext\.password\.verify\(\{[\s\S]*hash: account\.password,[\s\S]*password: body\.data\.password/)
   assert.match(admin, /auth\.api\.setUserPassword/)
 })
@@ -102,12 +104,21 @@ test('supervisor lookup is role-neutral while inactive and unknown-role accounts
 
 test('safe auth diagnostics never log passwords hashes or tokens', () => {
   const login = readFileSync(new URL('../src/routes/auth-routes.ts', import.meta.url), 'utf8')
-  const logBodies = [...login.matchAll(/(?:console\.info|console\.error)\(JSON\.stringify\(\{([\s\S]*?)\}\)\)/g)]
+  // O log passou por um helper (`safeAuthLog`) em vez de montar o objeto em
+  // cada ponto. A garantia mudou de lugar junto: o tipo do parâmetro só aceita
+  // boolean, string ou null, então um hash ou um token não têm como entrar.
+  assert.match(login, /function safeAuthLog\(/)
+  assert.match(login, /details: Record<string, boolean \| string \| null>/)
+  assert.match(login, /accountFound: Boolean\(account\)/)
+  assert.match(login, /passwordVerified/)
+  assert.match(login, /sessionCreated: true/)
+
+  // Nenhuma chamada de log pode carregar segredo, seja pelo helper ou direta.
+  const logCalls = [...login.matchAll(/(?:safeAuthLog|console\.(?:info|error|warn|log))\(([\s\S]{0,600}?)\n\s*\}?\)\)?/g)]
     .map((match) => match[1])
     .join('\n')
-
-  assert.match(logBodies, /accountFound|passwordVerified|sessionCreated/)
-  assert.doesNotMatch(logBodies, /body\.data\.password|account\.password|\btoken\b|Authorization/)
+  assert.ok(logCalls.length > 0, 'deveria haver chamadas de log para inspecionar')
+  assert.doesNotMatch(logCalls, /body\.data\.password|account\.password|\btoken\b|Authorization/)
 })
 
 test('android supervisor flow uses the shared email sign-in endpoint and keeps backend authoritative', () => {
