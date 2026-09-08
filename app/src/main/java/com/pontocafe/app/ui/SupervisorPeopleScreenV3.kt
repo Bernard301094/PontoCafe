@@ -204,7 +204,7 @@ fun SupervisorPeopleScreenV3(
         if (!expandedLayout && selectedPerson != null) {
             PersonActionBottomSheet(
                 person = selectedPerson,
-                loading = state.carregando,
+                loading = state.colaboradorOcupadoId == selectedPerson.id,
                 onDismiss = { selectedPersonId = null },
                 onGerarCodigo = {
                     selectedPersonId = null
@@ -317,7 +317,7 @@ fun SupervisorPeopleScreenV3(
                                     person = person,
                                     selected = person.id == selectedPersonId,
                                     selectionMode = false,
-                                    loading = state.carregando,
+                                    loading = state.colaboradorOcupadoId == person.id,
                                     onClick = { selectedPersonId = person.id },
                                     onSelected = {},
                                     onGerarCodigo = { viewModel.emitirCodigo(person, null) },
@@ -328,7 +328,7 @@ fun SupervisorPeopleScreenV3(
 
                         PersonDetailPanel(
                             person = selectedPerson,
-                            loading = state.carregando,
+                            loading = state.colaboradorOcupadoId == selectedPerson?.id,
                             onGerarCodigo = { pessoa -> viewModel.emitirCodigo(pessoa, null) },
                             onDeleteCollaborator = { deleteCollaborator = it },
                             modifier = Modifier.weight(.52f),
@@ -358,7 +358,7 @@ fun SupervisorPeopleScreenV3(
                                 person = person,
                                 selected = false,
                                 selectionMode = false,
-                                loading = state.carregando,
+                                loading = state.colaboradorOcupadoId == person.id,
                                 onClick = { selectedPersonId = person.id },
                                 onSelected = {},
                                 onGerarCodigo = { viewModel.emitirCodigo(person, null) },

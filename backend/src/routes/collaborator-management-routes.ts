@@ -1,7 +1,9 @@
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { requireRole, requireUser, type AppEnv } from '../auth-runtime.js'
+import { config } from '../config.js'
 import { query, transaction } from '../db.js'
+import { CURRENT_PERIOD_CTE, periodPauseDoneSql } from '../ponto-period.js'
 import { newId } from '../security.js'
 import { parseJson, uuidSchema } from './shared.js'
 
@@ -42,8 +44,10 @@ collaboratorManagementRoutes.get('/colaboradores', async (c) => {
     ativo: boolean
     emPausa: boolean
     codigoAtivo: boolean
+    pausaPeriodoConcluida: boolean
   }>(
-    `select col.id,col.nome,col.setor,col.turno,col.ativo,
+    `with ${CURRENT_PERIOD_CTE}
+     select col.id,col.nome,col.setor,col.turno,col.ativo,
             exists(
               select 1 from pausas_cafe p
                where p.colaborador_id=col.id and p.fim_em is null
@@ -54,10 +58,12 @@ collaboratorManagementRoutes.get('/colaboradores', async (c) => {
                  and ca.cancelado_em is null
                  and ca.retorno_em is null
                  and (ca.saida_em is not null or ca.expira_em>now())
-            ) as "codigoAtivo"
+            ) as "codigoAtivo",
+            ${periodPauseDoneSql('col.id')} as "pausaPeriodoConcluida"
        from colaboradores col
       where col.ativo=true
       order by col.nome`,
+    [config.appTimezone],
   )
   return c.json({ colaboradores: result.rows })
 })

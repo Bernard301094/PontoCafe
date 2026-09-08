@@ -181,14 +181,45 @@ test('a biometria não sobrevive em nenhuma camada', () => {
   assert.doesNotMatch(pontoApi, /embedding|verificacaoToken/i)
 })
 
-test('o primeiro passo do quiosque diz que é o primeiro, e usa a tela toda', () => {
-  // "Encontre o seu nome" não avisava que havia um segundo passo, e a lista de
-  // coluna única desperdiçava metade da largura do tablet que costuma ser o
-  // quiosque. A fala do passo e o título passam a dizer a mesma frase.
+test('o primeiro passo do quiosque diz que é o primeiro, e não despeja a lista', () => {
+  // "Encontre o seu nome" não avisava que havia um segundo passo. E despejar os
+  // noventa e seis nomes obrigava a rolar antes de qualquer coisa: o seletor
+  // abre uma folha com a busca já em foco, que é o gesto real de quem sabe o
+  // próprio nome. A fala do passo e o título dizem a mesma frase.
   assert.match(kiosk, /PASSO 1 DE 2/)
   assert.match(kiosk, /"Toque no seu nome"/)
   assert.match(voiceGuidance, /Toque no seu nome/)
-  assert.match(kiosk, /GridCells\.Adaptive/)
+  assert.match(kiosk, /PcCollaboratorPickerField\(/)
+  assert.match(kiosk, /PcCollaboratorPickerSheet\(/)
+  assert.doesNotMatch(kiosk, /GridCells\.Adaptive/, 'a grade de todos os nomes saiu do primeiro passo')
+})
+
+test('quem fechou a pausa do período sai das listas até o período seguinte', () => {
+  const period = read('backend/src/ponto-period.ts')
+  const pontoRoutes = read('backend/src/routes/ponto-routes.ts')
+  const management = read('backend/src/routes/collaborator-management-routes.ts')
+  const viewModel = read('app/src/main/java/com/pontocafe/app/PontoCafeViewModel.kt')
+
+  // A regra do período tem de ser a mesma que decide a abertura da pausa:
+  // janela que contém a hora, e a mais próxima como recurso. Se divergirem, o
+  // quiosque esconde alguém que o servidor deixaria sair.
+  assert.match(period, /and \(now\(\) at time zone \$1\)::time>=inicio/)
+  assert.match(period, /and \(now\(\) at time zone \$1\)::time<fim/)
+  assert.match(period, /order by least\(/)
+  // Fechou, não abriu: quem está no café agora continua na lista, porque é essa
+  // pessoa que ainda precisa do quiosque para registar o retorno.
+  assert.match(period, /p\.fim_em is not null/)
+
+  // No quiosque o corte é no servidor -- lista mais curta em vez de um
+  // sinalizador que o aparelho filtraria e que lhe diria quem tomou café.
+  assert.match(pontoRoutes, /and not \$\{periodPauseDoneSql\('col\.id'\)\}/)
+  // Na gestão vem como sinalizador, porque Pessoas usa a mesma rota e não pode
+  // perder gente da lista.
+  assert.match(management, /as "pausaPeriodoConcluida"/)
+
+  // E o quiosque precisa recarregar ao voltar do comprovante: com o cache de
+  // cinco minutos, quem acabou de voltar continuaria visível.
+  assert.match(viewModel, /carregarColaboradores\(force = true\)[\s\S]{0,200}atualizarConectividadeESincronizar/)
 })
 
 test('o teclado do quiosque só oferece o alfabeto do código', () => {

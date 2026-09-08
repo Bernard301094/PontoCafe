@@ -10,6 +10,11 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -23,6 +28,52 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.sin
+
+/**
+ * Física do toque, no lugar de curvas de Bézier.
+ *
+ * Uma mola descreve a intenção ("comprime e volta") em vez de uma duração fixa,
+ * e o Compose interrompe-a a meio sem salto quando o dedo sai antes do fim —
+ * um `tween` de 150 ms interrompido dá o degrau que se via ao tocar depressa
+ * duas vezes no mesmo botão.
+ *
+ * A compressão e o regresso usam molas diferentes de propósito. Descer tem de
+ * ser imediato: é a confirmação de que o toque foi registado, e uma mola macia
+ * aqui faz o botão parecer lento. Subir pode ser elástico, porque já é só
+ * acabamento.
+ */
+object PontoSprings {
+    /** Descida do toque: rígida, sem oscilação — o dedo tem de sentir na hora. */
+    val PressDown: SpringSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessHigh,
+    )
+
+    /** Regresso do toque: o ressalto elástico que dá o carácter tátil. */
+    val PressRelease: SpringSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioLowBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
+    /** Cartões e painéis a entrar ou a mudar de tamanho: firme, sem ressalto. */
+    val Surface: SpringSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMedium,
+    )
+}
+
+/**
+ * Escalas de compressão por tipo de alvo.
+ *
+ * Um botão de lista comprime pouco — a linha inteira mexer-se distrai. Uma
+ * tecla de teclado comprime mais, porque é o único sinal de que o dígito
+ * entrou, e o dedo tapa o número enquanto o toca.
+ */
+object PontoPressScale {
+    const val Surface = 0.98f
+    const val Button = 0.96f
+    const val Key = 0.92f
+}
 
 object PontoCafeMotion {
     // Motion curto por padrão: o app é operacional e precisa responder imediatamente.
@@ -117,6 +168,42 @@ fun Modifier.shakeOnChange(trigger: Any?): Modifier {
             0f
         }
     }
+}
+
+/**
+ * Compressão tátil de um alvo tocável.
+ *
+ * Devolve só o número; quem chama aplica-o com [pontoPressScale], que escreve
+ * em `graphicsLayer`. Isso mantém a animação inteira na fase de desenho: o
+ * RenderThread trata da transformação e nem a medição nem o layout voltam a
+ * correr enquanto o dedo está em baixo. Animar `padding` ou `size` para o mesmo
+ * efeito recriaria o layout a cada frame.
+ */
+@Composable
+fun rememberPontoPressScale(
+    interactionSource: InteractionSource,
+    pressedScale: Float = PontoPressScale.Button,
+): Float {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = if (pressed) PontoSprings.PressDown else PontoSprings.PressRelease,
+        label = "ponto-press-scale",
+    )
+    return scale
+}
+
+/**
+ * Aplica a escala na fase de desenho.
+ *
+ * `graphicsLayer` sem lambda receberia o valor por parâmetro e invalidaria a
+ * composição a cada frame; a versão com lambda lê o valor dentro do bloco de
+ * desenho, e só o desenho volta a correr.
+ */
+fun Modifier.pontoPressScale(scale: () -> Float): Modifier = graphicsLayer {
+    val value = scale()
+    scaleX = value
+    scaleY = value
 }
 
 @Composable

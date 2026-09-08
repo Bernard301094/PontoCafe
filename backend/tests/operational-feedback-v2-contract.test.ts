@@ -69,13 +69,61 @@ test('feedback do Ponto diferencia confirmado, offline, limite excedido e recusa
 })
 
 test('microinterações permanecem curtas e acessíveis', () => {
-  assert.match(material, /collectIsPressedAsState/)
-  assert.match(material, /targetValue = if \(pressed\) 0\.975f else 1f/)
-  assert.match(material, /durationMillis = if \(pressed\) PontoCafeMotion\.Quick else PontoCafeMotion\.Standard/)
   assert.match(material, /MotionReveal/)
   // O háptico dos botões passa pelo objeto central, não pela API do Android.
   assert.match(material, /PontoHaptics\.tap\(view\)/)
   assert.doesNotMatch(material, /performHapticFeedback/)
+})
+
+test('o toque é mola, e vive na fase de desenho', () => {
+  const motion = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoCafeMotion.kt', import.meta.url),
+    'utf8',
+  )
+
+  // Era um tween: interrompido a meio -- que é o caso normal, o dedo sai antes
+  // dos 150 ms -- dava um degrau visível. A mola é interrompível por natureza.
+  assert.match(motion, /object PontoSprings/)
+  assert.match(motion, /dampingRatio = Spring\.DampingRatioLowBouncy/)
+  assert.match(motion, /stiffness = Spring\.StiffnessMediumLow/)
+  assert.match(motion, /animationSpec = if \(pressed\) PontoSprings\.PressDown else PontoSprings\.PressRelease/)
+  assert.doesNotMatch(material, /targetValue = if \(pressed\)[\s\S]{0,120}tween\(/)
+
+  // A escala tem de sair pelo graphicsLayer. Animar tamanho ou padding daria o
+  // mesmo efeito visual recriando o layout a cada frame.
+  assert.match(motion, /fun Modifier\.pontoPressScale\(scale: \(\) -> Float\): Modifier = graphicsLayer/)
+  assert.match(material, /internal fun Modifier\.pcPressScale\(scale: Float\): Modifier = graphicsLayer/)
+
+  // O ponto único: todos os botões e cartões do app passam por aqui.
+  assert.match(material, /rememberPontoPressScale\(interactionSource, PontoPressScale\.Button\)/)
+})
+
+test('o alvo tocável cresce do telefone para o quiosque', () => {
+  const responsive = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/ResponsiveLayout.kt', import.meta.url),
+    'utf8',
+  )
+  // 48dp servem um polegar a 30 cm. Um quiosque na parede é operado de pé e a
+  // mais de um metro, e o mesmo botão passa a ser difícil de acertar.
+  assert.match(responsive, /fun pontoTouchTarget\(\): Dp/)
+  assert.match(responsive, /PontoCafeWindowSizeClass\.COMPACT -> 48\.dp/)
+  assert.match(responsive, /PontoCafeWindowSizeClass\.MEDIUM -> 56\.dp/)
+  assert.match(responsive, /PontoCafeWindowSizeClass\.EXPANDED -> 64\.dp/)
+  // E os botões do sistema têm de usá-lo, senão o token não vale nada.
+  assert.match(material, /defaultMinSize\(minHeight = pontoTouchTarget\(\)\)/)
+})
+
+test('as telas têm preview nos dois aparelhos que existem em produção', () => {
+  const previews = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/ui/PontoPreviews.kt', import.meta.url),
+    'utf8',
+  )
+  // Um preview só de telefone deixa passar layouts que esticam feio a 1200dp;
+  // um só de tablet deixa passar texto cortado a 411dp. Sempre os dois.
+  assert.ok(previews.includes('const val PREVIEW_PHONE = "spec:width=411dp'))
+  assert.ok(previews.includes('const val PREVIEW_KIOSK = "spec:width=1280dp'))
+  assert.match(previews, /fun PontoPreviewSurface/)
+  assert.match(previews, /PontoCafeTheme \{/)
 })
 
 test('estado da voz neural fica diagnosticável sem retirar fallback Android', () => {

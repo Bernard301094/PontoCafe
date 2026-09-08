@@ -182,3 +182,23 @@ fun PontoCafeResponsivePage(
         }
     }
 }
+
+/**
+ * Altura mínima de um alvo tocável, por classe de janela.
+ *
+ * Os 48dp do Material são o mínimo para um polegar a 30 cm — a distância de
+ * quem segura um A55. Um quiosque montado na parede é operado de pé, muitas
+ * vezes a mais de um metro e com a mão em movimento, e aí o mesmo botão passa
+ * a ser difícil de acertar. Daí a escala por classe em vez de um número fixo.
+ *
+ * Lê a configuração diretamente para poder ser chamada de dentro de qualquer
+ * componente, incluindo os que não recebem [PontoCafeResponsiveInfo].
+ */
+@Composable
+fun pontoTouchTarget(): Dp = when (
+    pontoCafeWindowSizeClass(LocalConfiguration.current.screenWidthDp.dp)
+) {
+    PontoCafeWindowSizeClass.COMPACT -> 48.dp
+    PontoCafeWindowSizeClass.MEDIUM -> 56.dp
+    PontoCafeWindowSizeClass.EXPANDED -> 64.dp
+}

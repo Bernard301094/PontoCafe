@@ -291,7 +291,7 @@ fun AdminPeopleScreenV4(
         if (!expandedLayout && selectedPerson != null && !selectionMode && section == AdminPeopleSection.COLLABORATORS) {
             PersonActionBottomSheet(
                 person = selectedPerson,
-                loading = state.carregando || reliabilityState.loading,
+                loading = state.colaboradorOcupadoId == selectedPerson.id,
                 onDismiss = { selectedPersonId = null },
                 onGerarCodigo = {
                     selectedPersonId = null
@@ -527,7 +527,7 @@ fun AdminPeopleScreenV4(
                                                 collaborator.id == selectedPersonId
                                             },
                                             selectionMode = selectionMode,
-                                            loading = state.carregando || reliabilityState.loading,
+                                            loading = state.colaboradorOcupadoId == collaborator.id,
                                             onClick = {
                                                 if (selectionMode) {
                                                     selectedIds = if (collaborator.id in selectedIds) {
@@ -586,7 +586,7 @@ fun AdminPeopleScreenV4(
                                         person = collaborator,
                                         selected = collaborator.id in selectedIds,
                                         selectionMode = selectionMode,
-                                        loading = state.carregando || reliabilityState.loading,
+                                        loading = state.colaboradorOcupadoId == collaborator.id,
                                         onClick = {
                                             if (selectionMode) {
                                                 selectedIds = if (collaborator.id in selectedIds) {

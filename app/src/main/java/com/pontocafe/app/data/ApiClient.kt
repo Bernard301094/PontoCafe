@@ -26,6 +26,15 @@ data class Colaborador(
     /** Preenchidos só pelas rotas de gestão; o quiosque não os recebe. */
     val emPausa: Boolean = false,
     val codigoAtivo: Boolean = false,
+    /**
+     * A pessoa já fechou a pausa deste período hoje, então não pode tomar outro
+     * café até o próximo período.
+     *
+     * Chega apenas pela rota de gestão. O quiosque não recebe este campo porque
+     * lá o servidor já remove essas pessoas da lista — menos informação a sair
+     * do que um sinalizador que o aparelho teria de filtrar.
+     */
+    val pausaPeriodoConcluida: Boolean = false,
     @Deprecated("Matrícula não é mais utilizada pelo Ponto Café")
     val matricula: String? = null,
 )

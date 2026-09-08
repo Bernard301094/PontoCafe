@@ -57,6 +57,15 @@ data class AdminUiState(
      */
     val codigosAtalhoCarregando: Boolean = false,
     val codigosAtalhoErro: String? = null,
+    /**
+     * Quem tem uma ação individual em curso (emitir ou cancelar código).
+     *
+     * Existe porque [carregando] é um sinalizador de tela inteira: passá-lo a
+     * cada linha da lista fazia os noventa e seis botões "Gerar" acenderem
+     * juntos quando se emitia um código para uma pessoa só — parecia que todos
+     * tinham sido premidos. Cada linha compara este id com o seu.
+     */
+    val colaboradorOcupadoId: String? = null,
     val manualPunchResult: ManualPunchResult? = null,
     val mensagem: String? = null,
     val erro: String? = null,
@@ -209,40 +218,55 @@ class AdminViewModel(
         }
     }
 
-    fun abrirAuditoria() {
+    /**
+     * Navega primeiro, busca depois.
+     *
+     * As abas faziam o contrário: pediam os dados e só trocavam de `destination`
+     * dentro do `onSuccess`. Cada toque numa aba era uma ida à rede inteira
+     * olhando para a tela anterior, e o que já estava em memória reaparecia
+     * "do zero" a cada visita. Aqui a tela troca no mesmo instante, o que já foi
+     * carregado continua visível, e o indicador de carga só aparece quando não
+     * há nada para mostrar.
+     *
+     * Uma falha de rede também deixou de esvaziar a tela: a lista anterior fica,
+     * e o erro aparece como aviso em cima dela.
+     */
+    private fun <T> navegarEAtualizar(
+        destino: AdminDestination,
+        temDados: Boolean,
+        aoNavegar: (AdminUiState) -> AdminUiState = { it },
+        buscar: suspend () -> T,
+        aoReceber: (T, AdminUiState) -> AdminUiState,
+    ) {
+        state = aoNavegar(
+            state.copy(
+                destination = destino,
+                carregando = !temDados,
+                erro = null,
+                mensagem = null,
+            ),
+        )
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.audit(150) }
-                .onSuccess {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.AUDIT,
-                        auditoria = it,
-                    )
-                }
+            runCatching { buscar() }
+                .onSuccess { state = aoReceber(it, state).copy(carregando = false) }
                 .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
         }
     }
 
-    fun abrirColaboradores() {
-        viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-            )
-            runCatching { repository.collaborators() }
-                .onSuccess {
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.COLLABORATORS,
-                        colaboradores = it,
-                        colaboradorSelecionado = null,
-                    )
-                }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
-        }
-    }
+    fun abrirAuditoria() = navegarEAtualizar(
+        destino = AdminDestination.AUDIT,
+        temDados = state.auditoria.isNotEmpty(),
+        buscar = { repository.audit(150) },
+        aoReceber = { eventos, atual -> atual.copy(auditoria = eventos) },
+    )
+
+    fun abrirColaboradores() = navegarEAtualizar(
+        destino = AdminDestination.COLLABORATORS,
+        temDados = state.colaboradores.isNotEmpty(),
+        aoNavegar = { it.copy(colaboradorSelecionado = null) },
+        buscar = { repository.collaborators() },
+        aoReceber = { pessoas, atual -> atual.copy(colaboradores = pessoas) },
+    )
 
     fun abrirNovoColaborador() {
         state = state.copy(destination = AdminDestination.NEW_COLLABORATOR, erro = null, mensagem = null)
@@ -309,14 +333,12 @@ class AdminViewModel(
         )
     }
 
-    fun abrirConfiguracoes() {
-        viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
-            runCatching { repository.coffeeRules() }
-                .onSuccess { state = state.copy(carregando = false, destination = AdminDestination.SETTINGS, regrasCafe = it) }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
-        }
-    }
+    fun abrirConfiguracoes() = navegarEAtualizar(
+        destino = AdminDestination.SETTINGS,
+        temDados = state.regrasCafe.isNotEmpty(),
+        buscar = { repository.coffeeRules() },
+        aoReceber = { regras, atual -> atual.copy(regrasCafe = regras) },
+    )
 
     fun salvarRegraCafe(periodo: String, inicio: String, fim: String, limiteMinutos: Int, ativo: Boolean) {
         viewModelScope.launch {
@@ -333,21 +355,17 @@ class AdminViewModel(
         }
     }
 
-    fun abrirCodigos() {
-        viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, codigoEmitido = null)
-            runCatching { repository.collaborators() to repository.accessCodes() }
-                .onSuccess { (pessoas, codigos) ->
-                    state = state.copy(
-                        carregando = false,
-                        destination = AdminDestination.ACCESS_CODES,
-                        colaboradores = pessoas,
-                        codigosAtivos = codigos.codigos,
-                    )
-                }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
-        }
-    }
+    fun abrirCodigos() = navegarEAtualizar(
+        destino = AdminDestination.ACCESS_CODES,
+        temDados = state.colaboradores.isNotEmpty(),
+        // O código em claro da emissão anterior não pode reabrir o diálogo ao
+        // voltar à tela.
+        aoNavegar = { it.copy(codigoEmitido = null) },
+        buscar = { repository.collaborators() to repository.accessCodes() },
+        aoReceber = { (pessoas, codigos), atual ->
+            atual.copy(colaboradores = pessoas, codigosAtivos = codigos.codigos)
+        },
+    )
 
     fun atualizarCodigos() {
         viewModelScope.launch {
@@ -365,10 +383,10 @@ class AdminViewModel(
      * tela nem transformar um Worker desatualizado num banner vermelho por
      * cima do painel operacional.
      */
-    fun carregarAtalhoDeCodigos() {
+    fun carregarAtalhoDeCodigos(silencioso: Boolean = false) {
         if (state.codigosAtalhoCarregando) return
         viewModelScope.launch {
-            state = state.copy(codigosAtalhoCarregando = true, codigosAtalhoErro = null)
+            state = state.copy(codigosAtalhoCarregando = !silencioso, codigosAtalhoErro = null)
             runCatching { repository.collaborators() to repository.accessCodes() }
                 .onSuccess { (pessoas, codigos) ->
                     state = state.copy(
@@ -396,18 +414,31 @@ class AdminViewModel(
     fun emitirCodigo(colaborador: Colaborador, motivo: String?) {
         if (state.carregando) return
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, codigoEmitido = null)
+            state = state.copy(
+                carregando = true,
+                colaboradorOcupadoId = colaborador.id,
+                erro = null,
+                mensagem = null,
+                codigoEmitido = null,
+            )
             runCatching { repository.createAccessCode(colaborador.id, motivo) }
                 .onSuccess { codigo ->
                     state = state.copy(
                         carregando = false,
+                        colaboradorOcupadoId = null,
                         codigoEmitido = codigo,
                         mensagem = "Código gerado para ${codigo.colaboradorNome}.",
                         erro = null,
                     )
                     atualizarCodigos()
                 }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+                .onFailure {
+                    state = state.copy(
+                        carregando = false,
+                        colaboradorOcupadoId = null,
+                        erro = AdminRepository.message(it),
+                    )
+                }
         }
     }
 
@@ -445,11 +476,17 @@ class AdminViewModel(
     fun cancelarCodigo(colaborador: Colaborador) {
         if (state.carregando) return
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
+            state = state.copy(
+                carregando = true,
+                colaboradorOcupadoId = colaborador.id,
+                erro = null,
+                mensagem = null,
+            )
             runCatching { repository.cancelAccessCode(colaborador.id) }
                 .onSuccess {
                     state = state.copy(
                         carregando = false,
+                        colaboradorOcupadoId = null,
                         codigoEmitido = if (state.codigoEmitido?.colaboradorId == colaborador.id) {
                             null
                         } else {
@@ -460,7 +497,13 @@ class AdminViewModel(
                     )
                     atualizarCodigos()
                 }
-                .onFailure { state = state.copy(carregando = false, erro = AdminRepository.message(it)) }
+                .onFailure {
+                    state = state.copy(
+                        carregando = false,
+                        colaboradorOcupadoId = null,
+                        erro = AdminRepository.message(it),
+                    )
+                }
         }
     }
 
