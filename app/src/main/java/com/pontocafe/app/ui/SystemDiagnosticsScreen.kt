@@ -29,6 +29,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +39,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.AdminReliabilityViewModel
 import com.pontocafe.app.BuildConfig
@@ -110,7 +116,30 @@ fun SystemDiagnosticsScreen(
                         (fleet?.alertasSaude ?: 0) == 0
 
                     item("status") {
+                        // Esta tela é consultada aberta, por minutos, enquanto se
+                        // investiga alguma coisa. Uma mudança de estado no meio
+                        // disso trocava só a cor de fundo, e passava despercebida
+                        // a quem estava a olhar para outra parte do ecrã. O flash
+                        // dura o suficiente para o canto do olho apanhar.
+                        val flash = remember { Animatable(0f) }
+                        var primeiraLeitura by remember { mutableStateOf(true) }
+                        LaunchedEffect(healthy) {
+                            if (primeiraLeitura) {
+                                primeiraLeitura = false
+                            } else {
+                                flash.snapTo(1f)
+                                flash.animateTo(0f, tween(PontoCafeMotion.Slow))
+                            }
+                        }
+                        val corFlash = LocalPontoCafeSemanticColors.current.warning
+
                         PcHeroCard(
+                            modifier = Modifier.drawWithContent {
+                                drawContent()
+                                if (flash.value > 0f) {
+                                    drawRect(color = corFlash, alpha = flash.value * 0.28f)
+                                }
+                            },
                             title = if (healthy) "Sistema pronto para operar" else "Sistema requer atenção",
                             supportingText = buildString {
                                 append("Banco ${diagnostic.banco.latenciaMs} ms")
