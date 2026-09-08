@@ -70,6 +70,13 @@ data class SupervisorUiState(
     val codigoEmitido: AccessCodeCreatedResponse? = null,
     val manualPunchResult: ManualPunchResult? = null,
     val colaboradorSelecionado: Colaborador? = null,
+    /**
+     * Quem tem uma ação individual em curso (emitir ou cancelar código).
+     *
+     * [carregando] é de tela inteira: passá-lo a cada linha acendia todos os
+     * botões "Gerar" da lista ao emitir um código para uma pessoa só.
+     */
+    val colaboradorOcupadoId: String? = null,
     val sessaoAdministrativa: Boolean = false,
     val ultimaAtualizacaoAoVivoEmMillis: Long? = null,
     val conexaoAoVivoOk: Boolean = true,
@@ -368,18 +375,28 @@ class SupervisorViewModel(
         }
     }
 
+    /**
+     * Navega primeiro, busca depois.
+     *
+     * As abas trocavam de `destination` dentro do `onSuccess`: cada toque era
+     * uma ida à rede inteira olhando para a tela anterior, e o que já estava em
+     * memória reaparecia "do zero" a cada visita. Agora a tela troca na hora, o
+     * que já foi carregado continua visível, e o indicador só aparece quando
+     * não há nada para mostrar.
+     */
     fun abrirCodigos() {
+        val temDados = state.colaboradores.isNotEmpty()
+        state = state.copy(
+            destination = SupervisorDestination.CODIGOS,
+            carregando = !temDados,
+            erro = null,
+            mensagem = null,
+            codigoEmitido = null,
+        )
         viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-                codigoEmitido = null,
-            )
             runCatching { repository.collaborators() to repository.accessCodes() }
                 .onSuccess { (colaboradores, codigos) ->
                     state = state.copy(
-                        destination = SupervisorDestination.CODIGOS,
                         carregando = false,
                         colaboradores = colaboradores,
                         codigosAtivos = codigos.codigos,
@@ -408,11 +425,18 @@ class SupervisorViewModel(
     fun emitirCodigo(colaborador: Colaborador, motivo: String?) {
         if (state.carregando) return
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null, codigoEmitido = null)
+            state = state.copy(
+                carregando = true,
+                colaboradorOcupadoId = colaborador.id,
+                erro = null,
+                mensagem = null,
+                codigoEmitido = null,
+            )
             runCatching { repository.createAccessCode(colaborador.id, motivo) }
                 .onSuccess { codigo ->
                     state = state.copy(
                         carregando = false,
+                        colaboradorOcupadoId = null,
                         codigoEmitido = codigo,
                         mensagem = null,
                         erro = null,
@@ -420,7 +444,11 @@ class SupervisorViewModel(
                     atualizarCodigos()
                 }
                 .onFailure {
-                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                    state = state.copy(
+                        carregando = false,
+                        colaboradorOcupadoId = null,
+                        erro = SupervisorRepository.message(it),
+                    )
                 }
         }
     }
@@ -428,11 +456,17 @@ class SupervisorViewModel(
     fun cancelarCodigo(colaborador: Colaborador) {
         if (state.carregando) return
         viewModelScope.launch {
-            state = state.copy(carregando = true, erro = null, mensagem = null)
+            state = state.copy(
+                carregando = true,
+                colaboradorOcupadoId = colaborador.id,
+                erro = null,
+                mensagem = null,
+            )
             runCatching { repository.cancelAccessCode(colaborador.id) }
                 .onSuccess {
                     state = state.copy(
                         carregando = false,
+                        colaboradorOcupadoId = null,
                         codigoEmitido = if (state.codigoEmitido?.colaboradorId == colaborador.id) {
                             null
                         } else {
@@ -444,7 +478,11 @@ class SupervisorViewModel(
                     atualizarCodigos()
                 }
                 .onFailure {
-                    state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
+                    state = state.copy(
+                        carregando = false,
+                        colaboradorOcupadoId = null,
+                        erro = SupervisorRepository.message(it),
+                    )
                 }
         }
     }
@@ -576,21 +614,17 @@ class SupervisorViewModel(
     }
 
     fun abrirColaboradores() {
+        val temDados = state.colaboradores.isNotEmpty()
+        state = state.copy(
+            destination = SupervisorDestination.COLABORADORES,
+            carregando = !temDados,
+            colaboradorSelecionado = null,
+            erro = null,
+            mensagem = null,
+        )
         viewModelScope.launch {
-            state = state.copy(
-                carregando = true,
-                erro = null,
-                mensagem = null,
-            )
             runCatching { repository.collaborators() }
-                .onSuccess {
-                    state = state.copy(
-                        destination = SupervisorDestination.COLABORADORES,
-                        carregando = false,
-                        colaboradores = it,
-                        colaboradorSelecionado = null,
-                    )
-                }
+                .onSuccess { state = state.copy(carregando = false, colaboradores = it) }
                 .onFailure {
                     state = state.copy(carregando = false, erro = SupervisorRepository.message(it))
                 }
