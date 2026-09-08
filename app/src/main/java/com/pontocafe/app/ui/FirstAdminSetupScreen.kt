@@ -188,7 +188,14 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
                         ),
                     )
                     if (senha.isNotEmpty()) {
-                        PasswordStrengthChecklist(senha)
+                        PontoPasswordStrength(
+                            listOf(
+                                PontoPasswordRule("Pelo menos 10 caracteres", senha.length >= 10),
+                                PontoPasswordRule("Uma letra maiúscula", senha.any { it.isUpperCase() }),
+                                PontoPasswordRule("Um número", senha.any { it.isDigit() }),
+                                PontoPasswordRule("Um símbolo (ex: !@#$)", senha.any { !it.isLetterOrDigit() }),
+                            ),
+                        )
                     }
                     SecurePasswordField(
                         value = confirmar,
@@ -349,36 +356,3 @@ private fun SetupHorizontalStepper(
  * força, não bloqueiam o botão Continuar — mostrar isso como requisito duro
  * seria enganoso, já que o backend não os valida.
  */
-@Composable
-private fun PasswordStrengthChecklist(password: String, modifier: Modifier = Modifier) {
-    val semantic = LocalPontoCafeSemanticColors.current
-    val requirements = listOf(
-        "Pelo menos 10 caracteres" to (password.length >= 10),
-        "Uma letra maiúscula" to password.any { it.isUpperCase() },
-        "Um número" to password.any { it.isDigit() },
-        "Um símbolo (ex: !@#$)" to password.any { !it.isLetterOrDigit() },
-    )
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        requirements.forEach { (label, met) ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = if (met) "Atendido" else "Ainda não atendido",
-                    tint = if (met) semantic.success else MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(15.dp),
-                )
-                Text(
-                    label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (met) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}

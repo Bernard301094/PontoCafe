@@ -130,3 +130,29 @@ test('a telemetria mostra estado, e nenhuma animação fica em laço', () => {
     )
   }
 })
+
+test('a força da senha é medida uma vez só, e responde "já chega?"', () => {
+  const forca = read('app/src/main/java/com/pontocafe/app/ui/PasswordStrength.kt')
+  const admin = read('app/src/main/java/com/pontocafe/app/ui/FirstAdminSetupScreen.kt')
+  const supervisor = read('app/src/main/java/com/pontocafe/app/ui/SupervisorInitialPasswordChangeScreen.kt')
+
+  // Eram duas implementações: quatro itens com visto no primeiro Administrador,
+  // três linhas de texto na troca do Supervisor. Nenhuma dizia QUÃO forte a
+  // senha estava -- respondiam "falta quê", não "já chega?".
+  assert.match(forca, /fun PontoPasswordStrength\(/)
+  assert.match(admin, /PontoPasswordStrength\(/)
+  assert.match(supervisor, /PontoPasswordStrength\(/)
+  assert.doesNotMatch(admin, /private fun PasswordStrengthChecklist/)
+  assert.doesNotMatch(supervisor, /private fun PasswordRule/)
+
+  // Cor e barra interpolam: um salto seco de vermelho para âmbar lê-se como
+  // erro, não como progresso.
+  assert.match(forca, /animateColorAsState/)
+  assert.match(forca, /animationSpec = PontoSprings\.Surface/)
+  assert.match(forca, /rotationZ = \(1f - progresso\) \* -90f/)
+
+  // Coincidir não é força: uma senha fraca digitada duas vezes iguais continua
+  // fraca, e somá-la à barra inflaria a medida.
+  assert.match(forca, /fun PontoPasswordConfirmation\(/)
+  assert.match(supervisor, /PontoPasswordConfirmation\(/)
+})

@@ -120,9 +120,13 @@ fun SupervisorInitialPasswordChangeScreen(
                             supportingText = "Mínimo de 10 caracteres, com letras e números",
                             imeAction = ImeAction.Next,
                         )
-                        PasswordRule("Pelo menos 10 caracteres", longEnough)
-                        PasswordRule("Contém letra", hasLetter)
-                        PasswordRule("Contém número", hasDigit)
+                        PontoPasswordStrength(
+                            listOf(
+                                PontoPasswordRule("Pelo menos 10 caracteres", longEnough),
+                                PontoPasswordRule("Contém letra", hasLetter),
+                                PontoPasswordRule("Contém número", hasDigit),
+                            ),
+                        )
                         SecurePasswordField(
                             value = confirmation,
                             onValueChange = {
@@ -138,7 +142,9 @@ fun SupervisorInitialPasswordChangeScreen(
                             imeAction = ImeAction.Done,
                         )
                         if (confirmation.isNotBlank() && matches) {
-                            PasswordRule("As senhas coincidem", ok = true)
+                            // Separado da barra de propósito: coincidir não é
+                            // força de senha, é conferência do que foi digitado.
+                            PontoPasswordConfirmation("As senhas coincidem")
                         }
                     }
                 }
@@ -207,11 +213,3 @@ fun SupervisorInitialPasswordChangeScreen(
     }
 }
 
-@Composable
-private fun PasswordRule(text: String, ok: Boolean) {
-    Text(
-        text = if (ok) "✓ $text" else "• $text",
-        style = MaterialTheme.typography.bodySmall,
-        color = if (ok) LocalPontoCafeSemanticColors.current.success else MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
