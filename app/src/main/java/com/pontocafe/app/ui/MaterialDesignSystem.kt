@@ -404,7 +404,7 @@ fun PcPrimaryButton(
         },
         modifier = modifier
             .pcPressScale(pressScale)
-            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
@@ -434,7 +434,7 @@ fun PcTonalButton(
         },
         modifier = modifier
             .pcPressScale(pressScale)
-            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
@@ -464,7 +464,7 @@ fun PcSecondaryButton(
         },
         modifier = modifier
             .pcPressScale(pressScale)
-            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
@@ -495,7 +495,7 @@ fun PcDangerButton(
         },
         modifier = modifier
             .pcPressScale(pressScale)
-            .defaultMinSize(minHeight = PontoCafeDimensions.minimumTouchTarget)
+            .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
@@ -509,19 +509,17 @@ fun PcDangerButton(
     }
 }
 
+/**
+ * Ponto único por onde passa o toque de todo o app — botões, cartões, linhas de
+ * lista. Trocar a curva aqui troca o carácter tátil da interface inteira, e é
+ * por isso que ele existe: era um `tween` que dava um degrau visível quando o
+ * dedo saía antes dos 150 ms, e passou a ser mola.
+ *
+ * A assinatura fica como estava para os oito arquivos que já a chamam.
+ */
 @Composable
-internal fun rememberPcPressScale(interactionSource: MutableInteractionSource): Float {
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.975f else 1f,
-        animationSpec = tween(
-            durationMillis = if (pressed) PontoCafeMotion.Quick else PontoCafeMotion.Standard,
-            easing = PontoCafeMotion.EmphasizedEasing,
-        ),
-        label = "pc-button-press-scale",
-    )
-    return scale
-}
+internal fun rememberPcPressScale(interactionSource: MutableInteractionSource): Float =
+    rememberPontoPressScale(interactionSource, PontoPressScale.Button)
 
 internal fun Modifier.pcPressScale(scale: Float): Modifier = graphicsLayer {
     scaleX = scale
