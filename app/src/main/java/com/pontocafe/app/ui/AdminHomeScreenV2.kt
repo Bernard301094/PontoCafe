@@ -379,6 +379,7 @@ fun AdminHomeScreenV2(
                         colaboradores = state.colaboradores,
                         codigosAtivos = state.codigosAtivos,
                         carregando = state.codigosAtalhoCarregando || state.carregando,
+                        ocupadoId = state.colaboradorOcupadoId,
                         erro = state.codigosAtalhoErro,
                         maxResultados = if (responsive.isCompact) 4 else 6,
                         onGerar = { pessoa -> viewModel.emitirCodigo(pessoa, null) },
