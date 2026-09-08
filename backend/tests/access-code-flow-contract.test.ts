@@ -23,6 +23,9 @@ const kioskViewModel = read('app/src/main/java/com/pontocafe/app/PontoCafeViewMo
 const pontoApi = read('app/src/main/java/com/pontocafe/app/data/ApiClient.kt')
 const journal = read('app/src/main/java/com/pontocafe/app/data/PontoOperationJournal.kt')
 const offlineStore = read('app/src/main/java/com/pontocafe/app/data/SecurePontoOfflineStore.kt')
+const voiceGuidance = read('app/src/main/java/com/pontocafe/app/voice/PontoVoiceGuidance.kt')
+const config = read('backend/src/config.ts')
+const wranglerConfig = read('backend/wrangler.jsonc')
 const accessCodeScreen = read('app/src/main/java/com/pontocafe/app/ui/AccessCodeScreen.kt')
 
 test('o mesmo código abre e fecha a pausa, e quem decide é o servidor', () => {
@@ -59,6 +62,26 @@ test('o esquema garante uma saída e um retorno, nesta ordem', () => {
   assert.match(migration, /ck_codigo_acesso_cancelamento/)
   assert.match(migration, /cancelado_em is null or saida_em is null/)
   assert.match(accessCodeRoutes, /Cancelá-lo agora deixaria a pausa sem como ser fechada/)
+})
+
+test('a janela de saída é curta e a mesma no servidor, na tela e na voz', () => {
+  // Dois minutos obriga a emitir o código com a pessoa já diante do quiosque,
+  // em vez de virar um papel guardado no bolso.
+  assert.match(config, /ACCESS_CODE_TTL_SECONDS', 120/)
+  assert.match(wranglerConfig, /"ACCESS_CODE_TTL_SECONDS": "120"/)
+  // O número nunca é escrito à mão no cliente: desce por /app-status.
+  assert.match(application, /codigoValidadeSegundos: config\.accessCodeTtlSeconds/)
+  assert.match(pontoApi, /val codigoValidadeSegundos: Int/)
+  assert.match(kioskViewModel, /validadeCodigoSegundos = appStatus\?\.codigoValidadeSegundos/)
+  assert.match(kiosk, /formatValidade\(state\.validadeCodigoSegundos\)/)
+  assert.match(voiceGuidance, /kiosk\([\s\S]{0,400}state\.validadeCodigoSegundos/)
+  assert.match(voiceGuidance, /blocked\(state\.erroCodigo, state\.validadeCodigoSegundos\)/)
+  // A fala precisa dizer o prazo e o que fazer quando ele passa.
+  assert.match(voiceGuidance, /Ele vale \$\{spokenDuration\(validadeSegundos\)\}/)
+  assert.match(voiceGuidance, /Este código expirou/)
+  assert.match(voiceGuidance, /Peça um código novo ao supervisor/)
+  // No retorno não há prazo, e a voz diz isso para ninguém correr à toa.
+  assert.match(voiceGuidance, /Ele não expira para o retorno/)
 })
 
 test('a expiração trava a saída, nunca o retorno', () => {

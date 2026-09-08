@@ -537,6 +537,23 @@ private fun AccessCodeStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        // O prazo é curto e vale para a SAÍDA apenas. Quem já saiu precisa da
+        // garantia oposta — que não vai perder o código enquanto toma café.
+        Text(
+            if (retorno) {
+                "Este código não expira para o retorno."
+            } else {
+                "O código vale ${formatValidade(state.validadeCodigoSegundos)} depois de gerado. " +
+                    "Se expirar, peça outro ao Supervisor."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (retorno) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                LocalPontoCafeSemanticColors.current.warning
+            },
+        )
+
         AccessCodeBoxes(
             codigo = state.codigo,
             error = state.erro != null,
@@ -1027,4 +1044,17 @@ private fun RestrictedAccessDialog(
             }
         },
     )
+}
+
+/**
+ * Prazo do código em texto curto. Espelha PontoVoicePromptPolicy.spokenDuration:
+ * a tela e a voz têm de dizer o mesmo número, e ele vem do servidor.
+ */
+private fun formatValidade(totalSegundos: Int): String {
+    val safe = totalSegundos.coerceAtLeast(0)
+    if (safe < 60) return "$safe s"
+    val minutos = safe / 60
+    val segundos = safe % 60
+    val minutosTexto = if (minutos == 1) "1 minuto" else "$minutos minutos"
+    return if (segundos == 0) minutosTexto else "$minutosTexto e $segundos s"
 }

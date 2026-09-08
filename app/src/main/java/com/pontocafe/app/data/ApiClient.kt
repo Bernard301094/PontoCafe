@@ -69,6 +69,8 @@ data class AppStatusResponse(
     val timezone: String,
     val offlineMaxEventAgeHours: Int,
     val tamanhoCodigoAcesso: Int = 6,
+    /** Janela para apresentar o código na SAÍDA. O retorno não tem prazo. */
+    val codigoValidadeSegundos: Int = 120,
     val carenciaSegundos: Int = 60,
 )
 

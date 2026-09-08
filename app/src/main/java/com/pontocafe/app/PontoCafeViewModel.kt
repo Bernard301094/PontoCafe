@@ -92,6 +92,13 @@ data class PontoCafeUiState(
     val erro: String? = null,
     /** `codigo` de erro do Worker: é o que a voz usa para dizer o motivo certo. */
     val erroCodigo: String? = null,
+    /**
+     * Janela para apresentar o código na SAÍDA, como o servidor a define.
+     *
+     * A tela e a voz leem daqui em vez de trazer o número escrito à mão: se a
+     * operação mudar o prazo, os dois acompanham sem novo APK.
+     */
+    val validadeCodigoSegundos: Int = 120,
 ) {
     val codigoCompleto: Boolean get() = AccessCode.isComplete(codigo)
 }
@@ -764,7 +771,9 @@ class PontoCafeViewModel(
             offlineStore.markServerOk()
             offlineStore.lastServerOkMillis() to offlineStore.pendingCount()
         }
-        appStatus?.let { carenciaSegundosServidor = it.carenciaSegundos }
+        appStatus?.let {
+            carenciaSegundosServidor = it.carenciaSegundos
+        }
         val latest = appStatus?.latestAndroidVersion
         val minimum = appStatus?.minimumAndroidVersion
         state = state.copy(
@@ -774,6 +783,7 @@ class PontoCafeViewModel(
             atualizacaoDisponivel = latest?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
             atualizacaoObrigatoria = minimum?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
             eventosPendentes = offlineStatus.second,
+            validadeCodigoSegundos = appStatus?.codigoValidadeSegundos ?: state.validadeCodigoSegundos,
         )
     }
 

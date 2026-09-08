@@ -49,8 +49,17 @@ export const config = {
   appEncryptionKey: encryptionKeyEnv(),
   firstAdminSetupKey: process.env.FIRST_ADMIN_SETUP_KEY?.trim() || null,
   sessionTtlHours: numberEnv('SESSION_TTL_HOURS', 168, 1, 168),
-  /** Janela para a pessoa levar o código ao quiosque e registar a SAÍDA. */
-  accessCodeTtlSeconds: numberEnv('ACCESS_CODE_TTL_SECONDS', 900, 60, 7200),
+  /**
+   * Janela para a pessoa levar o código ao quiosque e registar a SAÍDA.
+   *
+   * Dois minutos é curto de propósito: o código deve ser emitido com a pessoa
+   * já diante do quiosque, e não guardado num papel para uso mais tarde. Um
+   * passe que sobrevive meia hora vira um passe transferível.
+   *
+   * Isto NÃO limita o retorno: uma vez usado para sair, o código continua
+   * válido sem prazo — recusá-lo deixaria a pausa aberta para sempre.
+   */
+  accessCodeTtlSeconds: numberEnv('ACCESS_CODE_TTL_SECONDS', 120, 30, 7200),
   /** Tentativas erradas de código, por colaborador, antes de bloquear. */
   accessCodeMaxAttempts: numberEnv('ACCESS_CODE_MAX_ATTEMPTS', 8, 3, 50),
   accessCodeAttemptWindowSeconds: numberEnv('ACCESS_CODE_ATTEMPT_WINDOW_SECONDS', 300, 60, 3600),

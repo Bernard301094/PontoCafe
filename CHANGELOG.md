@@ -8,7 +8,10 @@
 - **Quem decide se é saída ou retorno é o servidor**, nunca o aparelho: existe uma única mutação (`POST /ponto/pausas/registrar`). Isso elimina a classe de erros em que um cliente offline ou desatualizado tenta fechar uma pausa que nunca abriu.
 - O código nasce preso a um colaborador. Um código correto apresentado com o nome errado é recusado.
 - Uma saída e um retorno, garantidos pelo esquema (`ck_codigo_acesso_sequencia`). Depois disso o código está esgotado.
-- A validade governa apenas a **saída**. Depois de sair, o código continua valendo para o retorno sem prazo — recusá-lo deixaria a pausa aberta para sempre.
+- **A janela para a saída é de 2 minutos** (`ACCESS_CODE_TTL_SECONDS`). Curta de propósito: o código deve ser gerado com a pessoa já diante do quiosque, e não guardado num papel — um passe que sobrevive meia hora vira um passe transferível. Expirou, pede-se outro.
+- A tela e a voz anunciam esse prazo, e o número vem do servidor por `/app-status`: mudar a configuração não exige APK novo.
+- A recusa por expiração passa a explicar o porquê e o que fazer: *"Este código expirou. Ele vale apenas 2 minutos depois de gerado. Peça um código novo ao supervisor."*
+- A validade governa apenas a **saída**. Depois de sair, o código continua valendo para o retorno sem prazo — recusá-lo deixaria a pausa aberta para sempre, e a voz diz isso (*"Ele não expira para o retorno"*).
 - Emitir um código novo cancela o pendente; emitir enquanto a pessoa está em pausa é recusado, para nunca haver dois códigos vivos disputando o mesmo fecho.
 - 8 tentativas erradas em 5 minutos bloqueiam temporariamente aquele colaborador no quiosque. Cada recusa fica em auditoria com dispositivo e motivo.
 

@@ -30,7 +30,7 @@ test('Cloudflare executa as limpezas no cron sem misturar dados de negócio', ()
 })
 
 test('exemplo de configuração acompanha os defaults seguros da Release', () => {
-  assert.match(envExample, /ACCESS_CODE_TTL_SECONDS=900/)
+  assert.match(envExample, /ACCESS_CODE_TTL_SECONDS=120/)
   assert.match(envExample, /ACCESS_CODE_MAX_ATTEMPTS=8/)
   assert.match(envExample, /COFFEE_GRACE_SECONDS=60/)
   assert.match(envExample, /ACCESS_CODE_RETENTION_DAYS=90/)

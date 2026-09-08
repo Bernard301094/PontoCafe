@@ -26,6 +26,37 @@ class PontoVoicePromptPolicyTest {
     }
 
     @Test
+    fun `o prazo falado vem do servidor e nunca de um numero escrito a mao`() {
+        // Se a operação alargar a janela, a fala tem de acompanhar sozinha:
+        // dizer "dois minutos" quando o servidor concede cinco é pior do que
+        // não dizer nada.
+        val doisMin = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA, 120)
+        val cincoMin = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA, 300)
+        assertTrue(doisMin.text.contains("2 minutos"))
+        assertTrue(cincoMin.text.contains("5 minutos"))
+
+        // A recusa por expiração repete o prazo e aponta a saída.
+        val expirado = PontoVoicePromptPolicy.blocked("CODIGO_EXPIRADO", 120)
+        assertTrue(expirado.text.contains("2 minutos"))
+        assertTrue(expirado.text.contains("Peça um código novo", ignoreCase = true))
+
+        // O retorno não tem prazo, e a fala precisa dizer isso.
+        val retorno = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.DIGITAR_CODIGO_RETORNO)
+        assertTrue(retorno.text.contains("não expira", ignoreCase = true))
+    }
+
+    @Test
+    fun `duracao falada resolve singular plural e janelas menores que um minuto`() {
+        assertEquals("30 segundos", PontoVoicePromptPolicy.spokenDuration(30))
+        assertEquals("1 segundo", PontoVoicePromptPolicy.spokenDuration(1))
+        assertEquals("1 minuto", PontoVoicePromptPolicy.spokenDuration(60))
+        assertEquals("2 minutos", PontoVoicePromptPolicy.spokenDuration(120))
+        assertEquals("1 minuto e 30 segundos", PontoVoicePromptPolicy.spokenDuration(90))
+        // Um valor absurdo não pode virar "0 minutos".
+        assertEquals("0 segundos", PontoVoicePromptPolicy.spokenDuration(-5))
+    }
+
+    @Test
     fun `instrucoes de passo esperam antes de falar e nunca interrompem`() {
         val escolher = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.ESCOLHER_PESSOA)
         val saida = PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA)

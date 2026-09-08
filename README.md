@@ -20,7 +20,7 @@ O backend e o Android trabalham internamente em segundos. A interface administra
 O Supervisor gera um código de **6 caracteres** para quem vai tomar café. A mesma pessoa usa esse código para **sair** e para **voltar**.
 
 1. O Supervisor abre **Códigos de café**, encontra a pessoa e toca em **Gerar código**. O código aparece em letras grandes para ser ditado.
-2. No quiosque, a pessoa procura e toca no **próprio nome**.
+2. No quiosque, a pessoa procura e toca no **próprio nome**. Tem **2 minutos** desde a geração; a tela e a voz avisam disso.
 3. Digita os 6 caracteres num teclado que só oferece o alfabeto do código.
 4. O servidor decide se aquilo é uma **saída** ou um **retorno** — o aparelho nunca escolhe.
 5. Na saída, o comprovante mostra a hora registrada, **quando o tempo começa a contar** (1 minuto depois) e o horário-limite de retorno.
@@ -31,7 +31,7 @@ O Supervisor gera um código de **6 caracteres** para quem vai tomar café. A me
 
 - **Preso a uma pessoa.** Um código correto apresentado com o nome errado é recusado.
 - **Uma saída e um retorno.** Depois disso está esgotado, e o esquema do banco impede qualquer outra combinação.
-- **Expira só para sair.** A validade (15 min por padrão) governa a saída. Uma vez usado para sair, o código continua válido para o retorno sem prazo — negar o retorno deixaria a pausa aberta para sempre.
+- **Expira em 2 minutos, e só para sair.** A janela é curta de propósito: o código deve ser gerado com a pessoa já diante do quiosque, e não guardado num papel. Se expirar, é preciso pedir outro. Uma vez usado para sair, o código continua válido para o retorno **sem prazo** — negar o retorno deixaria a pausa aberta para sempre.
 - **Um por pessoa de cada vez.** Emitir um novo cancela o pendente; emitir enquanto a pessoa está fora é recusado.
 - **Tentativas erradas são contadas.** 8 recusas em 5 minutos bloqueiam temporariamente aquele colaborador no quiosque, e cada tentativa fica em auditoria.
 

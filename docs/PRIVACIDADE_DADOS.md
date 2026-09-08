@@ -23,7 +23,7 @@ A consequência para privacidade é direta e vale registrar: o sistema deixou de
 - Alfabeto Crockford Base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), 6 caracteres — cerca de 1,07 mil milhões de combinações.
 - Preso a um colaborador desde a emissão. Um código correto apresentado com o nome errado é recusado.
 - Vale **uma** saída e **um** retorno. Depois disso está esgotado.
-- A janela de validade (`ACCESS_CODE_TTL_SECONDS`, padrão 15 min) governa apenas a **saída**. Uma vez usado para sair, o código continua válido para o retorno sem prazo: negar o retorno deixaria a pausa aberta para sempre e obrigaria a um fecho manual.
+- A janela de validade (`ACCESS_CODE_TTL_SECONDS`, padrão **2 min**) governa apenas a **saída**. Curta de propósito: um passe que sobrevive meia hora vira um passe transferível. Uma vez usado para sair, o código continua válido para o retorno sem prazo: negar o retorno deixaria a pausa aberta para sempre e obrigaria a um fecho manual.
 - Emissão bloqueada enquanto a pessoa está em pausa — dois códigos vivos deixariam em aberto qual deles fecha a jornada.
 
 ### Sobre guardar o código em texto puro
