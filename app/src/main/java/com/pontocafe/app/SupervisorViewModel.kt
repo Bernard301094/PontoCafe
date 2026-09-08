@@ -488,15 +488,19 @@ class SupervisorViewModel(
     }
 
     /**
-     * Registra manualmente a saída de [colaborador] -- uso excepcional para
-     * quando a pessoa esqueceu de registrar no quiosque ou o código falhou
-     * do horário continua exigindo autorizarPausa). A sessão do Supervisor
-     * substitui o verificacaoToken biométrico; por isso o motivo é
-     * obrigatório e o servidor audita quem fez o registro. Endpoint ainda
-     * não existe no backend.
+     * Abre a pausa de [colaborador] sem passar pelo quiosque.
+     *
+     * É a saída para quando o fluxo normal já falhou: a pessoa perdeu o código,
+     * ele expirou antes de ser usado, ou o quiosque estava fora do ar. Quem
+     * autentica a operação é a sessão de quem a executa, e não um código
+     * apresentado — por isso o motivo é obrigatório, fica gravado quem fez, e o
+     * evento vai para a auditoria.
      */
     fun registrarPausaManual(colaborador: Colaborador, motivo: String) {
-        if (motivo.trim().length < 2) {
+        // O servidor exige 3 (z.string().min(3)). Validar 2 aqui deixava passar
+        // um motivo que ia ser recusado do outro lado -- e a pessoa via um erro
+        // de validação vindo da rede em vez de um aviso imediato no campo.
+        if (motivo.trim().length < MOTIVO_MANUAL_MINIMO) {
             state = state.copy(erro = "Informe o motivo do registro manual.")
             return
         }
@@ -527,7 +531,10 @@ class SupervisorViewModel(
      * O horário de retorno não é configurável -- o servidor sempre grava `now()`.
      */
     fun finalizarPausaManual(pausa: PausaSupervisor, motivo: String) {
-        if (motivo.trim().length < 2) {
+        // O servidor exige 3 (z.string().min(3)). Validar 2 aqui deixava passar
+        // um motivo que ia ser recusado do outro lado -- e a pessoa via um erro
+        // de validação vindo da rede em vez de um aviso imediato no campo.
+        if (motivo.trim().length < MOTIVO_MANUAL_MINIMO) {
             state = state.copy(erro = "Informe o motivo do registro manual.")
             return
         }

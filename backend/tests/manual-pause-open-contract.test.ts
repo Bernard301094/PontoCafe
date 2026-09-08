@@ -71,3 +71,40 @@ test('os comentarios do cliente nao dizem mais que a rota nao existe', () => {
   assert.doesNotMatch(adminClient, /iniciar NÃO existe/)
   assert.doesNotMatch(adminClient, /Endpoints ainda não existem no backend/)
 })
+
+test('o minimo do motivo e o mesmo no campo e na rota', () => {
+  const admin = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/AdminViewModel.kt', import.meta.url),
+    'utf8',
+  )
+  const supervisor = readFileSync(
+    new URL('../../app/src/main/java/com/pontocafe/app/SupervisorViewModel.kt', import.meta.url),
+    'utf8',
+  )
+
+  // O cliente validava 2 e o servidor exige 3: um motivo de duas letras passava
+  // no campo e voltava recusado pela rede. Um limite so, escrito uma vez.
+  assert.ok(admin.includes('internal const val MOTIVO_MANUAL_MINIMO = 3'))
+  assert.ok(routes.includes('motivo: z.string().trim().min(3).max(200)'), 'a rota exige 3')
+
+  for (const [label, fonte] of [['admin', admin], ['supervisor', supervisor]] as const) {
+    assert.ok(
+      !fonte.includes('motivo.trim().length < 2'),
+      `${label} não pode validar um mínimo diferente do da rota`,
+    )
+    assert.ok(
+      fonte.includes('motivo.trim().length < MOTIVO_MANUAL_MINIMO'),
+      `${label} precisa usar o limite compartilhado`,
+    )
+    // A rota existe e está montada nos dois prefixos desde a 011; o comentário
+    // dizia o contrário e mandava quem lesse procurar um problema inexistente.
+    assert.ok(
+      !fonte.includes('Endpoint ainda'),
+      `${label} tem comentário dizendo que a rota não existe`,
+    )
+    assert.ok(
+      !fonte.includes('verificacaoToken'),
+      `${label} ainda descreve o fluxo biométrico, que foi removido`,
+    )
+  }
+})

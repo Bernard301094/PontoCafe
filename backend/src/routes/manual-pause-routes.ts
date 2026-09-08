@@ -14,19 +14,19 @@ import { parseJson } from './shared.js'
  * respondia 404 "Rota nao encontrada" e o supervisor via isso na tela.
  *
  * A diferenca em relacao a /pausas/finalizar e o que autentica a operacao: ali e
- * um verificacaoToken biometrico ligado ao dispositivo; aqui e a sessao de quem
+ * o codigo de acesso apresentado no quiosque; aqui e a sessao de quem
  * registra. Por isso a rota exige motivo, grava quem fez, e escreve em auditoria.
  *
  * A abertura manual (/pausas/manual/iniciar) esteve deliberadamente de fora daqui:
- * abrir uma pausa sem evidencia biometrica cria um registo de jornada inteiro
+ * abrir uma pausa sem o codigo apresentado cria um registo de jornada inteiro
  * apoiado so na sessao de quem regista. Essa decisao foi revertida de propósito --
- * o cliente Android ja oferecia o botao "manual" nas telas de autorizacao e o
- * operador levava "Rota nao encontrada" ao usa-lo.
+ * o cliente Android ja oferecia o botao "manual" e o operador levava
+ * "Rota nao encontrada" ao usa-lo.
  *
- * A garantia nao foi descartada, foi trocada. Ver 011_manual_pause_open.sql: o
- * esquema deixou de exigir prova biometrica em toda pausa e passou a exigir OU
- * prova biometrica OU um responsavel identificado com motivo -- nunca nenhuma das
- * duas. E mais fraco de propósito, e a diferenca esta escrita la.
+ * A garantia nao foi descartada, foi trocada. Ver 011_manual_pause_open.sql e
+ * 012_access_codes.sql: o esquema exige OU o dispositivo do quiosque que
+ * apresentou o codigo, OU um responsavel identificado com motivo -- nunca
+ * nenhuma das duas. E mais fraco de propósito, e a diferenca esta escrita la.
  *
  * Continua em falta o que a nota original pedia e esta rota nao resolve: perfil
  * proprio (hoje qualquer ADMIN/SUPERVISOR abre), janela temporal (nao ha limite de
@@ -145,11 +145,11 @@ type ManualStartResponse = {
  * Abre a pausa do colaborador sem passar pelo quiosque.
  *
  * NAO faz verificacao previa nenhuma, por decisao explicita: quem usa esta rota e
- * um Admin/Supervisor a corrigir uma situacao ja quebrada (o rosto nao foi
- * reconhecido, a pessoa saiu sem marcar, o quiosque estava fora do ar), e as
- * recusas que fazem sentido no fluxo biometrico bloqueiam justamente essa
- * correcao. Nao pergunta se ja ha pausa aberta, se a pausa do periodo ja foi usada
- * hoje, nem se o colaborador esta ativo -- tenta gravar.
+ * um Admin/Supervisor a corrigir uma situacao ja quebrada (a pessoa perdeu o
+ * codigo, ele expirou antes de ser usado, o quiosque estava fora do ar), e as
+ * recusas que fazem sentido no fluxo normal bloqueiam justamente essa correcao.
+ * Nao pergunta se ja ha pausa aberta, se a pausa do periodo ja foi usada hoje,
+ * nem se o colaborador esta ativo -- tenta gravar.
  *
  * O que sobra a recusar e o que a BASE recusa, e ai a resposta traduz o erro em
  * vez de o deixar sair como 500:
