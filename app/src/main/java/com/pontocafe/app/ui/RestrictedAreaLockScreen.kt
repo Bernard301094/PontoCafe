@@ -389,6 +389,11 @@ fun RestrictedAreaLockScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                // Uma recusa de identidade aparecia só como texto
+                                // novo na tela. O tremor marca o instante em que
+                                // a tentativa foi negada, que é o que distingue
+                                // "falhou agora" de "já estava aí".
+                                .shakeOnChange(message)
                                 .semantics {
                                     liveRegion = LiveRegionMode.Assertive
                                     stateDescription = message

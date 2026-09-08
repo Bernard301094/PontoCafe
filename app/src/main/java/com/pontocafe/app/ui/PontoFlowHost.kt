@@ -1,14 +1,17 @@
 package com.pontocafe.app.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,7 +63,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -767,10 +772,18 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                 preenchido -> MaterialTheme.colorScheme.primary
                 else -> MaterialTheme.colorScheme.outlineVariant
             }
+            // O dígito que entra salta de 0,7 para 1. É o único retorno visual
+            // de que a tecla pegou: o dedo tapa a caixa no instante do toque, e
+            // sem o salto a pessoa só descobre ao levantar a mão.
+            val pop = rememberPopOnChange(gatilho = char, ativo = preenchido)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(64.dp)
+                    .graphicsLayer {
+                        scaleX = pop.value
+                        scaleY = pop.value
+                    }
                     .background(
                         MaterialTheme.colorScheme.surfaceContainerLow,
                         RoundedCornerShape(14.dp),
@@ -847,8 +860,19 @@ private fun KeypadKey(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    // Tecla comprime 0,92 -- mais que os 0,96 de um botão comum. Aqui a
+    // compressão é o recibo do toque, e o dedo tapa o número enquanto o preme.
+    val escala = rememberPontoPressScale(interactionSource, PontoPressScale.Key)
     Surface(
-        modifier = modifier.clickable(enabled = enabled, onClick = onClick),
+        modifier = modifier
+            .pontoPressScale { escala }
+            .clickable(
+                enabled = enabled,
+                onClick = onClick,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+            ),
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
@@ -950,8 +974,36 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md, Alignment.CenterVertically),
     ) {
+        // O momento em que o produto inteiro diz "deu certo". Era um círculo
+        // estático: aparecia já pronto, sem marcar o instante do registro. Agora
+        // o ícone salta e uma onda sai do círculo e se apaga -- uma vez só, sem
+        // laço nenhum a correr depois.
+        val marca = rememberPopOnChange(gatilho = comprovante, de = 0.6f)
+        val onda = remember(comprovante) { Animatable(0f) }
+        LaunchedEffect(comprovante) { onda.animateTo(1f, tween(PontoCafeMotion.Slow)) }
+        val corOnda = if (comprovante.excedeuLimite) {
+            LocalPontoCafeSemanticColors.current.warning
+        } else {
+            LocalPontoCafeSemanticColors.current.success
+        }
+
         Surface(
-            modifier = Modifier.size(88.dp),
+            modifier = Modifier
+                .size(88.dp)
+                .drawBehind {
+                    val progresso = onda.value
+                    if (progresso < 1f) {
+                        drawCircle(
+                            color = corOnda,
+                            radius = size.minDimension / 2f * (1f + progresso * 0.7f),
+                            alpha = (1f - progresso) * 0.45f,
+                        )
+                    }
+                }
+                .graphicsLayer {
+                    scaleX = marca.value
+                    scaleY = marca.value
+                },
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primaryContainer,
         ) {
@@ -1154,7 +1206,12 @@ private fun RestrictedAccessDialog(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = onPinChange,
-                    modifier = Modifier.fillMaxWidth(),
+                    // O PIN recusado tremia só no texto de erro abaixo. O campo
+                    // em si não dava sinal nenhum, e num quiosque quem erra o
+                    // PIN costuma estar a olhar para os dedos, não para o aviso.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shakeOnChange(error),
                     label = { Text("PIN do dispositivo") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),

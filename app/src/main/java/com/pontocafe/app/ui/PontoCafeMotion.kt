@@ -23,6 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,6 +55,18 @@ object PontoSprings {
     val PressRelease: SpringSpec<Float> = spring(
         dampingRatio = Spring.DampingRatioLowBouncy,
         stiffness = Spring.StiffnessMediumLow,
+    )
+
+    /** Recusa: rígida e sem oscilação, para o movimento ser lido como "não". */
+    val Shake: SpringSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessHigh,
+    )
+
+    /** Entrada de um elemento que acabou de acontecer: elástica e curta. */
+    val Pop: SpringSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioMediumBouncy,
+        stiffness = Spring.StiffnessMedium,
     )
 
     /** Cartões e painéis a entrar ou a mudar de tamanho: firme, sem ressalto. */
@@ -157,17 +171,41 @@ fun Modifier.shakeOnChange(trigger: Any?): Modifier {
     val shake = remember { Animatable(0f) }
     LaunchedEffect(trigger) {
         if (trigger != null) {
+            // Três idas e voltas, em mola rígida. Era um tween linear de 420 ms:
+            // o movimento tinha velocidade constante e parecia um deslize, não
+            // uma recusa. A mola dá a desaceleração que o olho lê como "não".
             shake.snapTo(0f)
-            shake.animateTo(1f, tween(420, easing = LinearEasing))
+            repeat(3) { volta ->
+                val lado = if (volta % 2 == 0) 1f else -1f
+                shake.animateTo(lado * (1f - volta * 0.28f), PontoSprings.Shake)
+            }
+            shake.animateTo(0f, PontoSprings.Shake)
         }
     }
-    return graphicsLayer {
-        translationX = if (shake.value < 1f) {
-            sin(shake.value * 28f) * 10f * (1f - shake.value)
-        } else {
-            0f
+    return graphicsLayer { translationX = shake.value * 14f }
+}
+
+/**
+ * Salto de entrada de um elemento que acabou de aparecer.
+ *
+ * [gatilho] muda -> o elemento encolhe para [de] e volta a 1 em mola. Serve para
+ * o dígito que entra numa caixa e para o ícone de confirmação: em ambos, o que
+ * se quer dizer é "isto acabou de acontecer agora".
+ */
+@Composable
+fun rememberPopOnChange(
+    gatilho: Any?,
+    de: Float = 0.7f,
+    ativo: Boolean = true,
+): State<Float> {
+    val escala = remember { Animatable(1f) }
+    LaunchedEffect(gatilho) {
+        if (ativo && gatilho != null) {
+            escala.snapTo(de)
+            escala.animateTo(1f, PontoSprings.Pop)
         }
     }
+    return remember(escala) { derivedStateOf { escala.value } }
 }
 
 /**
