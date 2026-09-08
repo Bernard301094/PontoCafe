@@ -188,17 +188,25 @@ workforceRoutes.post('/colaboradores/importar', async (c) => {
       for (const item of body.data.colaboradores) {
         const setor = item.setor?.trim() || null
         const turno = item.turno?.trim() || null
-        const duplicate = await client.query<{ id: string }>(
-          `select id from colaboradores
+        // A comparação é só pelo NOME, e normalizada. Antes exigia que nome,
+        // setor e turno coincidissem os três: importar "João Silva / Produção"
+        // quando já havia "João Silva" sem setor criava um segundo João Silva,
+        // e no quiosque ele passava a aparecer duas vezes sem forma de os
+        // distinguir. É também a mesma regra do índice ux_colaborador_nome_ativo
+        // -- se divergissem, esta checagem deixaria passar uma linha que o banco
+        // ia recusar, e o INSERT derrubaria a importação inteira.
+        const duplicate = await client.query<{ id: string; nome: string }>(
+          `select id, nome from colaboradores
             where ativo=true
-              and lower(trim(nome))=lower(trim($1))
-              and lower(coalesce(trim(setor),''))=lower(coalesce(trim($2),''))
-              and lower(coalesce(trim(turno),''))=lower(coalesce(trim($3),''))
+              and pontocafe_nome_normalizado(nome)=pontocafe_nome_normalizado($1)
             limit 1`,
-          [item.nome, setor, turno],
+          [item.nome],
         )
         if (duplicate.rows[0]) {
-          existing.push({ nome: item.nome, motivo: 'Já existe um colaborador ativo com os mesmos dados.' })
+          existing.push({
+            nome: item.nome,
+            motivo: `Já existe um colaborador ativo com este nome (${duplicate.rows[0].nome}).`,
+          })
           continue
         }
 
