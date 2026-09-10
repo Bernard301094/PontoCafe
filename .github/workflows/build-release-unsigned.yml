@@ -1,0 +1,84 @@
+name: Build PontoCafe Release Unsigned
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pontocafe-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Test and build Android release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Resolve release identity
+        shell: bash
+        run: |
+          VERSION_NAME="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION_NAME"
+          test -n "$VERSION_CODE"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
+          echo "Building PontoCafe $VERSION_NAME ($VERSION_CODE)"
+
+      - name: Unit tests and Release build
+        shell: bash
+        run: gradle --no-daemon --stacktrace :app:testReleaseUnitTest :app:assembleRelease
+
+      - name: Verify no face-recognition asset inside APK
+        shell: bash
+        run: |
+          INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
+          test -f "$INPUT"
+          ! unzip -l "$INPUT" | grep -q 'facenet'
+
+      - name: Zipalign Release
+        shell: bash
+        run: |
+          INPUT='app/build/outputs/apk/release/app-release-unsigned.apk'
+          OUTPUT="PontoCafe-${VERSION_NAME}-${SHORT_SHA}-aligned-unsigned.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$INPUT" "$OUTPUT"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$OUTPUT"
+          sha256sum "$OUTPUT"
+
+      - name: Upload aligned unsigned APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PontoCafe-${{ env.VERSION_NAME }}-${{ env.SHORT_SHA }}-aligned-unsigned
+          path: PontoCafe-*-aligned-unsigned.apk
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Xícara + relógio do ícone Ponto Café.
+  O asset de origem é desenhado num quadrado de 100x100; o grupo abaixo o
+  reposiciona no canvas de 108x108 do ícone adaptativo (escala 0.72 + deslocamento
+  de 18) para que toda a arte caia dentro da zona segura de 72dp que a máscara
+  do sistema garante visível.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:translateX="18"
+        android:translateY="18">
+        <!-- Corpo da xícara -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M28,36C28,33.7909 29.7909,32 32,32H60C62.2091,32 64,33.7909 64,36V52C64,60.8366 56.8366,68 48,68C39.1634,68 32,60.8366 32,52V36H28Z" />
+        <!-- Alça -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="4.5"
+            android:strokeLineCap="round"
+            android:pathData="M64,40H69C73.4183,40 77,43.5817 77,48C77,52.4183 73.4183,56 69,56H64V40Z" />
+        <!-- Vapor -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FEF3C7"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:pathData="M40,24C40,24 41,26.5 40,28M48,22C48,22 49,25 48,28M56,24C56,24 57,26.5 56,28" />
+        <!-- Mostrador do relógio, recortado no âmbar do fundo -->
+        <path
+            android:fillColor="#D97706"
+            android:pathData="M42,50a6,6 0,1 0,12 0a6,6 0,1 0,-12 0Z" />
+        <!-- Ponteiros -->
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:pathData="M48,46V50L51,52" />
+        <!-- Base / pires -->
+        <path
+            android:fillColor="#FEF3C7"
+            android:pathData="M28.5,72H67.5A2.5,2.5 0,0 1,67.5 77H28.5A2.5,2.5 0,0 1,28.5 72Z" />
+    </group>
+</vector>
