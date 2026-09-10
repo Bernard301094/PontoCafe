@@ -204,6 +204,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
         <i data-lucide="shield-check" class="w-4 h-4"></i>
         <span>Auditoria</span>
       </button>
+      <button id="tab-reports" onclick="switchTab('reports')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+        <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+        <span>Relatórios</span>
+      </button>
       <button id="tab-history" onclick="switchTab('history')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="history" class="w-4 h-4"></i>
         <span>Registros</span>
@@ -418,6 +422,48 @@ const HTML_CONTENT = `<!DOCTYPE html>
     </section>
 
     <!-- VIEW 3: PONTO HISTORY LOG -->
+    <!-- VIEW: RELATÓRIOS -->
+    <section id="view-reports" class="hidden space-y-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-coffee-950">Relatórios</h2>
+          <p class="text-sm text-stone-500">Resumo de pausas por período, para conferência e folha</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-stone-600 mb-1">Início</label>
+            <input type="date" id="rep-inicio" class="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-stone-600 mb-1">Fim</label>
+            <input type="date" id="rep-fim" class="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent">
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="refreshReports()" class="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-amberAccent text-white text-sm font-semibold shadow hover:opacity-95">
+            <i data-lucide="search" class="w-4 h-4"></i><span>Consultar</span>
+          </button>
+          <button onclick="baixarCsv()" class="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+            <i data-lucide="download" class="w-4 h-4"></i><span>Baixar CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4" id="reports-stats"></div>
+
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="px-5 md:px-6 py-4 border-b border-stone-100">
+          <h3 class="font-bold text-coffee-950 text-base">Maiores atrasos no período</h3>
+        </div>
+        <div class="divide-y divide-stone-100" id="reports-delays">
+          <p class="px-5 py-8 text-xs text-stone-400 text-center">Escolha o período e consulte.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW: DISPOSITIVOS -->
     <section id="view-devices" class="hidden space-y-6">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -547,6 +593,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <h3 class="font-bold text-coffee-950 text-base mb-4">Equipe Cadastrada</h3>
           <div class="divide-y divide-stone-100" id="admin-collaborator-list">
             <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Regras de café: janela e teto de cada período -->
+        <div class="bg-white rounded-2xl border border-stone-200 p-5 md:p-6 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-bold text-coffee-950 text-base">Regras de Café</h3>
+              <p class="text-xs text-stone-500 mt-0.5">Janela de cada período e o teto de tempo da pausa</p>
+            </div>
+          </div>
+          <div class="space-y-3" id="rules-list">
+            <p class="text-xs text-stone-400 py-3">Carregando…</p>
+          </div>
+        </div>
+
+        <!-- Diagnóstico do sistema -->
+        <div class="bg-white rounded-2xl border border-stone-200 p-5 md:p-6 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-bold text-coffee-950 text-base">Diagnóstico do Sistema</h3>
+              <p class="text-xs text-stone-500 mt-0.5">Banco de dados e contadores da operação</p>
+            </div>
+            <button onclick="refreshDiagnostics()" class="p-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3" id="diag-grid">
+            <p class="text-xs text-stone-400 py-3">Carregando…</p>
           </div>
         </div>
 
@@ -763,7 +838,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     // Switch Tabs
     function switchTab(tabId) {
-      const tabs = ['kiosk', 'supervisor', 'codes', 'devices', 'audit', 'history', 'admin'];
+      const tabs = ['kiosk', 'supervisor', 'codes', 'devices', 'audit', 'reports', 'history', 'admin'];
       tabs.forEach(tab => {
         const btn = document.getElementById('tab-' + tab);
         const view = document.getElementById('view-' + tab);
@@ -782,6 +857,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (tabId === 'codes') { refreshCodes(); }
       if (tabId === 'devices') { refreshDevices(); }
       if (tabId === 'audit') { refreshAudit(); }
+      if (tabId === 'reports') { refreshReports(); }
+      if (tabId === 'admin') { refreshRules(); refreshDiagnostics(); }
     }
 
     // Numpad PIN logic
@@ -1163,6 +1240,168 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
       \`).join('');
+    }
+
+    // ---- Relatórios --------------------------------------------------------
+    function periodoRelatorio() {
+      const hoje = new Date().toISOString().slice(0, 10);
+      const inicio = document.getElementById('rep-inicio');
+      const fim = document.getElementById('rep-fim');
+      if (inicio && !inicio.value) {
+        const d = new Date(); d.setDate(d.getDate() - 29);
+        inicio.value = d.toISOString().slice(0, 10);
+      }
+      if (fim && !fim.value) fim.value = hoje;
+      return { inicio: inicio ? inicio.value : hoje, fim: fim ? fim.value : hoje };
+    }
+
+    async function refreshReports() {
+      const stats = document.getElementById('reports-stats');
+      const delays = document.getElementById('reports-delays');
+      if (!stats) return;
+      const { inicio, fim } = periodoRelatorio();
+      try {
+        const data = await apiFetch('/supervisor/relatorios/resumo?inicio=' + inicio + '&fim=' + fim);
+        const r = data.resumo || {};
+        const media = r.mediaSegundos ? segundosParaRelogio(r.mediaSegundos) : '—';
+        const tile = (rot, val, cor) => \`
+          <div class="bg-white rounded-2xl border border-stone-200 p-3 md:p-5 shadow-sm">
+            <p class="text-[10px] md:text-xs font-semibold text-stone-500 uppercase tracking-wider leading-tight">\${rot}</p>
+            <p class="text-2xl md:text-3xl font-extrabold \${cor} mt-1">\${val}</p>
+          </div>\`;
+        stats.innerHTML =
+          tile('Pausas', r.totalPausas ?? 0, 'text-coffee-900') +
+          tile('Acima do limite', r.acimaLimite ?? 0, 'text-amber-700') +
+          tile('Fora do horário', r.foraHorario ?? 0, 'text-stone-700') +
+          tile('Média', media, 'text-emerald-700');
+
+        const top = data.maioresAtrasos || [];
+        delays.innerHTML = top.length === 0
+          ? '<p class="px-5 py-8 text-xs text-stone-400 text-center">Nenhum atraso no período.</p>'
+          : top.map(d => \`
+              <div class="px-5 md:px-6 py-3 flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${d.nome || d.colaboradorNome || '—'}</h4>
+                  <p class="text-xs text-stone-500">\${d.data || d.dia || ''}</p>
+                </div>
+                <span class="shrink-0 font-mono text-xs font-bold text-amber-700">
+                  \${d.tempoContadoSegundos != null ? segundosParaRelogio(d.tempoContadoSegundos) : ''}
+                </span>
+              </div>
+            \`).join('');
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          stats.innerHTML = '';
+          delays.innerHTML = '<p class="px-5 py-8 text-xs text-red-600 text-center">' + err.message + '</p>';
+        }
+      }
+    }
+
+    // O CSV vem por rota autenticada: o navegador não manda o Bearer num link,
+    // então busca-se o corpo e entrega-se como arquivo local.
+    async function baixarCsv() {
+      const { inicio, fim } = periodoRelatorio();
+      try {
+        const res = await fetch(API_BASE + '/supervisor/relatorios/csv?inicio=' + inicio + '&fim=' + fim, {
+          headers: { 'Authorization': 'Bearer ' + getToken() }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pontocafe-' + inicio + '-a-' + fim + '.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        showToast('CSV gerado', 'O arquivo foi baixado.', 'success');
+      } catch (err) {
+        showToast('Erro', 'Não foi possível gerar o CSV: ' + err.message, 'error');
+      }
+    }
+
+    // ---- Regras de café ----------------------------------------------------
+    async function refreshRules() {
+      const box = document.getElementById('rules-list');
+      if (!box) return;
+      try {
+        const data = await apiFetch('/admin/regras-cafe');
+        const regras = data.regras || [];
+        box.innerHTML = regras.map(r => {
+          const minutos = Math.round((r.limiteSegundos ?? r.limite_segundos ?? 0) / 60);
+          const nome = r.periodo === 'MANHA' ? 'Manhã' : 'Tarde';
+          return \`
+            <div class="p-4 rounded-xl bg-stone-50 border border-stone-200">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h4 class="text-sm font-bold text-coffee-950">Período da \${nome}</h4>
+                  <p class="text-xs text-stone-500">Janela \${r.inicio} – \${r.fim} · teto \${minutos} min</p>
+                </div>
+                <button onclick="editarRegra('\${r.periodo}', '\${r.inicio}', '\${r.fim}', \${minutos})"
+                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-white">Editar</button>
+              </div>
+            </div>\`;
+        }).join('') || '<p class="text-xs text-stone-400 py-3">Nenhuma regra configurada.</p>';
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          box.innerHTML = '<p class="text-xs text-stone-400 py-3">Apenas o Administrador pode ver as regras.</p>';
+        }
+      }
+    }
+
+    async function editarRegra(periodo, inicio, fim, minutos) {
+      const novoInicio = prompt('Início da janela (HH:MM):', inicio);
+      if (novoInicio === null) return;
+      const novoFim = prompt('Fim da janela (HH:MM):', fim);
+      if (novoFim === null) return;
+      const novoLimite = prompt('Teto da pausa, em minutos:', String(minutos));
+      if (novoLimite === null) return;
+      const min = parseInt(novoLimite, 10);
+      if (!/^\\d{2}:\\d{2}$/.test(novoInicio) || !/^\\d{2}:\\d{2}$/.test(novoFim)) {
+        showToast('Horário inválido', 'Use o formato HH:MM.', 'error');
+        return;
+      }
+      if (!(min >= 1 && min <= 120)) {
+        showToast('Limite inválido', 'O teto vai de 1 a 120 minutos.', 'error');
+        return;
+      }
+      const res = await fetch(API_BASE + '/admin/regras-cafe/' + periodo, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({ inicio: novoInicio, fim: novoFim, limiteMinutos: min })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Regra atualizada', 'Passa a valer para as próximas pausas.', 'success');
+        await refreshRules();
+      } else {
+        showToast('Erro', data.erro || 'Não foi possível salvar a regra.', 'error');
+      }
+    }
+
+    // ---- Diagnóstico -------------------------------------------------------
+    async function refreshDiagnostics() {
+      const grid = document.getElementById('diag-grid');
+      if (!grid) return;
+      try {
+        const d = await apiFetch('/admin/diagnostico');
+        const op = d.operacao || {};
+        const cel = (rot, val, cor) => \`
+          <div class="p-3 rounded-xl bg-stone-50 border border-stone-200 text-center">
+            <p class="text-[10px] font-semibold text-stone-500 uppercase tracking-wider leading-tight">\${rot}</p>
+            <p class="text-lg font-extrabold \${cor} mt-1">\${val}</p>
+          </div>\`;
+        grid.innerHTML =
+          cel('Banco', (d.banco && d.banco.status === 'ok') ? 'OK' : 'Falha', (d.banco && d.banco.status === 'ok') ? 'text-emerald-700' : 'text-red-700') +
+          cel('Latência', (d.banco && d.banco.latenciaMs != null) ? d.banco.latenciaMs + ' ms' : '—', 'text-coffee-900') +
+          cel('Sessões', op.sessoesAtivas ?? '—', 'text-stone-700') +
+          cel('Colaboradores', op.colaboradoresAtivos ?? '—', 'text-stone-700') +
+          cel('Dispositivos', op.dispositivosAtivos ?? '—', 'text-stone-700') +
+          cel('Pausas abertas', op.pausasAbertas ?? '—', 'text-amber-700');
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          grid.innerHTML = '<p class="text-xs text-stone-400 py-3 col-span-full">Apenas o Administrador pode ver o diagnóstico.</p>';
+        }
+      }
     }
 
     // ---- Dispositivos ------------------------------------------------------
