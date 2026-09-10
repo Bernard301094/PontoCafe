@@ -151,8 +151,12 @@ const HTML_CONTENT = `<!DOCTYPE html>
         Entrar
       </button>
       <p class="text-[11px] text-stone-400 text-center">
-        Mesma conta do app. O registo de ponto continua no totem.
+        Mesma conta do app. Para bater ponto não é preciso entrar.
       </p>
+      <button type="button" onclick="irParaTotem()"
+        class="w-full py-2.5 rounded-xl border border-stone-200 text-stone-600 text-xs font-bold hover:bg-stone-50 transition-colors">
+        Usar este aparelho como totem
+      </button>
     </form>
   </div>
 
@@ -225,124 +229,88 @@ const HTML_CONTENT = `<!DOCTYPE html>
   <!-- Main Views Container -->
   <main class="flex-1 overflow-y-auto p-4 md:p-8 max-w-7xl mx-auto w-full">
     
-    <!-- VIEW 1: KIOSK TOTEM CLOCK-IN SCREEN -->
+    <!-- VIEW 1: TOTEM / PONTO -->
     <section id="view-kiosk" class="h-full flex flex-col justify-center items-center py-4">
-      <div class="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-stone-200">
+
+      <!-- Aparelho ainda nao vinculado. Sem credencial de dispositivo nao ha
+           batida: o servidor recusa /ponto sem X-Device-Token, e e por aqui que
+           o codigo de ativacao gerado em Dispositivos entra. -->
+      <div id="totem-pairing" class="hidden w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-stone-200">
         <div class="text-center mb-6">
           <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-50 text-coffee-700 border border-amber-200 mb-3 shadow-sm">
-            <i data-lucide="fingerprint" class="w-8 h-8"></i>
+            <i data-lucide="monitor-smartphone" class="w-8 h-8"></i>
           </div>
-          <h2 class="text-2xl font-bold text-coffee-950">Registro de Ponto</h2>
-          <p class="text-sm text-stone-500 mt-1">Digite seu PIN de 4 dígitos para registrar</p>
+          <h2 class="text-2xl font-bold text-coffee-950">Vincular este aparelho</h2>
+          <p class="text-sm text-stone-500 mt-1">Digite o código de ativação de 10 caracteres que o Administrador gerou em Dispositivos.</p>
         </div>
-
-        <!-- PIN Display Dots -->
-        <div class="flex justify-center items-center space-x-4 mb-6 py-2">
-          <div id="pin-dot-0" class="w-5 h-5 rounded-full border-2 border-stone-300 bg-stone-100 transition-all"></div>
-          <div id="pin-dot-1" class="w-5 h-5 rounded-full border-2 border-stone-300 bg-stone-100 transition-all"></div>
-          <div id="pin-dot-2" class="w-5 h-5 rounded-full border-2 border-stone-300 bg-stone-100 transition-all"></div>
-          <div id="pin-dot-3" class="w-5 h-5 rounded-full border-2 border-stone-300 bg-stone-100 transition-all"></div>
+        <input id="totem-activation-input" type="text" autocomplete="off" spellcheck="false" maxlength="10"
+          oninput="onActivationInput()" onkeydown="if(event.key==='Enter')ativarTotem()"
+          class="w-full text-center font-mono text-2xl tracking-[0.35em] px-4 py-4 rounded-2xl border border-stone-300 bg-stone-50 focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100 outline-none"
+          placeholder="··········">
+        <p class="text-[11px] text-stone-400 text-center mt-2">Letras e números. Maiúsculas e minúsculas contam: <span id="totem-activation-count" class="font-semibold">0</span>/10</p>
+        <div id="totem-pairing-feedback" class="min-h-[24px] text-center text-xs font-semibold my-3 text-stone-500"></div>
+        <button id="totem-activation-btn" onclick="ativarTotem()" disabled
+          class="w-full py-3.5 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+          Ativar este aparelho
+        </button>
+        <p class="text-[11px] text-stone-400 text-center mt-4 leading-relaxed">O código curto vale uma vez só. Depois deste passo o navegador guarda uma credencial longa e passa a bater ponto por ela.</p>
+        <div class="mt-5 pt-4 border-t border-stone-100 text-center">
+          <button onclick="showLogin()" class="text-xs font-semibold text-stone-400 hover:text-coffee-900">Entrar como Administrador ou Supervisor</button>
         </div>
+      </div>
 
-        <!-- Feedback message area -->
-        <div id="kiosk-feedback" class="min-h-[28px] text-center text-xs font-semibold mb-4 text-stone-500">
-          Toque nos números ou use o teclado
-        </div>
-
-        <!-- Numpad Grid -->
-        <div class="grid grid-cols-3 gap-3 mb-6">
-          <button onclick="pressPin('1')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">1</button>
-          <button onclick="pressPin('2')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">2</button>
-          <button onclick="pressPin('3')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">3</button>
-          
-          <button onclick="pressPin('4')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">4</button>
-          <button onclick="pressPin('5')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">5</button>
-          <button onclick="pressPin('6')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">6</button>
-          
-          <button onclick="pressPin('7')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">7</button>
-          <button onclick="pressPin('8')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">8</button>
-          <button onclick="pressPin('9')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">9</button>
-          
-          <button onclick="clearPin()" class="h-16 rounded-2xl bg-red-50 hover:bg-red-100 active:bg-red-200 text-sm font-bold text-red-700 border border-red-200 transition-all flex items-center justify-center">
-            <i data-lucide="rotate-ccw" class="w-5 h-5 mr-1"></i> Limpar
-          </button>
-          <button onclick="pressPin('0')" class="h-16 rounded-2xl bg-stone-50 hover:bg-amber-50 active:bg-amber-100 text-2xl font-bold text-coffee-900 border border-stone-200 shadow-sm transition-all flex items-center justify-center">0</button>
-          <button onclick="backspacePin()" class="h-16 rounded-2xl bg-stone-100 hover:bg-stone-200 active:bg-stone-300 text-stone-700 border border-stone-200 transition-all flex items-center justify-center">
-            <i data-lucide="delete" class="w-6 h-6"></i>
-          </button>
-        </div>
-
-        <!-- Quick PIN Helper for testing -->
-        <div class="mt-4 p-3 bg-stone-50 rounded-xl border border-dashed border-stone-300 text-center">
-          <p class="text-xs text-stone-500 font-semibold mb-1">PINs de Teste Rápidos:</p>
-          <div class="flex flex-wrap justify-center gap-1.5 text-xs">
-            <button onclick="quickFillPin('1024')" class="px-2 py-1 bg-white hover:bg-amber-50 rounded border border-stone-200 text-coffee-900 font-mono">Lucas (1024)</button>
-            <button onclick="quickFillPin('2048')" class="px-2 py-1 bg-white hover:bg-amber-50 rounded border border-stone-200 text-coffee-900 font-mono">Camila (2048)</button>
-            <button onclick="quickFillPin('3072')" class="px-2 py-1 bg-white hover:bg-amber-50 rounded border border-stone-200 text-coffee-900 font-mono">Bruno (3072)</button>
+      <!-- Aparelho vinculado: o fluxo real, em tres passos. -->
+      <div id="totem-flow" class="hidden w-full max-w-lg">
+        <div class="flex items-center justify-between mb-3 px-1 gap-3">
+          <div class="flex items-center space-x-2 min-w-0">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+            <p class="text-xs font-semibold text-stone-600 truncate">Aparelho: <span id="totem-device-name">—</span></p>
           </div>
+          <button onclick="desvincularTotem()" class="text-xs font-semibold text-stone-400 hover:text-red-600 shrink-0">Desvincular</button>
+        </div>
+
+        <div class="bg-white rounded-3xl p-5 sm:p-8 shadow-xl border border-stone-200">
+
+          <!-- PASSO 1: escolher a pessoa -->
+          <div id="totem-step-pessoa">
+            <div class="text-center mb-5">
+              <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-50 text-coffee-700 border border-amber-200 mb-3 shadow-sm">
+                <i data-lucide="users" class="w-8 h-8"></i>
+              </div>
+              <h2 class="text-2xl font-bold text-coffee-950">Quem vai ao café?</h2>
+              <p class="text-sm text-stone-500 mt-1">Toque no seu nome e depois digite o código.</p>
+            </div>
+            <input id="totem-busca" oninput="renderTotemPessoas()" type="text" autocomplete="off"
+              placeholder="Buscar pelo nome ou matrícula"
+              class="w-full px-4 py-3 rounded-2xl border border-stone-300 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none mb-3">
+            <div id="totem-pessoas" class="max-h-[44vh] overflow-y-auto divide-y divide-stone-100"></div>
+          </div>
+
+          <!-- PASSO 2: digitar o código de 6 caracteres -->
+          <div id="totem-step-codigo" class="hidden">
+            <button onclick="totemVoltarPessoa()" class="flex items-center space-x-1 text-xs font-semibold text-stone-400 hover:text-coffee-900 mb-3">
+              <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i><span>Trocar de pessoa</span>
+            </button>
+            <div class="text-center mb-4">
+              <h2 id="totem-codigo-titulo" class="text-xl font-bold text-coffee-950">Código do café</h2>
+              <p id="totem-codigo-sub" class="text-sm text-stone-500 mt-1"></p>
+            </div>
+            <div id="totem-boxes" class="grid grid-cols-6 gap-1.5 sm:gap-2 mb-3"></div>
+            <div id="totem-feedback" class="min-h-[24px] text-center text-xs font-semibold mb-3 text-stone-500"></div>
+            <div id="totem-keypad" class="grid grid-cols-8 gap-1 sm:gap-1.5 mb-2"></div>
+            <button onclick="totemApagar()"
+              class="w-full py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-semibold mb-3">Apagar</button>
+            <button id="totem-registrar" onclick="totemRegistrar()" disabled
+              class="w-full py-3.5 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              Registrar
+            </button>
+          </div>
+
+          <!-- PASSO 3: comprovante -->
+          <div id="totem-step-recibo" class="hidden text-center"></div>
         </div>
       </div>
     </section>
-
-    <!-- MODAL: CHOOSE OPERATION AFTER VALID PIN -->
-    <div id="ponto-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-white w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
-        <div class="flex items-center space-x-3 mb-4 pb-4 border-b border-stone-100">
-          <div class="w-12 h-12 rounded-2xl bg-amber-100 text-coffee-800 flex items-center justify-center font-bold text-lg">
-            <span id="modal-collaborator-initials">LM</span>
-          </div>
-          <div>
-            <h3 id="modal-collaborator-name" class="text-xl font-bold text-coffee-950">Lucas Mendes</h3>
-            <p id="modal-collaborator-role" class="text-xs text-stone-500 font-medium">Barista Chefe • Balcão</p>
-          </div>
-          <div class="ml-auto">
-            <span id="modal-current-status" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Presente</span>
-          </div>
-        </div>
-
-        <p class="text-sm font-semibold text-stone-700 mb-4">Selecione o registro para o momento atual:</p>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-          <button onclick="submitPonto('entrada')" class="p-4 rounded-2xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-left transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-emerald-900">Entrada</span>
-              <i data-lucide="log-in" class="w-5 h-5 text-emerald-600"></i>
-            </div>
-            <p class="text-xs text-emerald-700 font-medium">Início de turno de trabalho</p>
-          </button>
-
-          <button onclick="submitPonto('pausa_cafe')" class="p-4 rounded-2xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-left transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-amber-900">Pausa Café</span>
-              <i data-lucide="coffee" class="w-5 h-5 text-amber-600"></i>
-            </div>
-            <p class="text-xs text-amber-700 font-medium">Intervalo de descanso (15 min)</p>
-          </button>
-
-          <button onclick="submitPonto('retorno_cafe')" class="p-4 rounded-2xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-left transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-amber-900">Retorno Café</span>
-              <i data-lucide="check-circle-2" class="w-5 h-5 text-amber-600"></i>
-            </div>
-            <p class="text-xs text-amber-700 font-medium">Fim do intervalo de descanso</p>
-          </button>
-
-          <button onclick="submitPonto('saida')" class="p-4 rounded-2xl border border-stone-200 bg-stone-50 hover:bg-stone-100 text-left transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <span class="font-bold text-stone-900">Saída</span>
-              <i data-lucide="log-out" class="w-5 h-5 text-stone-600"></i>
-            </div>
-            <p class="text-xs text-stone-600 font-medium">Encerramento do expediente</p>
-          </button>
-        </div>
-
-        <div class="flex justify-end">
-          <button onclick="closeModal()" class="px-5 py-2.5 rounded-xl border border-stone-300 text-stone-700 font-semibold hover:bg-stone-50 transition-all text-sm">
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
 
     <!-- VIEW 2: SUPERVISOR & TEAM OVERVIEW -->
     <section id="view-supervisor" class="hidden space-y-6">
@@ -471,10 +439,16 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <h2 class="text-2xl font-bold text-coffee-950">Dispositivos Protegidos</h2>
           <p class="text-sm text-stone-500">Aparelhos autorizados a registrar ponto</p>
         </div>
-        <button onclick="refreshDevices()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
-          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-          <span>Atualizar</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="abrirCadastroDispositivo()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-coffee-900 text-white text-sm font-semibold shadow-sm hover:bg-coffee-800">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Cadastrar aparelho</span>
+          </button>
+          <button onclick="refreshDevices()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Atualizar</span>
+          </button>
+        </div>
       </div>
       <div class="grid grid-cols-3 gap-3 md:gap-4" id="devices-stats"></div>
       <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
@@ -486,6 +460,46 @@ const HTML_CONTENT = `<!DOCTYPE html>
         </div>
       </div>
     </section>
+
+    <!-- MODAL: CADASTRAR APARELHO / MOSTRAR O CÓDIGO DE ATIVAÇÃO -->
+    <div id="device-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
+
+        <!-- Formulário -->
+        <div id="device-modal-form">
+          <h3 class="text-xl font-bold text-coffee-950">Cadastrar aparelho</h3>
+          <p class="text-sm text-stone-500 mt-1 mb-5">Ao salvar, o servidor gera um código de ativação de 10 caracteres. Ele aparece uma única vez.</p>
+          <label class="block text-xs font-bold text-stone-600 mb-1">Nome do aparelho</label>
+          <input id="device-nome" type="text" maxlength="120" placeholder="Totem do corredor"
+            class="w-full px-4 py-3 rounded-2xl border border-stone-300 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none mb-4">
+          <label class="block text-xs font-bold text-stone-600 mb-1">PIN de desbloqueio <span class="font-medium text-stone-400">(opcional, 4 a 12 números)</span></label>
+          <input id="device-pin" type="text" inputmode="numeric" maxlength="12" placeholder="Deixe em branco para não usar"
+            class="w-full px-4 py-3 rounded-2xl border border-stone-300 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none">
+          <p class="text-[11px] text-stone-400 mt-1.5 leading-relaxed">Este PIN não bate ponto — ele só destrava o modo quiosque no aparelho. Quem bate ponto usa o código de 6 caracteres do Supervisor.</p>
+          <div class="flex gap-2 mt-6">
+            <button onclick="fecharCadastroDispositivo()" class="flex-1 py-3 rounded-2xl border border-stone-300 text-stone-700 font-semibold hover:bg-stone-50 text-sm">Cancelar</button>
+            <button id="device-salvar" onclick="salvarDispositivo()" class="flex-1 py-3 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 disabled:opacity-40 text-sm">Cadastrar</button>
+          </div>
+        </div>
+
+        <!-- Código de ativação -->
+        <div id="device-modal-token" class="hidden text-center">
+          <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-50 text-coffee-700 border border-amber-200 mb-3 shadow-sm">
+            <i data-lucide="key-round" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-xl font-bold text-coffee-950">Código de ativação</h3>
+          <p id="device-token-nome" class="text-sm text-stone-500 mt-1 mb-4"></p>
+          <div class="bg-stone-50 border border-dashed border-stone-300 rounded-2xl py-5 px-3 mb-2">
+            <span id="device-token-valor" class="font-mono text-2xl sm:text-3xl font-bold text-coffee-950 tracking-[0.15em] break-all"></span>
+          </div>
+          <p class="text-[11px] text-red-600 font-semibold mb-4">Anote agora. Este código não volta a ser mostrado, e maiúsculas e minúsculas contam.</p>
+          <div class="flex gap-2">
+            <button onclick="copiarTokenDispositivo()" class="flex-1 py-3 rounded-2xl border border-stone-300 text-stone-700 font-semibold hover:bg-stone-50 text-sm">Copiar</button>
+            <button onclick="fecharCadastroDispositivo()" class="flex-1 py-3 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 text-sm">Já anotei</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- VIEW: AUDITORIA -->
     <section id="view-audit" class="hidden space-y-6">
@@ -768,8 +782,6 @@ const HTML_CONTENT = `<!DOCTYPE html>
       alerts: [],
       codes: [],
       resumo: {},
-      currentPin: '',
-      activeCollaborator: null,
       voiceEnabled: true
     };
 
@@ -850,9 +862,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
           view.classList.add('hidden');
         }
       });
-      if (tabId !== 'kiosk') {
-        clearPin();
-      }
+      // Sair da aba do totem apaga o código a meio: o próximo a chegar não
+      // pode encontrar os caracteres de outra pessoa nas caixas.
+      if (tabId === 'kiosk') { totemBoot(); } else { totemLimparCodigo(); }
       // O prazo do código corre em segundos: ao abrir a aba, relê do servidor.
       if (tabId === 'codes') { refreshCodes(); }
       if (tabId === 'devices') { refreshDevices(); }
@@ -861,127 +873,401 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (tabId === 'admin') { refreshRules(); refreshDiagnostics(); }
     }
 
-    // Numpad PIN logic
-    function updatePinDisplay() {
-      for (let i = 0; i < 4; i++) {
-        const dot = document.getElementById('pin-dot-' + i);
-        if (i < state.currentPin.length) {
-          dot.className = 'w-5 h-5 rounded-full border-2 border-coffee-800 bg-coffee-800 scale-110 transition-all';
-        } else {
-          dot.className = 'w-5 h-5 rounded-full border-2 border-stone-300 bg-stone-100 transition-all';
+    // ---- Totem / Ponto -----------------------------------------------------
+    //
+    // Esta aba deixou de ser maquete. Ela bate ponto de verdade, pelo mesmo
+    // contrato que o totem Android usa: o aparelho guarda uma credencial
+    // propria (X-Device-Token), a pessoa escolhe-se na lista e digita o codigo
+    // de 6 caracteres que o Supervisor emitiu. Nao ha PIN em lado nenhum.
+    //
+    // Quem decide se aquilo foi uma saida ou um retorno e o servidor, nunca o
+    // navegador: so o servidor sabe se aquele codigo ja foi usado para sair.
+    // O painel envia o par (pessoa, codigo) e le a resposta.
+    //
+    // O alfabeto e o Crockford Base32 -- digitos e letras sem I, L, O e U, os
+    // simbolos que ninguem distingue de 1 e 0 num papel escrito a pressa. O
+    // teclado mostra so o que existe: a tecla que o servidor recusaria nem
+    // chega a aparecer.
+    const TOTEM_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    const TOTEM_CODE_LENGTH = 6;
+
+    const totem = { codigo: '', pessoa: null, pessoas: [], enviando: false, erro: false, timer: null };
+
+    function getDeviceToken() { return localStorage.getItem('ponto_device_token'); }
+    function getDeviceName() { return localStorage.getItem('ponto_device_name') || 'Aparelho vinculado'; }
+
+    // Converte a tecla que a pessoa carregou no simbolo canonico do alfabeto.
+    // I e L viram 1, O vira 0 -- e a mesma tolerancia que o servidor aplica ao
+    // normalizar o codigo, por isso digitar OL no lugar de 01 nao e um erro.
+    function totemCanonical(char) {
+      const upper = String(char).toUpperCase();
+      const mapped = upper === 'I' || upper === 'L' ? '1' : (upper === 'O' ? '0' : upper);
+      return TOTEM_ALPHABET.includes(mapped) ? mapped : null;
+    }
+
+    function totemPane(nome) {
+      const vinculado = !!getDeviceToken();
+      document.getElementById('totem-pairing').classList.toggle('hidden', vinculado);
+      document.getElementById('totem-flow').classList.toggle('hidden', !vinculado);
+      if (vinculado) document.getElementById('totem-device-name').textContent = nome || getDeviceName();
+    }
+
+    function totemBoot() {
+      totemPane();
+      if (getDeviceToken()) {
+        totemVoltarPessoa();
+        carregarTotemPessoas();
+      } else {
+        const campo = document.getElementById('totem-activation-input');
+        if (campo) campo.focus();
+      }
+    }
+
+    // --- Vinculacao do aparelho ---------------------------------------------
+
+    // O token de ativacao distingue maiusculas de minusculas: o gerador usa as
+    // 62 letras e digitos. Por isso nao se normaliza nada aqui alem de tirar o
+    // que nao e letra nem digito -- passar por uppercase estragaria o codigo.
+    function onActivationInput() {
+      const campo = document.getElementById('totem-activation-input');
+      campo.value = campo.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 10);
+      document.getElementById('totem-activation-count').textContent = String(campo.value.length);
+      document.getElementById('totem-activation-btn').disabled = campo.value.length !== 10;
+    }
+
+    function pairingFeedback(texto, tom) {
+      const cor = tom === 'error' ? 'text-red-600' : (tom === 'ok' ? 'text-emerald-600' : 'text-stone-500');
+      const el = document.getElementById('totem-pairing-feedback');
+      if (!el) return;
+      el.textContent = texto;
+      el.className = 'min-h-[24px] text-center text-xs font-semibold my-3 ' + cor;
+    }
+
+    async function ativarTotem() {
+      const campo = document.getElementById('totem-activation-input');
+      const codigo = campo.value.trim();
+      if (codigo.length !== 10) return;
+
+      const botao = document.getElementById('totem-activation-btn');
+      botao.disabled = true;
+      pairingFeedback('Validando o codigo...', 'info');
+      try {
+        const res = await fetch(API_BASE + '/setup/device-activation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-App-Version': 'painel-web', 'X-Device-Model': 'Navegador' },
+          body: JSON.stringify({ token: codigo })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          pairingFeedback(data.erro || 'Codigo de ativacao recusado.', 'error');
+          botao.disabled = false;
+          return;
+        }
+        localStorage.setItem('ponto_device_token', data.token);
+        localStorage.setItem('ponto_device_name', (data.dispositivo && data.dispositivo.nome) || 'Aparelho vinculado');
+        campo.value = '';
+        onActivationInput();
+        pairingFeedback('', 'info');
+        showToast('Aparelho vinculado', 'Este navegador ja pode registrar ponto.', 'success');
+        totemPane((data.dispositivo && data.dispositivo.nome) || null);
+        carregarTotemPessoas();
+      } catch (err) {
+        pairingFeedback('Nao foi possivel falar com o servidor.', 'error');
+        botao.disabled = false;
+      }
+    }
+
+    function desvincularTotem() {
+      if (!confirm('Desvincular este aparelho? Ele deixa de registrar ponto ate ser ativado com um codigo novo.')) return;
+      localStorage.removeItem('ponto_device_token');
+      localStorage.removeItem('ponto_device_name');
+      totem.pessoa = null;
+      totem.codigo = '';
+      clearInterval(totem.timer);
+      totemPane();
+      const campo = document.getElementById('totem-activation-input');
+      if (campo) { campo.value = ''; onActivationInput(); campo.focus(); }
+    }
+
+    // Todo pedido do totem leva a credencial do aparelho. Um 401 aqui nao e
+    // sessao expirada de pessoa nenhuma: e o aparelho que perdeu autorizacao,
+    // e o unico caminho de volta e um codigo de ativacao novo.
+    async function deviceFetch(caminho, opcoes) {
+      const cfg = opcoes || {};
+      const res = await fetch(API_BASE + caminho, {
+        method: cfg.method || 'GET',
+        headers: Object.assign({
+          'Content-Type': 'application/json',
+          'X-Device-Token': getDeviceToken(),
+          'X-App-Version': 'painel-web',
+          'X-Device-Model': 'Navegador'
+        }, cfg.headers || {}),
+        body: cfg.body ? JSON.stringify(cfg.body) : undefined
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        localStorage.removeItem('ponto_device_token');
+        localStorage.removeItem('ponto_device_name');
+        totemPane();
+        pairingFeedback('Este aparelho nao esta mais autorizado. Peca um codigo novo ao Administrador.', 'error');
+        throw new Error('device-unauthorized');
+      }
+      if (!res.ok) throw new Error(data.erro || ('HTTP ' + res.status));
+      return data;
+    }
+
+    // --- Passo 1: escolher a pessoa -----------------------------------------
+
+    async function carregarTotemPessoas() {
+      const lista = document.getElementById('totem-pessoas');
+      if (!lista || !getDeviceToken()) return;
+      lista.innerHTML = '<p class="py-8 text-xs text-stone-400 text-center">Carregando...</p>';
+      try {
+        const data = await deviceFetch('/ponto/colaboradores');
+        totem.pessoas = data.colaboradores || [];
+        renderTotemPessoas();
+      } catch (err) {
+        if (err.message !== 'device-unauthorized') {
+          lista.innerHTML = '<p class="py-8 text-xs text-red-500 text-center">' + err.message + '</p>';
         }
       }
+    }
 
-      if (state.currentPin.length === 4) {
-        verifyPin(state.currentPin);
+    function renderTotemPessoas() {
+      const lista = document.getElementById('totem-pessoas');
+      if (!lista) return;
+      const campo = document.getElementById('totem-busca');
+      const busca = ((campo && campo.value) || '').trim().toLowerCase();
+      const visiveis = totem.pessoas.filter(p =>
+        !busca ||
+        (p.nome || '').toLowerCase().includes(busca) ||
+        (p.matricula || '').toLowerCase().includes(busca)
+      );
+
+      if (visiveis.length === 0) {
+        lista.innerHTML = '<p class="py-8 text-xs text-stone-400 text-center">'
+          + (totem.pessoas.length === 0
+            ? 'Ninguem disponivel para o cafe neste periodo.'
+            : 'Nenhum nome corresponde a busca.')
+          + '</p>';
+        return;
+      }
+
+      lista.innerHTML = visiveis.map(p => {
+        const iniciais = (p.nome || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+        const detalhe = [p.setor, p.turno ? 'Turno ' + p.turno : null, p.matricula].filter(Boolean).join(' · ');
+        return '<button onclick="totemEscolher(&quot;' + p.id + '&quot;)" '
+          + 'class="w-full flex items-center gap-3 px-2 py-3 text-left hover:bg-amber-50 rounded-xl transition-all">'
+          + '<span class="w-10 h-10 shrink-0 rounded-2xl bg-amber-100 text-coffee-800 flex items-center justify-center font-bold text-sm">' + iniciais + '</span>'
+          + '<span class="min-w-0 flex-1">'
+          + '<span class="block text-sm font-bold text-coffee-950 truncate">' + p.nome + '</span>'
+          + '<span class="block text-xs text-stone-500 truncate">' + (detalhe || 'Sem setor') + '</span>'
+          + '</span>'
+          + '<i data-lucide="chevron-right" class="w-4 h-4 text-stone-300 shrink-0"></i>'
+          + '</button>';
+      }).join('');
+      lucide.createIcons();
+    }
+
+    async function totemEscolher(id) {
+      const pessoa = totem.pessoas.find(p => p.id === id);
+      if (!pessoa) return;
+      clearInterval(totem.timer);
+      totem.pessoa = pessoa;
+      totem.codigo = '';
+      totem.erro = false;
+
+      document.getElementById('totem-step-pessoa').classList.add('hidden');
+      document.getElementById('totem-step-recibo').classList.add('hidden');
+      document.getElementById('totem-step-codigo').classList.remove('hidden');
+      document.getElementById('totem-codigo-titulo').textContent = pessoa.nome;
+      document.getElementById('totem-codigo-sub').textContent = 'Consultando...';
+      renderTotemKeypad();
+      renderTotemBoxes();
+      totemFeedback('', 'info');
+
+      // A consulta so decide o texto do ecra. Se falhar, o passo continua
+      // valido: quem autoriza a batida e o registo, nao esta pergunta.
+      try {
+        const estado = await deviceFetch('/ponto/colaboradores/' + id + '/pausa');
+        document.getElementById('totem-codigo-sub').textContent = estado.acaoEsperada === 'RETORNO'
+          ? 'Digite o mesmo codigo que usou para sair.'
+          : 'Digite os 6 caracteres entregues pelo Supervisor.';
+      } catch (err) {
+        if (err.message !== 'device-unauthorized') {
+          document.getElementById('totem-codigo-sub').textContent = 'Digite os 6 caracteres entregues pelo Supervisor.';
+        }
       }
     }
 
-    function pressPin(digit) {
-      if (state.currentPin.length < 4) {
-        state.currentPin += digit;
-        updatePinDisplay();
+    function totemVoltarPessoa() {
+      clearInterval(totem.timer);
+      totem.pessoa = null;
+      totem.codigo = '';
+      totem.erro = false;
+      const busca = document.getElementById('totem-busca');
+      if (busca) busca.value = '';
+      document.getElementById('totem-step-codigo').classList.add('hidden');
+      document.getElementById('totem-step-recibo').classList.add('hidden');
+      document.getElementById('totem-step-pessoa').classList.remove('hidden');
+      renderTotemPessoas();
+    }
+
+    // --- Passo 2: digitar o codigo ------------------------------------------
+
+    // Seis caixas em vez de um campo de texto: de pe, muitas vezes sem oculos,
+    // o que a pessoa precisa de ver num relance e quantos caracteres ja
+    // entraram e qual falta.
+    function renderTotemBoxes() {
+      const alvo = document.getElementById('totem-boxes');
+      if (!alvo) return;
+      let html = '';
+      for (let i = 0; i < TOTEM_CODE_LENGTH; i++) {
+        const char = totem.codigo[i] || '';
+        const proxima = !totem.erro && i === totem.codigo.length;
+        const base = 'h-14 sm:h-16 rounded-xl flex items-center justify-center text-2xl font-bold font-mono transition-all ';
+        const estilo = totem.erro
+          ? 'bg-red-50 border-2 border-red-400 text-red-700'
+          : (proxima
+            ? 'bg-amber-50 border-2 border-amber-300 text-coffee-950'
+            : 'bg-stone-50 border border-stone-200 text-coffee-950');
+        html += '<div class="' + base + estilo + '">' + char + '</div>';
+      }
+      alvo.innerHTML = html;
+      const botao = document.getElementById('totem-registrar');
+      if (botao) botao.disabled = totem.codigo.length !== TOTEM_CODE_LENGTH || totem.enviando;
+    }
+
+    function renderTotemKeypad() {
+      const alvo = document.getElementById('totem-keypad');
+      if (!alvo || alvo.dataset.pronto === '1') return;
+      alvo.innerHTML = TOTEM_ALPHABET.split('').map(t =>
+        '<button onclick="totemDigitar(&quot;' + t + '&quot;)" '
+        + 'class="h-11 sm:h-12 rounded-xl bg-white hover:bg-amber-50 active:bg-amber-100 border border-stone-200 '
+        + 'shadow-sm text-base font-bold font-mono text-coffee-900 transition-all">' + t + '</button>'
+      ).join('');
+      alvo.dataset.pronto = '1';
+    }
+
+    function totemFeedback(texto, tom) {
+      const cor = tom === 'error' ? 'text-red-600' : (tom === 'ok' ? 'text-emerald-600' : 'text-stone-500');
+      const el = document.getElementById('totem-feedback');
+      if (!el) return;
+      el.textContent = texto;
+      el.className = 'min-h-[24px] text-center text-xs font-semibold mb-3 ' + cor;
+    }
+
+    function totemDigitar(char) {
+      if (totem.enviando) return;
+      const simbolo = totemCanonical(char);
+      if (!simbolo) return;
+      if (totem.erro) { totem.codigo = ''; totem.erro = false; totemFeedback('', 'info'); }
+      if (totem.codigo.length >= TOTEM_CODE_LENGTH) return;
+      totem.codigo += simbolo;
+      renderTotemBoxes();
+    }
+
+    function totemApagar() {
+      if (totem.enviando) return;
+      if (totem.erro) { totem.codigo = ''; totem.erro = false; totemFeedback('', 'info'); }
+      else totem.codigo = totem.codigo.slice(0, -1);
+      renderTotemBoxes();
+    }
+
+    function totemLimparCodigo() {
+      totem.codigo = '';
+      totem.erro = false;
+      renderTotemBoxes();
+      totemFeedback('', 'info');
+    }
+
+    async function totemRegistrar() {
+      if (totem.enviando || !totem.pessoa || totem.codigo.length !== TOTEM_CODE_LENGTH) return;
+      totem.enviando = true;
+      renderTotemBoxes();
+      totemFeedback('Registrando...', 'info');
+      try {
+        const corpo = { colaboradorId: totem.pessoa.id, codigo: totem.codigo };
+        // operacaoId torna a batida idempotente: se a resposta se perder no
+        // caminho, reenviar nao abre uma segunda pausa.
+        if (window.crypto && crypto.randomUUID) corpo.operacaoId = crypto.randomUUID();
+        const data = await deviceFetch('/ponto/pausas/registrar', { method: 'POST', body: corpo });
+        totem.enviando = false;
+        totemRecibo(data);
+        carregarTotemPessoas();
+      } catch (err) {
+        totem.enviando = false;
+        if (err.message === 'device-unauthorized') return;
+        totem.erro = true;
+        renderTotemBoxes();
+        totemFeedback(err.message, 'error');
       }
     }
 
-    function backspacePin() {
-      if (state.currentPin.length > 0) {
-        state.currentPin = state.currentPin.slice(0, -1);
-        updatePinDisplay();
+    // --- Passo 3: comprovante -----------------------------------------------
+
+    function totemRecibo(data) {
+      const alvo = document.getElementById('totem-step-recibo');
+      const nome = (data.colaborador && data.colaborador.nome) || (totem.pessoa && totem.pessoa.nome) || '';
+      const primeiro = nome.split(' ')[0] || '';
+      let icone, cor, titulo, detalhe;
+
+      if (data.status === 'INICIO') {
+        const i = data.inicio || {};
+        icone = 'coffee';
+        cor = 'amber';
+        titulo = 'Bom cafe, ' + primeiro + '!';
+        detalhe = 'Saida registrada as ' + (i.inicioLocal || '--:--')
+          + '. Volte ate ' + (i.retornoAteLocal || '--:--') + '.';
+      } else {
+        const r = data.retorno || {};
+        const minutos = Math.round((r.tempoContadoSegundos || 0) / 60);
+        icone = r.excedeuLimite ? 'alert-triangle' : 'check-circle-2';
+        cor = r.excedeuLimite ? 'red' : 'emerald';
+        titulo = 'Retorno registrado';
+        detalhe = 'Voltou as ' + (r.fimLocal || '--:--') + ' · ' + minutos + ' min contados'
+          + (r.excedeuLimite ? ' - acima do limite.' : '.');
       }
+
+      document.getElementById('totem-step-codigo').classList.add('hidden');
+      document.getElementById('totem-step-pessoa').classList.add('hidden');
+      alvo.classList.remove('hidden');
+      alvo.innerHTML =
+        '<div class="inline-flex items-center justify-center w-16 h-16 rounded-3xl mb-4 shadow-sm border '
+        + (cor === 'amber' ? 'bg-amber-50 text-amber-600 border-amber-200'
+          : (cor === 'red' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'))
+        + '"><i data-lucide="' + icone + '" class="w-9 h-9"></i></div>'
+        + '<h2 class="text-2xl font-bold text-coffee-950">' + titulo + '</h2>'
+        + '<p class="text-sm text-stone-500 mt-2 max-w-sm mx-auto">' + detalhe + '</p>'
+        + '<button onclick="totemVoltarPessoa()" class="mt-6 w-full py-3.5 rounded-2xl bg-coffee-900 '
+        + 'text-white font-bold hover:bg-coffee-800 transition-all">Liberar para o proximo</button>'
+        + '<p class="text-[11px] text-stone-400 mt-3">Este totem se libera sozinho em '
+        + '<span id="totem-countdown">8</span>s.</p>';
+      lucide.createIcons();
+
+      // O totem nao pode ficar parado no comprovante de outra pessoa: quem
+      // chega a seguir veria o nome errado no ecra.
+      let restantes = 8;
+      clearInterval(totem.timer);
+      totem.timer = setInterval(() => {
+        restantes -= 1;
+        const marcador = document.getElementById('totem-countdown');
+        if (marcador) marcador.textContent = String(restantes);
+        if (restantes <= 0) { clearInterval(totem.timer); totemVoltarPessoa(); }
+      }, 1000);
     }
 
-    function clearPin() {
-      state.currentPin = '';
-      updatePinDisplay();
-      const feedback = document.getElementById('kiosk-feedback');
-      if (feedback) {
-        feedback.textContent = 'Toque nos números ou use o teclado';
-        feedback.className = 'min-h-[28px] text-center text-xs font-semibold mb-4 text-stone-500';
-      }
-    }
-
-    function quickFillPin(pin) {
-      state.currentPin = pin;
-      updatePinDisplay();
-    }
-
-    // Physical keyboard input
+    // Teclado fisico: util no balcao, onde quase sempre ha um ligado.
     window.addEventListener('keydown', (e) => {
       const kioskView = document.getElementById('view-kiosk');
-      if (!kioskView.classList.contains('hidden') && !document.getElementById('ponto-modal').classList.contains('flex')) {
-        if (e.key >= '0' && e.key <= '9') {
-          pressPin(e.key);
-        } else if (e.key === 'Backspace') {
-          backspacePin();
-        } else if (e.key === 'Escape') {
-          clearPin();
-        }
-      }
+      const passoCodigo = document.getElementById('totem-step-codigo');
+      if (!kioskView || !passoCodigo) return;
+      if (kioskView.classList.contains('hidden') || passoCodigo.classList.contains('hidden')) return;
+      if (e.key === 'Backspace') { e.preventDefault(); totemApagar(); }
+      else if (e.key === 'Enter') { e.preventDefault(); totemRegistrar(); }
+      else if (e.key === 'Escape') { totemLimparCodigo(); }
+      else if (e.key.length === 1 && totemCanonical(e.key)) { e.preventDefault(); totemDigitar(e.key); }
     });
-
-    async function verifyPin(pin) {
-      const feedback = document.getElementById('kiosk-feedback');
-      feedback.textContent = 'Verificando PIN...';
-      feedback.className = 'min-h-[28px] text-center text-xs font-semibold mb-4 text-amber-600';
-
-      const found = state.collaborators.find(c => c.pin === pin);
-      if (found) {
-        feedback.textContent = 'PIN Reconhecido: ' + found.name;
-        feedback.className = 'min-h-[28px] text-center text-xs font-semibold mb-4 text-emerald-600';
-        openPontoModal(found);
-      } else {
-        feedback.textContent = 'PIN não encontrado. Tente novamente.';
-        feedback.className = 'min-h-[28px] text-center text-xs font-semibold mb-4 text-red-600';
-        setTimeout(clearPin, 1200);
-      }
-    }
-
-    function openPontoModal(collaborator) {
-      state.activeCollaborator = collaborator;
-      document.getElementById('modal-collaborator-name').textContent = collaborator.name;
-      document.getElementById('modal-collaborator-role').textContent = collaborator.role + ' • ' + collaborator.department;
-      
-      const initials = collaborator.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-      document.getElementById('modal-collaborator-initials').textContent = initials;
-      
-      const statusBadges = {
-        active: { text: 'Em Atendimento', class: 'bg-emerald-100 text-emerald-800' },
-        coffee_break: { text: 'Em Pausa Café', class: 'bg-amber-100 text-amber-800' },
-        off_duty: { text: 'Fora de Turno', class: 'bg-stone-100 text-stone-700' }
-      };
-      const badge = statusBadges[collaborator.status] || statusBadges.off_duty;
-      const stElem = document.getElementById('modal-current-status');
-      stElem.textContent = badge.text;
-      stElem.className = 'px-2.5 py-1 rounded-full text-xs font-semibold ' + badge.class;
-
-      const modal = document.getElementById('ponto-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-    }
-
-    function closeModal() {
-      const modal = document.getElementById('ponto-modal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
-      state.activeCollaborator = null;
-      clearPin();
-    }
-
-    // O registo de ponto continua a ser do totem, e nao deste painel.
-    //
-    // Nao e uma limitacao por preguica: a batida exige o token de dispositivo
-    // autorizado, a fila offline e a assinatura fiscal REP-P, que vivem no
-    // aparelho. Registar daqui produziria um ponto sem origem confiavel -- por
-    // isso o painel diz onde se faz, em vez de oferecer um botao que falha.
-    async function submitPonto() {
-      closeModal();
-      showToast(
-        'Registo é no totem',
-        'A saída e o retorno são registados no aparelho do corredor, com o código de café.',
-        'error'
-      );
-    }
 
     // ---- Ligação com o backend real (Cloudflare Worker) --------------------
     // O painel deixou de ter dados próprios: tudo vem da mesma API que o totem
@@ -1558,8 +1844,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
                   class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Renomear</button>
                 <button onclick="definirPinDispositivo('\${d.id}')"
                   class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${d.pinConfigurado ? 'Trocar PIN' : 'Definir PIN'}</button>
-                <button onclick="novoTokenDispositivo('\${d.id}')"
-                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Novo token</button>
+                <button onclick="novoTokenDispositivo('\${d.id}', '\${(d.nome || '').replace(/'/g, "\\\\'")}')"
+                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Novo código</button>
                 \${d.ativo ? \`<button onclick="desativarDispositivo('\${d.id}')"
                   class="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-50">Bloquear acesso</button>\` : ''}
                 <button onclick="excluirDispositivo('\${d.id}', '\${(d.nome || '').replace(/'/g, "\\\\'")}')"
@@ -1593,6 +1879,125 @@ const HTML_CONTENT = `<!DOCTYPE html>
       return false;
     }
 
+    // Cadastro de aparelho.
+    //
+    // Sem isto o painel sabia listar, renomear e excluir dispositivos, mas nao
+    // sabia criar nenhum -- e o totem ficava sem nada para digitar. O servidor
+    // devolve o codigo de ativacao de 10 caracteres uma unica vez, por isso ele
+    // aparece grande, copiavel, e o modal so fecha com "Ja anotei".
+    let idempotenciaDispositivo = null;
+
+    function novaChaveIdempotencia() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+    }
+
+    function abrirCadastroDispositivo() {
+      idempotenciaDispositivo = novaChaveIdempotencia();
+      document.getElementById('device-nome').value = '';
+      document.getElementById('device-pin').value = '';
+      document.getElementById('device-modal-form').classList.remove('hidden');
+      document.getElementById('device-modal-token').classList.add('hidden');
+      const modal = document.getElementById('device-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+      document.getElementById('device-nome').focus();
+    }
+
+    function fecharCadastroDispositivo() {
+      const modal = document.getElementById('device-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function mostrarTokenDispositivo(nome, token, subtitulo) {
+      document.getElementById('device-modal-form').classList.add('hidden');
+      document.getElementById('device-token-nome').textContent = subtitulo || nome;
+      document.getElementById('device-token-valor').textContent = token;
+      document.getElementById('device-modal-token').classList.remove('hidden');
+      const modal = document.getElementById('device-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function copiarTokenDispositivo() {
+      const valor = document.getElementById('device-token-valor').textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(valor)
+          .then(() => showToast('Copiado', 'O código está na área de transferência.', 'success'))
+          .catch(() => showToast('Não deu', 'Copie o código à mão.', 'error'));
+      } else {
+        showToast('Não deu', 'Este navegador não deixa copiar. Anote o código à mão.', 'error');
+      }
+    }
+
+    async function salvarDispositivo() {
+      const nome = document.getElementById('device-nome').value.trim();
+      const pin = document.getElementById('device-pin').value.trim();
+      if (nome.length < 2) {
+        showToast('Nome inválido', 'Use ao menos 2 caracteres.', 'error');
+        return;
+      }
+      if (pin && !/^\\d{4,12}$/.test(pin)) {
+        showToast('PIN inválido', 'O PIN de desbloqueio tem de 4 a 12 números.', 'error');
+        return;
+      }
+
+      const botao = document.getElementById('device-salvar');
+      botao.disabled = true;
+      botao.textContent = 'Cadastrando...';
+      try {
+        const corpo = pin ? { nome: nome, pin: pin } : { nome: nome };
+        // A chave de idempotencia nasce ao abrir o modal: se a resposta se
+        // perder e a pessoa carregar outra vez, o servidor devolve o mesmo
+        // aparelho em vez de criar um segundo. Se ela mudou os dados no meio,
+        // o servidor recusa a chave e nos geramos uma nova, uma unica vez.
+        let res = await fetch(API_BASE + '/admin/device-activation', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + getToken(),
+            'Idempotency-Key': idempotenciaDispositivo
+          },
+          body: JSON.stringify(corpo)
+        });
+        let data = await res.json().catch(() => ({}));
+
+        if (res.status === 409 && data.codigo === 'IDEMPOTENCY_KEY_REUSED') {
+          idempotenciaDispositivo = novaChaveIdempotencia();
+          res = await fetch(API_BASE + '/admin/device-activation', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + getToken(),
+              'Idempotency-Key': idempotenciaDispositivo
+            },
+            body: JSON.stringify(corpo)
+          });
+          data = await res.json().catch(() => ({}));
+        }
+
+        if (!res.ok) {
+          showToast('Erro', data.erro || 'O servidor não aceitou o cadastro.', 'error');
+          return;
+        }
+
+        mostrarTokenDispositivo(
+          data.nome || nome,
+          data.token,
+          'Digite este código no aparelho, em Totem / Ponto.'
+        );
+        await refreshDevices();
+      } catch (err) {
+        showToast('Erro', 'Não foi possível falar com o servidor.', 'error');
+      } finally {
+        botao.disabled = false;
+        botao.textContent = 'Cadastrar';
+      }
+    }
+
     function renomearDispositivo(id, atual) {
       const nome = prompt('Novo nome do aparelho:', atual || '');
       if (nome === null) return;
@@ -1613,10 +2018,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
       acaoDispositivo('PUT', '/admin/devices/' + id + '/unlock-pin', { pin: pin.trim() }, 'PIN definido.');
     }
 
-    function novoTokenDispositivo(id) {
-      if (!confirm('Gerar novo token? O aparelho precisará ser reativado com o código novo.')) return;
-      acaoDispositivo('POST', '/admin/devices/' + id + '/novo-token', null,
-        (d) => d.token ? 'Token novo: ' + d.token : 'Token rotacionado.');
+    // O token novo tambem so e mostrado uma vez -- num toast que some em quatro
+    // segundos nao da para copiar 10 caracteres com maiusculas e minusculas.
+    async function novoTokenDispositivo(id, nome) {
+      if (!confirm('Gerar novo código de ativação? O aparelho para de registrar ponto até ser ativado outra vez com o código novo.')) return;
+      try {
+        const res = await fetch(API_BASE + '/admin/devices/' + id + '/novo-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast('Erro', data.erro || 'O servidor não aceitou a rotação.', 'error');
+          return;
+        }
+        await refreshDevices();
+        if (data.token) {
+          mostrarTokenDispositivo(nome || 'Aparelho', data.token, 'O código anterior foi revogado. Digite este no aparelho.');
+        } else {
+          showToast('Pronto', 'Código rotacionado.', 'success');
+        }
+      } catch (err) {
+        showToast('Erro', 'Não foi possível falar com o servidor.', 'error');
+      }
     }
 
     function desativarDispositivo(id) {
@@ -1931,6 +2355,15 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
+    // Vincular um totem nao exige sessao de gestao: /setup/device-activation e
+    // a unica rota aberta do sistema, justamente para o aparelho do corredor
+    // poder nascer sem ninguem fazer login nele. Por isso o overlay sai da
+    // frente em vez de barrar o caminho.
+    function irParaTotem() {
+      hideLogin();
+      switchTab('kiosk');
+    }
+
     function hideLogin() {
       const el = document.getElementById('login-overlay');
       if (!el) return;
@@ -1972,7 +2405,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     // Initialize on load
     window.addEventListener('DOMContentLoaded', () => {
-      if (getToken()) { refreshData(); } else { showLogin(); }
+      // O totem tem credencial propria. Um aparelho ja vinculado bate ponto
+      // sem ninguem da gestao ter sessao aberta neste navegador -- e isso que
+      // faz dele um totem, e nao mais um ecra de administrador. As outras abas
+      // continuam a pedir login: quem toca nelas cai no overlay.
+      totemBoot();
+      if (getToken()) { refreshData(); }
+      else if (getDeviceToken()) { switchTab('kiosk'); }
+      else { showLogin(); }
       lucide.createIcons();
     });
   </script>
