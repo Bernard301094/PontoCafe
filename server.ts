@@ -451,6 +451,23 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Contas de acesso: Admin e Supervisor -->
+        <div class="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="font-bold text-coffee-950 text-base">Contas de Acesso</h3>
+              <p class="text-xs text-stone-500 mt-0.5">Administradores e Supervisores que entram no painel e no app</p>
+            </div>
+            <button onclick="openNewUserModal()" class="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white text-xs font-semibold shadow">
+              <i data-lucide="user-plus" class="w-4 h-4"></i>
+              <span>Nova conta</span>
+            </button>
+          </div>
+          <div class="divide-y divide-stone-100" id="user-account-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
         <!-- Policy Settings Card -->
         <div class="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
           <h3 class="font-bold text-coffee-950 text-base">Políticas da Cafeteria</h3>
@@ -483,10 +500,59 @@ const HTML_CONTENT = `<!DOCTYPE html>
     </section>
 
     <!-- MODAL: ADD COLLABORATOR -->
-    <div id="new-collaborator-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <!-- Modal: nova conta de acesso -->
+    <div id="new-user-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
+        <h3 class="text-xl font-bold text-coffee-950 mb-1">Nova Conta de Acesso</h3>
+        <p class="text-xs text-stone-500 mb-6">Administrador vê tudo; Supervisor opera o turno indicado.</p>
+
+        <form id="new-user-form" onsubmit="handleCreateUser(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Nome</label>
+            <input type="text" id="user-nome" required minlength="2" placeholder="Ex: Bernard Vasconcelos" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">E-mail</label>
+            <input type="email" id="user-email" required placeholder="nome@empresa.com" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Perfil</label>
+            <select id="user-perfil" onchange="onPerfilChange()" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="SUPERVISOR">Supervisor</option>
+              <option value="ADMIN">Administrador</option>
+            </select>
+          </div>
+
+          <div id="user-turno-wrap">
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Turno do Supervisor</label>
+            <select id="user-turno" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="A">Turno A</option>
+              <option value="B">Turno B</option>
+              <option value="C">Turno C</option>
+              <option value="D">Turno D</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Senha inicial</label>
+            <input type="password" id="user-senha" minlength="10" placeholder="Mínimo 10 caracteres" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <p id="user-senha-hint" class="text-[11px] text-stone-400 mt-1">Opcional: em branco, o sistema gera uma senha provisória.</p>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-4 border-t border-stone-100">
+            <button type="button" onclick="closeNewUserModal()" class="px-4 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Cancelar</button>
+            <button type="submit" class="px-5 py-2 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white text-xs font-semibold shadow">Criar conta</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="new-collaborator-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
       <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
         <h3 class="text-xl font-bold text-coffee-950 mb-1">Cadastrar Colaborador</h3>
-        <p class="text-xs text-stone-500 mb-6">Preencha os dados e escolha um PIN exclusivo de 4 dígitos</p>
+        <p class="text-xs text-stone-500 mb-6">O colaborador não tem senha nem PIN: quem libera a pausa é o código de café de 6 caracteres que o Supervisor emite na hora.</p>
 
         <form id="new-col-form" onsubmit="handleCreateCollaborator(event)" class="space-y-4">
           <div>
@@ -495,19 +561,19 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-stone-700 mb-1">Cargo / Função</label>
-            <select id="col-role" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option value="Barista">Barista</option>
-              <option value="Atendente / Caixa">Atendente / Caixa</option>
-              <option value="Supervisor">Supervisor</option>
-              <option value="Confeiteiro / Cozinha">Confeiteiro / Cozinha</option>
-              <option value="Gerente">Gerente</option>
-            </select>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Setor</label>
+            <input type="text" id="col-setor" placeholder="Ex: Produção" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-stone-700 mb-1">PIN Numérico (4 Dígitos)</label>
-            <input type="text" id="col-pin" required maxlength="4" pattern="[0-9]{4}" placeholder="Ex: 8899" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Turno</label>
+            <select id="col-role" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="">Sem turno</option>
+              <option value="A">Turno A</option>
+              <option value="B">Turno B</option>
+              <option value="C">Turno C</option>
+              <option value="D">Turno D</option>
+            </select>
           </div>
 
           <div class="flex items-center justify-end space-x-2 pt-4 border-t border-stone-100">
@@ -837,6 +903,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
         renderAlerts();
         renderAdminList();
         updateSummaryStats();
+        refreshUsers();
+        lucide.createIcons();
       } catch (err) {
         if (err.message !== 'unauthenticated') {
           console.error(err);
@@ -951,6 +1019,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       const container = document.getElementById('admin-collaborator-list');
       if (!container) return;
 
+      // Colaborador não tem PIN neste modelo -- o que aparece é o estado da
+      // pausa. O acesso ao café vem do código de 6 caracteres do Supervisor.
       container.innerHTML = state.collaborators.map(c => \`
         <div class="py-3 flex items-center justify-between">
           <div>
@@ -958,10 +1028,103 @@ const HTML_CONTENT = `<!DOCTYPE html>
             <p class="text-xs text-stone-500">\${c.role} • \${c.department}</p>
           </div>
           <div class="flex items-center space-x-3">
-            <span class="font-mono text-xs bg-stone-100 px-2 py-1 rounded border border-stone-200 text-stone-600 font-bold">PIN: \${c.pin}</span>
+            <span class="text-xs px-2 py-1 rounded-full border font-semibold \${c.status === 'coffee_break' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}">
+              \${c.status === 'coffee_break' ? 'Em pausa' : 'Disponível'}
+            </span>
           </div>
         </div>
       \`).join('');
+    }
+
+    // ---- Contas de acesso (Admin / Supervisor) -----------------------------
+    // Esta seção não existia no protótipo: ele só cadastrava colaboradores.
+    // Contas de acesso são outra coisa -- têm e-mail, senha e perfil, e só o
+    // Administrador pode criá-las (POST /admin/usuarios).
+    async function refreshUsers() {
+      const container = document.getElementById('user-account-list');
+      if (!container) return;
+      try {
+        const data = await apiFetch('/admin/usuarios');
+        const users = data.usuarios || data || [];
+        if (!users.length) {
+          container.innerHTML = '<p class="text-xs text-stone-400 py-3">Nenhuma conta de acesso cadastrada.</p>';
+          return;
+        }
+        container.innerHTML = users.map(u => {
+          const admin = (u.role || '').toLowerCase() === 'admin';
+          const perfil = admin ? 'Administrador' : 'Supervisor' + (u.turno ? ' · Turno ' + u.turno : '');
+          return \`
+            <div class="py-3 flex items-center justify-between">
+              <div>
+                <h4 class="text-sm font-bold text-coffee-950">\${u.name}</h4>
+                <p class="text-xs text-stone-500">\${u.email}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+                \${u.mustChangePassword ? '<span class="text-xs px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">Senha provisória</span>' : ''}
+                <span class="text-xs px-2 py-1 rounded-full border font-semibold \${admin ? 'bg-coffee-100 text-coffee-800 border-coffee-200' : 'bg-stone-100 text-stone-600 border-stone-200'}">\${perfil}</span>
+              </div>
+            </div>
+          \`;
+        }).join('');
+      } catch (err) {
+        // Supervisor não enxerga contas; a seção some em vez de mostrar erro.
+        container.innerHTML = '<p class="text-xs text-stone-400 py-3">Apenas o Administrador pode ver e criar contas de acesso.</p>';
+      }
+    }
+
+    function openNewUserModal() {
+      document.getElementById('new-user-modal').classList.remove('hidden');
+      document.getElementById('new-user-modal').classList.add('flex');
+    }
+
+    function closeNewUserModal() {
+      document.getElementById('new-user-modal').classList.add('hidden');
+      document.getElementById('new-user-modal').classList.remove('flex');
+    }
+
+    function onPerfilChange() {
+      const perfil = document.getElementById('user-perfil').value;
+      const admin = perfil === 'ADMIN';
+      document.getElementById('user-turno-wrap').classList.toggle('hidden', admin);
+      document.getElementById('user-senha-hint').textContent = admin
+        ? 'Obrigatória para Administrador, mínimo 10 caracteres.'
+        : 'Opcional: em branco, o sistema gera uma senha provisória.';
+      document.getElementById('user-senha').required = admin;
+    }
+
+    async function handleCreateUser(e) {
+      e.preventDefault();
+      const perfil = document.getElementById('user-perfil').value;
+      const senha = document.getElementById('user-senha').value;
+      const turno = document.getElementById('user-turno').value;
+      const payload = {
+        nome: document.getElementById('user-nome').value.trim(),
+        email: document.getElementById('user-email').value.trim(),
+        perfil: perfil
+      };
+      if (senha) payload.senha = senha;
+      if (perfil !== 'ADMIN') payload.turno = turno;
+
+      const res = await fetch(API_BASE + '/admin/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const provisoria = data.senhaTemporaria || data.senhaProvisoria;
+        showToast(
+          'Conta criada',
+          provisoria ? 'Senha provisória: ' + provisoria : 'A pessoa já pode entrar com a senha definida.',
+          'success'
+        );
+        closeNewUserModal();
+        document.getElementById('new-user-form').reset();
+        onPerfilChange();
+        await refreshUsers();
+      } else {
+        showToast('Erro', data.erro || 'Falha ao criar a conta.', 'error');
+      }
     }
 
     function openNewCollaboratorModal() {
@@ -978,7 +1141,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       e.preventDefault();
       const name = document.getElementById('col-name').value;
       const role = document.getElementById('col-role').value;
-      const pin = document.getElementById('col-pin').value;
+      const setor = document.getElementById('col-setor').value.trim();
 
       // Vai para o backend real: mesma rota que o app usa, com a sessão Bearer.
       // O PIN não existe neste modelo -- quem libera a pausa é o código de café
@@ -989,7 +1152,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + getToken()
         },
-        body: JSON.stringify({ nome: name, turno: role || null, setor: null })
+        body: JSON.stringify({ nome: name, turno: role || null, setor: setor || null })
       });
 
       const data = await res.json().catch(() => ({}));
