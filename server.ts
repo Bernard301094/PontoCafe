@@ -79,6 +79,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Desenha o QR do código de café num canvas. Versão fixa: um QR ilegível
+       num turno inteiro por causa de uma atualização silenciosa do CDN seria
+       caro de descobrir. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -461,6 +465,25 @@ const HTML_CONTENT = `<!DOCTYPE html>
       </div>
     </section>
 
+    <!-- MODAL: QR DO CÓDIGO DE CAFÉ -->
+    <div id="qr-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200 text-center">
+        <h3 id="qr-nome" class="text-xl font-bold text-coffee-950">—</h3>
+        <p id="qr-detalhe" class="text-sm text-stone-500 mt-1 mb-4">—</p>
+        <div class="inline-block p-3 bg-white rounded-2xl border border-stone-200 shadow-sm">
+          <canvas id="qr-canvas" class="block max-w-full h-auto"></canvas>
+        </div>
+        <p class="text-[11px] text-stone-500 mt-4 leading-relaxed">
+          Este QR <span class="font-semibold">é</span> o código de 6 caracteres. Quem o receber pode registrar a pausa desta pessoa —
+          entregue só a ela, e libere a leitura por câmara apenas nos aparelhos que devem aceitá-la.
+        </p>
+        <div class="flex gap-2 mt-5">
+          <button onclick="baixarQr()" class="flex-1 py-3 rounded-2xl border border-stone-300 text-stone-700 font-semibold hover:bg-stone-50 text-sm">Baixar PNG</button>
+          <button onclick="fecharQr()" class="flex-1 py-3 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 text-sm">Fechar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- MODAL: CADASTRAR APARELHO / MOSTRAR O CÓDIGO DE ATIVAÇÃO -->
     <div id="device-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
       <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
@@ -525,12 +548,18 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold text-coffee-950">Códigos de Café</h2>
-          <p class="text-sm text-stone-500">Seis caracteres, letras e números, uso único — o colaborador digita no totem</p>
+          <p class="text-sm text-stone-500">Seis caracteres, letras e números — um por período, serve para a ida e a volta</p>
         </div>
-        <button onclick="refreshCodes()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
-          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-          <span>Atualizar</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="gerarCodigosDoDia()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-coffee-900 text-white text-sm font-semibold shadow-sm hover:bg-coffee-800">
+            <i data-lucide="calendar-check" class="w-4 h-4"></i>
+            <span>Códigos do dia</span>
+          </button>
+          <button onclick="refreshCodes()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Atualizar</span>
+          </button>
+        </div>
       </div>
 
       <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
@@ -1844,6 +1873,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
                   class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Renomear</button>
                 <button onclick="definirPinDispositivo('\${d.id}')"
                   class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${d.pinConfigurado ? 'Trocar PIN' : 'Definir PIN'}</button>
+                <button onclick="alternarQrDispositivo('\${d.id}', \${d.qrHabilitado ? 'true' : 'false'})"
+                  class="px-3 py-1.5 rounded-lg border text-xs font-semibold \${d.qrHabilitado
+                    ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                    : 'border-stone-300 text-stone-600 hover:bg-stone-50'}">\${d.qrHabilitado ? 'QR liberado' : 'Liberar QR'}</button>
                 <button onclick="novoTokenDispositivo('\${d.id}', '\${(d.nome || '').replace(/'/g, "\\\\'")}')"
                   class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Novo código</button>
                 \${d.ativo ? \`<button onclick="desativarDispositivo('\${d.id}')"
@@ -1998,6 +2031,33 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
+    // A porta da câmara, aparelho a aparelho.
+    //
+    // Vai por /gestao e não por /admin de propósito: liberar a leitura é uma
+    // decisão do turno, e o Supervisor que está no chão precisa de a poder
+    // tomar. Todo o /admin/* está por baixo do requireRole(ADMIN) do backend.
+    async function alternarQrDispositivo(id, ligadoAgora) {
+      const ligar = !ligadoAgora;
+      if (ligar && !confirm(
+        'Liberar a leitura por QR neste aparelho?\\n\\n' +
+        'O QR contém o mesmo código de 6 caracteres. Quem tiver a imagem pode registrar a pausa daquela pessoa. ' +
+        'Cada batida por câmara fica marcada na auditoria.'
+      )) return;
+
+      const res = await fetch(API_BASE + '/gestao/devices/' + id + '/qr', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({ habilitado: ligar })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast('Erro', data.erro || 'O servidor não aceitou a mudança.', 'error');
+        return;
+      }
+      showToast(ligar ? 'QR liberado' : 'QR bloqueado', data.aviso || '', 'success');
+      await refreshDevices();
+    }
+
     function renomearDispositivo(id, atual) {
       const nome = prompt('Novo nome do aparelho:', atual || '');
       if (nome === null) return;
@@ -2114,20 +2174,28 @@ const HTML_CONTENT = `<!DOCTYPE html>
               const prazo = c.estado === 'EM_PAUSA'
                 ? 'Válido para o retorno, sem prazo'
                 : 'Expira em ' + segundosParaRelogio(c.expiraEmSegundos);
+              const periodo = c.periodo === 'MANHA' ? 'Manhã' : (c.periodo === 'TARDE' ? 'Tarde' : null);
               return \`
-                <div class="px-6 py-4 flex items-center justify-between gap-4">
-                  <div class="min-w-0">
-                    <div class="flex items-center space-x-2">
+                <div class="px-4 md:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center flex-wrap gap-2">
                       <span class="font-mono text-lg font-extrabold text-coffee-900 tracking-widest">\${c.codigoFormatado}</span>
                       <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${st.cls}">\${st.label}</span>
+                      \${periodo ? \`<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-stone-100 text-stone-600 border border-stone-200">\${periodo}</span>\` : ''}
                     </div>
                     <p class="text-xs text-stone-500 mt-0.5 truncate">\${c.nome} · \${prazo}</p>
                   </div>
-                  \${c.estado === 'AGUARDANDO_SAIDA' ? \`
-                    <button onclick="cancelarCodigo('\${c.colaboradorId}')"
-                      class="shrink-0 px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">
-                      Cancelar
-                    </button>\` : ''}
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button onclick="mostrarQr('\${c.colaboradorId}')"
+                      class="px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50 flex items-center gap-1.5">
+                      <i data-lucide="qr-code" class="w-4 h-4"></i><span>QR</span>
+                    </button>
+                    \${c.estado === 'AGUARDANDO_SAIDA' ? \`
+                      <button onclick="cancelarCodigo('\${c.colaboradorId}')"
+                        class="px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">
+                        Cancelar
+                      </button>\` : ''}
+                  </div>
                 </div>
               \`;
             }).join('');
@@ -2160,6 +2228,85 @@ const HTML_CONTENT = `<!DOCTYPE html>
           lista.innerHTML = '<p class="px-6 py-8 text-xs text-red-600 text-center">Não foi possível carregar: ' + err.message + '</p>';
         }
       }
+    }
+
+    // Os códigos do dia inteiro, de uma vez.
+    //
+    // É a ação da manhã: emite, para cada pessoa, o código da MANHÃ e o da
+    // TARDE. Cada um serve para sair e para voltar da sua pausa e vale até ao
+    // fim da janela do seu período -- é o que permite entregar o QR de manhã.
+    async function gerarCodigosDoDia() {
+      if (!confirm('Gerar os códigos de hoje para toda a equipe?\\n\\nQuem já tem código vivo de um período mantém o dele. Quem está em pausa não é tocado.')) return;
+      const res = await fetch(API_BASE + '/supervisor/codigos/dia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({})
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast('Erro', data.erro || 'Não foi possível gerar os códigos.', 'error');
+        return;
+      }
+      const feitos = (data.emitidos || []).length;
+      const fora = (data.ignorados || []).length;
+      showToast(
+        'Códigos do dia',
+        feitos + ' código(s) emitido(s)' + (fora ? ' · ' + fora + ' fora' : '') + '.',
+        'success'
+      );
+      await refreshCodes();
+    }
+
+    // ---- QR do código ------------------------------------------------------
+    //
+    // O QR é o mesmo código de 6 caracteres, em forma legível por câmara. Quem
+    // o mostra aqui está a entregá-lo à pessoa -- por captura de ecrã, por
+    // mensagem ou impresso. Por isso o aviso vem junto: reencaminhá-lo é
+    // reencaminhar o código.
+    function mostrarQr(colaboradorId) {
+      const codigo = (state.codes || []).find(c => c.colaboradorId === colaboradorId);
+      if (!codigo || !codigo.qrPayload) {
+        showToast('Sem QR', 'Este código não tem QR. Atualize a lista.', 'error');
+        return;
+      }
+
+      document.getElementById('qr-nome').textContent = codigo.nome;
+      const periodo = codigo.periodo === 'MANHA' ? 'manhã' : (codigo.periodo === 'TARDE' ? 'tarde' : 'avulso');
+      document.getElementById('qr-detalhe').textContent =
+        'Pausa da ' + periodo + ' · código ' + codigo.codigoFormatado;
+
+      const canvas = document.getElementById('qr-canvas');
+      new QRious({
+        element: canvas,
+        value: codigo.qrPayload,
+        size: 260,
+        level: 'M',
+        background: '#ffffff',
+        foreground: '#1c1917'
+      });
+
+      const modal = document.getElementById('qr-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function fecharQr() {
+      const modal = document.getElementById('qr-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    // Baixar em vez de imprimir: o telemóvel de quem vai usar o QR é o destino,
+    // e uma imagem viaja por qualquer mensageiro.
+    function baixarQr() {
+      const canvas = document.getElementById('qr-canvas');
+      const nome = (document.getElementById('qr-nome').textContent || 'codigo')
+        .normalize('NFD').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
+      const link = document.createElement('a');
+      link.download = 'qr-cafe-' + nome + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
     }
 
     async function emitirCodigo(colaboradorId) {

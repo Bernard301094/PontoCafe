@@ -217,6 +217,19 @@ dependencies {
 
     implementation("com.airbnb.android:lottie-compose:6.7.1")
 
+    // Leitura do QR do café.
+    //
+    // CameraX entrega os quadros; quem os decodifica é o ZXing core, uma
+    // biblioteca Java pura de poucas centenas de KB. A alternativa seria o ML
+    // Kit, que traz um modelo e a dependência do Google Play Services -- peso e
+    // um pré-requisito de loja para resolver um problema que aqui é ler 52
+    // caracteres de um quadrado preto e branco.
+    implementation("androidx.camera:camera-core:1.5.0")
+    implementation("androidx.camera:camera-camera2:1.5.0")
+    implementation("androidx.camera:camera-lifecycle:1.5.0")
+    implementation("androidx.camera:camera-view:1.5.0")
+    implementation("com.google.zxing:core:3.5.3")
+
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 

@@ -61,6 +61,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
     atualizadoEm: string
     ultimoAcessoEm: string | null
     pinConfigurado: boolean
+    qrHabilitado: boolean
+    qrAtualizadoEm: string | null
     telemetriaEm: string | null
     telemetriaDetalhes: Record<string, unknown> | null
     heartbeatDetalhes: Record<string, unknown> | null
@@ -80,6 +82,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
               activation.ultima_ativacao_em
             )::text as "ultimoAcessoEm",
             (d.unlock_pin_hash is not null) as "pinConfigurado",
+            d.qr_habilitado as "qrHabilitado",
+            d.qr_atualizado_em::text as "qrAtualizadoEm",
             greatest(h.criado_em,heartbeat.criado_em)::text as "telemetriaEm",
             h.detalhes as "telemetriaDetalhes",
             heartbeat.detalhes as "heartbeatDetalhes",
@@ -173,6 +177,8 @@ deviceManagementRoutes.get('/devices', async (c) => {
         atualizadoEm: device.atualizadoEm,
         ultimoAcessoEm: device.ultimoAcessoEm,
         pinConfigurado: device.pinConfigurado,
+        qrHabilitado: device.qrHabilitado,
+        qrAtualizadoEm: device.qrAtualizadoEm,
         statusAtivacao: !device.ativo ? 'INATIVO' : device.aguardandoAtivacao ? 'AGUARDANDO_ATIVACAO' : 'ATIVADO',
         ativadoEm: device.ultimaAtivacaoEm,
         telemetriaEm: device.telemetriaEm,

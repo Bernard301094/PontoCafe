@@ -151,6 +151,11 @@ test('a leitura por QR é liberada por aparelho e verificada no servidor', () =>
   assert.match(migrationQr, /qr_habilitado boolean not null default false/)
   assert.match(deviceQrRoutes, /LIBERAR_QR_DISPOSITIVO/)
   assert.match(deviceQrRoutes, /requireRole\('ADMIN', 'SUPERVISOR'\)/)
+  // O montante importa tanto quanto o router: todo o /admin/* está por baixo do
+  // requireRole('ADMIN') que device-management-routes instala, e pendurar este
+  // router ali responderia 403 ao Supervisor que devia poder usá-lo. Só /gestao.
+  assert.match(application, /app\.route\('\/gestao', deviceQrRoutes\)/)
+  assert.doesNotMatch(application, /app\.route\('\/admin', deviceQrRoutes\)/)
   // O aparelho descobre o estado do portão junto do horário, sem rota extra.
   assert.match(pontoStatusRoutes, /qrHabilitado/)
 })

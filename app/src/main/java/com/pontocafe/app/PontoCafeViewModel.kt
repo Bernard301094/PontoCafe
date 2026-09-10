@@ -16,6 +16,7 @@ import com.pontocafe.app.data.RetornoPausaResponse
 import com.pontocafe.app.data.SecureDeviceTokenStore
 import com.pontocafe.app.data.SecurePontoOfflineStore
 import com.pontocafe.app.domain.AccessCode
+import com.pontocafe.app.domain.QrPayload
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -43,6 +44,9 @@ enum class DeviceAuthorizationState {
  * Supervisor entregou, e ler o comprovante. Nada mais.
  */
 enum class PontoStep { ESCOLHER_PESSOA, DIGITAR_CODIGO, COMPROVANTE }
+
+/** Marca a batida que veio da camara. O servidor verifica a liberacao. */
+private const val ORIGEM_QR = "QR"
 
 data class ComprovantePonto(
     val tipo: TipoComprovantePonto,
@@ -99,6 +103,16 @@ data class PontoCafeUiState(
      * operação mudar o prazo, os dois acompanham sem novo APK.
      */
     val validadeCodigoSegundos: Int = 120,
+    /**
+     * Se ESTE aparelho foi liberado para ler o código pela câmara.
+     *
+     * Vem do servidor a cada validação de credencial, e não de uma preferência
+     * local: a liberação é uma decisão da operação, tomada no painel, e tem de
+     * chegar ao aparelho do corredor sem ninguém lá ir mexer.
+     */
+    val qrHabilitado: Boolean = false,
+    /** A câmara está aberta, à espera de um QR. */
+    val lendoQr: Boolean = false,
 ) {
     val codigoCompleto: Boolean get() = AccessCode.isComplete(codigo)
 }
@@ -242,11 +256,11 @@ class PontoCafeViewModel(
 
         viewModelScope.launch {
             try {
-                val appStatus = withContext(Dispatchers.IO) {
+                val (appStatus, qrLiberado) = withContext(Dispatchers.IO) {
                     val horario = repository.consultarHorario()
                     offlineStore.saveRules(horario.regras)
                     carenciaSegundosServidor = horario.carenciaSegundos
-                    runCatching { repository.appStatus() }.getOrNull()
+                    runCatching { repository.appStatus() }.getOrNull() to horario.qrHabilitado
                 }
                 val pending = withContext(Dispatchers.IO) { offlineStore.pendingCount() }
                 state = state.copy(
@@ -255,6 +269,10 @@ class PontoCafeViewModel(
                     carregando = false,
                     modoOffline = false,
                     eventosPendentes = pending,
+                    // A liberação só é conhecida com o servidor à frente. Offline,
+                    // o aparelho mantém o último valor que ouviu -- ligar a câmara
+                    // por conta própria seria decidir por quem não está lá.
+                    qrHabilitado = qrLiberado,
                     erro = null,
                 )
                 marcarServidorOnline(appStatus)
@@ -507,14 +525,69 @@ class PontoCafeViewModel(
         state = state.copy(codigo = state.codigo + canonical, erro = null, erroCodigo = null)
     }
 
+    // region Leitura por QR
+
+    fun abrirLeitorQr() {
+        if (!state.qrHabilitado || state.registrando) return
+        state = state.copy(lendoQr = true, erro = null, erroCodigo = null, mensagem = null)
+    }
+
+    fun fecharLeitorQr() {
+        state = state.copy(lendoQr = false)
+    }
+
+    /**
+     * Um QR lido resolve a batida inteira: ele traz a pessoa e o código.
+     *
+     * A câmara chama isto para cada leitura que consegue decodificar, muitas
+     * vezes por segundo e com o que estiver à frente — um cartaz, uma etiqueta,
+     * o QR do wi-fi. Por isso o que não é um QR do Ponto Café é ignorado em
+     * silêncio: enquanto a pessoa aponta, "ainda não é o certo" é o estado
+     * normal, não um erro para lhe mostrar.
+     *
+     * Só o que passa no formato interrompe a leitura e vira uma batida.
+     */
+    fun lerQr(conteudo: String) {
+        if (!state.lendoQr || state.registrando) return
+        val lido = QrPayload.parse(conteudo) ?: return
+
+        val colaborador = state.colaboradores.firstOrNull { it.id == lido.colaboradorId }
+        if (colaborador == null) {
+            // Quem não está na lista é quem já fechou a pausa deste período — o
+            // servidor tira-o de lá. Recusar aqui dá a frase certa de imediato,
+            // em vez de a ir buscar a um 403.
+            state = state.copy(
+                lendoQr = false,
+                erro = "Este QR não corresponde a ninguém disponível para o café agora. " +
+                    "A pausa deste período pode já ter sido usada.",
+            )
+            return
+        }
+
+        state = state.copy(
+            lendoQr = false,
+            selecionado = colaborador,
+            codigo = lido.codigo,
+            passo = PontoStep.DIGITAR_CODIGO,
+            erro = null,
+            erroCodigo = null,
+        )
+        registrar(origem = ORIGEM_QR)
+    }
+
+    // endregion
+
     /**
      * Envia (pessoa, código) e mostra o que o servidor decidiu.
      *
      * Não há caminho separado para saída e retorno no aparelho: o mesmo botão faz
      * as duas coisas porque só o servidor sabe se aquele código já foi usado para
      * sair. Sem rede, o registro entra na fila e é validado na sincronização.
+     *
+     * [origem] diz ao servidor se o código veio da câmara. Ele verifica lá se
+     * este aparelho está liberado para isso — a decisão não é do ecrã.
      */
-    fun registrar() {
+    fun registrar(origem: String? = null) {
         val colaborador = state.selecionado ?: return
         val codigo = state.codigo
         if (!AccessCode.isComplete(codigo)) {
@@ -526,7 +599,9 @@ class PontoCafeViewModel(
         viewModelScope.launch {
             state = state.copy(registrando = true, erro = null, erroCodigo = null, mensagem = null)
             try {
-                val resultado = withContext(Dispatchers.IO) { repository.registrar(colaborador.id, codigo) }
+                val resultado = withContext(Dispatchers.IO) {
+                    repository.registrar(colaborador.id, codigo, origem)
+                }
                 aplicarResultadoOnline(colaborador, resultado.status, resultado.inicio, resultado.retorno)
             } catch (error: CancellationException) {
                 throw error

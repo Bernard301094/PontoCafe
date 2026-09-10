@@ -7,6 +7,18 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+      A câmara serve só para ler o QR do café, e só depois de o aparelho ser
+      liberado para isso no painel. O pedido de permissão acontece no momento em
+      que alguém toca em "Ler meu QR", nunca no arranque.
+
+      required=false de propósito: a maioria dos totens continua a bater ponto
+      pelo código digitado, e um aparelho de parede sem câmara não pode ficar
+      fora da loja por causa de um caminho opcional.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

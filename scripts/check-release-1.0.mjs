@@ -45,11 +45,20 @@ assert.match(gradle, /isShrinkResources = true/)
 assert.match(gradle, /compileSdk = 36/)
 assert.match(gradle, /targetSdk = 36/)
 // Nenhum vestígio de reconhecimento facial pode voltar ao APK.
+//
+// O veto era a toda a câmera enquanto não havia nenhum uso legítimo dela. Com a
+// leitura do QR do café passou a haver um, e o veto estreitou-se para o que
+// sempre quis dizer: nada de biometria. Continuam banidos os motores que
+// reconhecem rostos; a câmera é permitida apenas na forma que lê um quadrado
+// preto e branco e devolve texto.
 assert.doesNotMatch(gradle, /play-services-tflite/)
-assert.doesNotMatch(gradle, /androidx\.camera/)
 assert.doesNotMatch(gradle, /mlkit/)
 assert.doesNotMatch(gradle, /facenet/i)
-assert.doesNotMatch(manifest, /permission\.CAMERA/)
+assert.doesNotMatch(gradle, /face-detection|face_detection|facedetect/i)
+assert.match(gradle, /com\.google\.zxing:core/)
+// A câmera é opcional: um totem de parede sem lente continua a bater ponto pelo
+// código digitado, e não pode ficar fora da loja por um caminho opcional.
+assert.match(manifest, /android:name="android\.hardware\.camera\.any" android:required="false"/)
 
 assert.match(backendPackage, /"version"\s*:\s*"1\.1\.0"/)
 assert.match(backendApplication, /const API_VERSION = '1\.1\.0'/)
