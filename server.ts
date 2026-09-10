@@ -191,6 +191,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
         <i data-lucide="key-round" class="w-4 h-4"></i>
         <span>Códigos</span>
       </button>
+      <button id="tab-devices" onclick="switchTab('devices')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+        <i data-lucide="smartphone" class="w-4 h-4"></i>
+        <span>Dispositivos</span>
+      </button>
+      <button id="tab-audit" onclick="switchTab('audit')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+        <i data-lucide="shield-check" class="w-4 h-4"></i>
+        <span>Auditoria</span>
+      </button>
       <button id="tab-history" onclick="switchTab('history')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="history" class="w-4 h-4"></i>
         <span>Registros</span>
@@ -405,6 +413,48 @@ const HTML_CONTENT = `<!DOCTYPE html>
     </section>
 
     <!-- VIEW 3: PONTO HISTORY LOG -->
+    <!-- VIEW: DISPOSITIVOS -->
+    <section id="view-devices" class="hidden space-y-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-coffee-950">Dispositivos Protegidos</h2>
+          <p class="text-sm text-stone-500">Aparelhos autorizados a registrar ponto</p>
+        </div>
+        <button onclick="refreshDevices()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>Atualizar</span>
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="devices-stats"></div>
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-stone-100">
+          <h3 class="font-bold text-coffee-950 text-base">Aparelhos cadastrados</h3>
+        </div>
+        <div class="divide-y divide-stone-100" id="devices-list">
+          <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW: AUDITORIA -->
+    <section id="view-audit" class="hidden space-y-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-coffee-950">Trilha de Eventos</h2>
+          <p class="text-sm text-stone-500">Registro imutável das ações administrativas</p>
+        </div>
+        <button onclick="refreshAudit()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>Atualizar</span>
+        </button>
+      </div>
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="divide-y divide-stone-100" id="audit-list">
+          <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
+        </div>
+      </div>
+    </section>
+
     <!-- VIEW: CÓDIGOS DE CAFÉ -->
     <section id="view-codes" class="hidden space-y-6">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -702,7 +752,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     // Switch Tabs
     function switchTab(tabId) {
-      const tabs = ['kiosk', 'supervisor', 'codes', 'history', 'admin'];
+      const tabs = ['kiosk', 'supervisor', 'codes', 'devices', 'audit', 'history', 'admin'];
       tabs.forEach(tab => {
         const btn = document.getElementById('tab-' + tab);
         const view = document.getElementById('view-' + tab);
@@ -719,6 +769,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
       // O prazo do código corre em segundos: ao abrir a aba, relê do servidor.
       if (tabId === 'codes') { refreshCodes(); }
+      if (tabId === 'devices') { refreshDevices(); }
+      if (tabId === 'audit') { refreshAudit(); }
     }
 
     // Numpad PIN logic
@@ -1077,6 +1129,91 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
       \`).join('');
+    }
+
+    // ---- Dispositivos ------------------------------------------------------
+    // Só o Administrador enxerga: /admin/devices exige esse perfil. Para
+    // Supervisor a aba explica em vez de mostrar erro.
+    async function refreshDevices() {
+      const lista = document.getElementById('devices-list');
+      const stats = document.getElementById('devices-stats');
+      if (!lista) return;
+      try {
+        const data = await apiFetch('/admin/devices');
+        const devices = data.dispositivos || [];
+
+        const ativos = devices.filter(d => d.ativo).length;
+        const semPin = devices.filter(d => !d.pinConfigurado).length;
+        const aguardando = devices.filter(d => d.aguardandoAtivacao).length;
+        const tile = (rotulo, valor, cor) => \`
+          <div class="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
+            <p class="text-xs font-semibold text-stone-500 uppercase tracking-wider">\${rotulo}</p>
+            <p class="text-3xl font-extrabold \${cor} mt-1">\${valor}</p>
+          </div>\`;
+        stats.innerHTML =
+          tile('Ativos', ativos, 'text-emerald-700') +
+          tile('Sem PIN', semPin, 'text-amber-700') +
+          tile('Aguardando ativação', aguardando, 'text-stone-700');
+
+        lista.innerHTML = devices.length === 0
+          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum aparelho cadastrado.</p>'
+          : devices.map(d => \`
+              <div class="px-6 py-4 flex items-center justify-between gap-4">
+                <div class="flex items-center space-x-3 min-w-0">
+                  <div class="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-coffee-900 shrink-0">
+                    <i data-lucide="smartphone" class="w-5 h-5"></i>
+                  </div>
+                  <div class="min-w-0">
+                    <h4 class="text-sm font-bold text-coffee-950 truncate">\${d.nome}</h4>
+                    <p class="text-xs text-stone-500 truncate">
+                      \${d.ultimoAcessoEm ? 'Último acesso: ' + d.ultimoAcessoEm.slice(0, 16).replace('T', ' ') : 'Sem acesso registrado'}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center space-x-2 shrink-0">
+                  \${!d.pinConfigurado ? '<span class="px-2.5 py-1 rounded-full text-xs font-semibold border bg-amber-50 text-amber-700 border-amber-200">Sem PIN</span>' : ''}
+                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${d.ativo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-stone-100 text-stone-500 border-stone-200'}">
+                    \${d.aguardandoAtivacao ? 'Aguardando ativação' : (d.ativo ? 'Operacional' : 'Bloqueado')}
+                  </span>
+                </div>
+              </div>
+            \`).join('');
+        lucide.createIcons();
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          stats.innerHTML = '';
+          lista.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Apenas o Administrador pode ver os dispositivos.</p>';
+        }
+      }
+    }
+
+    // ---- Auditoria ---------------------------------------------------------
+    async function refreshAudit() {
+      const lista = document.getElementById('audit-list');
+      if (!lista) return;
+      try {
+        const data = await apiFetch('/admin/auditoria');
+        const eventos = data.eventos || [];
+        lista.innerHTML = eventos.length === 0
+          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum evento no período.</p>'
+          : eventos.map(e => {
+              const alvo = e.detalhes && e.detalhes.nome ? e.detalhes.nome : (e.entidade || '');
+              return \`
+                <div class="px-6 py-4 flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <h4 class="text-sm font-bold text-coffee-950">\${e.acao}</h4>
+                    <p class="text-xs text-stone-500 truncate">\${alvo}</p>
+                    <p class="text-[11px] text-stone-400 mt-1">\${e.atorNome} · \${(e.atorTipo || '').toLowerCase()}</p>
+                  </div>
+                  <span class="font-mono text-xs text-stone-500 shrink-0">\${e.criadoLocal}</span>
+                </div>
+              \`;
+            }).join('');
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          lista.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Apenas o Administrador pode ver a auditoria.</p>';
+        }
+      }
     }
 
     // ---- Códigos de café ---------------------------------------------------
