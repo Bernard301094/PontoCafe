@@ -41,7 +41,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -568,23 +571,43 @@ private fun CollaboratorPickerStep(
         // Passo numerado: quem chega ao quiosque precisa saber, sem ler nada
         // mais, que isto tem duas etapas e que a segunda é o código.
         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-            Text(
-                "PASSO 1 DE 2",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                letterSpacing = 1.sp,
-            )
-            Text(
-                "Toque no seu nome",
-                style = if (compactHeight) {
-                    MaterialTheme.typography.headlineSmall
-                } else {
-                    MaterialTheme.typography.headlineMedium
-                },
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.semantics { heading() },
-            )
+            // Pílula âmbar clara em vez de rótulo solto: no design a etapa é um
+            // selo, e é ele que dá a âncora de "onde estou" no totem.
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryFixed,
+                contentColor = MaterialTheme.colorScheme.onPrimaryFixedVariant,
+            ) {
+                Text(
+                    "PASSO 1 DE 2",
+                    modifier = Modifier.padding(
+                        horizontal = PontoCafeSpacing.sm,
+                        vertical = PontoCafeSpacing.xxs,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    "Toque no seu nome",
+                    style = if (compactHeight) {
+                        MaterialTheme.typography.headlineMedium
+                    } else {
+                        MaterialTheme.typography.headlineLarge
+                    },
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Icon(
+                    Icons.Default.TouchApp,
+                    contentDescription = null,
+                    modifier = Modifier.size(26.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 "Depois vem o código de ${AccessCode.LENGTH} caracteres que o Supervisor entregou.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -615,15 +638,36 @@ private fun CollaboratorPickerStep(
                     },
                     grande = true,
                 )
-                Text(
-                    if (state.colaboradores.isEmpty()) {
-                        "Ninguém disponível neste período."
-                    } else {
-                        "${state.colaboradores.size} pessoas podem tomar café neste período."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Contador com o selo de café à esquerda, como no design: diz
+                // quantas pessoas a lista tem antes de a folha ser aberta.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    Icon(
+                        Icons.Default.Coffee,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text(
+                        if (state.colaboradores.isEmpty()) {
+                            "Ninguém disponível"
+                        } else {
+                            "${state.colaboradores.size} pessoas aptas"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(
+                        "para café neste período",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
@@ -636,6 +680,48 @@ private fun CollaboratorPickerStep(
                 tone = PontoCafeTone.DANGER,
                 modifier = Modifier.padding(bottom = PontoCafeSpacing.sm),
             )
+        }
+
+        // Saída para quem não se encontra na lista. No design é o cartão que
+        // fecha a tela, e evita que a pessoa fique parada no totem sem rumo.
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = PontoCafeSpacing.sm),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Row(
+                modifier = Modifier.padding(PontoCafeSpacing.md),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                Surface(
+                    modifier = Modifier.size(32.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryFixed,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Badge,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryFixedVariant,
+                        )
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+                    Text(
+                        "Não encontrou seu nome?",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Peça ao Supervisor para conferir sua escala ou liberar um intervalo avulso.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -659,23 +745,95 @@ private fun AccessCodeStep(
             .padding(horizontal = PontoCafeSpacing.md),
         verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = viewModel::voltarParaLista, enabled = !state.registrando) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Voltar para a lista de nomes")
+        // Faixa de contexto do design: em que etapa estou, e como volto atrás.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryFixed,
+                contentColor = MaterialTheme.colorScheme.onPrimaryFixedVariant,
+            ) {
+                Text(
+                    "PASSO 2 DE 2",
+                    modifier = Modifier.padding(
+                        horizontal = PontoCafeSpacing.sm,
+                        vertical = PontoCafeSpacing.xxs,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
-            InitialAvatar(name = colaborador.nome, avatarSize = 40.dp)
-            Spacer(Modifier.size(PontoCafeSpacing.xs))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    colaborador.nome,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+            TextButton(onClick = viewModel::voltarParaLista, enabled = !state.registrando) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Voltar para a lista de nomes",
+                    modifier = Modifier.size(18.dp),
                 )
                 Text(
-                    if (retorno) "Registrando o retorno" else "Registrando a saída para o café",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Trocar",
+                    modifier = Modifier.padding(start = PontoCafeSpacing.xxs),
+                    style = MaterialTheme.typography.labelLarge,
                 )
+            }
+        }
+
+        // Cartão de quem está registrando: confirma a identidade escolhida no
+        // passo anterior antes de a pessoa gastar o código.
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            shadowElevation = 1.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(PontoCafeSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+            ) {
+                InitialAvatar(name = colaborador.nome, avatarSize = 48.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        colaborador.nome,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.tertiary,
+                        )
+                        Text(
+                            if (retorno) "Registrando o retorno" else "Registrando a saída para o café",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier.size(32.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Coffee,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
             }
         }
 
@@ -691,37 +849,66 @@ private fun AccessCodeStep(
             )
         }
 
-        Text(
-            if (retorno) {
-                "Digite o MESMO código que usou para sair."
-            } else {
-                "Digite o código de ${AccessCode.LENGTH} caracteres entregue pelo Supervisor."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // O prazo é curto e vale para a SAÍDA apenas. Quem já saiu precisa da
-        // garantia oposta — que não vai perder o código enquanto toma café.
-        Text(
-            if (retorno) {
-                "Este código não expira para o retorno."
-            } else {
-                "O código vale ${formatValidade(state.validadeCodigoSegundos)} depois de gerado. " +
-                    "Se expirar, peça outro ao Supervisor."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (retorno) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                LocalPontoCafeSemanticColors.current.warning
-            },
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    if (retorno) "Digite o mesmo código" else "Digite seu código",
+                    modifier = Modifier.semantics { heading() },
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Icon(
+                    Icons.Default.Pin,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Text(
+                if (retorno) {
+                    "É o mesmo código que você usou para sair."
+                } else {
+                    "Insira os ${AccessCode.LENGTH} caracteres entregues pelo Supervisor."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         AccessCodeBoxes(
             codigo = state.codigo,
             error = state.erro != null,
         )
+
+        // O prazo é curto e vale para a SAÍDA apenas. Quem já saiu precisa da
+        // garantia oposta — que não vai perder o código enquanto toma café.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+        ) {
+            Icon(
+                Icons.Default.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                if (retorno) {
+                    "Este código não expira para o retorno."
+                } else {
+                    "Código de uso único · vale ${formatValidade(state.validadeCodigoSegundos)} depois de gerado."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (retorno) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    LocalPontoCafeSemanticColors.current.warning
+                },
+            )
+        }
 
         if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.xxs))
 
@@ -776,10 +963,13 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
         repeat(AccessCode.LENGTH) { index ->
             val char = codigo.getOrNull(index)
             val preenchido = char != null
-            val borda = when {
-                error -> MaterialTheme.colorScheme.error
-                preenchido -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.outlineVariant
+            // A caixa que recebe o próximo caractere fica tingida em vez de
+            // contornada: é assim que o design marca o cursor, e libera a borda
+            // para significar só uma coisa -- erro.
+            val proxima = !error && index == codigo.length
+            val fundo = when {
+                proxima -> MaterialTheme.colorScheme.surfaceContainerHigh
+                else -> MaterialTheme.colorScheme.surfaceContainerLowest
             }
             // O dígito que entra salta de 0,7 para 1. É o único retorno visual
             // de que a tecla pegou: o dedo tapa a caixa no instante do toque, e
@@ -793,11 +983,14 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                         scaleX = pop.value
                         scaleY = pop.value
                     }
-                    .background(
-                        MaterialTheme.colorScheme.surfaceContainerLow,
-                        RoundedCornerShape(14.dp),
-                    )
-                    .border(if (preenchido) 2.dp else 1.dp, borda, RoundedCornerShape(14.dp)),
+                    .background(fundo, RoundedCornerShape(8.dp))
+                    .then(
+                        if (error) {
+                            Modifier.border(2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -805,6 +998,11 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     fontSize = 30.sp,
+                    color = if (preenchido) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }
@@ -882,8 +1080,11 @@ private fun KeypadKey(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
             ),
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        // Tecla branca elevada sobre o canvas, como no design do totem: o
+        // contraste entre a tecla e o fundo é o que faz o alvo aparecer de longe.
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
@@ -965,8 +1166,17 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
     // O comprovante fecha sozinho para o quiosque não ficar preso no ecrã de uma
     // pessoa que já saiu andando. Doze segundos são suficientes para ler o
     // horário e conferir o nome.
+    //
+    // A contagem agora é visível, como no design: quem está atrás na fila vê que
+    // o totem se libera sozinho e não fica a perguntar se pode tocar.
+    var segundosRestantes by remember(comprovante) {
+        mutableIntStateOf((RECEIPT_AUTO_DISMISS_MILLIS / 1_000L).toInt())
+    }
     LaunchedEffect(comprovante) {
-        delay(RECEIPT_AUTO_DISMISS_MILLIS)
+        while (segundosRestantes > 0) {
+            delay(1_000L)
+            segundosRestantes--
+        }
         viewModel.concluirComprovante()
     }
 
@@ -996,52 +1206,149 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
             LocalPontoCafeSemanticColors.current.success
         }
 
-        Surface(
-            modifier = Modifier
-                .size(88.dp)
-                .drawBehind {
-                    val progresso = onda.value
-                    if (progresso < 1f) {
-                        drawCircle(
-                            color = corOnda,
-                            radius = size.minDimension / 2f * (1f + progresso * 0.7f),
-                            alpha = (1f - progresso) * 0.45f,
+        // Selo da marca com a confirmação sobreposta, como no design: a xícara
+        // diz o que aconteceu e o visto verde diz que ficou registrado.
+        Box(contentAlignment = Alignment.BottomEnd) {
+            Surface(
+                modifier = Modifier
+                    .size(88.dp)
+                    .drawBehind {
+                        val progresso = onda.value
+                        if (progresso < 1f) {
+                            drawCircle(
+                                color = corOnda,
+                                radius = size.minDimension / 2f * (1f + progresso * 0.7f),
+                                alpha = (1f - progresso) * 0.45f,
+                            )
+                        }
+                    }
+                    .graphicsLayer {
+                        scaleX = marca.value
+                        scaleY = marca.value
+                    },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (comprovante.excedeuLimite) Icons.Default.Warning else Icons.Default.Coffee,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(44.dp),
+                    )
+                }
+            }
+            if (!comprovante.excedeuLimite) {
+                Surface(
+                    modifier = Modifier.size(28.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.background),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
-                .graphicsLayer {
-                    scaleX = marca.value
-                    scaleY = marca.value
-                },
+            }
+        }
+
+        // Pílula de estado antes do título: diz num relance o que o totem fez.
+        Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    if (comprovante.excedeuLimite) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(44.dp),
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = PontoCafeSpacing.sm,
+                    vertical = PontoCafeSpacing.xxs,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                )
+                Text(
+                    if (saida) "CAFÉ LIBERADO" else "RETORNO REGISTRADO",
+                    style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
 
         Text(
             if (saida) "Bom café, ${comprovante.nome.substringBefore(' ')}!" else "Bem-vindo de volta!",
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
         )
         Text(
             comprovante.nome,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
 
-        PcSectionSurface(modifier = Modifier.widthIn(max = 520.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+        // Cartão do comprovante com a faixa de acento no topo e o carimbo de
+        // estado à direita -- o "recibo" do design.
+        Surface(
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            shadowElevation = 2.dp,
+        ) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+                Column(
+                    modifier = Modifier.padding(PontoCafeSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                        ) {
+                            Icon(
+                                Icons.Default.Timer,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                "Comprovante do registro",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        StatusPill(
+                            text = if (comprovante.pendenteSincronizacao) "Na fila" else "Autenticado",
+                            tone = if (comprovante.pendenteSincronizacao) {
+                                PontoCafeTone.INFO
+                            } else {
+                                PontoCafeTone.SUCCESS
+                            },
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
                 ReceiptLine(
                     icon = Icons.Default.Timer,
                     label = if (saida) "Saída registrada" else "Retorno registrado",
@@ -1088,6 +1395,8 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
                             ""
                         },
                 )
+                    }
+                }
             }
         }
 
@@ -1119,9 +1428,17 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
         }
 
         PcPrimaryButton(
-            text = "Concluir",
+            text = "Concluir e liberar o totem",
+            icon = Icons.Default.Coffee,
             onClick = viewModel::concluirComprovante,
             modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
+        )
+
+        Text(
+            "Liberando o totem para o próximo colega em ${segundosRestantes}s",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
     }
 }

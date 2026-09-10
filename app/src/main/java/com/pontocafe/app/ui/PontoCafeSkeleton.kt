@@ -74,10 +74,10 @@ private fun PontoCafeSkeletonRowContent(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-        border = androidx.compose.foundation.BorderStroke(1.dp, PontoCafePremium.borderSoft),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = if (compact) 12.dp else 15.dp),
@@ -139,9 +139,9 @@ private fun SkeletonMetricStrip(alpha: Float) {
         repeat(2) {
             Card(
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = PontoCafePremium.glassStrong),
-                border = androidx.compose.foundation.BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(
                     modifier = Modifier.padding(PontoCafeSpacing.md),

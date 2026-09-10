@@ -80,16 +80,17 @@ internal fun PcCollaboratorPickerField(
                     ?: placeholder
             },
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            1.dp,
-            if (selecionado != null) {
-                MaterialTheme.colorScheme.primary.copy(alpha = .5f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
-            },
-        ),
+        // Campo de busca em pílula branca elevada, como no design: sem contorno,
+        // a separação do canvas vem da sombra. O anel âmbar fica só para quando
+        // já há alguém escolhido, que é o estado que precisa de destaque.
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
+        border = if (selecionado != null) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f))
+        } else {
+            null
+        },
     ) {
         Row(
             modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
@@ -299,18 +300,21 @@ private fun PcCollaboratorPickerRow(pessoa: Colaborador, onClick: () -> Unit) {
             .heightIn(min = 64.dp)
             .semantics { contentDescription = "Selecionar ${pessoa.nome}" },
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            modifier = Modifier.padding(PontoCafeSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            InitialAvatar(name = pessoa.nome, avatarSize = 42.dp)
+            InitialAvatar(name = pessoa.nome, avatarSize = 48.dp)
             Column(modifier = Modifier.weight(1f)) {
+                // Nome no corpo de 18sp: é a linha que a pessoa procura de pé,
+                // à frente do totem, e o design a trata como título de cartão.
                 Text(
                     pessoa.nome,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

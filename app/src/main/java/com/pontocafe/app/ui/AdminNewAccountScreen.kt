@@ -58,7 +58,7 @@ fun AdminNewAccountScreen(viewModel: AdminViewModel) {
             Text(
                 "Contas de Supervisor e Administrador, separadas do cadastro de colaboradores",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     ) {

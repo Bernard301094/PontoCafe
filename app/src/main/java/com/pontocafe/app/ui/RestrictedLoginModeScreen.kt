@@ -245,25 +245,28 @@ fun RestrictedLoginModeScreen(
 private fun RestrictedAccessSecurityStrip(hasSavedAccounts: Boolean) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.sm),
+            modifier = Modifier.padding(PontoCafeSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
+            // Selo branco com o ícone em verde: o cofre é um estado verificado,
+            // e é essa a cor que o design reserva para "verificado/ativo".
             Surface(
                 modifier = Modifier.size(40.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                shadowElevation = 1.dp,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = if (hasSavedAccounts) Icons.Default.Security else Icons.Default.Lock,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tint = MaterialTheme.colorScheme.tertiary,
                     )
                 }
             }
@@ -456,9 +459,9 @@ private fun SavedAccountCard(
                     "${if (entry.admin) "Administrador" else "Supervisor"}; senha necessária"
                 }
             },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),

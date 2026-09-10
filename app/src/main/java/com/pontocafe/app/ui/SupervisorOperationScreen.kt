@@ -267,7 +267,7 @@ fun SupervisorOperationScreen(viewModel: SupervisorViewModel, onClose: () -> Uni
                 if (state.conexaoAoVivoOk) "Dados ao vivo atualizados" else "Conexão instável",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // Grade bento 2x2 em vez de uma linha só -- adiciona "Colaboradores"
             // (state.colaboradores.size, já real) como quarto indicador para

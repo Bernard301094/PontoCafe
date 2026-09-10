@@ -216,7 +216,7 @@ fun AdminDevicesScreenV2(
                 if (devicesHealthy) "Dispositivos protegidos" else "Verifique a conexão do sistema",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 PcHeroStat(value = "${state.dispositivos.count { it.ativo }}", label = "Ativos", modifier = Modifier.weight(1f))
@@ -948,28 +948,20 @@ private fun DeviceTokenPanel(
 
 @Composable
 private fun DeviceFactsPanel(facts: List<DeviceFact>) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PontoCafeSpacing.sm),
-        ) {
-            val columns = if (maxWidth >= 560.dp && LocalDensity.current.fontScale < 1.3f) 2 else 1
-            Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                facts.chunked(columns).forEach { rowFacts ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        rowFacts.forEach { fact -> DeviceFactCell(fact, Modifier.weight(1f)) }
-                        repeat(columns - rowFacts.size) { Box(modifier = Modifier.weight(1f)) }
-                    }
+    // No design cada fato é o seu próprio cartão tingido, e não linhas soltas
+    // dentro de um painel contornado: o rótulo à esquerda, o estado em pílula à
+    // direita, e a explicação embaixo.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val columns = if (maxWidth >= 560.dp && LocalDensity.current.fontScale < 1.3f) 2 else 1
+        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
+            facts.chunked(columns).forEach { rowFacts ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    rowFacts.forEach { fact -> DeviceFactCell(fact, Modifier.weight(1f)) }
+                    repeat(columns - rowFacts.size) { Box(modifier = Modifier.weight(1f)) }
                 }
             }
         }
@@ -978,21 +970,33 @@ private fun DeviceFactsPanel(facts: List<DeviceFact>) {
 
 @Composable
 private fun DeviceFactCell(fact: DeviceFact, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.padding(PontoCafeSpacing.xs),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Text(
-            fact.label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        StatusPill(fact.value, fact.tone)
-        Text(
-            fact.supportingText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            modifier = Modifier.padding(PontoCafeSpacing.sm),
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    fact.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                StatusPill(fact.value, fact.tone)
+            }
+            Text(
+                fact.supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

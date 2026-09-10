@@ -332,7 +332,7 @@ fun AdminHomeScreenV2(
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 PcHeroStat(value = "$openPauses", label = "Em pausa", modifier = Modifier.weight(1f))

@@ -11,8 +11,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -38,7 +38,7 @@ import com.pontocafe.app.data.KioskModeStore
 
 private enum class AdminPrimaryDestination(val label: String) {
     HOME("Início"),
-    PEOPLE("Pessoas"),
+    PEOPLE("Colaboradores"),
     MANAGEMENT("Gestão"),
 }
 
@@ -220,8 +220,8 @@ fun AdminArea(
                         icon = {
                             Icon(
                                 imageVector = when (destination) {
-                                    AdminPrimaryDestination.HOME -> Icons.Default.Home
-                                    AdminPrimaryDestination.PEOPLE -> Icons.Default.People
+                                    AdminPrimaryDestination.HOME -> Icons.Default.Dashboard
+                                    AdminPrimaryDestination.PEOPLE -> Icons.Default.Badge
                                     AdminPrimaryDestination.MANAGEMENT -> Icons.Default.Settings
                                 },
                                 contentDescription = destination.label,

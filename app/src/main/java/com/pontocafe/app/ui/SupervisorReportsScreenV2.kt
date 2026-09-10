@@ -296,7 +296,7 @@ fun SupervisorReportsScreenV2(
                 "Métricas e tendências do período selecionado",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     ) {

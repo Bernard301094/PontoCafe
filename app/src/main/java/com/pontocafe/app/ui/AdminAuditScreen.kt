@@ -150,7 +150,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                 "Rastreabilidade operacional",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             PcHeroStat(value = "${filtered.size}", label = "Evento(s) encontrado(s)")
         },
@@ -330,71 +330,84 @@ private fun AuditEventCard(event: AuditEvent, onClick: () -> Unit, modifier: Mod
             },
         onClick = onClick,
         interactionSource = interactionSource,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Row(
+        // Duas faixas, como no design: em cima o que aconteceu e quando; embaixo,
+        // numa tira tingida, a classificação e quem fez.
+        Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            verticalAlignment = Alignment.Top,
+            verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Surface(
-                modifier = Modifier.size(42.dp),
-                shape = CircleShape,
-                color = auditToneContainer(tone),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+                verticalAlignment = Alignment.Top,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = auditToneContent(tone),
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = CircleShape,
+                    color = auditToneContainer(tone),
                 ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = auditToneContent(tone),
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         auditActionLabel(event.acao),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        event.criadoLocal.substringAfter(' ', event.criadoLocal),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    auditTargetName(event)?.let { target ->
+                        Text(
+                            target,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
 
                 Text(
-                    "${event.atorNome} · ${event.atorTipo.lowercase().replaceFirstChar { it.uppercase() }}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    event.criadoLocal.substringAfter(' ', event.criadoLocal),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
+            }
 
-                auditTargetName(event)?.let { target ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = PontoCafeSpacing.xs,
+                        vertical = PontoCafeSpacing.xs,
+                    ),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatusPill(text = auditCategory(event).label, tone = tone)
                     Text(
-                        target,
-                        style = MaterialTheme.typography.bodySmall,
+                        "${event.atorNome} · ${event.atorTipo.lowercase().replaceFirstChar { it.uppercase() }}",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-
-                StatusPill(text = auditCategory(event).label, tone = tone)
             }
         }
     }

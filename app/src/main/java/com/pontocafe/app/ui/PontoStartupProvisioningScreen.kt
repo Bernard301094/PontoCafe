@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AssignmentInd
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -144,28 +146,31 @@ internal fun PontoDeviceAuthorizationScreen(
                 }
             }
 
-            Card(
+            // Os dois perfis deixaram de ser botões contornados e passaram a ser
+            // as linhas de escolha do design: selo do perfil, o que ele abre e a
+            // seta de avanço. É a mesma navegação, com o alvo inteiro clicável.
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                Column(
-                    modifier = Modifier.padding(PontoCafeSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    Text("Acesso de gestão", style = MaterialTheme.typography.titleMedium)
-                    PcSecondaryButton(
-                        text = "Entrar como Administrador",
-                        onClick = onAdminClick,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    PcSecondaryButton(
-                        text = "Entrar como Supervisor",
-                        onClick = onSupervisorClick,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                SectionTitle(
+                    title = "Selecione o perfil de acesso",
+                    subtitle = "Acesso de gestão deste aparelho.",
+                )
+                PcActionTile(
+                    title = "Entrar como Administrador",
+                    supportingText = "Relatórios, fechamento de folha e ajustes",
+                    icon = Icons.Default.AdminPanelSettings,
+                    onClick = onAdminClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                PcActionTile(
+                    title = "Entrar como Supervisor",
+                    supportingText = "Monitoramento de pausas e equipe em tempo real",
+                    icon = Icons.Default.AssignmentInd,
+                    onClick = onSupervisorClick,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
