@@ -83,7 +83,7 @@ fun SupervisorNewCollaboratorPersistentScreen(viewModel: SupervisorViewModel) {
             Text(
                 "Cadastro de quem registra pausa no quiosque",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     ) {

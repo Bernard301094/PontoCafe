@@ -150,7 +150,7 @@ fun AdminAuditScreen(viewModel: AdminViewModel) {
                 "Rastreabilidade operacional",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             PcHeroStat(value = "${filtered.size}", label = "Evento(s) encontrado(s)")
         },

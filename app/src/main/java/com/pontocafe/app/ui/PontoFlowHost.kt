@@ -568,13 +568,22 @@ private fun CollaboratorPickerStep(
         // Passo numerado: quem chega ao quiosque precisa saber, sem ler nada
         // mais, que isto tem duas etapas e que a segunda é o código.
         Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-            Text(
-                "PASSO 1 DE 2",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                letterSpacing = 1.sp,
-            )
+            // Pílula âmbar clara em vez de rótulo solto: no design a etapa é um
+            // selo, e é ele que dá a âncora de "onde estou" no totem.
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryFixed,
+                contentColor = MaterialTheme.colorScheme.onPrimaryFixedVariant,
+            ) {
+                Text(
+                    "PASSO 1 DE 2",
+                    modifier = Modifier.padding(
+                        horizontal = PontoCafeSpacing.sm,
+                        vertical = PontoCafeSpacing.xxs,
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
             Text(
                 "Toque no seu nome",
                 style = if (compactHeight) {
@@ -776,10 +785,13 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
         repeat(AccessCode.LENGTH) { index ->
             val char = codigo.getOrNull(index)
             val preenchido = char != null
-            val borda = when {
-                error -> MaterialTheme.colorScheme.error
-                preenchido -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.outlineVariant
+            // A caixa que recebe o próximo caractere fica tingida em vez de
+            // contornada: é assim que o design marca o cursor, e libera a borda
+            // para significar só uma coisa -- erro.
+            val proxima = !error && index == codigo.length
+            val fundo = when {
+                proxima -> MaterialTheme.colorScheme.surfaceContainerHigh
+                else -> MaterialTheme.colorScheme.surfaceContainerLowest
             }
             // O dígito que entra salta de 0,7 para 1. É o único retorno visual
             // de que a tecla pegou: o dedo tapa a caixa no instante do toque, e
@@ -793,11 +805,14 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                         scaleX = pop.value
                         scaleY = pop.value
                     }
-                    .background(
-                        MaterialTheme.colorScheme.surfaceContainerLow,
-                        RoundedCornerShape(14.dp),
-                    )
-                    .border(if (preenchido) 2.dp else 1.dp, borda, RoundedCornerShape(14.dp)),
+                    .background(fundo, RoundedCornerShape(8.dp))
+                    .then(
+                        if (error) {
+                            Modifier.border(2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -805,6 +820,11 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     fontSize = 30.sp,
+                    color = if (preenchido) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }
@@ -882,8 +902,11 @@ private fun KeypadKey(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
             ),
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        // Tecla branca elevada sobre o canvas, como no design do totem: o
+        // contraste entre a tecla e o fundo é o que faz o alvo aparecer de longe.
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(

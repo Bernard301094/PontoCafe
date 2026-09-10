@@ -206,11 +206,11 @@ fun RestrictedAreaLockScreen(
 
     PontoCafeResponsiveOverlayScreen(
         modifier = Modifier
-            // Console de bloqueio de alto contraste: fundo escuro fixo,
-            // independente do tema claro/escuro do sistema — mesmo raciocínio
-            // já usado no quiosque (uma tela de segurança não deve parecer
-            // "clara e neutra" só porque o aparelho está no tema claro).
-            .background(PontoCafeBrand.deepEspresso)
+            // O console deixou de ser uma caixa escura fixa e passou ao canvas
+            // claro do design: a autoridade da tela vem agora do selo âmbar, das
+            // pílulas de estado e do cartão elevado -- não de um fundo quase
+            // preto que destoava de todo o resto do app.
+            .background(MaterialTheme.colorScheme.background)
             .systemBarsPadding(),
     ) { responsiveInfo ->
         // Esta tela tinha três breakpoints próprios, todos fora da política: altura
@@ -235,7 +235,10 @@ fun RestrictedAreaLockScreen(
                 .align(Alignment.TopEnd)
                 .background(
                     brush = Brush.radialGradient(
-                        colors = listOf(PontoCafePremium.glowSoft, Color.Transparent),
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primaryFixedDim.copy(alpha = 0.20f),
+                            Color.Transparent,
+                        ),
                     ),
                     shape = CircleShape,
                 ),
@@ -252,16 +255,12 @@ fun RestrictedAreaLockScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 520.dp),
-                shape = if (compactHeight) MaterialTheme.shapes.large else MaterialTheme.shapes.extraLarge,
-                // PontoCafePremium.glassStrong é uma tintura translúcida de ~12%
-                // pensada para repousar sobre um fundo ambiente claro/neutro.
-                // Contra o novo fundo Deep Espresso quase preto deste console,
-                // ela ficaria praticamente invisível — aqui o cartão precisa de
-                // uma superfície sólida e elevada para se destacar de verdade.
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = if (compactHeight) MaterialTheme.shapes.medium else MaterialTheme.shapes.large,
+                // Cartão branco sobre o canvas frio, separado por sombra e não
+                // por borda -- o "nível 3" do design (folha/modal).
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                border = BorderStroke(1.dp, PontoCafePremium.border),
-                shadowElevation = if (compactHeight) 10.dp else 16.dp,
+                shadowElevation = if (compactHeight) 6.dp else 10.dp,
             ) {
                 Column(
                     modifier = Modifier
@@ -310,8 +309,7 @@ fun RestrictedAreaLockScreen(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -448,9 +446,9 @@ fun RestrictedAreaLockScreen(
                     OutlinedButton(
                         onClick = onBackToPonto,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
+                        shape = CircleShape,
                         contentPadding = PaddingValues(vertical = if (compactHeight) 13.dp else 15.dp),
-                        border = BorderStroke(1.dp, PontoCafePremium.borderSoft),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -500,7 +498,9 @@ private fun PulsingShieldIcon(boxSize: Dp, iconSize: Dp) {
     Surface(
         modifier = Modifier.size(boxSize),
         shape = MaterialTheme.shapes.medium,
-        color = PontoCafePremium.glowSoft.copy(alpha = PontoCafePremium.glowSoft.alpha * pulse),
+        // Selo em rosa-container, como no design: sobre o canvas claro o antigo
+        // brilho âmbar translúcido (feito para fundo escuro) sumia por completo.
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pulse),
         border = BorderStroke(
             1.dp,
             MaterialTheme.colorScheme.primary.copy(alpha = 0.24f * pulse),

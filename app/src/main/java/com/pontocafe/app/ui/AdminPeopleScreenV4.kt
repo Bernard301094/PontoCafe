@@ -334,7 +334,7 @@ fun AdminPeopleScreenV4(
                             "Ninguém no café agora · ${allCollaborators.size} colaboradores"
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },

@@ -101,7 +101,7 @@ fun FirstAdminSetupScreen(viewModel: AdminViewModel, onClose: () -> Unit) {
             Text(
                 if (step == 0) "Etapa 1 de 2 · Crie a conta principal" else "Etapa 2 de 2 · Proteja a instalação",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     ) {

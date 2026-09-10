@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -142,46 +143,41 @@ fun PcHeroPage(
     heroContent: @Composable ColumnScope.() -> Unit,
     sheetContent: @Composable () -> Unit,
 ) {
-    // A zona colorida fica embaixo da barra de status -- sem isto, os ícones
-    // do sistema (relógio, bateria) herdam a cor clara/escura padrão do tema
-    // geral do app, que assume um fundo neutro no topo, não um primary saturado.
+    // A zona de cabeçalho deixou de ser uma faixa saturada e passou a ser o
+    // próprio canvas do design: título em on-surface, sobrancelha em primary e
+    // conteúdo elevado logo abaixo. Por isso os ícones da barra de status voltam
+    // a seguir o tema (escuros no claro), em vez de serem forçados a claros para
+    // sobreviver ao fundo âmbar que existia aqui.
+    val darkTheme = isSystemInDarkTheme()
     val view = LocalView.current
     if (!view.isInEditMode) {
-        DisposableEffect(view) {
+        DisposableEffect(view, darkTheme) {
             val window = (view.context as? Activity)?.window
             val controller = window?.let { WindowCompat.getInsetsController(it, view) }
             val previous = controller?.isAppearanceLightStatusBars
-            controller?.isAppearanceLightStatusBars = false
+            controller?.isAppearanceLightStatusBars = !darkTheme
             onDispose {
                 if (previous != null) controller?.isAppearanceLightStatusBars = previous
             }
         }
     }
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.86f),
-                        ),
-                    ),
-                )
                 .statusBarsPadding()
                 .padding(horizontal = PontoCafeSpacing.lg, vertical = PontoCafeSpacing.md),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
             content = heroContent,
         )
-        Surface(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            color = MaterialTheme.colorScheme.background,
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                MotionReveal { sheetContent() }
-            }
+        // A folha não é mais um recorte arredondado sobre a faixa: cabeçalho e
+        // corpo dividem o mesmo canvas chapado, e a hierarquia vem dos cartões.
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            MotionReveal { sheetContent() }
         }
     }
 }
@@ -202,7 +198,7 @@ fun PcHeroZoneTopBar(
     modifier: Modifier = Modifier,
 ) {
     val displayName = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName
-    val onColor = MaterialTheme.colorScheme.onPrimary
+    val onColor = MaterialTheme.colorScheme.onSurface
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -211,10 +207,10 @@ fun PcHeroZoneTopBar(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = eyebrow.uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = onColor.copy(alpha = 0.78f),
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.6.sp,
+                // Sobrancelha em âmbar sobre o canvas claro: é ela que carrega a
+                // marca agora que o cabeçalho não tem mais fundo colorido.
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
             )
             Text(
                 text = title,
@@ -228,8 +224,8 @@ fun PcHeroZoneTopBar(
         }
         Surface(
             onClick = onBackToPonto,
-            shape = MaterialTheme.shapes.extraLarge,
-            color = onColor.copy(alpha = 0.16f),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = onColor,
         ) {
             Row(
@@ -259,7 +255,7 @@ fun PcHeroZoneScreenHeader(
     eyebrow: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val onColor = MaterialTheme.colorScheme.onPrimary
+    val onColor = MaterialTheme.colorScheme.onSurface
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -269,7 +265,7 @@ fun PcHeroZoneScreenHeader(
             Surface(
                 modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget),
                 shape = CircleShape,
-                color = onColor.copy(alpha = 0.16f),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 contentColor = onColor,
             ) {
                 IconButton(onClick = onBack) {
@@ -282,7 +278,7 @@ fun PcHeroZoneScreenHeader(
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!eyebrow.isNullOrBlank()) {
-                Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelMedium, color = onColor.copy(alpha = 0.78f), fontWeight = FontWeight.SemiBold)
+                Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
             Text(
                 title,
@@ -295,17 +291,46 @@ fun PcHeroZoneScreenHeader(
     }
 }
 
-/** Um número da tira de estatísticas na zona colorida -- texto puro, sem cartão. */
+/**
+ * Um número da tira de estatísticas do cabeçalho.
+ *
+ * Era texto solto sobre a faixa âmbar; com o cabeçalho chapado ele virou o
+ * "bento" branco do design -- número centrado e legenda curta embaixo, que é
+ * como as tiras de Ativo/Com alerta/Sem PIN aparecem nas telas.
+ */
 @Composable
 fun PcHeroStat(
     value: String,
     label: String,
     modifier: Modifier = Modifier,
-    tint: Color = MaterialTheme.colorScheme.onPrimary,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Column(modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" }) {
-        Text(animatedMetricValue(value), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = tint)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = tint.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Surface(
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = "$label: $value" },
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PontoCafeSpacing.xs, vertical = PontoCafeSpacing.sm),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                animatedMetricValue(value),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = tint,
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

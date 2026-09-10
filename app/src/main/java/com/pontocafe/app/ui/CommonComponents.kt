@@ -160,7 +160,7 @@ fun SectionTitle(title: String, subtitle: String? = null) {
         if (!subtitle.isNullOrBlank()) {
             Text(
                 subtitle,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -182,11 +182,11 @@ fun MetricCard(
             if (emphasized) stateDescription = "Requer atenção"
         },
         colors = CardDefaults.cardColors(
-            containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = if (emphasized) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         ),
         border = if (emphasized) BorderStroke(1.dp, semantic.warning.copy(alpha = 0.28f)) else null,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.md),
@@ -195,12 +195,12 @@ fun MetricCard(
             Text(
                 displayValue,
                 style = MaterialTheme.typography.headlineMedium,
-                color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
+                color = if (emphasized) semantic.onWarningContainer else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 label,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = if (emphasized) semantic.onWarningContainer.copy(alpha = 0.82f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
             )
@@ -220,6 +220,18 @@ fun StatusPill(text: String, positive: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier) {
     val (container, content) = toneColors(tone)
+    val semantic = LocalPontoCafeSemanticColors.current
+    // Ponto sólido no tom saturado, e não o ícone do Material: é a marca visual
+    // que o design usa para estado em toda pílula ("Em operação", "Disponível",
+    // "MDM Conectado"). O ícone de 14dp dobrava a altura da pílula e competia
+    // com o próprio rótulo.
+    val dot = when (tone) {
+        PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.outline
+        PontoCafeTone.SUCCESS -> semantic.success
+        PontoCafeTone.WARNING -> semantic.warning
+        PontoCafeTone.INFO -> semantic.info
+        PontoCafeTone.DANGER -> semantic.critical
+    }
     Surface(
         modifier = modifier.semantics(mergeDescendants = true) {
             stateDescription = text
@@ -228,20 +240,12 @@ fun StatusPill(text: String, tone: PontoCafeTone, modifier: Modifier = Modifier)
         color = container,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.xs, vertical = PontoCafeSpacing.xxs),
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val icon = when (tone) {
-                PontoCafeTone.SUCCESS -> Icons.Default.CheckCircle
-                PontoCafeTone.WARNING, PontoCafeTone.DANGER -> Icons.Default.Warning
-                PontoCafeTone.INFO -> Icons.Default.Info
-                PontoCafeTone.NEUTRAL -> null
-            }
-            if (icon != null) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = content)
-            }
-            Text(text = text, style = MaterialTheme.typography.labelMedium, color = content)
+            Box(modifier = Modifier.size(6.dp).background(dot, CircleShape))
+            Text(text = text, style = MaterialTheme.typography.labelSmall, color = content)
         }
     }
 }

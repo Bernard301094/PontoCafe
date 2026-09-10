@@ -106,7 +106,7 @@ fun PcHeroCard(
         Card(
             modifier = Modifier.weight(1f),
             colors = CardDefaults.cardColors(containerColor = container),
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = MaterialTheme.shapes.large,
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Row(
@@ -155,7 +155,7 @@ fun PcMetricTile(
 ) {
     val semantic = LocalPontoCafeSemanticColors.current
     val accent = if (attention) semantic.warning else MaterialTheme.colorScheme.primary
-    val container = if (attention) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLow
+    val container = if (attention) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLowest
 
     Card(
         modifier = modifier.semantics(mergeDescendants = true) {
@@ -163,8 +163,11 @@ fun PcMetricTile(
             if (attention) stateDescription = "Requer atenção"
         },
         colors = CardDefaults.cardColors(containerColor = container),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        // Nível 1 do design: superfície branca sobre o canvas frio, cantos de
+        // 12dp e sombra difusa -- a elevação é que separa o cartão do fundo,
+        // não uma tintura no container.
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier.padding(PontoCafeSpacing.md),
@@ -181,11 +184,13 @@ fun PcMetricTile(
                     text = animatedMetricValue(value),
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
-                    color = accent,
+                    // O número fica no tom de texto padrão; a cor de acento é
+                    // reservada ao estado de atenção, senão todo cartão "grita".
+                    color = if (attention) accent else MaterialTheme.colorScheme.onSurface,
                 )
                 Surface(
-                    modifier = Modifier.size(30.dp),
-                    shape = CircleShape,
+                    modifier = Modifier.size(32.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = accent.copy(alpha = 0.14f),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -232,10 +237,9 @@ fun PcActionTile(
                 contentDescription = "$title. $supportingText"
             },
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.large,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         interactionSource = interactionSource,
     ) {
         Row(
@@ -290,9 +294,9 @@ fun PcSectionSurface(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Box(modifier = Modifier.padding(PontoCafeSpacing.md)) { content() }
     }
@@ -407,7 +411,9 @@ fun PcPrimaryButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = MaterialTheme.shapes.medium,
+        // Pílula completa: no design system o raio total é reservado a botões,
+        // chips e contadores -- é o que separa "toque aqui" de "container".
+        shape = CircleShape,
         contentPadding = ButtonDefaults.ContentPadding,
         interactionSource = interactionSource,
     ) {
@@ -437,7 +443,7 @@ fun PcTonalButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = MaterialTheme.shapes.medium,
+        shape = CircleShape,
         interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
@@ -467,7 +473,7 @@ fun PcSecondaryButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = MaterialTheme.shapes.medium,
+        shape = CircleShape,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         interactionSource = interactionSource,
@@ -498,7 +504,7 @@ fun PcDangerButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = MaterialTheme.shapes.medium,
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,

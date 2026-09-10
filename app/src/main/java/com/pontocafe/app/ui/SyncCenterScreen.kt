@@ -86,7 +86,7 @@ fun SyncCenterScreen(
                 "Acompanhe o que falta chegar ao servidor",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 PcHeroStat(value = snapshot?.pending?.size?.toString() ?: "—", label = "Pendentes", modifier = Modifier.weight(1f))

@@ -308,17 +308,18 @@ private fun AccessCodeRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 1.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            modifier = Modifier.padding(PontoCafeSpacing.sm),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
             ) {
-                InitialAvatar(name = colaborador.nome, avatarSize = 40.dp)
+                InitialAvatar(name = colaborador.nome, avatarSize = 44.dp)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         colaborador.nome,
@@ -617,7 +618,7 @@ internal fun PcCompactAction(
             .heightIn(min = 40.dp)
             .semantics { this.contentDescription = contentDescription },
         enabled = enabled,
-        shape = MaterialTheme.shapes.small,
+        shape = CircleShape,
         contentPadding = PaddingValues(horizontal = PontoCafeSpacing.sm, vertical = 0.dp),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,

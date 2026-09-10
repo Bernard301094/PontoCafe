@@ -216,7 +216,7 @@ fun AdminDevicesScreenV2(
                 if (devicesHealthy) "Dispositivos protegidos" else "Verifique a conexão do sistema",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm)) {
                 PcHeroStat(value = "${state.dispositivos.count { it.ativo }}", label = "Ativos", modifier = Modifier.weight(1f))

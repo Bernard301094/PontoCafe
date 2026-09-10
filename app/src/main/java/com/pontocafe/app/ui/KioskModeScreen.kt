@@ -68,7 +68,7 @@ fun KioskModeScreen(
             Text(
                 if (settings.enabled) "Terminal dedicado ativo" else "Modo terminal desativado",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     ) {
