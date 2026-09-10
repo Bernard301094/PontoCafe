@@ -38,7 +38,18 @@ pontoStatusRoutes.get('/horario', async (c) => {
     [config.appTimezone],
   )
 
+  // A liberação do QR é por aparelho, e o aparelho precisa de a saber para
+  // decidir se mostra o botão da câmara. Vem junto do horário porque é a mesma
+  // chamada que o quiosque já faz ao arrancar e ao voltar do fundo -- pedir
+  // outra rota só para um booleano seria um ida-e-volta a mais em cada arranque.
+  const device = c.get('device')
+  const qr = await query<{ habilitado: boolean }>(
+    'select qr_habilitado as habilitado from dispositivos where id=$1 limit 1',
+    [device.id],
+  )
+
   return c.json({
+    qrHabilitado: qr.rows[0]?.habilitado ?? false,
     dentroHorario: Boolean(activeRule.rows[0]),
     periodoAtual: activeRule.rows[0]?.periodo ?? null,
     limiteSegundos: activeRule.rows[0]?.limite_segundos ?? null,

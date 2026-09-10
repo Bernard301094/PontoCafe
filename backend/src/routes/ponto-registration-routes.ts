@@ -53,10 +53,36 @@ pontoRegistrationRoutes.post('/pausas/registrar', async (c) => {
     operacaoId: uuidSchema.optional(),
     colaboradorId: uuidSchema,
     codigo: accessCodeSchema,
+    // Como o código chegou ao aparelho. Ausente significa TECLADO: é o que
+    // todas as versões anteriores do quiosque enviam, e elas continuam a valer.
+    origem: z.enum(['TECLADO', 'QR']).optional(),
   }))
   if (!body.ok) return body.response
 
   const device = c.get('device')
+  const viaQr = body.data.origem === 'QR'
+
+  // O portão da câmara é verificado aqui, no servidor, e não apenas no ecrã do
+  // aparelho: um quiosque com a leitura desligada não deve conseguir registar
+  // por QR só porque o botão continuou a aparecer depois de uma configuração
+  // mudada a meio do turno.
+  //
+  // O que isto NÃO é: uma barreira criptográfica. O QR carrega o mesmo código
+  // que a pessoa digitaria à mão, e um aparelho que omita este campo regista
+  // como teclado. O valor está em decidir quando a operação aceita câmara, e em
+  // deixar na trilha quais batidas vieram por ali.
+  if (viaQr) {
+    const liberado = await query<{ habilitado: boolean }>(
+      'select qr_habilitado as habilitado from dispositivos where id=$1 limit 1',
+      [device.id],
+    )
+    if (!liberado.rows[0]?.habilitado) {
+      return c.json({
+        erro: 'A leitura por QR não está liberada neste aparelho. Peça ao Administrador ou ao Supervisor para liberar, ou digite o código.',
+        codigo: 'QR_NAO_LIBERADO',
+      }, 403)
+    }
+  }
 
   const attempts = await recentFailedAttempts(body.data.colaboradorId)
   if (attempts >= config.accessCodeMaxAttempts) {
@@ -95,8 +121,27 @@ pontoRegistrationRoutes.post('/pausas/registrar', async (c) => {
         deviceName: device.nome,
         collaboratorId: body.data.colaboradorId,
         code: body.data.codigo,
-        origem: 'QUIOSQUE',
+        origem: viaQr ? 'QR' : 'QUIOSQUE',
       })
+
+      // A batida por câmara ganha linha própria na trilha. Sem ela, um registo
+      // lido de um QR reencaminhado por mensagem seria indistinguível de um
+      // código digitado à frente do aparelho -- e é justamente essa diferença
+      // que alguém vai querer procurar quando desconfiar.
+      if (viaQr) {
+        await client.query(
+          `insert into auditoria (ator_tipo,acao,entidade,entidade_id,detalhes)
+           values ('DISPOSITIVO','PONTO_VIA_QR','PAUSA',$1,$2::jsonb)`,
+          [outcome.pauseId, JSON.stringify({
+            colaboradorId: outcome.colaborador.id,
+            colaboradorNome: outcome.colaborador.nome,
+            dispositivoId: device.id,
+            dispositivoNome: device.nome,
+            movimento: outcome.status,
+          })],
+        )
+      }
+
       const result = toStored(outcome)
       if (!operation) return result
       return (await savePontoOperation(client, operation, outcome.pauseId, result)).response
