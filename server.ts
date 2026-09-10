@@ -187,6 +187,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
         <i data-lucide="users" class="w-4 h-4"></i>
         <span>Painel Equipe</span>
       </button>
+      <button id="tab-codes" onclick="switchTab('codes')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+        <i data-lucide="key-round" class="w-4 h-4"></i>
+        <span>Códigos</span>
+      </button>
       <button id="tab-history" onclick="switchTab('history')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="history" class="w-4 h-4"></i>
         <span>Registros</span>
@@ -401,6 +405,40 @@ const HTML_CONTENT = `<!DOCTYPE html>
     </section>
 
     <!-- VIEW 3: PONTO HISTORY LOG -->
+    <!-- VIEW: CÓDIGOS DE CAFÉ -->
+    <section id="view-codes" class="hidden space-y-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-coffee-950">Códigos de Café</h2>
+          <p class="text-sm text-stone-500">Seis caracteres, letras e números, uso único — o colaborador digita no totem</p>
+        </div>
+        <button onclick="refreshCodes()" class="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-sm font-semibold shadow-sm hover:bg-stone-50">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>Atualizar</span>
+        </button>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+          <h3 class="font-bold text-coffee-950 text-base">Códigos vivos</h3>
+          <span id="codes-count" class="text-xs font-semibold text-stone-500">—</span>
+        </div>
+        <div class="divide-y divide-stone-100" id="codes-list">
+          <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-stone-100">
+          <h3 class="font-bold text-coffee-950 text-base">Emitir para um colaborador</h3>
+          <p class="text-xs text-stone-500 mt-0.5">O código vale por poucos minutos; para o retorno ele não expira.</p>
+        </div>
+        <div class="divide-y divide-stone-100" id="codes-people-list">
+          <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
+        </div>
+      </div>
+    </section>
+
     <section id="view-history" class="hidden space-y-6">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -592,6 +630,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       collaborators: [],
       history: [],
       alerts: [],
+      codes: [],
+      resumo: {},
       currentPin: '',
       activeCollaborator: null,
       voiceEnabled: true
@@ -662,7 +702,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     // Switch Tabs
     function switchTab(tabId) {
-      const tabs = ['kiosk', 'supervisor', 'history', 'admin'];
+      const tabs = ['kiosk', 'supervisor', 'codes', 'history', 'admin'];
       tabs.forEach(tab => {
         const btn = document.getElementById('tab-' + tab);
         const view = document.getElementById('view-' + tab);
@@ -677,6 +717,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (tabId !== 'kiosk') {
         clearPin();
       }
+      // O prazo do código corre em segundos: ao abrir a aba, relê do servidor.
+      if (tabId === 'codes') { refreshCodes(); }
     }
 
     // Numpad PIN logic
@@ -904,6 +946,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         renderAdminList();
         updateSummaryStats();
         refreshUsers();
+        refreshCodes();
         lucide.createIcons();
       } catch (err) {
         if (err.message !== 'unauthenticated') {
@@ -1034,6 +1077,116 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
       \`).join('');
+    }
+
+    // ---- Códigos de café ---------------------------------------------------
+    // O código é de 6 caracteres, letras e números, e vale uma vez só. O
+    // alfabeto exclui I, L, O e U de propósito: quem digita está de pé no
+    // corredor e confundiria I com 1 e O com 0.
+    //
+    // As rotas existem sob /admin e sob /supervisor. Usamos /supervisor porque
+    // aceita os dois perfis -- um Supervisor perderia a tela em /admin.
+    const ESTADO_CODIGO = {
+      AGUARDANDO_SAIDA: { label: 'Aguardando saída', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+      EM_PAUSA: { label: 'No café', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+      EXPIRADO: { label: 'Expirado', cls: 'bg-stone-100 text-stone-500 border-stone-200' }
+    };
+
+    async function refreshCodes() {
+      const lista = document.getElementById('codes-list');
+      const pessoas = document.getElementById('codes-people-list');
+      if (!lista) return;
+      try {
+        const data = await apiFetch('/supervisor/codigos');
+        state.codes = data.codigos || [];
+
+        const vivos = state.codes.filter(c => c.estado !== 'EXPIRADO');
+        document.getElementById('codes-count').textContent =
+          vivos.length === 0 ? 'nenhum ativo' : vivos.length + ' ativo(s)';
+
+        lista.innerHTML = vivos.length === 0
+          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum código vivo agora.</p>'
+          : vivos.map(c => {
+              const st = ESTADO_CODIGO[c.estado] || ESTADO_CODIGO.EXPIRADO;
+              const prazo = c.estado === 'EM_PAUSA'
+                ? 'Válido para o retorno, sem prazo'
+                : 'Expira em ' + segundosParaRelogio(c.expiraEmSegundos);
+              return \`
+                <div class="px-6 py-4 flex items-center justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="flex items-center space-x-2">
+                      <span class="font-mono text-lg font-extrabold text-coffee-900 tracking-widest">\${c.codigoFormatado}</span>
+                      <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${st.cls}">\${st.label}</span>
+                    </div>
+                    <p class="text-xs text-stone-500 mt-0.5 truncate">\${c.nome} · \${prazo}</p>
+                  </div>
+                  \${c.estado === 'AGUARDANDO_SAIDA' ? \`
+                    <button onclick="cancelarCodigo('\${c.colaboradorId}')"
+                      class="shrink-0 px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">
+                      Cancelar
+                    </button>\` : ''}
+                </div>
+              \`;
+            }).join('');
+
+        // Quem já tem código vivo não aparece para emitir outro: dois códigos
+        // ao mesmo tempo deixariam em aberto qual deles fecha a pausa.
+        const comCodigo = {};
+        vivos.forEach(c => { comCodigo[c.colaboradorId] = true; });
+        const livres = state.collaborators.filter(p => !comCodigo[p.id]);
+
+        pessoas.innerHTML = livres.length === 0
+          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Todo mundo já tem código vivo.</p>'
+          : livres.map(p => \`
+              <div class="px-6 py-3 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${p.name}</h4>
+                  <p class="text-xs text-stone-500 truncate">\${p.role} • \${p.department}</p>
+                </div>
+                <button onclick="emitirCodigo('\${p.id}')"
+                  class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amberAccent text-white text-xs font-semibold shadow hover:opacity-95">
+                  <i data-lucide="coffee" class="w-4 h-4"></i>
+                  <span>Gerar</span>
+                </button>
+              </div>
+            \`).join('');
+
+        lucide.createIcons();
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          lista.innerHTML = '<p class="px-6 py-8 text-xs text-red-600 text-center">Não foi possível carregar: ' + err.message + '</p>';
+        }
+      }
+    }
+
+    async function emitirCodigo(colaboradorId) {
+      const res = await fetch(API_BASE + '/supervisor/codigos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({ colaboradorId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Código emitido', 'Código ' + (data.codigoFormatado || data.codigo || '') + ' — anote e entregue à pessoa.', 'success');
+        await refreshCodes();
+      } else {
+        showToast('Erro', data.erro || 'Não foi possível emitir o código.', 'error');
+      }
+    }
+
+    async function cancelarCodigo(colaboradorId) {
+      const res = await fetch(API_BASE + '/supervisor/codigos/cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({ colaboradorId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Código cancelado', 'O passe deixou de valer.', 'success');
+        await refreshCodes();
+      } else {
+        showToast('Erro', data.erro || 'Não foi possível cancelar.', 'error');
+      }
     }
 
     // ---- Contas de acesso (Admin / Supervisor) -----------------------------
