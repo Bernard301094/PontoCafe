@@ -1,18 +1,9 @@
 {
-  "name": "ponto-cafe-monorepo",
-  "private": true,
-  "workspaces": [
-    "backend"
-  ],
+  "name": "ponto-cafe",
+  "version": "1.0.0",
+  "type": "module",
   "scripts": {
-    "dev": "npm --workspace backend run dev",
-    "start": "npm --workspace backend run start",
-    "build": "echo 'Build OK'",
-    "typecheck": "npm --workspace backend run typecheck",
-    "validate": "npm --workspace backend run validate",
-    "release:check": "node scripts/check-release-1.0.mjs",
-    "deploy": "npm --workspace backend run deploy",
-    "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs",
-    "preview": "npm --workspace backend run preview"
+    "dev": "node server.ts",
+    "start": "node server.ts"
   }
 }
