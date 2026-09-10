@@ -574,10 +574,21 @@ private fun ReportPeriodSelector(
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
         ) {
             items(listOf(1 to "Hoje", 7 to "7 dias", 30 to "30 dias"), key = { "period-${it.first}" }) { (days, label) ->
+                val selected = selectedDays == days
+                // Pílula do design: o selecionado é âmbar sólido, o resto é
+                // container neutro -- sem contorno em nenhum dos dois estados.
                 FilterChip(
-                    selected = selectedDays == days,
+                    selected = selected,
                     onClick = { onDays(days) },
-                    label = { Text(label) },
+                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    border = null,
+                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
                 )
             }
         }
@@ -737,15 +748,17 @@ private fun ReportDayCardV2(day: ReportDay, onClick: () -> Unit, modifier: Modif
         modifier = modifier.fillMaxWidth().pcPressScale(pressScale),
         onClick = onClick,
         interactionSource = interactionSource,
+        // Cartão branco elevado como todo cartão do design; o dia que passou do
+        // limite continua tingido, porque aí a cor é o próprio aviso.
         colors = androidx.compose.material3.CardDefaults.cardColors(
             containerColor = if (day.acimaLimite > 0) {
                 LocalPontoCafeSemanticColors.current.warningContainer
             } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.colorScheme.surfaceContainerLowest
             },
         ),
-        shape = MaterialTheme.shapes.large,
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = MaterialTheme.shapes.medium,
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         BoxWithConstraints {
             val stack = maxWidth < 360.dp || LocalDensity.current.fontScale >= 1.6f

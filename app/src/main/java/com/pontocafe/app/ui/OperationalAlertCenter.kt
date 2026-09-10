@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.weight
@@ -190,9 +191,22 @@ private fun AlertHistoryRow(item: OperationalAlertHistoryItem, onDismiss: () -> 
                     liveRegion = if (!item.read && isCritical) LiveRegionMode.Assertive else LiveRegionMode.Polite
                 },
             shape = MaterialTheme.shapes.medium,
-            color = if (item.read) MaterialTheme.colorScheme.surfaceContainer else accent.copy(alpha = 0.09f),
+            // Cartão branco elevado, como todo cartão do design. O que ainda não
+            // foi lido ganha a faixa de acento no topo em vez de um fundo
+            // tingido: é assim que o design marca "pendente".
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            shadowElevation = 1.dp,
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Column {
+                if (!item.read) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .background(accent),
+                    )
+                }
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
                     verticalAlignment = Alignment.Top,
@@ -246,6 +260,7 @@ private fun AlertHistoryRow(item: OperationalAlertHistoryItem, onDismiss: () -> 
                             )
                         }
                     }
+                }
                 }
             }
         }
