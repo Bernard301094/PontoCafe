@@ -199,46 +199,93 @@ fun PcHeroZoneTopBar(
     modifier: Modifier = Modifier,
 ) {
     val displayName = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName
-    val onColor = MaterialTheme.colorScheme.onSurface
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
+        // Selo âmbar da marca: é a âncora do cabeçalho no design, e o que faz
+        // qualquer tela do app se identificar como Ponto Café num relance.
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(22.dp))
+            }
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = eyebrow.uppercase(),
-                // Sobrancelha em âmbar sobre o canvas claro: é ela que carrega a
-                // marca agora que o cabeçalho não tem mais fundo colorido.
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+            ) {
+                Text(
+                    text = "Ponto Café",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                )
+                // O perfil vira pílula, como no design -- deixou de ser a
+                // sobrancelha em caixa alta acima do título.
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Text(
+                        text = eyebrow,
+                        modifier = Modifier.padding(
+                            horizontal = PontoCafeSpacing.xs,
+                            vertical = PontoCafeSpacing.xxs,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+            // O título da tela desce para a linha de apoio: no design ele diz
+            // "onde estou", e não é mais o texto de maior peso do cabeçalho.
             Text(
                 text = title,
                 modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-                color = onColor,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // Volta ao totem: não está no mockup, mas é a saída da área restrita e
+        // some do app se sair daqui. Fica compacta, só com o ícone.
         Surface(
             onClick = onBackToPonto,
+            modifier = Modifier.size(36.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = onColor,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text("Ponto", modifier = Modifier.padding(start = 5.dp), style = MaterialTheme.typography.labelLarge)
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Coffee,
+                    contentDescription = "Voltar ao Ponto",
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
-        IconButton(onClick = onProfileClick, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
-            InitialAvatar(name = displayName, avatarSize = 34.dp)
+        // Avatar com o ponto de presença verde do design.
+        Box(contentAlignment = Alignment.BottomEnd) {
+            IconButton(onClick = onProfileClick, modifier = Modifier.size(PontoCafeDimensions.minimumTouchTarget)) {
+                InitialAvatar(name = displayName, avatarSize = 34.dp)
+            }
+            Box(
+                modifier = Modifier
+                    .padding(end = 4.dp, bottom = 4.dp)
+                    .size(10.dp)
+                    .background(MaterialTheme.colorScheme.background, CircleShape)
+                    .padding(1.5.dp)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape),
+            )
         }
     }
 }
