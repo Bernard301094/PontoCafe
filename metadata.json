@@ -1,0 +1,8 @@
+{
+  "name": "Ponto Café",
+  "description": "Sistema de gestão e monitoramento de pausas e quiosque de café",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

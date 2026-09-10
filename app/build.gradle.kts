@@ -70,8 +70,26 @@ val prepareVoiceModel by tasks.registering {
                 archive.outputStream().use { output -> input.copyTo(output) }
             }
 
-            project.exec {
-                commandLine("tar", "-xjf", archive.absolutePath, "-C", extracted.absolutePath)
+            var extractedOk = false
+            try {
+                val pyProcess = ProcessBuilder(
+                    "python3", "-c",
+                    "import tarfile; tarfile.open(r'''" + archive.absolutePath + "''', 'r:bz2').extractall(r'''" + extracted.absolutePath + "''')"
+                ).redirectErrorStream(true).start()
+                if (pyProcess.waitFor() == 0) {
+                    extractedOk = true
+                }
+            } catch (_: Exception) {}
+
+            if (!extractedOk) {
+                val process = ProcessBuilder("tar", "-xjf", archive.absolutePath, "-C", extracted.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+                val exitCode = process.waitFor()
+                check(exitCode == 0) {
+                    val output = process.inputStream.bufferedReader().readText()
+                    "Falha ao extrair arquivo do modelo de voz (exitCode=$exitCode): $output"
+                }
             }
 
             val extractedModel = extracted.walkTopDown()

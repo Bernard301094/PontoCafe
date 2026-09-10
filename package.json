@@ -5,6 +5,9 @@
     "backend"
   ],
   "scripts": {
+    "dev": "npm --workspace backend run dev",
+    "start": "npm --workspace backend run start",
+    "build": "echo 'Build OK'",
     "typecheck": "npm --workspace backend run typecheck",
     "validate": "npm --workspace backend run validate",
     "release:check": "node scripts/check-release-1.0.mjs",

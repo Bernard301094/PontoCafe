@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
@@ -309,16 +310,28 @@ private fun PcCollaboratorPickerRow(pessoa: Colaborador, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
             InitialAvatar(name = pessoa.nome, avatarSize = 48.dp)
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 // Nome no corpo de 18sp: é a linha que a pessoa procura de pé,
                 // à frente do totem, e o design a trata como título de cartão.
-                Text(
-                    pessoa.nome,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                ) {
+                    Text(
+                        pessoa.nome,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    pessoa.setor?.takeIf { it.isNotBlank() }?.let { setor ->
+                        StatusPill(text = setor, tone = PontoCafeTone.NEUTRAL)
+                    }
+                }
                 Text(
                     colaboradorDetalhe(pessoa),
                     style = MaterialTheme.typography.bodySmall,
@@ -326,6 +339,20 @@ private fun PcCollaboratorPickerRow(pessoa: Colaborador, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            Surface(
+                modifier = Modifier.size(32.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
     }
