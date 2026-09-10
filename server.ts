@@ -119,6 +119,40 @@ const HTML_CONTENT = `<!DOCTYPE html>
   </style>
 </head>
 <body class="bg-stone-100 text-stone-800 font-sans h-full flex flex-col antialiased select-none">
+
+  <!-- Login: o painel fala com o backend real, entao precisa de sessao. -->
+  <div id="login-overlay" class="hidden fixed inset-0 z-50 bg-coffee-950/60 backdrop-blur-sm items-center justify-center p-4">
+    <form onsubmit="handleLogin(event)" class="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-stone-200 p-6 flex flex-col space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-amberAccent flex items-center justify-center text-white">
+          <i data-lucide="coffee" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h2 class="text-lg font-extrabold text-coffee-950 leading-tight">Ponto Café</h2>
+          <p class="text-xs text-stone-500">Painel de gestão</p>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-stone-600 mb-1">E-mail</label>
+        <input id="login-email" type="email" required autocomplete="username"
+          class="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-stone-600 mb-1">Senha</label>
+        <input id="login-password" type="password" required autocomplete="current-password"
+          class="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+      </div>
+      <p id="login-error" class="hidden text-xs text-red-600 font-semibold"></p>
+      <button id="login-submit" type="submit"
+        class="w-full py-2.5 rounded-xl bg-amberAccent text-white text-sm font-bold hover:opacity-95 transition-opacity">
+        Entrar
+      </button>
+      <p class="text-[11px] text-stone-400 text-center">
+        Mesma conta do app. O registo de ponto continua no totem.
+      </p>
+    </form>
+  </div>
+
   <!-- Top Bar -->
   <header id="app-header" class="bg-white border-b border-stone-200 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm sticky top-0 z-30">
     <div class="flex items-center space-x-3">
@@ -686,44 +720,108 @@ const HTML_CONTENT = `<!DOCTYPE html>
       clearPin();
     }
 
-    async function submitPonto(type) {
-      if (!state.activeCollaborator) return;
-      const col = state.activeCollaborator;
-
-      const res = await fetch('/api/ponto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          collaboratorId: col.id,
-          type: type,
-          source: 'kiosk'
-        })
-      });
-
-      const data = await res.json();
+    // O registo de ponto continua a ser do totem, e nao deste painel.
+    //
+    // Nao e uma limitacao por preguica: a batida exige o token de dispositivo
+    // autorizado, a fila offline e a assinatura fiscal REP-P, que vivem no
+    // aparelho. Registar daqui produziria um ponto sem origem confiavel -- por
+    // isso o painel diz onde se faz, em vez de oferecer um botao que falha.
+    async function submitPonto() {
       closeModal();
-
-      if (data.success) {
-        showToast('Ponto Registrado!', data.message, 'success');
-        speakVoice(data.voiceMessage || data.message);
-        await refreshData();
-      } else {
-        showToast('Aviso', data.message || 'Erro ao registrar ponto.', 'error');
-      }
+      showToast(
+        'Registo é no totem',
+        'A saída e o retorno são registados no aparelho do corredor, com o código de café.',
+        'error'
+      );
     }
 
-    // Refresh Data from API
+    // ---- Ligação com o backend real (Cloudflare Worker) --------------------
+    // O painel deixou de ter dados próprios: tudo vem da mesma API que o totem
+    // Android usa. A sessão é um Bearer emitido por /api/auth/sign-in/email e
+    // guardado no localStorage deste navegador.
+    const API_BASE = window.PONTO_API_BASE;
+
+    function getToken() { return localStorage.getItem('ponto_token'); }
+    function setToken(t) { localStorage.setItem('ponto_token', t); }
+    function clearToken() { localStorage.removeItem('ponto_token'); }
+
+    async function apiFetch(path) {
+      const res = await fetch(API_BASE + path, {
+        headers: { 'Authorization': 'Bearer ' + getToken() }
+      });
+      if (res.status === 401) {
+        clearToken();
+        showLogin('Sua sessão expirou. Entre novamente.');
+        throw new Error('unauthenticated');
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' em ' + path);
+      return res.json();
+    }
+
+    async function doLogin(email, password) {
+      const res = await fetch(API_BASE + '/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.token) {
+        throw new Error(data.erro || 'E-mail ou senha inválidos.');
+      }
+      setToken(data.token);
+      return data.user;
+    }
+
+    // O totem é quem regista ponto: ele tem o token de dispositivo, a fila
+    // offline e o registo fiscal. O painel só lê -- por isso o separador do
+    // quiosque fica desligado aqui em vez de oferecer um botão que falharia.
+    function segundosParaRelogio(total) {
+      const s = Math.max(0, total | 0);
+      return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }
+
     async function refreshData() {
+      if (!getToken()) { showLogin(); return; }
       try {
-        const [colRes, histRes, alertRes] = await Promise.all([
-          fetch('/api/collaborators'),
-          fetch('/api/history'),
-          fetch('/api/alerts')
+        const [pessoas, ativas, resumo] = await Promise.all([
+          apiFetch('/gestao/colaboradores'),
+          apiFetch('/admin/pausas/ativas'),
+          apiFetch('/admin/operacao/resumo')
         ]);
 
-        state.collaborators = await colRes.json();
-        state.history = await histRes.json();
-        state.alerts = await alertRes.json();
+        state.resumo = resumo || {};
+        const emPausaPorId = {};
+        (ativas.pausas || ativas || []).forEach(p => { emPausaPorId[p.colaboradorId] = p; });
+
+        state.collaborators = (pessoas.colaboradores || []).map(c => {
+          const pausa = emPausaPorId[c.id];
+          return {
+            id: c.id,
+            name: c.nome,
+            role: c.turno ? 'Turno ' + c.turno : 'Sem turno',
+            department: c.setor || 'Sem setor',
+            status: c.emPausa ? 'coffee_break' : 'active',
+            lastPontoType: pausa ? 'Em pausa desde' : (c.codigoAtivo ? 'Código ativo' : null),
+            lastPontoTime: pausa ? pausa.inicioLocal : null
+          };
+        });
+
+        // Alerta é a pausa que já passou do teto -- o mesmo critério do app.
+        state.alerts = (ativas.pausas || ativas || [])
+          .filter(p => p.excedeuLimite || p.acimaLimite)
+          .map(p => ({
+            severity: 'warning',
+            title: p.colaboradorNome + ' acima do limite',
+            message: 'Saiu às ' + p.inicioLocal + ' · ' + segundosParaRelogio(p.tempoContadoSegundos) + ' contados'
+          }));
+
+        state.history = (ativas.pausas || ativas || []).map(p => ({
+          collaboratorName: p.colaboradorNome,
+          type: 'pausa_cafe',
+          timestamp: p.inicioLocal,
+          source: 'totem',
+          note: p.foraHorario ? 'Fora do horário' : null
+        }));
 
         renderTeamList();
         renderHistoryTable();
@@ -731,15 +829,20 @@ const HTML_CONTENT = `<!DOCTYPE html>
         renderAdminList();
         updateSummaryStats();
       } catch (err) {
-        console.error('Error fetching data:', err);
+        if (err.message !== 'unauthenticated') {
+          console.error(err);
+          showToast('Erro', 'Não foi possível carregar os dados: ' + err.message, 'error');
+        }
       }
     }
 
     function updateSummaryStats() {
-      document.getElementById('stat-total').textContent = state.collaborators.length;
-      document.getElementById('stat-active').textContent = state.collaborators.filter(c => c.status === 'active').length;
-      document.getElementById('stat-coffee').textContent = state.collaborators.filter(c => c.status === 'coffee_break').length;
-      document.getElementById('stat-off').textContent = state.collaborators.filter(c => c.status === 'off_duty').length;
+      const r = state.resumo || {};
+      const el = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
+      el('stat-total', r.colaboradoresAtivos ?? state.collaborators.length);
+      el('stat-active', (r.colaboradoresAtivos ?? state.collaborators.length) - (r.pausasAbertas ?? 0));
+      el('stat-coffee', r.pausasAbertas ?? 0);
+      el('stat-off', r.codigosPendentes ?? 0);
     }
 
     function renderTeamList() {
@@ -864,20 +967,26 @@ const HTML_CONTENT = `<!DOCTYPE html>
       const role = document.getElementById('col-role').value;
       const pin = document.getElementById('col-pin').value;
 
-      const res = await fetch('/api/collaborators', {
+      // Vai para o backend real: mesma rota que o app usa, com a sessão Bearer.
+      // O PIN não existe neste modelo -- quem libera a pausa é o código de café
+      // emitido pelo Supervisor, com prazo e uso único.
+      const res = await fetch(API_BASE + '/gestao/colaboradores', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, role, pin, department: 'Atendimento' })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + getToken()
+        },
+        body: JSON.stringify({ nome: name, turno: role || null, setor: null })
       });
 
-      const data = await res.json();
-      if (data.success) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
         showToast('Sucesso', 'Colaborador adicionado!', 'success');
         closeNewCollaboratorModal();
         document.getElementById('new-col-form').reset();
         await refreshData();
       } else {
-        showToast('Erro', data.message || 'Falha ao salvar.', 'error');
+        showToast('Erro', data.erro || 'Falha ao salvar.', 'error');
       }
     }
 
@@ -887,154 +996,98 @@ const HTML_CONTENT = `<!DOCTYPE html>
       showToast('Configurações Salvas', 'Parâmetros atualizados com sucesso.', 'success');
     }
 
+    // ---- Login -------------------------------------------------------------
+    function showLogin(aviso) {
+      const el = document.getElementById('login-overlay');
+      if (!el) return;
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+      const erro = document.getElementById('login-error');
+      if (erro) {
+        erro.textContent = aviso || '';
+        erro.classList.toggle('hidden', !aviso);
+      }
+    }
+
+    function hideLogin() {
+      const el = document.getElementById('login-overlay');
+      if (!el) return;
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const btn = document.getElementById('login-submit');
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      btn.disabled = true;
+      btn.textContent = 'Entrando...';
+      try {
+        const user = await doLogin(email, password);
+        hideLogin();
+        const quem = document.getElementById('session-user');
+        if (quem) quem.textContent = user.name || user.email;
+        await refreshData();
+      } catch (err) {
+        const erro = document.getElementById('login-error');
+        erro.textContent = err.message;
+        erro.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    }
+
+    function handleLogout() {
+      clearToken();
+      state.collaborators = [];
+      state.history = [];
+      state.alerts = [];
+      renderTeamList(); renderHistoryTable(); renderAlerts(); renderAdminList();
+      showLogin();
+    }
+
     // Initialize on load
     window.addEventListener('DOMContentLoaded', () => {
-      refreshData();
+      if (getToken()) { refreshData(); } else { showLogin(); }
       lucide.createIcons();
     });
   </script>
 </body>
 </html>`;
 
+// O painel nao tem mais API propria: quem responde e o backend Cloudflare, o
+// mesmo que o totem Android usa. Este processo so serve a pagina e injeta o
+// endereco da API, para o navegador falar direto com o Worker (o CORS ja
+// permite Authorization de qualquer origem).
+const API_BASE = (process.env.PONTO_API_BASE ?? 'https://pontocafe.bernard-castillo.workers.dev').replace(/\/+$/, '');
+
 const server = http.createServer((req, res) => {
-  const parsed = parseUrl(req.url || '/', true);
-  const pathname = parsed.pathname || '/';
+  const pathname = parseUrl(req.url ?? '/').pathname ?? '/';
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('O painel apenas serve a pagina; os dados vem do backend.');
     return;
   }
 
-  // API Routes
-  if (pathname === '/api/collaborators' && req.method === 'GET') {
+  if (pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(collaborators));
+    res.end(JSON.stringify({ status: 'ok', apiBase: API_BASE }));
     return;
   }
 
-  if (pathname === '/api/collaborators' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
-        if (!data.name || !data.pin) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, message: 'Nome e PIN são obrigatórios' }));
-          return;
-        }
-        const newCol: Collaborator = {
-          id: 'col-' + (collaborators.length + 1),
-          name: data.name,
-          role: data.role || 'Barista',
-          pin: data.pin,
-          department: data.department || 'Cafeteria',
-          status: 'off_duty'
-        };
-        collaborators.push(newCol);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, collaborator: newCol }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message: 'Payload inválido' }));
-      }
-    });
-    return;
-  }
+  const page = HTML_CONTENT.replace(
+    '</head>',
+    `  <script>window.PONTO_API_BASE = ${JSON.stringify(API_BASE)};</script>\n</head>`,
+  );
 
-  if (pathname === '/api/history' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(pontoHistory));
-    return;
-  }
-
-  if (pathname === '/api/alerts' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(alerts));
-    return;
-  }
-
-  if (pathname === '/api/ponto' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
-        const col = collaborators.find(c => c.id === data.collaboratorId);
-        if (!col) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, message: 'Colaborador não encontrado' }));
-          return;
-        }
-
-        const nowTime = getFormattedNow();
-        const fullTime = getFullDateTimeNow();
-        const typeNames: Record<string, string> = {
-          entrada: 'Entrada',
-          pausa_cafe: 'Pausa Café',
-          retorno_cafe: 'Retorno Café',
-          saida: 'Saída'
-        };
-
-        const readableType = typeNames[data.type] || data.type;
-
-        // Update collaborator status
-        if (data.type === 'entrada' || data.type === 'retorno_cafe') {
-          col.status = 'active';
-        } else if (data.type === 'pausa_cafe') {
-          col.status = 'coffee_break';
-        } else if (data.type === 'saida') {
-          col.status = 'off_duty';
-        }
-
-        col.lastPontoTime = nowTime;
-        col.lastPontoType = readableType;
-
-        // Add history record
-        const record: PontoRecord = {
-          id: 'rec-' + (pontoHistory.length + 1),
-          collaboratorId: col.id,
-          collaboratorName: col.name,
-          type: data.type,
-          timestamp: fullTime,
-          source: data.source || 'kiosk'
-        };
-        pontoHistory.push(record);
-
-        // Voice Message synthesis
-        const voiceMessages: Record<string, string> = {
-          entrada: `Bom dia, ${col.name}! Entrada confirmada às ${nowTime}. Tenha um ótimo turno!`,
-          pausa_cafe: `${col.name}, pausa para o café registrada. Bom descanso de 15 minutos!`,
-          retorno_cafe: `Retorno registrado, ${col.name}. Bem-vindo de volta!`,
-          saida: `Saída confirmada, ${col.name}. Bom descanso e até o próximo expediente!`
-        };
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          success: true,
-          message: `${readableType} registrada às ${nowTime} para ${col.name}`,
-          voiceMessage: voiceMessages[data.type] || `${readableType} confirmada.`
-        }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message: 'Erro ao processar dados de ponto' }));
-      }
-    });
-    return;
-  }
-
-  // Frontend HTML
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(HTML_CONTENT);
+  res.end(page);
 });
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Ponto Café] Servidor em execução na porta ${PORT}`);
+  console.log(`[Ponto Café] Painel em http://localhost:${PORT} — API: ${API_BASE}`);
 });
