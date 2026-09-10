@@ -783,15 +783,23 @@ const HTML_CONTENT = `<!DOCTYPE html>
     async function refreshData() {
       if (!getToken()) { showLogin(); return; }
       try {
-        const [pessoas, ativas, resumo] = await Promise.all([
+        // allSettled, e nao all: /admin/operacao/resumo exige perfil ADMIN, e
+        // com all um Supervisor perdia a tela inteira por causa de um 403 num
+        // dado que e apenas complementar.
+        const [pessoasR, ativasR, resumoR] = await Promise.allSettled([
           apiFetch('/gestao/colaboradores'),
-          apiFetch('/admin/pausas/ativas'),
+          apiFetch('/supervisor/pausas/ativas'),
           apiFetch('/admin/operacao/resumo')
         ]);
 
+        if (pessoasR.status === 'rejected') throw pessoasR.reason;
+        const pessoas = pessoasR.value;
+        const ativas = ativasR.status === 'fulfilled' ? ativasR.value : { pausas: [] };
+        const resumo = resumoR.status === 'fulfilled' ? resumoR.value : null;
+
         state.resumo = resumo || {};
         const emPausaPorId = {};
-        (ativas.pausas || ativas || []).forEach(p => { emPausaPorId[p.colaboradorId] = p; });
+        (ativas.pausas || []).forEach(p => { emPausaPorId[p.colaboradorId] = p; });
 
         state.collaborators = (pessoas.colaboradores || []).map(c => {
           const pausa = emPausaPorId[c.id];
@@ -807,19 +815,20 @@ const HTML_CONTENT = `<!DOCTYPE html>
         });
 
         // Alerta é a pausa que já passou do teto -- o mesmo critério do app.
-        state.alerts = (ativas.pausas || ativas || [])
-          .filter(p => p.excedeuLimite || p.acimaLimite)
+        // O nome vem no campo nome: a consulta traz col.nome sem alias.
+        state.alerts = (ativas.pausas || [])
+          .filter(p => p.excedeuLimite)
           .map(p => ({
             severity: 'warning',
-            title: p.colaboradorNome + ' acima do limite',
+            title: p.nome + ' acima do limite',
             message: 'Saiu às ' + p.inicioLocal + ' · ' + segundosParaRelogio(p.tempoContadoSegundos) + ' contados'
           }));
 
-        state.history = (ativas.pausas || ativas || []).map(p => ({
-          collaboratorName: p.colaboradorNome,
+        state.history = (ativas.pausas || []).map(p => ({
+          collaboratorName: p.nome,
           type: 'pausa_cafe',
           timestamp: p.inicioLocal,
-          source: 'totem',
+          source: p.setor || 'totem',
           note: p.foraHorario ? 'Fora do horário' : null
         }));
 
@@ -837,11 +846,15 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     function updateSummaryStats() {
+      // O resumo só chega para ADMIN; para Supervisor os números saem do que já
+      // foi carregado, em vez de mostrar zeros.
       const r = state.resumo || {};
       const el = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
-      el('stat-total', r.colaboradoresAtivos ?? state.collaborators.length);
-      el('stat-active', (r.colaboradoresAtivos ?? state.collaborators.length) - (r.pausasAbertas ?? 0));
-      el('stat-coffee', r.pausasAbertas ?? 0);
+      const total = r.colaboradoresAtivos ?? state.collaborators.length;
+      const emPausa = r.pausasAbertas ?? state.collaborators.filter(c => c.status === 'coffee_break').length;
+      el('stat-total', total);
+      el('stat-active', Math.max(0, total - emPausa));
+      el('stat-coffee', emPausa);
       el('stat-off', r.codigosPendentes ?? 0);
     }
 
