@@ -116,6 +116,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
     .animate-pulse-subtle {
       animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
+    /* A faixa de abas rola no eixo X em telas estreitas; a barra em si é ruído. */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
 <body class="bg-stone-100 text-stone-800 font-sans h-full flex flex-col antialiased select-none">
@@ -154,7 +157,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
   </div>
 
   <!-- Top Bar -->
-  <header id="app-header" class="bg-white border-b border-stone-200 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm sticky top-0 z-30">
+  <header id="app-header" class="bg-white border-b border-stone-200 px-4 md:px-8 py-3 flex flex-wrap items-center justify-between gap-y-3 shadow-sm sticky top-0 z-30">
     <div class="flex items-center space-x-3">
       <div class="w-10 h-10 rounded-xl bg-coffee-800 text-amber-400 flex items-center justify-center shadow-inner">
         <i data-lucide="coffee" class="w-6 h-6"></i>
@@ -177,33 +180,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse-subtle" title="Sincronizado"></div>
     </div>
 
-    <!-- Mode Selector Tabs -->
-    <nav class="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-semibold">
-      <button id="tab-kiosk" onclick="switchTab('kiosk')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm">
+    <!-- Mode Selector Tabs
+         Em telas estreitas (A55 tem ~412px) sete abas não cabem numa linha:
+         a faixa rola no eixo X em vez de espremer ou quebrar o cabeçalho. -->
+    <nav class="order-3 w-full lg:order-none lg:w-auto flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-semibold overflow-x-auto no-scrollbar">
+      <button id="tab-kiosk" onclick="switchTab('kiosk')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm">
         <i data-lucide="calculator" class="w-4 h-4"></i>
         <span>Totem / Ponto</span>
       </button>
-      <button id="tab-supervisor" onclick="switchTab('supervisor')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-supervisor" onclick="switchTab('supervisor')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="users" class="w-4 h-4"></i>
         <span>Painel Equipe</span>
       </button>
-      <button id="tab-codes" onclick="switchTab('codes')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-codes" onclick="switchTab('codes')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="key-round" class="w-4 h-4"></i>
         <span>Códigos</span>
       </button>
-      <button id="tab-devices" onclick="switchTab('devices')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-devices" onclick="switchTab('devices')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="smartphone" class="w-4 h-4"></i>
         <span>Dispositivos</span>
       </button>
-      <button id="tab-audit" onclick="switchTab('audit')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-audit" onclick="switchTab('audit')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="shield-check" class="w-4 h-4"></i>
         <span>Auditoria</span>
       </button>
-      <button id="tab-history" onclick="switchTab('history')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-history" onclick="switchTab('history')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="history" class="w-4 h-4"></i>
         <span>Registros</span>
       </button>
-      <button id="tab-admin" onclick="switchTab('admin')" class="flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
+      <button id="tab-admin" onclick="switchTab('admin')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900">
         <i data-lucide="settings" class="w-4 h-4"></i>
         <span>Gestão</span>
       </button>
@@ -425,7 +430,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <span>Atualizar</span>
         </button>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="devices-stats"></div>
+      <div class="grid grid-cols-3 gap-3 md:gap-4" id="devices-stats"></div>
       <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
         <div class="px-6 py-4 border-b border-stone-100">
           <h3 class="font-bold text-coffee-950 text-base">Aparelhos cadastrados</h3>
@@ -497,7 +502,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
         </div>
       </div>
 
-      <div class="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
+      <!-- Em telas estreitas a tabela vira lista de cartões: cinco colunas num
+           A55 obrigariam a rolar de lado para ler cada linha. -->
+      <div class="md:hidden bg-white rounded-2xl border border-stone-200 shadow-sm divide-y divide-stone-100" id="history-cards">
+        <p class="px-5 py-8 text-xs text-stone-400 text-center">Carregando…</p>
+      </div>
+
+      <div class="hidden md:block bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
         <div class="overflow-x-auto">
           <table class="w-full text-left text-sm">
             <thead class="bg-stone-50 text-xs font-semibold text-stone-500 uppercase border-b border-stone-200">
@@ -757,10 +768,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
         const btn = document.getElementById('tab-' + tab);
         const view = document.getElementById('view-' + tab);
         if (tab === tabId) {
-          btn.className = 'flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm';
+          btn.className = 'shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm';
           view.classList.remove('hidden');
         } else {
-          btn.className = 'flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900';
+          btn.className = 'shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900';
           view.classList.add('hidden');
         }
       });
@@ -1085,6 +1096,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     function renderHistoryTable() {
       const tbody = document.getElementById('history-table-body');
+      const cards = document.getElementById('history-cards');
       if (!tbody) return;
 
       const typeLabels = {
@@ -1108,6 +1120,28 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </tr>
         \`;
       }).join('');
+
+      if (cards) {
+        const linhas = state.history.slice().reverse();
+        cards.innerHTML = linhas.length === 0
+          ? '<p class="px-5 py-8 text-xs text-stone-400 text-center">Nenhum registro no período.</p>'
+          : linhas.map(item => {
+              const tag = typeLabels[item.type] || { label: item.type, class: 'text-stone-600 bg-stone-50 border-stone-200' };
+              return \`
+                <div class="px-5 py-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <h4 class="text-sm font-bold text-coffee-950 min-w-0 truncate">\${item.collaboratorName}</h4>
+                    <span class="shrink-0 font-mono text-xs text-stone-500">\${item.timestamp}</span>
+                  </div>
+                  <div class="flex items-center flex-wrap gap-2 mt-2">
+                    <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${tag.class}">\${tag.label}</span>
+                    <span class="text-[11px] uppercase font-semibold text-stone-400">\${item.source}</span>
+                  </div>
+                  \${item.note ? '<p class="text-xs text-stone-500 mt-2">' + item.note + '</p>' : ''}
+                </div>
+              \`;
+            }).join('');
+      }
     }
 
     function renderAdminList() {
@@ -1146,9 +1180,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
         const semPin = devices.filter(d => !d.pinConfigurado).length;
         const aguardando = devices.filter(d => d.aguardandoAtivacao).length;
         const tile = (rotulo, valor, cor) => \`
-          <div class="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
-            <p class="text-xs font-semibold text-stone-500 uppercase tracking-wider">\${rotulo}</p>
-            <p class="text-3xl font-extrabold \${cor} mt-1">\${valor}</p>
+          <div class="bg-white rounded-2xl border border-stone-200 p-3 md:p-5 shadow-sm">
+            <p class="text-[10px] md:text-xs font-semibold text-stone-500 uppercase tracking-wider leading-tight">\${rotulo}</p>
+            <p class="text-2xl md:text-3xl font-extrabold \${cor} mt-1">\${valor}</p>
           </div>\`;
         stats.innerHTML =
           tile('Ativos', ativos, 'text-emerald-700') +
@@ -1158,7 +1192,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         lista.innerHTML = devices.length === 0
           ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum aparelho cadastrado.</p>'
           : devices.map(d => \`
-              <div class="px-6 py-4 flex items-center justify-between gap-4">
+              <div class="px-4 md:px-6 pt-4 pb-2 flex flex-wrap items-center justify-between gap-3">
                 <div class="flex items-center space-x-3 min-w-0">
                   <div class="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 flex items-center justify-center text-coffee-900 shrink-0">
                     <i data-lucide="smartphone" class="w-5 h-5"></i>
@@ -1177,6 +1211,18 @@ const HTML_CONTENT = `<!DOCTYPE html>
                   </span>
                 </div>
               </div>
+              <div class="px-4 md:px-6 pb-4 flex flex-wrap gap-2">
+                <button onclick="renomearDispositivo('\${d.id}', '\${(d.nome || '').replace(/'/g, "\\\\'")}')"
+                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Renomear</button>
+                <button onclick="definirPinDispositivo('\${d.id}')"
+                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${d.pinConfigurado ? 'Trocar PIN' : 'Definir PIN'}</button>
+                <button onclick="novoTokenDispositivo('\${d.id}')"
+                  class="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Novo token</button>
+                \${d.ativo ? \`<button onclick="desativarDispositivo('\${d.id}')"
+                  class="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-50">Bloquear acesso</button>\` : ''}
+                <button onclick="excluirDispositivo('\${d.id}', '\${(d.nome || '').replace(/'/g, "\\\\'")}')"
+                  class="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50">Excluir</button>
+              </div>
             \`).join('');
         lucide.createIcons();
       } catch (err) {
@@ -1185,6 +1231,60 @@ const HTML_CONTENT = `<!DOCTYPE html>
           lista.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Apenas o Administrador pode ver os dispositivos.</p>';
         }
       }
+    }
+
+    // Ações sobre um aparelho. Bloquear e excluir são destrutivas: cortam o
+    // registro de ponto naquele terminal, por isso pedem confirmação explícita.
+    async function acaoDispositivo(metodo, caminho, corpo, sucesso) {
+      const res = await fetch(API_BASE + caminho, {
+        method: metodo,
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: corpo ? JSON.stringify(corpo) : undefined
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Pronto', typeof sucesso === 'function' ? sucesso(data) : sucesso, 'success');
+        await refreshDevices();
+        return true;
+      }
+      showToast('Erro', data.erro || 'A operação não foi aceita pelo servidor.', 'error');
+      return false;
+    }
+
+    function renomearDispositivo(id, atual) {
+      const nome = prompt('Novo nome do aparelho:', atual || '');
+      if (nome === null) return;
+      if (nome.trim().length < 2) {
+        showToast('Nome inválido', 'Use ao menos 2 caracteres.', 'error');
+        return;
+      }
+      acaoDispositivo('PUT', '/admin/devices/' + id + '/nome', { nome: nome.trim() }, 'Nome atualizado.');
+    }
+
+    function definirPinDispositivo(id) {
+      const pin = prompt('PIN de desbloqueio do terminal (4 a 12 números):');
+      if (pin === null) return;
+      if (!/^\\d{4,12}$/.test(pin.trim())) {
+        showToast('PIN inválido', 'Use de 4 a 12 números.', 'error');
+        return;
+      }
+      acaoDispositivo('PUT', '/admin/devices/' + id + '/unlock-pin', { pin: pin.trim() }, 'PIN definido.');
+    }
+
+    function novoTokenDispositivo(id) {
+      if (!confirm('Gerar novo token? O aparelho precisará ser reativado com o código novo.')) return;
+      acaoDispositivo('POST', '/admin/devices/' + id + '/novo-token', null,
+        (d) => d.token ? 'Token novo: ' + d.token : 'Token rotacionado.');
+    }
+
+    function desativarDispositivo(id) {
+      if (!confirm('Bloquear o acesso deste aparelho? Ele deixa de registrar ponto até ser reativado.')) return;
+      acaoDispositivo('POST', '/admin/devices/' + id + '/desativar', null, 'Acesso bloqueado.');
+    }
+
+    function excluirDispositivo(id, nome) {
+      if (!confirm('Excluir "' + nome + '" definitivamente? A credencial é revogada e não há como desfazer.')) return;
+      acaoDispositivo('POST', '/admin/devices/' + id + '/excluir', null, 'Aparelho excluído.');
     }
 
     // ---- Auditoria ---------------------------------------------------------
