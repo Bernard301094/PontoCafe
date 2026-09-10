@@ -4,7 +4,6 @@ import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -145,10 +144,12 @@ fun PcHeroPage(
 ) {
     // A zona de cabeçalho deixou de ser uma faixa saturada e passou a ser o
     // próprio canvas do design: título em on-surface, sobrancelha em primary e
-    // conteúdo elevado logo abaixo. Por isso os ícones da barra de status voltam
-    // a seguir o tema (escuros no claro), em vez de serem forçados a claros para
+    // conteúdo elevado logo abaixo.
+    //
+    // Como o app é sempre claro (ver PontoCafeTheme), os ícones da barra de
+    // status ficam escuros de forma fixa — antes eram forçados a claros para
     // sobreviver ao fundo âmbar que existia aqui.
-    val darkTheme = isSystemInDarkTheme()
+    val darkTheme = false
     val view = LocalView.current
     if (!view.isInEditMode) {
         DisposableEffect(view, darkTheme) {
