@@ -1122,25 +1122,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
         const st = statusMap[c.status] || statusMap.off_duty;
 
         return \`
-          <div class="px-6 py-4 flex items-center justify-between hover:bg-stone-50/60 transition-colors">
-            <div class="flex items-center space-x-3">
-              <div class="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 text-coffee-900 font-bold flex items-center justify-center text-sm">
-                \${c.name.slice(0, 2).toUpperCase()}
+          <div class="px-4 md:px-6 py-4 hover:bg-stone-50/60 transition-colors">
+            <div class="flex items-center justify-between gap-3 flex-wrap cursor-pointer" onclick="toggleHistorico('\${c.id}', '\${c.name.replace(/'/g, "\\\\'")}')">
+              <div class="flex items-center space-x-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 text-coffee-900 font-bold flex items-center justify-center text-sm shrink-0">
+                  \${c.name.slice(0, 2).toUpperCase()}
+                </div>
+                <div class="min-w-0">
+                  <h4 class="font-bold text-coffee-950 text-sm truncate">\${c.name}</h4>
+                  <p class="text-xs text-stone-500 truncate">\${c.role} • \${c.department}</p>
+                </div>
               </div>
-              <div>
-                <h4 class="font-bold text-coffee-950 text-sm">\${c.name}</h4>
-                <p class="text-xs text-stone-500">\${c.role} • \${c.department}</p>
+              <div class="flex items-center space-x-3 shrink-0">
+                <div class="text-right hidden sm:block">
+                  <div class="text-xs font-semibold text-stone-700">\${c.lastPontoType || 'Sem registro'}</div>
+                  <div class="text-[11px] text-stone-400 font-mono">\${c.lastPontoTime || '--'}</div>
+                </div>
+                <span class="px-3 py-1 rounded-full text-xs font-semibold border \${st.badgeClass}">
+                  \${st.label}
+                </span>
+                <i data-lucide="chevron-down" class="w-4 h-4 text-stone-400"></i>
               </div>
             </div>
-            <div class="flex items-center space-x-4">
-              <div class="text-right hidden sm:block">
-                <div class="text-xs font-semibold text-stone-700">\${c.lastPontoType || 'Sem registro'}</div>
-                <div class="text-[11px] text-stone-400 font-mono">\${c.lastPontoTime || '--'}</div>
-              </div>
-              <span class="px-3 py-1 rounded-full text-xs font-semibold border \${st.badgeClass}">
-                \${st.label}
-              </span>
-            </div>
+            <div id="hist-\${c.id}" class="hidden"></div>
           </div>
         \`;
       }).join('');
@@ -1240,6 +1244,105 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
       \`).join('');
+    }
+
+    // ---- Histórico de um colaborador ---------------------------------------
+    // Abre no lugar, dentro da própria linha da pessoa, em vez de trocar de
+    // tela: quem consulta está comparando com o resto da equipe e perderia o
+    // contexto se fosse levado para outro lugar.
+    async function toggleHistorico(id, nome) {
+      const alvo = document.getElementById('hist-' + id);
+      if (!alvo) return;
+      if (!alvo.classList.contains('hidden')) {
+        alvo.classList.add('hidden');
+        return;
+      }
+      alvo.classList.remove('hidden');
+      alvo.innerHTML = '<p class="text-xs text-stone-400 py-3">Carregando…</p>';
+      try {
+        const data = await apiFetch('/gestao/colaboradores/' + id + '/historico');
+        const r = data.resumo || {};
+        const pausas = data.pausas || [];
+        const linhas = pausas.slice(0, 10).map(p => \`
+          <div class="flex items-center justify-between py-2 border-t border-stone-100 first:border-0">
+            <span class="text-xs text-stone-600">\${p.inicioLocal || p.data || ''} \${p.periodo ? '· ' + p.periodo.toLowerCase() : ''}</span>
+            <span class="font-mono text-xs \${p.excedeuLimite ? 'text-amber-700 font-bold' : 'text-stone-500'}">
+              \${p.tempoContadoSegundos != null ? segundosParaRelogio(p.tempoContadoSegundos) : ''}
+            </span>
+          </div>\`).join('');
+        alvo.innerHTML = \`
+          <div class="mt-3 p-4 rounded-xl bg-stone-50 border border-stone-200">
+            <div class="flex flex-wrap gap-4 mb-2">
+              <div><p class="text-[10px] uppercase font-semibold text-stone-500">Pausas</p><p class="text-lg font-extrabold text-coffee-900">\${r.totalPausas ?? pausas.length}</p></div>
+              <div><p class="text-[10px] uppercase font-semibold text-stone-500">Acima do teto</p><p class="text-lg font-extrabold text-amber-700">\${r.acimaLimite ?? 0}</p></div>
+              <div><p class="text-[10px] uppercase font-semibold text-stone-500">Média</p><p class="text-lg font-extrabold text-emerald-700">\${r.mediaSegundos ? segundosParaRelogio(r.mediaSegundos) : '—'}</p></div>
+            </div>
+            \${linhas || '<p class="text-xs text-stone-400 py-2">Sem pausas registradas.</p>'}
+          </div>\`;
+      } catch (err) {
+        alvo.innerHTML = '<p class="text-xs text-red-600 py-3">Não foi possível carregar: ' + err.message + '</p>';
+      }
+    }
+
+    // ---- Ações sobre uma conta de acesso -----------------------------------
+    async function acaoUsuario(metodo, caminho, corpo, sucesso) {
+      const res = await fetch(API_BASE + caminho, {
+        method: metodo,
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: corpo ? JSON.stringify(corpo) : undefined
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Pronto', typeof sucesso === 'function' ? sucesso(data) : sucesso, 'success');
+        await refreshUsers();
+        return;
+      }
+      showToast('Erro', data.erro || 'A operação não foi aceita.', 'error');
+    }
+
+    function mudarPerfil(id, atualAdmin, turnoAtual) {
+      const novo = confirm(
+        atualAdmin
+          ? 'Rebaixar esta conta para Supervisor?'
+          : 'Promover esta conta a Administrador?'
+      );
+      if (!novo) return;
+      if (atualAdmin) {
+        const turno = prompt('Turno do Supervisor (A, B, C ou D):', turnoAtual || 'A');
+        if (turno === null) return;
+        if (!['A', 'B', 'C', 'D'].includes(turno.trim().toUpperCase())) {
+          showToast('Turno inválido', 'Use A, B, C ou D.', 'error');
+          return;
+        }
+        acaoUsuario('PUT', '/admin/usuarios/' + id + '/perfil',
+          { perfil: 'SUPERVISOR', turno: turno.trim().toUpperCase() }, 'Perfil alterado.');
+      } else {
+        acaoUsuario('PUT', '/admin/usuarios/' + id + '/perfil', { perfil: 'ADMIN' }, 'Perfil alterado.');
+      }
+    }
+
+    function redefinirSenha(id) {
+      const nova = prompt('Nova senha (mínimo 10 caracteres). Em branco, o sistema gera uma provisória:');
+      if (nova === null) return;
+      const corpo = nova.trim() ? { novaSenha: nova.trim() } : {};
+      if (nova.trim() && nova.trim().length < 10) {
+        showToast('Senha curta', 'Use ao menos 10 caracteres.', 'error');
+        return;
+      }
+      acaoUsuario('PUT', '/admin/usuarios/' + id + '/senha', corpo,
+        (d) => d.senhaTemporaria ? 'Senha provisória: ' + d.senhaTemporaria : 'Senha redefinida.');
+    }
+
+    function bloquearUsuario(id, bloqueada) {
+      const acao = bloqueada ? 'reativar' : 'bloquear';
+      if (!confirm(bloqueada ? 'Reativar esta conta?' : 'Bloquear o acesso desta conta?')) return;
+      acaoUsuario('POST', '/admin/usuarios/' + id + '/' + acao, null,
+        bloqueada ? 'Conta reativada.' : 'Conta bloqueada.');
+    }
+
+    function excluirUsuario(id, nome) {
+      if (!confirm('Excluir a conta de "' + nome + '"? Não há como desfazer.')) return;
+      acaoUsuario('POST', '/admin/usuarios/' + id + '/excluir', null, 'Conta excluída.');
     }
 
     // ---- Relatórios --------------------------------------------------------
@@ -1682,15 +1785,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
         container.innerHTML = users.map(u => {
           const admin = (u.role || '').toLowerCase() === 'admin';
           const perfil = admin ? 'Administrador' : 'Supervisor' + (u.turno ? ' · Turno ' + u.turno : '');
+          const nomeEsc = (u.name || '').replace(/'/g, "\\\\'");
           return \`
-            <div class="py-3 flex items-center justify-between">
-              <div>
-                <h4 class="text-sm font-bold text-coffee-950">\${u.name}</h4>
-                <p class="text-xs text-stone-500">\${u.email}</p>
+            <div class="py-3">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="min-w-0">
+                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${u.name}</h4>
+                  <p class="text-xs text-stone-500 truncate">\${u.email}</p>
+                </div>
+                <div class="flex items-center space-x-2 shrink-0">
+                  \${u.banned ? '<span class="text-xs px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200 font-semibold">Bloqueada</span>' : ''}
+                  \${u.mustChangePassword ? '<span class="text-xs px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">Senha provisória</span>' : ''}
+                  <span class="text-xs px-2 py-1 rounded-full border font-semibold \${admin ? 'bg-coffee-100 text-coffee-800 border-coffee-200' : 'bg-stone-100 text-stone-600 border-stone-200'}">\${perfil}</span>
+                </div>
               </div>
-              <div class="flex items-center space-x-2">
-                \${u.mustChangePassword ? '<span class="text-xs px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">Senha provisória</span>' : ''}
-                <span class="text-xs px-2 py-1 rounded-full border font-semibold \${admin ? 'bg-coffee-100 text-coffee-800 border-coffee-200' : 'bg-stone-100 text-stone-600 border-stone-200'}">\${perfil}</span>
+              <div class="flex flex-wrap gap-2 mt-2">
+                <button onclick="mudarPerfil('\${u.id}', \${admin}, '\${u.turno || ''}')"
+                  class="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${admin ? 'Tornar Supervisor' : 'Tornar Admin'}</button>
+                <button onclick="redefinirSenha('\${u.id}')"
+                  class="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Redefinir senha</button>
+                <button onclick="bloquearUsuario('\${u.id}', \${!!u.banned})"
+                  class="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-50">\${u.banned ? 'Reativar' : 'Bloquear'}</button>
+                <button onclick="excluirUsuario('\${u.id}', '\${nomeEsc}')"
+                  class="px-2.5 py-1.5 rounded-lg border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50">Excluir</button>
               </div>
             </div>
           \`;
