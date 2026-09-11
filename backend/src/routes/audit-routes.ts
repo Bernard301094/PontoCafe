@@ -38,7 +38,13 @@ auditRoutes.get('/auditoria', async (c) => {
             a.criado_em::text as "criadoEm",
             to_char(a.criado_em at time zone $1,'DD/MM/YYYY HH24:MI') as "criadoLocal"
        from auditoria a
-       left join "user" u on u.id=a.ator_auth_id
+       -- u.id é uuid (generateId: 'uuid' em auth-runtime) e ator_auth_id é
+       -- text: sem o cast, o Postgres não acha operador uuid = text e a rota
+       -- inteira responde 500. O cast vai no lado do uuid de propósito --
+       -- converter a coluna livre para uuid rebentaria a consulta toda no dia
+       -- em que um ator não for um utilizador (o coalesce abaixo já conta com
+       -- isso e cai para o ator_tipo ou "Sistema").
+       left join "user" u on u.id::text=a.ator_auth_id
       where ($2::text is null or a.acao=$2)
       order by a.criado_em desc
       limit $3`,
