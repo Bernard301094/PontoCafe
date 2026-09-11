@@ -146,8 +146,27 @@ const HTML_CONTENT = `<!DOCTYPE html>
       </div>
       <div>
         <label class="block text-xs font-semibold text-stone-600 mb-1">Senha</label>
-        <input id="login-password" type="password" required autocomplete="current-password"
-          class="w-full px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+        <!-- Os dois ícones vão inline, e não como data-lucide: o lucide troca o
+             <i> por um <svg> ao carregar a página, e depois já não há atributo
+             para alternar. O pr-11 no input abre o espaço do botão. -->
+        <div class="relative">
+          <input id="login-password" type="password" required autocomplete="current-password"
+            class="w-full px-3 py-2.5 pr-11 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+          <button type="button" id="login-password-toggle" onclick="alternarSenhaLogin()"
+            aria-label="Mostrar senha" title="Mostrar senha" aria-pressed="false"
+            class="absolute inset-y-0 right-0 px-3 flex items-center rounded-r-xl text-stone-400 hover:text-stone-600 focus:outline-none focus:text-amberAccent">
+            <svg id="login-eye" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <svg id="login-eye-off" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+              <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+              <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+              <path d="m2 2 20 20" />
+            </svg>
+          </button>
+        </div>
       </div>
       <p id="login-error" class="hidden text-xs text-red-600 font-semibold"></p>
       <button id="login-submit" type="submit"
@@ -192,7 +211,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
          Em telas estreitas (A55 tem ~412px) sete abas não cabem numa linha:
          a faixa rola no eixo X em vez de espremer ou quebrar o cabeçalho. -->
     <nav class="order-3 w-full lg:order-none lg:w-auto flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-semibold overflow-x-auto no-scrollbar">
-      <button id="tab-kiosk" onclick="switchTab('kiosk')" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm">
+      <button id="tab-kiosk" onclick="switchTab('kiosk')" aria-current="page" class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-coffee-900 text-white shadow-sm">
         <i data-lucide="calculator" class="w-4 h-4"></i>
         <span>Totem / Ponto</span>
       </button>
@@ -884,10 +903,16 @@ const HTML_CONTENT = `<!DOCTYPE html>
         const btn = document.getElementById('tab-' + tab);
         const view = document.getElementById('view-' + tab);
         if (tab === tabId) {
-          btn.className = 'shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-white text-coffee-900 shadow-sm';
+          btn.className = 'shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all bg-coffee-900 text-white shadow-sm';
+          btn.setAttribute('aria-current', 'page');
           view.classList.remove('hidden');
+          // Sao oito abas numa faixa que rola no eixo X: num ecra estreito a
+          // activa pode ficar fora do campo de visao, e a barra deixa de
+          // responder a pergunta 'onde estou?'. Trazemo-la para dentro.
+          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
         } else {
           btn.className = 'shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all text-stone-600 hover:text-stone-900';
+          btn.removeAttribute('aria-current');
           view.classList.add('hidden');
         }
       });
@@ -2516,6 +2541,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (!el) return;
       el.classList.add('hidden');
       el.classList.remove('flex');
+    }
+
+    /**
+     * O olho da senha. Mexe só no atributo type e na visibilidade dos dois
+     * ícones: o input é sempre o mesmo elemento, por isso nada do que já foi
+     * digitado se perde. A posição do cursor é guardada e reposta porque trocá-lo
+     * manda o caret para o fim em alguns navegadores, e quem está a meio de uma
+     * palavra perderia o sítio.
+     */
+    function alternarSenhaLogin() {
+      const campo = document.getElementById('login-password');
+      const botao = document.getElementById('login-password-toggle');
+      const mostrando = campo.type === 'text';
+      const inicio = campo.selectionStart;
+      const fim = campo.selectionEnd;
+
+      campo.type = mostrando ? 'password' : 'text';
+      document.getElementById('login-eye').classList.toggle('hidden', !mostrando);
+      document.getElementById('login-eye-off').classList.toggle('hidden', mostrando);
+
+      const rotulo = mostrando ? 'Mostrar senha' : 'Ocultar senha';
+      botao.setAttribute('aria-label', rotulo);
+      botao.setAttribute('title', rotulo);
+      botao.setAttribute('aria-pressed', String(!mostrando));
+
+      campo.focus();
+      if (inicio !== null) {
+        try { campo.setSelectionRange(inicio, fim); } catch (_) { /* nem todo o navegador deixa */ }
+      }
     }
 
     async function handleLogin(e) {
