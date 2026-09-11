@@ -125,4 +125,41 @@ try {
   process.exit(1)
 }
 
-console.log('\nO script do painel compila e arranca.')
+/*
+ * Compilar e arrancar ainda não chega. Um onclick="fazAlgo()" que aponte para
+ * uma função que nunca foi definida passa por tudo -- o script compila, arranca,
+ * a página desenha-se -- e só rebenta quando alguém carrega no botão. Aconteceu
+ * com o combo do totem: o HTML chamava três funções que não existiam, porque um
+ * script de edição abortou a meio sem gravar o ficheiro.
+ */
+const chamadas = new Set()
+for (const atributo of html.matchAll(/\bon[a-z]+="([^"]*)"/g)) {
+  // O lookbehind salta os métodos: `event.stopPropagation()` e `x.replace()`
+  // são chamadas sobre um objecto, não funções soltas que alguém tenha de
+  // definir no script.
+  for (const chamada of atributo[1].matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) chamadas.add(chamada[1])
+}
+
+const NATIVAS = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'new',
+  'String', 'Number', 'Boolean', 'Array', 'Object', 'JSON', 'Math', 'Date',
+  'parseInt', 'parseFloat', 'alert', 'confirm', 'prompt',
+])
+
+const corpo = blocos.join('\n')
+const orfas = [...chamadas].filter((nome) => {
+  if (NATIVAS.has(nome)) return false
+  const definida = new RegExp(
+    `(function\\s+${nome}\\b)|((?:const|let|var)\\s+${nome}\\s*=)|(\\b${nome}\\s*[:=]\\s*(?:async\\s*)?(?:function|\\())`,
+  )
+  return !definida.test(corpo)
+})
+
+if (orfas.length) {
+  console.error(`  handlers órfãos: ${orfas.join(', ')}`)
+  console.error('    chamados por on*="..." e nunca definidos no script')
+  process.exit(1)
+}
+console.log(`  handlers: ${chamadas.size} verificados, nenhum órfão`)
+
+console.log('\nO script do painel compila, arranca, e os handlers existem.')
