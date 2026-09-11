@@ -1,79 +1,15 @@
 import http from 'node:http';
 import { parse as parseUrl } from 'node:url';
 
-interface Collaborator {
-  id: string;
-  name: string;
-  role: string;
-  pin: string;
-  department: string;
-  status: 'active' | 'coffee_break' | 'meal_break' | 'off_duty';
-  lastPontoTime?: string;
-  lastPontoType?: string;
-}
-
-interface PontoRecord {
-  id: string;
-  collaboratorId: string;
-  collaboratorName: string;
-  type: 'entrada' | 'pausa_cafe' | 'retorno_cafe' | 'almoco_inicio' | 'almoco_retorno' | 'saida';
-  timestamp: string;
-  note?: string;
-  source: 'kiosk' | 'supervisor';
-}
-
-interface OperationalAlert {
-  id: string;
-  severity: 'warning' | 'info' | 'critical';
-  title: string;
-  message: string;
-  time: string;
-  collaboratorName?: string;
-}
-
-// Initial state
-const collaborators: Collaborator[] = [
-  { id: 'col-1', name: 'Lucas Mendes', role: 'Barista Chefe', pin: '1024', department: 'Cafeteria & Balcão', status: 'active', lastPontoTime: '08:02', lastPontoType: 'Entrada' },
-  { id: 'col-2', name: 'Camila Rocha', role: 'Atendente / Caixa', pin: '2048', department: 'Atendimento', status: 'coffee_break', lastPontoTime: '10:15', lastPontoType: 'Pausa Café' },
-  { id: 'col-3', name: 'Bruno Silveira', role: 'Supervisor Geral', pin: '3072', department: 'Supervisão', status: 'active', lastPontoTime: '07:45', lastPontoType: 'Entrada' },
-  { id: 'col-4', name: 'Mariana Souza', role: 'Barista Júnior', pin: '4096', department: 'Cafeteria & Balcão', status: 'off_duty', lastPontoTime: 'Ontem 17:30', lastPontoType: 'Saída' },
-  { id: 'col-5', name: 'Rodrigo Fagundes', role: 'Confeiteiro / Cozinha', pin: '5120', department: 'Cozinha', status: 'active', lastPontoTime: '06:30', lastPontoType: 'Entrada' },
-];
-
-const pontoHistory: PontoRecord[] = [
-  { id: 'rec-1', collaboratorId: 'col-5', collaboratorName: 'Rodrigo Fagundes', type: 'entrada', timestamp: '2026-09-10 06:30:14', source: 'kiosk' },
-  { id: 'rec-2', collaboratorId: 'col-3', collaboratorName: 'Bruno Silveira', type: 'entrada', timestamp: '2026-09-10 07:45:02', source: 'kiosk' },
-  { id: 'rec-3', collaboratorId: 'col-1', collaboratorName: 'Lucas Mendes', type: 'entrada', timestamp: '2026-09-10 08:02:40', source: 'kiosk' },
-  { id: 'rec-4', collaboratorId: 'col-2', collaboratorName: 'Camila Rocha', type: 'entrada', timestamp: '2026-09-10 08:15:10', source: 'kiosk' },
-  { id: 'rec-5', collaboratorId: 'col-2', collaboratorName: 'Camila Rocha', type: 'pausa_cafe', timestamp: '2026-09-10 10:15:22', note: 'Intervalo de café (15 min)', source: 'kiosk' },
-];
-
-const alerts: OperationalAlert[] = [
-  { id: 'alt-1', severity: 'warning', title: 'Pausa de Café Excedente', message: 'Camila Rocha está há 16 min em pausa (limite: 15 min).', time: '10:31', collaboratorName: 'Camila Rocha' },
-  { id: 'alt-2', severity: 'info', title: 'Abertura de Turno Concluída', message: '3 colaboradores presentes para o atendimento da manhã.', time: '08:30' }
-];
-
-function getFormattedNow(): string {
-  const now = new Date();
-  return now.toLocaleTimeString('pt-BR', { timeZone: 'America/Fortaleza', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function getFullDateTimeNow(): string {
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  const timeStr = getFormattedNow();
-  return `${dateStr} ${timeStr}`;
-}
-
 const HTML_CONTENT = `<!DOCTYPE html>
 <html lang="pt-BR" class="h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ponto Café - Sistema Operacional de Ponto</title>
-  <meta name="description" content="Sistema de Ponto Eletrônico e Gestão de Presença para Cafeterias">
+  <meta name="description" content="Sistema de Ponto Eletrônico e controle de pausas de café">
   <meta property="og:title" content="Ponto Café - Sistema Operacional de Ponto">
-  <meta property="og:description" content="Sistema de Ponto Eletrônico e Gestão de Presença para Cafeterias">
+  <meta property="og:description" content="Sistema de Ponto Eletrônico e controle de pausas de café">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -339,10 +275,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
     <section id="view-supervisor" class="hidden space-y-6">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-coffee-950">Painel Operacional da Cafeteria</h2>
+          <h2 class="text-2xl font-bold text-coffee-950">Painel Operacional da Equipe</h2>
           <p class="text-sm text-stone-500">Acompanhamento em tempo real de presença e pausas</p>
         </div>
         <div class="flex items-center space-x-2">
+          <span id="ultima-atualizacao" class="text-xs text-stone-400 font-mono">--:--:--</span>
           <button onclick="refreshData()" class="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-700 font-semibold hover:bg-stone-50 transition-all text-xs flex items-center space-x-1 shadow-sm">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             <span>Atualizar</span>
@@ -350,66 +287,121 @@ const HTML_CONTENT = `<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- Quick Summary Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <div class="flex items-center justify-between text-stone-500 mb-2">
-            <span class="text-xs font-semibold uppercase">Total Equipe</span>
-            <i data-lucide="users" class="w-4 h-4"></i>
+      <!-- Resumo operacional.
+           Quatro numeros compactos, e cada um filtra a lista ao ser tocado --
+           e o gesto que toda a gente tenta. Trocaram-se os que nao serviam:
+           "Em Atendimento" era total menos pausas, uma conta sem pergunta por
+           tras, e "Pausa Cafe" repetia o numero que a tarjeta de baixo ja da
+           com nomes. Entra "Ainda sem pausa", que e o que permite escalonar as
+           saidas antes de ficar sem gente ao balcao. -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button type="button" onclick="aplicarFiltroEquipe('todos')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
+          <div class="flex items-center justify-between text-stone-400 mb-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider">Equipe</span>
+            <i data-lucide="users" class="w-3.5 h-3.5"></i>
           </div>
-          <div id="stat-total" class="text-2xl font-bold text-coffee-950">5</div>
-          <span class="text-xs text-stone-400">Cadastrados</span>
-        </div>
+          <div id="stat-total" class="text-xl font-bold text-coffee-950 leading-none">0</div>
+        </button>
 
-        <div class="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm">
-          <div class="flex items-center justify-between text-emerald-600 mb-2">
-            <span class="text-xs font-semibold uppercase">Em Atendimento</span>
-            <i data-lucide="check-circle" class="w-4 h-4"></i>
+        <button type="button" onclick="aplicarFiltroEquipe('pausa')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-amber-200 shadow-sm hover:border-amber-300 transition-colors">
+          <div class="flex items-center justify-between text-amber-600 mb-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider">Em pausa</span>
+            <i data-lucide="coffee" class="w-3.5 h-3.5"></i>
           </div>
-          <div id="stat-active" class="text-2xl font-bold text-emerald-700">3</div>
-          <span class="text-xs text-emerald-600">Turno ativo</span>
-        </div>
+          <div id="stat-coffee" class="text-xl font-bold text-amber-700 leading-none">0</div>
+        </button>
 
-        <div class="bg-white p-5 rounded-2xl border border-amber-100 shadow-sm">
-          <div class="flex items-center justify-between text-amber-600 mb-2">
-            <span class="text-xs font-semibold uppercase">Pausa Café</span>
-            <i data-lucide="coffee" class="w-4 h-4"></i>
+        <button type="button" onclick="aplicarFiltroEquipe('sem-pausa')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
+          <div class="flex items-center justify-between text-stone-400 mb-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider">Ainda sem pausa</span>
+            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
           </div>
-          <div id="stat-coffee" class="text-2xl font-bold text-amber-700">1</div>
-          <span class="text-xs text-amber-600">Em intervalo</span>
-        </div>
+          <div id="stat-sem-pausa" class="text-xl font-bold text-coffee-950 leading-none">0</div>
+        </button>
 
-        <div class="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <div class="flex items-center justify-between text-stone-400 mb-2">
-            <span class="text-xs font-semibold uppercase">Fora de Turno</span>
-            <i data-lucide="moon" class="w-4 h-4"></i>
+        <button type="button" onclick="switchTab('codes')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
+          <div class="flex items-center justify-between text-stone-400 mb-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider">Códigos vivos</span>
+            <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
           </div>
-          <div id="stat-off" class="text-2xl font-bold text-stone-700">1</div>
-          <span class="text-xs text-stone-400">Descanso / folga</span>
-        </div>
+          <div id="stat-codigos-pendentes" class="text-xl font-bold text-coffee-950 leading-none">0</div>
+        </button>
       </div>
 
-      <!-- Live Team Grid -->
+      <!-- Quem está fora agora.
+           A pergunta que o Supervisor faz o dia inteiro merece resposta sem
+           cliques: o chip "Em pausa" obriga a filtrar e, de caminho, esconde
+           toda a gente. Esta lista vem do /supervisor/pausas/ativas, que ja
+           devolve exactamente estas pessoas -- ate aqui o painel desfazia essa
+           lista para decorar as cem linhas da equipa. -->
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+        <div class="px-4 md:px-6 py-4 border-b border-stone-100 flex items-center justify-between gap-3">
+          <h3 class="font-bold text-coffee-950 text-base flex items-center gap-2">
+            <i data-lucide="coffee" class="w-5 h-5 text-amber-600"></i>
+            <span>Quem está fora agora</span>
+          </h3>
+          <div class="flex items-center gap-3">
+            <span id="fora-agora-count" class="text-xs font-medium text-stone-500"></span>
+            <button type="button" id="avisos-toggle" onclick="alternarAvisos()"
+              title="Avisar quando alguém sai ou volta do café" aria-pressed="false"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-500 text-xs font-semibold hover:bg-stone-50 transition-colors">
+              <i data-lucide="bell-off" class="w-3.5 h-3.5"></i><span>Avisos</span>
+            </button>
+          </div>
+        </div>
+        <!-- Em hora de ponta podem ser vinte: a lista rola em vez de empurrar
+             o resto do painel para fora do ecra. -->
+        <div id="fora-agora-lista" class="divide-y divide-stone-100 max-h-80 overflow-y-auto"></div>
+      </div>
+
+      <!-- Movimentacao.
+           Por omissao mostra so quem esta em pausa ou com codigo vivo. As cem
+           linhas de quem esta simplesmente a trabalhar nao respondem a nenhuma
+           pergunta de operacao, e essa lista ja existe duas vezes -- na aba
+           Codigos, para emitir, e na Gestao, para editar. O chip "Todos"
+           continua aqui para quem precisar dela. -->
       <div class="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-sm">
-        <div class="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
-          <h3 class="font-bold text-coffee-950 text-base">Status Atual dos Colaboradores</h3>
-          <span class="text-xs font-medium text-stone-500">Atualizado ao vivo</span>
+        <div class="px-4 md:px-6 py-4 border-b border-stone-100 space-y-3">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <h3 class="font-bold text-coffee-950 text-base">Movimentação</h3>
+            <span id="team-count" class="text-xs font-medium text-stone-500">Atualizado ao vivo</span>
+          </div>
+          <!-- Com uma equipa de uma centena de pessoas, uma lista sem busca
+               obriga a percorrer tudo com o olho para encontrar alguem. -->
+          <div class="flex flex-col lg:flex-row lg:items-center gap-2.5">
+            <div class="relative flex-1 min-w-0">
+              <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+              <input id="team-search" type="search" autocomplete="off" placeholder="Buscar por nome..."
+                aria-label="Buscar colaborador por nome" oninput="buscarEquipe(this.value)"
+                class="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+            </div>
+            <select id="team-setor" aria-label="Filtrar por setor" onchange="filtrarSetorEquipe(this.value)"
+              class="shrink-0 px-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm text-stone-700 focus:outline-none focus:border-amberAccent">
+              <option value="">Todos os setores</option>
+            </select>
+            <div role="group" aria-label="Filtrar por estado" class="shrink-0 flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200">
+              <button type="button" data-filtro-equipe="atividade" onclick="aplicarFiltroEquipe('atividade')" aria-pressed="true"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all bg-coffee-900 text-white shadow-sm">Com atividade</button>
+              <button type="button" data-filtro-equipe="turno" onclick="aplicarFiltroEquipe('turno')" aria-pressed="false"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-stone-600 hover:text-stone-900">Em turno</button>
+              <button type="button" data-filtro-equipe="pausa" onclick="aplicarFiltroEquipe('pausa')" aria-pressed="false"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-stone-600 hover:text-stone-900">Em pausa</button>
+              <button type="button" data-filtro-equipe="sem-pausa" onclick="aplicarFiltroEquipe('sem-pausa')" aria-pressed="false"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-stone-600 hover:text-stone-900">Ainda sem pausa</button>
+              <button type="button" data-filtro-equipe="todos" onclick="aplicarFiltroEquipe('todos')" aria-pressed="false"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-stone-600 hover:text-stone-900">Todos</button>
+            </div>
+          </div>
         </div>
         <div class="divide-y divide-stone-100" id="team-list">
           <!-- Collaborators rendered dynamically -->
         </div>
       </div>
 
-      <!-- Operational Alerts -->
-      <div class="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-        <h3 class="font-bold text-coffee-950 text-base mb-4 flex items-center space-x-2">
-          <i data-lucide="bell" class="w-5 h-5 text-amber-600"></i>
-          <span>Alertas Operacionais Recentes</span>
-        </h3>
-        <div class="space-y-3" id="alerts-list">
-          <!-- Alerts rendered dynamically -->
-        </div>
-      </div>
     </section>
 
     <!-- VIEW 3: PONTO HISTORY LOG -->
@@ -434,6 +426,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         </div>
         <div class="flex flex-wrap gap-2">
+          <div class="flex items-center gap-1.5 mr-1">
+            <!-- Escrever duas datas para ver a semana e trabalho a mais para a
+                 pergunta que se faz todos os dias. -->
+            <button type="button" onclick="periodoRapido(0)" class="px-2.5 py-2 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50">Hoje</button>
+            <button type="button" onclick="periodoRapido(6)" class="px-2.5 py-2 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50">7 dias</button>
+            <button type="button" onclick="periodoRapido(29)" class="px-2.5 py-2 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50">30 dias</button>
+          </div>
           <button onclick="refreshReports()" class="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-amberAccent text-white text-sm font-semibold shadow hover:opacity-95">
             <i data-lucide="search" class="w-4 h-4"></i><span>Consultar</span>
           </button>
@@ -555,6 +554,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <span>Atualizar</span>
         </button>
       </div>
+
+      <!-- O backend ja aceita ?acao= e ?limite= (ate 250); o painel nunca os
+           enviou e ficava preso aos 100 ultimos eventos de tudo misturado. -->
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm px-4 md:px-6 py-3 flex items-center gap-2.5 flex-wrap">
+        <div class="relative flex-1 min-w-0 max-w-xs">
+          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input id="audit-busca" type="search" autocomplete="off" placeholder="Buscar por pessoa ou alvo..."
+            aria-label="Buscar evento" oninput="buscarAuditoria(this.value)"
+            class="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+        </div>
+        <select id="audit-acao" aria-label="Filtrar por ação" onchange="refreshAudit()"
+          class="px-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm text-stone-700 focus:outline-none focus:border-amberAccent">
+          <option value="">Todas as ações</option>
+        </select>
+        <select id="audit-limite" aria-label="Quantidade de eventos" onchange="refreshAudit()"
+          class="px-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm text-stone-700 focus:outline-none focus:border-amberAccent">
+          <option value="50">50 eventos</option>
+          <option value="100" selected>100 eventos</option>
+          <option value="250">250 eventos</option>
+        </select>
+        <span id="audit-count" class="text-xs font-medium text-stone-500 ml-auto"></span>
+      </div>
+
       <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
         <div class="divide-y divide-stone-100" id="audit-list">
           <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
@@ -592,9 +614,23 @@ const HTML_CONTENT = `<!DOCTYPE html>
       </div>
 
       <div class="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 border-b border-stone-100">
-          <h3 class="font-bold text-coffee-950 text-base">Emitir para um colaborador</h3>
-          <p class="text-xs text-stone-500 mt-0.5">O código vale por poucos minutos; para o retorno ele não expira.</p>
+        <div class="px-4 md:px-6 py-4 border-b border-stone-100 space-y-3">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 class="font-bold text-coffee-950 text-base">Emitir para um colaborador</h3>
+              <p class="text-xs text-stone-500 mt-0.5">O código vale por poucos minutos; para o retorno ele não expira.</p>
+            </div>
+            <span id="codes-people-count" class="text-xs font-medium text-stone-500"></span>
+          </div>
+          <!-- Esta lista tem a equipa inteira. Sem busca, emitir um codigo para
+               uma pessoa obriga a percorrer uma centena de linhas com a pessoa
+               a espera em frente ao balcao. -->
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="codes-search" type="search" autocomplete="off" placeholder="Buscar quem precisa do código..."
+              aria-label="Buscar colaborador para emitir código" oninput="buscarPessoaCodigo(this.value)"
+              class="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+          </div>
         </div>
         <div class="divide-y divide-stone-100" id="codes-people-list">
           <p class="px-6 py-8 text-xs text-stone-400 text-center">Carregando…</p>
@@ -605,9 +641,30 @@ const HTML_CONTENT = `<!DOCTYPE html>
     <section id="view-history" class="hidden space-y-6">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-coffee-950">Histórico de Batidas de Ponto</h2>
-          <p class="text-sm text-stone-500">Linha do tempo auditável de registros de entrada, pausas e saída</p>
+          <h2 class="text-2xl font-bold text-coffee-950">Registros de Pausa</h2>
+          <p class="text-sm text-stone-500">Saídas e retornos do café, por dia</p>
         </div>
+        <div class="flex items-end gap-2 flex-wrap">
+          <div>
+            <label for="hist-data" class="block text-xs font-semibold text-stone-600 mb-1">Dia</label>
+            <input type="date" id="hist-data" onchange="refreshHistorico()"
+              class="px-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent">
+          </div>
+          <button onclick="irParaHoje()" class="px-3.5 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-xs font-semibold shadow-sm hover:bg-stone-50">Hoje</button>
+          <button onclick="refreshHistorico()" class="px-3.5 py-2.5 rounded-xl bg-white border border-stone-200 text-stone-700 text-xs font-semibold shadow-sm hover:bg-stone-50 flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i><span>Atualizar</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-stone-200 shadow-sm px-4 md:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="relative flex-1 min-w-0 max-w-sm">
+          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input id="hist-busca" type="search" autocomplete="off" placeholder="Buscar por nome..."
+            aria-label="Buscar registro por nome" oninput="buscarHistorico(this.value)"
+            class="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+        </div>
+        <span id="hist-count" class="text-xs font-medium text-stone-500"></span>
       </div>
 
       <!-- Em telas estreitas a tabela vira lista de cartões: cinco colunas num
@@ -622,10 +679,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
             <thead class="bg-stone-50 text-xs font-semibold text-stone-500 uppercase border-b border-stone-200">
               <tr>
                 <th class="px-6 py-3.5">Colaborador</th>
-                <th class="px-6 py-3.5">Operação</th>
-                <th class="px-6 py-3.5">Horário</th>
-                <th class="px-6 py-3.5">Canal</th>
-                <th class="px-6 py-3.5">Observação</th>
+                <th class="px-6 py-3.5">Período</th>
+                <th class="px-6 py-3.5">Saída</th>
+                <th class="px-6 py-3.5">Retorno</th>
+                <th class="px-6 py-3.5">Duração</th>
+                <th class="px-6 py-3.5">Situação</th>
               </tr>
             </thead>
             <tbody id="history-table-body" class="divide-y divide-stone-100">
@@ -641,7 +699,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold text-coffee-950">Gestão de Colaboradores e Configurações</h2>
-          <p class="text-sm text-stone-500">Cadastre colaboradores, defina PINs e parametrize a cafeteria</p>
+          <p class="text-sm text-stone-500">Cadastre colaboradores e parametrize as regras de pausa</p>
         </div>
         <button onclick="openNewCollaboratorModal()" class="px-4 py-2.5 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white font-semibold transition-all text-xs flex items-center space-x-1.5 shadow-md">
           <i data-lucide="user-plus" class="w-4 h-4"></i>
@@ -652,7 +710,18 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Collaborators List Card -->
         <div class="lg:col-span-2 bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-          <h3 class="font-bold text-coffee-950 text-base mb-4">Equipe Cadastrada</h3>
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <h3 class="font-bold text-coffee-950 text-base">Cadastro da Equipe</h3>
+            <span id="admin-count" class="text-xs font-medium text-stone-500"></span>
+          </div>
+          <!-- Mesma razao do Painel Equipe: uma centena de linhas sem busca
+               obriga a percorrer tudo com o olho. -->
+          <div class="relative mb-3">
+            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="admin-busca" type="search" autocomplete="off" placeholder="Buscar colaborador..."
+              aria-label="Buscar colaborador cadastrado" oninput="buscarAdmin(this.value)"
+              class="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+          </div>
           <div class="divide-y divide-stone-100" id="admin-collaborator-list">
             <!-- Rendered dynamically -->
           </div>
@@ -706,7 +775,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
         <!-- Policy Settings Card -->
         <div class="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
-          <h3 class="font-bold text-coffee-950 text-base">Políticas da Cafeteria</h3>
+          <h3 class="font-bold text-coffee-950 text-base">Políticas de Pausa</h3>
           
           <div>
             <label class="block text-xs font-semibold text-stone-600 mb-1">Tolerância Pausa Café (minutos)</label>
@@ -787,10 +856,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     <div id="new-collaborator-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
       <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
-        <h3 class="text-xl font-bold text-coffee-950 mb-1">Cadastrar Colaborador</h3>
-        <p class="text-xs text-stone-500 mb-6">O colaborador não tem senha nem PIN: quem libera a pausa é o código de café de 6 caracteres que o Supervisor emite na hora.</p>
+        <h3 id="col-modal-titulo" class="text-xl font-bold text-coffee-950 mb-1">Cadastrar Colaborador</h3>
+        <p id="col-modal-texto" class="text-xs text-stone-500 mb-6">O colaborador não tem senha nem PIN: quem libera a pausa é o código de café de 6 caracteres que o Supervisor emite na hora.</p>
 
-        <form id="new-col-form" onsubmit="handleCreateCollaborator(event)" class="space-y-4">
+        <form id="new-col-form" onsubmit="handleSalvarColaborador(event)" class="space-y-4">
           <div>
             <label class="block text-xs font-semibold text-stone-700 mb-1">Nome Completo</label>
             <input type="text" id="col-name" required placeholder="Ex: Patrícia Alves" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -814,7 +883,40 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
           <div class="flex items-center justify-end space-x-2 pt-4 border-t border-stone-100">
             <button type="button" onclick="closeNewCollaboratorModal()" class="px-4 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Cancelar</button>
-            <button type="submit" class="px-5 py-2 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white text-xs font-semibold shadow">Salvar Colaborador</button>
+            <button type="submit" id="col-modal-salvar" class="px-5 py-2 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white text-xs font-semibold shadow">Salvar Colaborador</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Pausa manual (abrir ou encerrar).
+         O backend exige 20 caracteres de motivo. Isso nao e um capricho de
+         validacao: a pausa normal e autenticada pelo codigo de cafe, e a manual
+         so pode ser autenticada pela responsabilidade de alguem com nome. O
+         dialogo explica a exigencia em vez de devolver um 400 seco. -->
+    <div id="manual-pause-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
+        <h3 id="manual-pause-titulo" class="text-xl font-bold text-coffee-950 mb-1">Encerrar pausa</h3>
+        <p id="manual-pause-pessoa" class="text-xs text-stone-500 mb-5"></p>
+
+        <form id="manual-pause-form" onsubmit="confirmarPausaManual(event)" class="space-y-3">
+          <div>
+            <label for="manual-pause-motivo" class="block text-xs font-semibold text-stone-700 mb-1">Motivo</label>
+            <textarea id="manual-pause-motivo" rows="3" oninput="contarMotivo()" required
+              placeholder="Ex: voltou do café e o totem estava sem rede"
+              class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+            <p id="manual-pause-contador" class="text-[11px] text-stone-400 mt-1">Faltam 20 caracteres.</p>
+          </div>
+
+          <div class="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200">
+            <i data-lucide="shield-alert" class="w-4 h-4 text-amber-600 mt-0.5 shrink-0"></i>
+            <p class="text-[11px] text-amber-800">Fica registado na auditoria com o seu nome. O painel de operação conta os registos manuais dos últimos 7 dias.</p>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-3 border-t border-stone-100">
+            <button type="button" onclick="fecharPausaManual()" class="px-4 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Cancelar</button>
+            <button type="submit" id="manual-pause-confirmar" disabled
+              class="px-5 py-2 rounded-xl bg-coffee-800 text-white text-xs font-semibold shadow disabled:opacity-40 disabled:cursor-not-allowed hover:bg-coffee-900">Confirmar</button>
           </div>
         </form>
       </div>
@@ -827,7 +929,6 @@ const HTML_CONTENT = `<!DOCTYPE html>
     let state = {
       collaborators: [],
       history: [],
-      alerts: [],
       codes: [],
       resumo: {},
       voiceEnabled: true
@@ -846,6 +947,25 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (dateElem) dateElem.textContent = dateStr;
     }
     setInterval(updateClock, 1000);
+
+    // O cabecalho da lista promete "ao vivo" desde sempre, mas nada repetia a
+    // leitura: quem deixasse o painel aberto ficava a olhar para uma fotografia
+    // antiga. Vinte segundos chega para uma pausa de quinze minutos.
+    //
+    // Com o separador escondido nao se pede nada: ninguem esta a ver, e o
+    // refresh seguinte corrige tudo de uma vez quando a pessoa voltar.
+    setInterval(() => {
+      if (document.hidden) return;
+      if (!getToken()) return;
+      refreshData();
+    }, 20000);
+
+    // O relogio da pausa anda todo o segundo, mesmo entre leituras.
+    setInterval(() => {
+      if (document.hidden) return;
+      atualizarContadores();
+      atualizarPrazosCodigos();
+    }, 1000);
     updateClock();
 
     // Sound & Voice Guidance
@@ -921,6 +1041,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (tabId === 'kiosk') { totemBoot(); } else { totemLimparCodigo(); }
       // O prazo do código corre em segundos: ao abrir a aba, relê do servidor.
       if (tabId === 'codes') { refreshCodes(); }
+      if (tabId === 'history') { refreshHistorico(); }
       if (tabId === 'devices') { refreshDevices(); }
       if (tabId === 'audit') { refreshAudit(); }
       if (tabId === 'reports') { refreshReports(); }
@@ -1368,8 +1489,28 @@ const HTML_CONTENT = `<!DOCTYPE html>
       return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
     }
 
+    // Ao recarregar a pagina so sobrevive o token: quem esta ligado, e com que
+    // papel, tem de ser perguntado outra vez. Sem isto, um Administrador que
+    // recarregasse deixava de ver as accoes de Administrador.
+    async function recuperarSessao() {
+      if (state.usuario || !getToken()) return;
+      try {
+        const res = await fetch(API_BASE + '/api/auth/get-session', {
+          headers: { 'Authorization': 'Bearer ' + getToken() }
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        if (data && data.user) state.usuario = data.user;
+      } catch (_) { /* sem sessao, fica o que o backend disser em cada rota */ }
+    }
+
+    function ehAdmin() {
+      return ((state.usuario && state.usuario.role) || '').toLowerCase() === 'admin';
+    }
+
     async function refreshData() {
       if (!getToken()) { showLogin(); return; }
+      await recuperarSessao();
       try {
         // allSettled, e nao all: /admin/operacao/resumo exige perfil ADMIN, e
         // com all um Supervisor perdia a tela inteira por causa de um 403 num
@@ -1389,6 +1530,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
         const emPausaPorId = {};
         (ativas.pausas || []).forEach(p => { emPausaPorId[p.colaboradorId] = p; });
 
+        // Marca do momento da leitura. O contador da pausa anda no navegador a
+        // partir daqui, em vez de ficar parado ate ao proximo refresh.
+        state.lidoEm = Date.now();
+
         state.collaborators = (pessoas.colaboradores || []).map(c => {
           const pausa = emPausaPorId[c.id];
           return {
@@ -1396,33 +1541,32 @@ const HTML_CONTENT = `<!DOCTYPE html>
             name: c.nome,
             role: c.turno ? 'Turno ' + c.turno : 'Sem turno',
             department: c.setor || 'Sem setor',
+            setorCru: c.setor || '',
+            turnoCru: c.turno || '',
+            // Tem um passe vivo: e quem esta prestes a sair, ou ja saiu.
+            codigoAtivo: !!c.codigoAtivo,
             status: c.emPausa ? 'coffee_break' : 'active',
+            // Ja gozou a pausa deste periodo. Responde a outra metade da
+            // pergunta do supervisor: nao "quem esta fora", mas "quem ainda
+            // nem saiu" -- que e o que permite escalonar as saidas.
+            pausaConcluida: !!c.pausaPeriodoConcluida,
+            pausa: pausa ? {
+              inicioLocal: pausa.inicioLocal,
+              tempoSegundos: pausa.tempoSegundos ?? 0,
+              limiteSegundos: pausa.limiteSegundos ?? 0,
+              carenciaSegundos: pausa.carenciaSegundos ?? 0
+            } : null,
             lastPontoType: pausa ? 'Em pausa desde' : (c.codigoAtivo ? 'Código ativo' : null),
             lastPontoTime: pausa ? pausa.inicioLocal : null
           };
         });
 
-        // Alerta é a pausa que já passou do teto -- o mesmo critério do app.
-        // O nome vem no campo nome: a consulta traz col.nome sem alias.
-        state.alerts = (ativas.pausas || [])
-          .filter(p => p.excedeuLimite)
-          .map(p => ({
-            severity: 'warning',
-            title: p.nome + ' acima do limite',
-            message: 'Saiu às ' + p.inicioLocal + ' · ' + segundosParaRelogio(p.tempoContadoSegundos) + ' contados'
-          }));
+        const carimbo = document.getElementById('ultima-atualizacao');
+        if (carimbo) carimbo.textContent = new Date().toLocaleTimeString('pt-BR', { hour12: false });
 
-        state.history = (ativas.pausas || []).map(p => ({
-          collaboratorName: p.nome,
-          type: 'pausa_cafe',
-          timestamp: p.inicioLocal,
-          source: p.setor || 'totem',
-          note: p.foraHorario ? 'Fora do horário' : null
-        }));
-
+        detectarMovimentacao();
+        renderForaAgora();
         renderTeamList();
-        renderHistoryTable();
-        renderAlerts();
         renderAdminList();
         updateSummaryStats();
         refreshUsers();
@@ -1441,25 +1585,424 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // foi carregado, em vez de mostrar zeros.
       const r = state.resumo || {};
       const el = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
-      const total = r.colaboradoresAtivos ?? state.collaborators.length;
-      const emPausa = r.pausasAbertas ?? state.collaborators.filter(c => c.status === 'coffee_break').length;
-      el('stat-total', total);
-      el('stat-active', Math.max(0, total - emPausa));
-      el('stat-coffee', emPausa);
-      el('stat-off', r.codigosPendentes ?? 0);
+      const pessoas = state.collaborators || [];
+      el('stat-total', r.colaboradoresAtivos ?? pessoas.length);
+      el('stat-coffee', pessoas.filter(c => c.status === 'coffee_break').length);
+      // Nem esta fora agora, nem ja gozou a pausa deste periodo: e o mesmo
+      // criterio do chip, para o numero e a lista nunca discordarem.
+      el('stat-sem-pausa', pessoas.filter(c => c.status !== 'coffee_break' && !c.pausaConcluida).length);
+      el('stat-codigos-pendentes', pessoas.filter(c => c.codigoAtivo).length);
+    }
+
+    // Estado dos filtros do Painel Equipe. Vive fora do render para sobreviver
+    // ao refresh automatico: quem estava a filtrar nao perde o filtro de dez em
+    // dez segundos.
+    const filtrosEquipe = { busca: '', setor: '', status: 'atividade' };
+
+    // Sem acentos e sem caixa: quem escreve "araujo" tem de encontrar "Araújo".
+    const semAcento = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    function equipeFiltrada() {
+      const busca = semAcento(filtrosEquipe.busca.trim());
+      return state.collaborators.filter(c => {
+        // Em pausa agora, ou com codigo vivo na mao. Quem nao tem nem uma coisa
+        // nem outra nao esta a acontecer nada -- e para esse caso existem a
+        // Gestao (cadastro) e a aba Codigos (emitir).
+        if (filtrosEquipe.status === 'atividade' && !(c.status === 'coffee_break' || c.codigoAtivo)) return false;
+        if (filtrosEquipe.status === 'pausa' && c.status !== 'coffee_break') return false;
+        if (filtrosEquipe.status === 'turno' && c.status === 'coffee_break') return false;
+        // Nem esta fora agora, nem ja gozou a pausa deste periodo.
+        if (filtrosEquipe.status === 'sem-pausa' && (c.status === 'coffee_break' || c.pausaConcluida)) return false;
+        if (filtrosEquipe.setor && c.department !== filtrosEquipe.setor) return false;
+        if (busca && !semAcento(c.name).includes(busca)) return false;
+        return true;
+      });
+    }
+
+    /**
+     * Repete no navegador a conta que live-routes faz em SQL:
+     *   contado  = max(0, decorrido - carencia)
+     *   carencia = decorrido < carencia
+     *   excedeu  = decorrido > carencia + limite
+     * O decorrido cresce a partir do que veio na ultima leitura, por isso o
+     * relogio anda de segundo a segundo sem pedir nada ao servidor. Qualquer
+     * desvio e corrigido no refresh seguinte -- quem manda continua a ser o
+     * servidor, o navegador so preenche o intervalo.
+     */
+    function estadoPausa(p) {
+      const decorrido = (p.tempoSegundos || 0) + Math.floor((Date.now() - (state.lidoEm || Date.now())) / 1000);
+      const carencia = p.carenciaSegundos || 0;
+      const limite = p.limiteSegundos || 0;
+      const contado = Math.max(0, decorrido - carencia);
+      const emCarencia = decorrido < carencia;
+      const excedeu = limite > 0 && decorrido > carencia + limite;
+      const pct = limite > 0 ? Math.min(100, Math.round((contado / limite) * 100)) : 0;
+      // Ambar antes de estourar: avisar aos oitenta por cento da ainda tempo de
+      // alguem ir buscar a pessoa; avisar depois so serve para registar a falta.
+      //
+      // As classes vao inteiras e nao montadas por concatenacao: o Tailwind
+      // reconhece nomes literais, e um 'text-' + cor + '-700' e exactamente o
+      // tipo de nome que nenhuma ferramenta consegue ver no codigo.
+      const paleta = excedeu
+        ? { texto: 'text-red-700', barra: 'bg-red-500' }
+        : (pct >= 80 ? { texto: 'text-amber-700', barra: 'bg-amber-500' }
+                     : { texto: 'text-emerald-700', barra: 'bg-emerald-500' });
+      return { contado, limite, emCarencia, excedeu, pct, paleta };
+    }
+
+    /**
+     * A lista de quem esta fora, ordenada por urgencia.
+     *
+     * O endpoint devolve por hora de saida; para quem vigia o balcao o que
+     * conta e quem esta mais perto de estourar -- esse tem de estar no topo,
+     * seja qual for a hora a que saiu.
+     *
+     * A ordem so e recalculada aqui, no refresh, e nunca no tick de um segundo:
+     * linhas a trocar de lugar enquanto alguem as le tornam a lista inutil.
+     */
+    // ---- Avisos de saída e retorno ----------------------------------------
+    //
+    // O app Android do Supervisor ja avisa (SupervisorLiveAlerts: SAIDA,
+    // RETORNO, MISTO). O painel web nao avisava nada -- quem o deixa aberto no
+    // balcao so descobria a movimentacao se estivesse a olhar.
+    //
+    // A deteccao e por diferenca entre leituras: quem nao estava em pausa e
+    // agora esta, saiu; quem estava e ja nao esta, voltou.
+
+    const AVISOS_CHAVE = 'ponto_avisos';
+    // Null enquanto nao houver leitura anterior. E o que impede a primeira
+    // carga de anunciar como "saida" toda a gente que ja estava fora.
+    let pausasConhecidas = null;
+
+    function avisosLigados() {
+      return localStorage.getItem(AVISOS_CHAVE) === '1';
+    }
+
+    function pintarBotaoAvisos() {
+      const botao = document.getElementById('avisos-toggle');
+      if (!botao) return;
+      const ligado = avisosLigados();
+      botao.setAttribute('aria-pressed', String(ligado));
+      botao.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ' +
+        (ligado ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-stone-200 text-stone-500 hover:bg-stone-50');
+      botao.innerHTML = '<i data-lucide="' + (ligado ? 'bell' : 'bell-off') + '" class="w-3.5 h-3.5"></i><span>Avisos</span>';
+      lucide.createIcons();
+    }
+
+    async function alternarAvisos() {
+      if (avisosLigados()) {
+        localStorage.setItem(AVISOS_CHAVE, '0');
+        pintarBotaoAvisos();
+        showToast('Avisos desligados', 'Deixa de haver notificação de saída e retorno.', 'info');
+        return;
+      }
+
+      if (!('Notification' in window)) {
+        showToast('Sem suporte', 'Este navegador não faz notificações.', 'error');
+        return;
+      }
+      // A permissao so se pede a clique: pedi-la ao carregar a pagina e o que
+      // leva as pessoas a negar para sempre, e ai nao ha volta.
+      let permissao = Notification.permission;
+      if (permissao === 'default') permissao = await Notification.requestPermission();
+      if (permissao !== 'granted') {
+        showToast('Permissão negada', 'O navegador bloqueou as notificações deste site.', 'error');
+        return;
+      }
+
+      localStorage.setItem(AVISOS_CHAVE, '1');
+      pintarBotaoAvisos();
+      showToast('Avisos ligados', 'Aviso de cada saída e cada retorno do café.', 'success');
+    }
+
+    function avisar(titulo, mensagem) {
+      // O toast aparece sempre: quem esta a olhar para o painel ve a
+      // movimentacao mesmo com as notificacoes do sistema desligadas.
+      showToast(titulo, mensagem, 'info');
+      if (!avisosLigados() || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        new Notification(titulo, { body: mensagem, tag: 'ponto-cafe-' + titulo });
+      } catch (_) { /* alguns navegadores exigem service worker; o toast fica */ }
+    }
+
+    /** Mesma redacao do app Android, para as duas telas falarem igual. */
+    function nomesParaAviso(nomes) {
+      if (nomes.length === 1) return nomes[0];
+      if (nomes.length === 2) return nomes[0] + ' e ' + nomes[1];
+      return nomes.slice(0, 2).join(', ') + ' e mais ' + (nomes.length - 2);
+    }
+
+    function detectarMovimentacao() {
+      const agora = {};
+      (state.collaborators || []).forEach(c => { if (c.pausa) agora[c.id] = c.name; });
+
+      if (pausasConhecidas === null) {
+        pausasConhecidas = agora;
+        return;
+      }
+
+      const saidas = Object.keys(agora).filter(id => !(id in pausasConhecidas)).map(id => agora[id]);
+      const retornos = Object.keys(pausasConhecidas).filter(id => !(id in agora)).map(id => pausasConhecidas[id]);
+      pausasConhecidas = agora;
+
+      if (saidas.length) {
+        avisar(
+          saidas.length === 1 ? 'Saída para o café' : saidas.length + ' saídas para o café',
+          nomesParaAviso(saidas) + (saidas.length === 1 ? ' saiu para o café.' : ' saíram para o café.'),
+        );
+      }
+      if (retornos.length) {
+        avisar(
+          retornos.length === 1 ? 'Retorno do café' : retornos.length + ' retornos do café',
+          nomesParaAviso(retornos) + (retornos.length === 1 ? ' voltou do café.' : ' voltaram do café.'),
+        );
+      }
+    }
+
+    // ---- Pausa manual ------------------------------------------------------
+    //
+    // A via normal e o codigo de cafe. Esta existe para quando o codigo falhou:
+    // expirou com a pessoa ja fora, o totem ficou sem rede, alguem saiu sem
+    // registar ou voltou sem marcar. Usa /supervisor/*, aberta a ADMIN e a
+    // SUPERVISOR -- so a variante /admin/* e exclusiva do Administrador.
+
+    const MOTIVO_MINIMO = 20;
+    const pausaManual = { id: null, acao: null };
+
+    function contarMotivo() {
+      const campo = document.getElementById('manual-pause-motivo');
+      const contador = document.getElementById('manual-pause-contador');
+      const botao = document.getElementById('manual-pause-confirmar');
+      if (!campo || !contador || !botao) return;
+      const faltam = MOTIVO_MINIMO - campo.value.trim().length;
+      botao.disabled = faltam > 0;
+      contador.textContent = faltam > 0
+        ? 'Faltam ' + faltam + (faltam === 1 ? ' caractere.' : ' caracteres.')
+        : campo.value.trim().length + ' caracteres.';
+      contador.className = faltam > 0 ? 'text-[11px] text-stone-400 mt-1' : 'text-[11px] text-emerald-600 mt-1';
+    }
+
+    function abrirPausaManual(id, acao) {
+      const c = (state.collaborators || []).find(x => x.id === id);
+      if (!c) return;
+      pausaManual.id = id;
+      pausaManual.acao = acao;
+
+      const encerrar = acao === 'finalizar';
+      document.getElementById('manual-pause-titulo').textContent = encerrar ? 'Encerrar pausa' : 'Iniciar pausa manual';
+      document.getElementById('manual-pause-pessoa').textContent = encerrar
+        ? c.name + ' · saiu às ' + (c.pausa ? c.pausa.inicioLocal : '--')
+        : c.name + ' · será registada como fora a partir de agora';
+      document.getElementById('manual-pause-motivo').value = '';
+      contarMotivo();
+
+      const modal = document.getElementById('manual-pause-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.getElementById('manual-pause-motivo').focus();
+    }
+
+    function fecharPausaManual() {
+      const modal = document.getElementById('manual-pause-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      pausaManual.id = null;
+      pausaManual.acao = null;
+    }
+
+    async function confirmarPausaManual(e) {
+      e.preventDefault();
+      const motivo = document.getElementById('manual-pause-motivo').value.trim();
+      if (!pausaManual.id || motivo.length < MOTIVO_MINIMO) return;
+
+      const botao = document.getElementById('manual-pause-confirmar');
+      botao.disabled = true;
+      botao.textContent = 'Confirmando...';
+      try {
+        const res = await fetch(API_BASE + '/supervisor/pausas/manual/' + pausaManual.acao, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+          body: JSON.stringify({ colaboradorId: pausaManual.id, motivo: motivo })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          showToast('Registado', pausaManual.acao === 'finalizar' ? 'Pausa encerrada manualmente.' : 'Pausa iniciada manualmente.', 'success');
+          fecharPausaManual();
+          await refreshData();
+        } else {
+          showToast('Erro', data.erro || 'Não foi possível registar.', 'error');
+        }
+      } finally {
+        botao.textContent = 'Confirmar';
+        botao.disabled = false;
+      }
+    }
+
+    function renderForaAgora() {
+      const lista = document.getElementById('fora-agora-lista');
+      const contador = document.getElementById('fora-agora-count');
+      if (!lista) return;
+
+      const fora = (state.collaborators || [])
+        .filter(c => c.pausa)
+        .map(c => ({ c: c, e: estadoPausa(c.pausa) }))
+        .sort((a, b) => (a.e.limite - a.e.contado) - (b.e.limite - b.e.contado));
+
+      if (contador) {
+        const acima = fora.filter(x => x.e.excedeu).length;
+        contador.textContent = fora.length === 0
+          ? 'ninguém fora'
+          : fora.length + (fora.length === 1 ? ' pessoa' : ' pessoas') +
+            (acima > 0 ? ' · ' + acima + ' acima do limite' : '');
+        contador.className = acima > 0
+          ? 'text-xs font-semibold text-red-600'
+          : 'text-xs font-medium text-stone-500';
+      }
+
+      if (fora.length === 0) {
+        lista.innerHTML = '<p class="px-6 py-6 text-xs text-stone-400 text-center">Ninguém em pausa agora. A equipa está toda no turno.</p>';
+        return;
+      }
+
+      lista.innerHTML = fora.map(item => {
+        const c = item.c;
+        const e = item.e;
+        const iniciais = c.name.slice(0, 2).toUpperCase();
+        const estado = e.emCarencia ? 'tolerância'
+          : (e.excedeu ? 'acima do limite' : segundosParaRelogio(e.limite - e.contado) + ' restantes');
+        return '<div class="px-4 md:px-6 py-3 flex items-center gap-3">' +
+            '<div class="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 font-bold flex items-center justify-center text-xs shrink-0">' + iniciais + '</div>' +
+            '<div class="min-w-0 flex-1">' +
+              '<h4 class="text-sm font-bold text-coffee-950 truncate">' + c.name + '</h4>' +
+              '<p class="text-[11px] text-stone-400 font-mono">saiu às ' + c.pausa.inicioLocal + ' · ' + estado + '</p>' +
+            '</div>' +
+            '<button type="button" data-col-id="' + c.id + '" data-acao="finalizar" onclick="abrirPausaManual(this.dataset.colId, this.dataset.acao)" ' +
+              'title="Encerrar esta pausa manualmente" ' +
+              'class="shrink-0 px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50 transition-colors">Encerrar</button>' +
+            '<div class="text-right shrink-0 w-28">' +
+              '<div id="fora-tempo-' + c.id + '" class="text-sm font-bold font-mono ' + e.paleta.texto + '">' +
+                (e.emCarencia ? 'tolerância' : segundosParaRelogio(e.contado) + ' / ' + segundosParaRelogio(e.limite)) +
+              '</div>' +
+              '<div class="h-1.5 rounded-full bg-stone-200 overflow-hidden mt-1">' +
+                '<div id="fora-barra-' + c.id + '" class="h-full rounded-full transition-all ' + e.paleta.barra + '" style="width:' + e.pct + '%"></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function contadorPausaHtml(c) {
+      if (!c.pausa) {
+        return '<div class="text-xs font-semibold text-stone-700">' + (c.lastPontoType || 'Sem registro') + '</div>' +
+               '<div class="text-[11px] text-stone-400 font-mono">' + (c.lastPontoTime || '--') + '</div>';
+      }
+      const e = estadoPausa(c.pausa);
+      return '<div id="pausa-tempo-' + c.id + '" class="text-xs font-bold font-mono ' + e.paleta.texto + '">' +
+               (e.emCarencia ? 'tolerância' : segundosParaRelogio(e.contado) + ' / ' + segundosParaRelogio(e.limite)) +
+             '</div>' +
+             '<div class="h-1.5 w-24 rounded-full bg-stone-200 overflow-hidden mt-1 ml-auto">' +
+               '<div id="pausa-barra-' + c.id + '" class="h-full rounded-full transition-all ' + e.paleta.barra + '" style="width:' + e.pct + '%"></div>' +
+             '</div>' +
+             '<div class="text-[11px] text-stone-400 font-mono">desde ' + c.pausa.inicioLocal + '</div>';
+    }
+
+    // O tick mexe so nos dois nos do contador. Repintar a lista inteira de
+    // segundo a segundo fecharia os historicos que alguem tivesse aberto.
+    function atualizarContadores() {
+      state.collaborators.forEach(c => {
+        if (!c.pausa) return;
+        const e = estadoPausa(c.pausa);
+        const rotulo = e.emCarencia ? 'tolerância' : segundosParaRelogio(e.contado) + ' / ' + segundosParaRelogio(e.limite);
+
+        // A mesma pausa vive em dois sitios -- a tarjeta do topo e a linha da
+        // lista grande -- com nos distintos para nao repetir ids.
+        [['pausa', 'text-xs'], ['fora', 'text-sm']].forEach(par => {
+          const texto = document.getElementById(par[0] + '-tempo-' + c.id);
+          const barra = document.getElementById(par[0] + '-barra-' + c.id);
+          if (texto) {
+            texto.textContent = rotulo;
+            texto.className = par[1] + ' font-bold font-mono ' + e.paleta.texto;
+          }
+          if (barra) {
+            barra.style.width = e.pct + '%';
+            barra.className = 'h-full rounded-full transition-all ' + e.paleta.barra;
+          }
+        });
+      });
+    }
+
+    function buscarEquipe(valor) {
+      filtrosEquipe.busca = valor;
+      renderTeamList();
+    }
+
+    function filtrarSetorEquipe(valor) {
+      filtrosEquipe.setor = valor;
+      renderTeamList();
+    }
+
+    function aplicarFiltroEquipe(status) {
+      filtrosEquipe.status = status;
+      document.querySelectorAll('[data-filtro-equipe]').forEach(b => {
+        const activo = b.dataset.filtroEquipe === status;
+        b.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' +
+          (activo ? 'bg-coffee-900 text-white shadow-sm' : 'text-stone-600 hover:text-stone-900');
+        b.setAttribute('aria-pressed', String(activo));
+      });
+      renderTeamList();
+    }
+
+    // Os setores saem dos dados, nao de uma lista fixa: um setor novo aparece
+    // no filtro sem ninguem tocar no codigo.
+    function renderSetorOptions() {
+      const sel = document.getElementById('team-setor');
+      if (!sel) return;
+      const setores = [...new Set(state.collaborators.map(c => c.department).filter(Boolean))].sort();
+      const escapa = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      sel.innerHTML = '<option value="">Todos os setores</option>' +
+        setores.map(x => '<option value="' + escapa(x) + '">' + escapa(x) + '</option>').join('');
+      // Um setor que deixou de existir nao pode continuar a filtrar em silencio:
+      // a lista viria vazia sem que nada no ecra explicasse porque.
+      sel.value = setores.includes(filtrosEquipe.setor) ? filtrosEquipe.setor : '';
+      filtrosEquipe.setor = sel.value;
     }
 
     function renderTeamList() {
       const container = document.getElementById('team-list');
       if (!container) return;
 
-      container.innerHTML = state.collaborators.map(c => {
-        const statusMap = {
-          active: { label: 'Em Turno', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-          coffee_break: { label: 'Pausa Café', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' },
-          off_duty: { label: 'Fora de Turno', badgeClass: 'bg-stone-100 text-stone-600 border-stone-200' }
-        };
-        const st = statusMap[c.status] || statusMap.off_duty;
+      renderSetorOptions();
+      const lista = equipeFiltrada();
+
+      const contador = document.getElementById('team-count');
+      if (contador) {
+        contador.textContent = lista.length === state.collaborators.length
+          ? state.collaborators.length + ' colaboradores'
+          : lista.length + ' de ' + state.collaborators.length + ' colaboradores';
+      }
+
+      if (lista.length === 0) {
+        // Com o filtro por omissao, a lista vazia e o estado normal de um dia
+        // calmo -- e nao um erro. Vale dizer isso, e lembrar onde esta o resto.
+        const calmo = filtrosEquipe.status === 'atividade' && !filtrosEquipe.busca.trim() && !filtrosEquipe.setor;
+        container.innerHTML = '<div class="px-6 py-10 text-center">' +
+          (calmo
+            ? '<p class="text-sm font-semibold text-stone-500">Ninguém em pausa nem com código na mão.</p>' +
+              '<p class="text-xs text-stone-400 mt-1">A equipa toda está no turno. Use <span class="font-semibold">Todos</span> para ver o resto, ou a aba Códigos para emitir um passe.</p>'
+            : '<p class="text-sm font-semibold text-stone-500">Ninguém corresponde a estes filtros.</p>' +
+              '<p class="text-xs text-stone-400 mt-1">Tente outro nome, outro setor ou outro estado.</p>') +
+          '</div>';
+        return;
+      }
+
+      container.innerHTML = lista.map(c => {
+        // Só há dois estados: a API devolve emPausa, e o painel deriva daí. Não
+        // existe "fora de turno" -- o sistema não controla turnos, controla
+        // pausas de café.
+        const st = c.status === 'coffee_break'
+          ? { label: 'Pausa Café', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' }
+          : { label: 'Em Turno', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
 
         return \`
           <div class="px-4 md:px-6 py-4 hover:bg-stone-50/60 transition-colors">
@@ -1474,13 +2017,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 </div>
               </div>
               <div class="flex items-center space-x-3 shrink-0">
-                <div class="text-right hidden sm:block">
-                  <div class="text-xs font-semibold text-stone-700">\${c.lastPontoType || 'Sem registro'}</div>
-                  <div class="text-[11px] text-stone-400 font-mono">\${c.lastPontoTime || '--'}</div>
-                </div>
+                <div class="text-right hidden sm:block">\${contadorPausaHtml(c)}</div>
                 <span class="px-3 py-1 rounded-full text-xs font-semibold border \${st.badgeClass}">
                   \${st.label}
                 </span>
+                \${c.status === 'coffee_break' ? '' : '<button type="button" title="Iniciar pausa manual" data-col-id="' + c.id + '" data-acao="iniciar" aria-label="Iniciar pausa manual de ' + c.name.replace(/"/g, '&quot;') + '" onclick="event.stopPropagation(); abrirPausaManual(this.dataset.colId, this.dataset.acao)" class="p-1.5 rounded-lg text-stone-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"><i data-lucide="coffee" class="w-4 h-4"></i></button>'}
                 <i data-lucide="chevron-down" class="w-4 h-4 text-stone-400"></i>
               </div>
             </div>
@@ -1488,31 +2029,49 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
         \`;
       }).join('');
+      // O lucide troca <i data-lucide> por <svg> uma vez; o HTML que acabou de
+      // entrar ainda tem os <i> por converter.
+      lucide.createIcons();
     }
 
-    function renderAlerts() {
-      const container = document.getElementById('alerts-list');
-      if (!container) return;
+    // Registros vem de GET /supervisor/pausas?data=, que devolve as pausas do
+    // dia -- fechadas e abertas. Ate aqui esta aba montava a "historia" a
+    // partir de /pausas/ativas, ou seja so quem estava fora naquele instante:
+    // chamava-se historico e nunca mostrou passado nenhum.
+    const filtroHistorico = { busca: '' };
 
-      if (state.alerts.length === 0) {
-        container.innerHTML = '<p class="text-xs text-stone-400">Nenhum alerta operacional no momento.</p>';
-        return;
+    function dataHistorico() {
+      const campo = document.getElementById('hist-data');
+      if (campo && campo.value) return campo.value;
+      const hoje = new Date();
+      const iso = new Date(hoje.getTime() - hoje.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      if (campo) campo.value = iso;
+      return iso;
+    }
+
+    function irParaHoje() {
+      const campo = document.getElementById('hist-data');
+      if (campo) campo.value = '';
+      dataHistorico();
+      refreshHistorico();
+    }
+
+    function buscarHistorico(valor) {
+      filtroHistorico.busca = valor;
+      renderHistoryTable();
+    }
+
+    async function refreshHistorico() {
+      try {
+        const data = await apiFetch('/supervisor/pausas?data=' + dataHistorico());
+        state.history = data.pausas || [];
+      } catch (err) {
+        if (err.message !== 'unauthenticated') {
+          showToast('Erro', 'Não foi possível carregar os registros: ' + err.message, 'error');
+          state.history = [];
+        }
       }
-
-      container.innerHTML = state.alerts.map(a => {
-        const borderClass = a.severity === 'warning' ? 'border-amber-200 bg-amber-50/50' : 'border-stone-200 bg-stone-50';
-        return \`
-          <div class="p-4 rounded-xl border \${borderClass} flex items-start space-x-3">
-            <i data-lucide="\${a.severity === 'warning' ? 'alert-triangle' : 'info'}" class="w-5 h-5 \${a.severity === 'warning' ? 'text-amber-600' : 'text-stone-600'} mt-0.5"></i>
-            <div>
-              <h5 class="text-sm font-bold text-coffee-950">\${a.title}</h5>
-              <p class="text-xs text-stone-600 mt-0.5">\${a.message}</p>
-              <span class="text-[10px] text-stone-400 font-mono mt-1 block">\${a.time}</span>
-            </div>
-          </div>
-        \`;
-      }).join('');
-      lucide.createIcons();
+      renderHistoryTable();
     }
 
     function renderHistoryTable() {
@@ -1520,70 +2079,107 @@ const HTML_CONTENT = `<!DOCTYPE html>
       const cards = document.getElementById('history-cards');
       if (!tbody) return;
 
-      const typeLabels = {
-        entrada: { label: 'Entrada', class: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-        pausa_cafe: { label: 'Pausa Café', class: 'text-amber-700 bg-amber-50 border-amber-200' },
-        retorno_cafe: { label: 'Retorno Café', class: 'text-amber-800 bg-amber-100 border-amber-300' },
-        saida: { label: 'Saída', class: 'text-stone-700 bg-stone-100 border-stone-200' }
-      };
+      const busca = semAcento(filtroHistorico.busca.trim());
+      const linhas = (state.history || [])
+        .filter(p => !busca || semAcento(p.nome || '').includes(busca))
+        .slice()
+        .reverse();
 
-      tbody.innerHTML = state.history.slice().reverse().map(item => {
-        const tag = typeLabels[item.type] || { label: item.type, class: 'text-stone-600 bg-stone-50 border-stone-200' };
-        return \`
-          <tr class="hover:bg-stone-50/80 transition-colors">
-            <td class="px-6 py-4 font-semibold text-coffee-950">\${item.collaboratorName}</td>
-            <td class="px-6 py-4">
-              <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${tag.class}">\${tag.label}</span>
-            </td>
-            <td class="px-6 py-4 font-mono text-xs text-stone-600">\${item.timestamp}</td>
-            <td class="px-6 py-4 text-xs font-medium uppercase text-stone-500">\${item.source}</td>
-            <td class="px-6 py-4 text-xs text-stone-500">\${item.note || '-'}</td>
-          </tr>
-        \`;
+      const contador = document.getElementById('hist-count');
+      if (contador) {
+        contador.textContent = linhas.length === (state.history || []).length
+          ? linhas.length + (linhas.length === 1 ? ' registro' : ' registros')
+          : linhas.length + ' de ' + state.history.length;
+      }
+
+      // Aberta, fechada dentro do limite, ou fechada acima dele: sao tres
+      // situacoes diferentes e so a ultima pede atencao de alguem.
+      function situacao(p) {
+        if (!p.fimLocal) return { texto: 'Em pausa', cls: 'text-amber-700 bg-amber-50 border-amber-200' };
+        if (p.excedeuLimite) return { texto: 'Acima do limite', cls: 'text-red-700 bg-red-50 border-red-200' };
+        return { texto: 'Dentro do limite', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
+      }
+      const periodoLabel = (p) => p.periodo === 'MANHA' ? 'Manhã' : (p.periodo === 'TARDE' ? 'Tarde' : '—');
+      const duracao = (p) => p.duracaoSegundos != null ? segundosParaRelogio(p.duracaoSegundos) : '—';
+
+      if (linhas.length === 0) {
+        const vazio = (state.history || []).length === 0
+          ? 'Nenhuma pausa registada neste dia.'
+          : 'Ninguém com esse nome neste dia.';
+        tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-10 text-center text-xs text-stone-400">' + vazio + '</td></tr>';
+        if (cards) cards.innerHTML = '<p class="px-5 py-8 text-xs text-stone-400 text-center">' + vazio + '</p>';
+        return;
+      }
+
+      tbody.innerHTML = linhas.map(p => {
+        const st = situacao(p);
+        return '<tr class="hover:bg-stone-50/80 transition-colors">' +
+          '<td class="px-6 py-4 font-semibold text-coffee-950">' + (p.nome || '—') + '</td>' +
+          '<td class="px-6 py-4 text-xs text-stone-500">' + periodoLabel(p) + '</td>' +
+          '<td class="px-6 py-4 font-mono text-xs text-stone-600">' + (p.inicioLocal || '—') + '</td>' +
+          '<td class="px-6 py-4 font-mono text-xs text-stone-600">' + (p.fimLocal || '—') + '</td>' +
+          '<td class="px-6 py-4 font-mono text-xs text-stone-600">' + duracao(p) + '</td>' +
+          '<td class="px-6 py-4"><span class="px-2.5 py-1 rounded-full text-xs font-semibold border ' + st.cls + '">' + st.texto + '</span></td>' +
+        '</tr>';
       }).join('');
 
       if (cards) {
-        const linhas = state.history.slice().reverse();
-        cards.innerHTML = linhas.length === 0
-          ? '<p class="px-5 py-8 text-xs text-stone-400 text-center">Nenhum registro no período.</p>'
-          : linhas.map(item => {
-              const tag = typeLabels[item.type] || { label: item.type, class: 'text-stone-600 bg-stone-50 border-stone-200' };
-              return \`
-                <div class="px-5 py-4">
-                  <div class="flex items-start justify-between gap-3">
-                    <h4 class="text-sm font-bold text-coffee-950 min-w-0 truncate">\${item.collaboratorName}</h4>
-                    <span class="shrink-0 font-mono text-xs text-stone-500">\${item.timestamp}</span>
-                  </div>
-                  <div class="flex items-center flex-wrap gap-2 mt-2">
-                    <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${tag.class}">\${tag.label}</span>
-                    <span class="text-[11px] uppercase font-semibold text-stone-400">\${item.source}</span>
-                  </div>
-                  \${item.note ? '<p class="text-xs text-stone-500 mt-2">' + item.note + '</p>' : ''}
-                </div>
-              \`;
-            }).join('');
+        cards.innerHTML = linhas.map(p => {
+          const st = situacao(p);
+          return '<div class="px-5 py-4">' +
+            '<div class="flex items-start justify-between gap-3">' +
+              '<h4 class="text-sm font-bold text-coffee-950 min-w-0 truncate">' + (p.nome || '—') + '</h4>' +
+              '<span class="shrink-0 font-mono text-xs text-stone-500">' + (p.inicioLocal || '—') +
+                (p.fimLocal ? ' → ' + p.fimLocal : '') + '</span>' +
+            '</div>' +
+            '<div class="flex items-center flex-wrap gap-2 mt-2">' +
+              '<span class="px-2.5 py-1 rounded-full text-xs font-semibold border ' + st.cls + '">' + st.texto + '</span>' +
+              '<span class="text-[11px] uppercase font-semibold text-stone-400">' + periodoLabel(p) + '</span>' +
+              '<span class="text-[11px] font-mono text-stone-400">' + duracao(p) + '</span>' +
+            '</div>' +
+          '</div>';
+        }).join('');
       }
+    }
+
+    const filtroAdmin = { busca: '' };
+
+    function buscarAdmin(valor) {
+      filtroAdmin.busca = valor;
+      renderAdminList();
     }
 
     function renderAdminList() {
       const container = document.getElementById('admin-collaborator-list');
       if (!container) return;
 
+      const busca = semAcento(filtroAdmin.busca.trim());
+      const lista = (state.collaborators || []).filter(c => !busca || semAcento(c.name).includes(busca));
+
+      const contador = document.getElementById('admin-count');
+      if (contador) {
+        contador.textContent = lista.length === (state.collaborators || []).length
+          ? lista.length + ' cadastrados'
+          : lista.length + ' de ' + state.collaborators.length;
+      }
+
+      if (lista.length === 0) {
+        container.innerHTML = '<p class="py-8 text-xs text-stone-400 text-center">Ninguém com esse nome.</p>';
+        return;
+      }
+
       // Colaborador não tem PIN neste modelo -- o que aparece é o estado da
       // pausa. O acesso ao café vem do código de 6 caracteres do Supervisor.
-      container.innerHTML = state.collaborators.map(c => \`
-        <div class="py-3 flex items-center justify-between">
-          <div>
-            <h4 class="text-sm font-bold text-coffee-950">\${c.name}</h4>
-            <p class="text-xs text-stone-500">\${c.role} • \${c.department}</p>
+      container.innerHTML = lista.map(c => \`
+        <div class="py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <h4 class="text-sm font-bold text-coffee-950 truncate">\${c.name}</h4>
+            <p class="text-xs text-stone-500 truncate">\${[c.turnoCru ? 'Turno ' + c.turnoCru : '', c.setorCru || ''].filter(Boolean).join(' • ') || 'Sem turno nem setor'}</p>
           </div>
-          <div class="flex items-center space-x-3">
-            <span class="text-xs px-2 py-1 rounded-full border font-semibold \${c.status === 'coffee_break' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}">
-              \${c.status === 'coffee_break' ? 'Em pausa' : 'Disponível'}
-            </span>
-          </div>
+          \${ehAdmin() ? '<button type="button" data-col-id="' + c.id + '" onclick="abrirEdicaoColaborador(this.dataset.colId)" class="shrink-0 px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold hover:bg-stone-50 transition-colors">Editar</button>' : ''}
         </div>
       \`).join('');
+      lucide.createIcons();
     }
 
     // ---- Histórico de um colaborador ---------------------------------------
@@ -1856,6 +2452,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (!lista) return;
       try {
         const data = await apiFetch('/admin/devices');
+        state.dispositivos = data.dispositivos || [];
         const devices = data.dispositivos || [];
 
         const ativos = devices.filter(d => d.ativo).length;
@@ -1872,7 +2469,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
           tile('Aguardando ativação', aguardando, 'text-stone-700');
 
         lista.innerHTML = devices.length === 0
-          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum aparelho cadastrado.</p>'
+          ? '<div class="px-6 py-12 text-center">' +
+              '<div class="w-12 h-12 rounded-2xl bg-stone-100 border border-stone-200 flex items-center justify-center mx-auto mb-3">' +
+                '<i data-lucide="smartphone" class="w-6 h-6 text-stone-400"></i>' +
+              '</div>' +
+              '<p class="text-sm font-semibold text-stone-600">Nenhum aparelho cadastrado</p>' +
+              '<p class="text-xs text-stone-400 mt-1 max-w-sm mx-auto">Um totem precisa de ser cadastrado aqui para receber o código de ativação. Só depois disso o aparelho consegue registar pausas.</p>' +
+              '<button type="button" onclick="abrirCadastroDispositivo()" class="mt-4 px-4 py-2 rounded-xl bg-coffee-900 text-white text-xs font-semibold shadow-sm hover:bg-coffee-800">Cadastrar o primeiro</button>' +
+            '</div>'
           : devices.map(d => \`
               <div class="px-4 md:px-6 pt-4 pb-2 flex flex-wrap items-center justify-between gap-3">
                 <div class="flex items-center space-x-3 min-w-0">
@@ -2139,14 +2743,56 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     // ---- Auditoria ---------------------------------------------------------
-    async function refreshAudit() {
+    /** Atalhos de periodo. dias=0 e hoje; 6 e a semana; 29 o mes. */
+    function periodoRapido(dias) {
+      const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      const fim = new Date();
+      const inicio = new Date(fim.getTime() - dias * 86400000);
+      const ei = document.getElementById('rep-inicio');
+      const ef = document.getElementById('rep-fim');
+      if (ei) ei.value = local(inicio);
+      if (ef) ef.value = local(fim);
+      refreshReports();
+    }
+
+    const filtroAuditoria = { busca: '' };
+
+    function buscarAuditoria(valor) {
+      filtroAuditoria.busca = valor;
+      renderAuditoria();
+    }
+
+    // As accoes saem dos proprios eventos: nao ha lista fixa no backend, e uma
+    // accao nova passa a aparecer no filtro sem ninguem tocar no codigo.
+    function renderOpcoesAcao() {
+      const sel = document.getElementById('audit-acao');
+      if (!sel) return;
+      const accoes = [...new Set((state.auditoria || []).map(e => e.acao).filter(Boolean))].sort();
+      const atual = sel.value;
+      sel.innerHTML = '<option value="">Todas as ações</option>' +
+        accoes.map(a => '<option value="' + a + '">' + a.replace(/_/g, ' ').toLowerCase() + '</option>').join('');
+      sel.value = accoes.includes(atual) ? atual : '';
+    }
+
+    function renderAuditoria() {
       const lista = document.getElementById('audit-list');
       if (!lista) return;
-      try {
-        const data = await apiFetch('/admin/auditoria');
-        const eventos = data.eventos || [];
-        lista.innerHTML = eventos.length === 0
-          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum evento no período.</p>'
+      const busca = semAcento(filtroAuditoria.busca.trim());
+      const eventos = (state.auditoria || []).filter(e => {
+        if (!busca) return true;
+        const alvo = (e.detalhes && e.detalhes.nome) ? e.detalhes.nome : (e.entidade || '');
+        return semAcento(e.atorNome || '').includes(busca) || semAcento(alvo).includes(busca);
+      });
+
+      const contador = document.getElementById('audit-count');
+      if (contador) {
+        contador.textContent = eventos.length === (state.auditoria || []).length
+          ? eventos.length + (eventos.length === 1 ? ' evento' : ' eventos')
+          : eventos.length + ' de ' + state.auditoria.length;
+      }
+
+      lista.innerHTML = eventos.length === 0
+          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum evento com estes filtros.</p>'
           : eventos.map(e => {
               const alvo = e.detalhes && e.detalhes.nome ? e.detalhes.nome : (e.entidade || '');
               return \`
@@ -2160,6 +2806,21 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 </div>
               \`;
             }).join('');
+      lucide.createIcons();
+    }
+
+    async function refreshAudit() {
+      const lista = document.getElementById('audit-list');
+      if (!lista) return;
+      try {
+        const acao = (document.getElementById('audit-acao') || {}).value || '';
+        const limite = (document.getElementById('audit-limite') || {}).value || '100';
+        const data = await apiFetch('/admin/auditoria?limite=' + limite + (acao ? '&acao=' + encodeURIComponent(acao) : ''));
+        state.auditoria = data.eventos || [];
+        // As opcoes so se recalculam sem filtro de accao: com filtro, a lista
+        // ficaria reduzida a uma unica opcao -- a que ja esta escolhida.
+        if (!acao) renderOpcoesAcao();
+        renderAuditoria();
       } catch (err) {
         if (err.message !== 'unauthenticated') {
           lista.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Apenas o Administrador pode ver a auditoria.</p>';
@@ -2180,6 +2841,102 @@ const HTML_CONTENT = `<!DOCTYPE html>
       EXPIRADO: { label: 'Expirado', cls: 'bg-stone-100 text-stone-500 border-stone-200' }
     };
 
+    const filtroCodigos = { busca: '' };
+
+    /**
+     * Quem ja tem codigo vivo nao aparece aqui: dois codigos ao mesmo tempo
+     * deixariam em aberto qual deles fecha a pausa.
+     */
+    function renderPessoasSemCodigo() {
+      const pessoas = document.getElementById('codes-people-list');
+      if (!pessoas) return;
+
+      const comCodigo = {};
+      (state.codes || []).filter(c => c.estado !== 'EXPIRADO')
+        .forEach(c => { comCodigo[c.colaboradorId] = true; });
+      const livres = (state.collaborators || []).filter(p => !comCodigo[p.id]);
+
+      const busca = semAcento(filtroCodigos.busca.trim());
+      const lista = busca ? livres.filter(p => semAcento(p.name).includes(busca)) : livres;
+
+      const contador = document.getElementById('codes-people-count');
+      if (contador) {
+        contador.textContent = lista.length === livres.length
+          ? livres.length + ' sem código'
+          : lista.length + ' de ' + livres.length;
+      }
+
+      if (livres.length === 0) {
+        pessoas.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Todo mundo já tem código vivo.</p>';
+        return;
+      }
+      if (lista.length === 0) {
+        pessoas.innerHTML = '<p class="px-6 py-8 text-xs text-stone-400 text-center">Ninguém com esse nome está sem código.</p>';
+        return;
+      }
+
+      pessoas.innerHTML = lista.map(p => {
+        // "Sem turno • Sem setor" nas cem linhas e ruido: a segunda linha so
+        // aparece quando ha mesmo alguma coisa para dizer.
+        const detalhe = [p.turnoCru ? 'Turno ' + p.turnoCru : '', p.setorCru || ''].filter(Boolean).join(' • ');
+        return '<div class="px-4 md:px-6 py-3 flex items-center justify-between gap-4">' +
+            '<div class="min-w-0">' +
+              '<h4 class="text-sm font-bold text-coffee-950 truncate">' + p.name + '</h4>' +
+              (detalhe ? '<p class="text-xs text-stone-500 truncate">' + detalhe + '</p>' : '') +
+            '</div>' +
+            '<button type="button" data-pessoa-id="' + p.id + '" onclick="emitirCodigo(this.dataset.pessoaId)" ' +
+              'class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amberAccent text-white text-xs font-semibold shadow hover:opacity-95">' +
+              '<i data-lucide="coffee" class="w-4 h-4"></i><span>Gerar</span>' +
+            '</button>' +
+          '</div>';
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function buscarPessoaCodigo(valor) {
+      filtroCodigos.busca = valor;
+      renderPessoasSemCodigo();
+    }
+
+    /**
+     * O prazo do codigo sao dois minutos. Mostrado uma vez e nunca mais mexido,
+     * o numero ja esta errado quando o Supervisor acaba de o ditar -- e o
+     * refresh de vinte segundos so o corrigiria aos saltos, num orcamento de
+     * cento e vinte. Conta-se no navegador a partir da ultima leitura.
+     */
+    function segundosRestantesCodigo(c) {
+      if (c.estado === 'EM_PAUSA') return null;
+      const decorrido = Math.floor((Date.now() - (state.codigosLidoEm || Date.now())) / 1000);
+      return Math.max(0, (c.expiraEmSegundos || 0) - decorrido);
+    }
+
+    function atualizarPrazosCodigos() {
+      let algumExpirou = false;
+      (state.codes || []).forEach(c => {
+        const no = document.getElementById('codigo-prazo-' + c.colaboradorId);
+        if (!no) return;
+        const resta = segundosRestantesCodigo(c);
+        if (resta === null) return;
+        no.textContent = resta === 0 ? 'expirado' : 'expira em ' + segundosParaRelogio(resta);
+        if (resta === 0) algumExpirou = true;
+        no.className = resta <= 30 ? 'text-red-600 font-semibold' : 'text-stone-500';
+      });
+      // Um codigo que chegou a zero deixou de servir: vale ir buscar a lista
+      // real em vez de deixar uma linha morta no ecra.
+      if (algumExpirou) refreshCodes();
+    }
+
+    async function copiarCodigo(texto) {
+      try {
+        await navigator.clipboard.writeText(texto);
+        showToast('Copiado', 'Código ' + texto + ' na área de transferência.', 'success');
+      } catch (_) {
+        // Sem HTTPS (por IP, por exemplo) o navegador recusa a area de
+        // transferencia. Dizer isso e melhor do que falhar em silencio.
+        showToast('Não deu para copiar', 'Anote o código: ' + texto, 'info');
+      }
+    }
+
     async function refreshCodes() {
       const lista = document.getElementById('codes-list');
       const pessoas = document.getElementById('codes-people-list');
@@ -2187,6 +2944,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       try {
         const data = await apiFetch('/supervisor/codigos');
         state.codes = data.codigos || [];
+        state.codigosLidoEm = Date.now();
 
         const vivos = state.codes.filter(c => c.estado !== 'EXPIRADO');
         document.getElementById('codes-count').textContent =
@@ -2196,19 +2954,22 @@ const HTML_CONTENT = `<!DOCTYPE html>
           ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Nenhum código vivo agora.</p>'
           : vivos.map(c => {
               const st = ESTADO_CODIGO[c.estado] || ESTADO_CODIGO.EXPIRADO;
-              const prazo = c.estado === 'EM_PAUSA'
-                ? 'Válido para o retorno, sem prazo'
-                : 'Expira em ' + segundosParaRelogio(c.expiraEmSegundos);
+              const resta = segundosRestantesCodigo(c);
+              const prazo = resta === null
+                ? 'válido para o retorno, sem prazo'
+                : (resta === 0 ? 'expirado' : 'expira em ' + segundosParaRelogio(resta));
               const periodo = c.periodo === 'MANHA' ? 'Manhã' : (c.periodo === 'TARDE' ? 'Tarde' : null);
               return \`
                 <div class="px-4 md:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center flex-wrap gap-2">
-                      <span class="font-mono text-lg font-extrabold text-coffee-900 tracking-widest">\${c.codigoFormatado}</span>
+                      <button type="button" data-codigo="\${c.codigo || c.codigoFormatado}" onclick="copiarCodigo(this.dataset.codigo)"
+                        title="Copiar código" aria-label="Copiar código \${c.codigoFormatado}"
+                        class="font-mono text-lg font-extrabold text-coffee-900 tracking-widest hover:bg-stone-100 rounded-lg px-1.5 -mx-1.5 transition-colors cursor-pointer">\${c.codigoFormatado}</button>
                       <span class="px-2.5 py-1 rounded-full text-xs font-semibold border \${st.cls}">\${st.label}</span>
                       \${periodo ? \`<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-stone-100 text-stone-600 border border-stone-200">\${periodo}</span>\` : ''}
                     </div>
-                    <p class="text-xs text-stone-500 mt-0.5 truncate">\${c.nome} · \${prazo}</p>
+                    <p class="text-xs mt-0.5 truncate"><span class="text-stone-500">\${c.nome}</span> · <span id="codigo-prazo-\${c.colaboradorId}" class="text-stone-500">\${prazo}</span></p>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
                     <button onclick="mostrarQr('\${c.colaboradorId}')"
@@ -2225,28 +2986,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
               \`;
             }).join('');
 
-        // Quem já tem código vivo não aparece para emitir outro: dois códigos
-        // ao mesmo tempo deixariam em aberto qual deles fecha a pausa.
-        const comCodigo = {};
-        vivos.forEach(c => { comCodigo[c.colaboradorId] = true; });
-        const livres = state.collaborators.filter(p => !comCodigo[p.id]);
-
-        pessoas.innerHTML = livres.length === 0
-          ? '<p class="px-6 py-8 text-xs text-stone-400 text-center">Todo mundo já tem código vivo.</p>'
-          : livres.map(p => \`
-              <div class="px-6 py-3 flex items-center justify-between gap-4">
-                <div class="min-w-0">
-                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${p.name}</h4>
-                  <p class="text-xs text-stone-500 truncate">\${p.role} • \${p.department}</p>
-                </div>
-                <button onclick="emitirCodigo('\${p.id}')"
-                  class="shrink-0 flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amberAccent text-white text-xs font-semibold shadow hover:opacity-95">
-                  <i data-lucide="coffee" class="w-4 h-4"></i>
-                  <span>Gerar</span>
-                </button>
-              </div>
-            \`).join('');
-
+        renderPessoasSemCodigo();
         lucide.createIcons();
       } catch (err) {
         if (err.message !== 'unauthenticated') {
@@ -2470,42 +3210,88 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     function openNewCollaboratorModal() {
-      document.getElementById('new-collaborator-modal').classList.remove('hidden');
-      document.getElementById('new-collaborator-modal').classList.add('flex');
+      const form = document.getElementById('new-col-form');
+      form.reset();
+      // Sem isto, abrir "Novo" depois de editar alguem gravaria por cima dessa
+      // pessoa em vez de criar.
+      delete form.dataset.colaboradorId;
+      document.getElementById('col-modal-titulo').textContent = 'Cadastrar Colaborador';
+      document.getElementById('col-modal-texto').textContent =
+        'O colaborador não tem senha nem PIN: quem libera a pausa é o código de café de 6 caracteres que o Supervisor emite na hora.';
+      document.getElementById('col-modal-salvar').textContent = 'Salvar Colaborador';
+      const modal = document.getElementById('new-collaborator-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
     }
+
 
     function closeNewCollaboratorModal() {
       document.getElementById('new-collaborator-modal').classList.add('hidden');
       document.getElementById('new-collaborator-modal').classList.remove('flex');
     }
 
-    async function handleCreateCollaborator(e) {
+    /**
+     * Cria e edita pelo mesmo formulario. Os campos sao os mesmos -- nome,
+     * setor e turno sao tudo o que a tabela colaboradores guarda de negocio --
+     * e duplicar o modal so daria duas validacoes para manter em dia.
+     *
+     * O PIN nao existe neste modelo: quem libera a pausa e o codigo de cafe
+     * emitido pelo Supervisor, com prazo e uso unico.
+     */
+    async function handleSalvarColaborador(e) {
       e.preventDefault();
-      const name = document.getElementById('col-name').value;
-      const role = document.getElementById('col-role').value;
+      const botao = document.getElementById('col-modal-salvar');
+      const id = document.getElementById('new-col-form').dataset.colaboradorId || '';
+      const nome = document.getElementById('col-name').value;
+      const turno = document.getElementById('col-role').value;
       const setor = document.getElementById('col-setor').value.trim();
 
-      // Vai para o backend real: mesma rota que o app usa, com a sessão Bearer.
-      // O PIN não existe neste modelo -- quem libera a pausa é o código de café
-      // emitido pelo Supervisor, com prazo e uso único.
-      const res = await fetch(API_BASE + '/gestao/colaboradores', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + getToken()
-        },
-        body: JSON.stringify({ nome: name, turno: role || null, setor: setor || null })
-      });
+      const editando = !!id;
+      botao.disabled = true;
+      botao.textContent = 'Salvando...';
+      try {
+        const res = await fetch(API_BASE + '/gestao/colaboradores' + (editando ? '/' + id : ''), {
+          method: editando ? 'PUT' : 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + getToken()
+          },
+          body: JSON.stringify({ nome: nome, turno: turno || null, setor: setor || null })
+        });
 
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        showToast('Sucesso', 'Colaborador adicionado!', 'success');
-        closeNewCollaboratorModal();
-        document.getElementById('new-col-form').reset();
-        await refreshData();
-      } else {
-        showToast('Erro', data.erro || 'Falha ao salvar.', 'error');
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          showToast('Sucesso', editando ? 'Dados atualizados.' : 'Colaborador adicionado!', 'success');
+          closeNewCollaboratorModal();
+          await refreshData();
+        } else {
+          showToast('Erro', data.erro || 'Falha ao salvar.', 'error');
+        }
+      } finally {
+        botao.disabled = false;
+        botao.textContent = editando ? 'Salvar Alterações' : 'Salvar Colaborador';
       }
+    }
+
+    function abrirEdicaoColaborador(id) {
+      const c = state.collaborators.find(x => x.id === id);
+      if (!c) return;
+      const form = document.getElementById('new-col-form');
+      form.reset();
+      form.dataset.colaboradorId = id;
+      document.getElementById('col-modal-titulo').textContent = 'Editar Colaborador';
+      document.getElementById('col-modal-texto').textContent =
+        'Alterar o nome nao apaga o historico: as pausas continuam ligadas a mesma pessoa.';
+      document.getElementById('col-modal-salvar').textContent = 'Salvar Alterações';
+      document.getElementById('col-name').value = c.name || '';
+      // setor e turno chegam ja com o texto de apresentacao; o formulario quer
+      // o valor cru, e "Sem setor" nao e um setor.
+      document.getElementById('col-setor').value = c.setorCru || '';
+      document.getElementById('col-role').value = c.turnoCru || '';
+      const modal = document.getElementById('new-collaborator-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.getElementById('col-name').focus();
     }
 
     function saveSettings() {
@@ -2581,6 +3367,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       btn.textContent = 'Entrando...';
       try {
         const user = await doLogin(email, password);
+        state.usuario = user;
         hideLogin();
         const quem = document.getElementById('session-user');
         if (quem) quem.textContent = user.name || user.email;
@@ -2599,8 +3386,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       clearToken();
       state.collaborators = [];
       state.history = [];
-      state.alerts = [];
-      renderTeamList(); renderHistoryTable(); renderAlerts(); renderAdminList();
+
+      renderTeamList(); renderHistoryTable(); renderAdminList();
       showLogin();
     }
 
@@ -2611,6 +3398,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // faz dele um totem, e nao mais um ecra de administrador. As outras abas
       // continuam a pedir login: quem toca nelas cai no overlay.
       totemBoot();
+      pintarBotaoAvisos();
       if (getToken()) { refreshData(); }
       else if (getDeviceToken()) { switchTab('kiosk'); }
       else { showLogin(); }
