@@ -29,6 +29,8 @@ const MIGRACOES = [
   '012_access_codes.sql',
   '013_colaborador_nome_unico.sql',
   '014_codigo_por_periodo_e_qr.sql',
+  '015_conta_ligada_a_colaborador.sql',
+  '016_cracha_permanente.sql',
 ]
 
 const connectionString = process.env.DATABASE_URL

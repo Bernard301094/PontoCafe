@@ -159,6 +159,21 @@ async function emitirParaPeriodo(
   colaboradorId: string,
   janela: Janela,
   motivo: string | null,
+  /**
+   * Código fixo, em vez de sorteado.
+   *
+   * É o crachá de quem tem conta: a cadeia é sempre a mesma, por isso o QR que
+   * ela gera também é sempre o mesmo e pode ser guardado. Continua a ser um
+   * código normal em tudo o resto -- vive dentro da janela do período, é
+   * cancelado e reemitido como qualquer outro, e a regra de uma pausa por
+   * período continua a valer. O que não muda é a imagem.
+   *
+   * Em troca, é um código que não caduca de facto: quem o fotografar pode
+   * registar a pausa daquela pessoa em qualquer dia. Por isso existe só para
+   * contas de Supervisor e Administrador, que são poucas e têm nome na
+   * auditoria -- nunca para os colaboradores.
+   */
+  codigoFixo?: string,
 ): Promise<EmissaoOk | EmissaoErro> {
   const emUso = await client.query<{ id: string; codigo: string }>(
     `select id,codigo from codigos_acesso
@@ -181,8 +196,11 @@ async function emitirParaPeriodo(
   )
 
   const id = newId()
-  for (let tentativa = 0; tentativa < CODE_GENERATION_ATTEMPTS; tentativa++) {
-    const candidato = generateAccessCode()
+  // Com código fixo não há sorteio nem retentativa: ou aquela cadeia entra, ou
+  // é colisão com outra pessoa e o chamador tem de saber.
+  const tentativas = codigoFixo ? 1 : CODE_GENERATION_ATTEMPTS
+  for (let tentativa = 0; tentativa < tentativas; tentativa++) {
+    const candidato = codigoFixo ?? generateAccessCode()
     try {
       const inserido = await client.query<{ criado_em: string; expira_em: string }>(
         `insert into codigos_acesso
@@ -486,4 +504,167 @@ accessCodeRoutes.post('/codigos/cancelar', async (c) => {
   }
 
   return c.json({ ok: true, cancelado: true, id: result.id })
+})
+
+/**
+ * O código próprio de quem está com a sessão aberta.
+ *
+ * Um Supervisor também toma café. Até aqui não conseguia mostrar um QR ao
+ * totem, porque o QR é `PONTOCAFE1|<uuid do colaborador>|<código>` e a conta
+ * dele não tinha uuid de colaborador nenhum. A migração 015 abriu o vínculo;
+ * estas duas rotas são o que o painel usa para o ler e para o emitir.
+ *
+ * Sem vínculo não é erro: é uma conta que administra e não bate ponto. A
+ * resposta diz `vinculado: false` e o painel explica em vez de falhar.
+ */
+accessCodeRoutes.get('/meu-codigo', async (c) => {
+  const actor = c.get('user')
+
+  const vinculo = (await query<{ colaborador_id: string | null; cracha_codigo: string | null }>(
+    'select colaborador_id,cracha_codigo from "user" where id=$1',
+    [actor.id],
+  )).rows[0]
+
+  if (!vinculo?.colaborador_id) return c.json({ vinculado: false })
+
+  const colaborador = (await query<{ id: string; nome: string; ativo: boolean }>(
+    'select id,nome,ativo from colaboradores where id=$1',
+    [vinculo.colaborador_id],
+  )).rows[0]
+
+  if (!colaborador || !colaborador.ativo) {
+    return c.json({ vinculado: false, aviso: 'O colaborador vinculado a esta conta está inativo.' })
+  }
+
+  // Só o código vivo deste período. Um expirado não serve para nada, e mostrar
+  // o QR de um código morto mandaria a pessoa ao totem para levar uma recusa.
+  const codigo = (await query<{
+    codigo: string
+    periodo: string | null
+    expiraEmSegundos: number
+    saidaEm: string | null
+  }>(
+    `select codigo,
+            periodo,
+            greatest(0, floor(extract(epoch from (expira_em - now())))::int) as "expiraEmSegundos",
+            saida_em::text as "saidaEm"
+       from codigos_acesso
+      where colaborador_id=$1
+        and cancelado_em is null
+        and retorno_em is null
+        and (saida_em is not null or expira_em > now())
+      order by criado_em desc
+      limit 1`,
+    [colaborador.id],
+  )).rows[0]
+
+  return c.json({
+    vinculado: true,
+    colaborador: { id: colaborador.id, nome: colaborador.nome },
+    // O crachá é o mesmo sempre: o QR pode ser mostrado mesmo antes de existir
+    // um código vivo. O que muda é se ele está activo agora, não a imagem.
+    cracha: vinculo.cracha_codigo
+      ? {
+          codigo: vinculo.cracha_codigo,
+          codigoFormatado: formatAccessCode(vinculo.cracha_codigo),
+          qrPayload: buildQrPayload(colaborador.id, vinculo.cracha_codigo),
+        }
+      : null,
+    codigo: codigo
+      ? {
+          codigo: codigo.codigo,
+          codigoFormatado: formatAccessCode(codigo.codigo),
+          qrPayload: buildQrPayload(colaborador.id, codigo.codigo),
+          periodo: codigo.periodo,
+          expiraEmSegundos: codigo.expiraEmSegundos,
+          emPausa: codigo.saidaEm !== null,
+        }
+      : null,
+  })
+})
+
+/**
+ * Emitir o próprio código.
+ *
+ * Não enfraquece o controlo: o código nunca foi uma autorização de duas
+ * pessoas, é o registo de que alguém com nome decidiu -- e `emitido_por`
+ * continua a guardar quem foi, aqui a própria pessoa. A auditoria mostra-o
+ * como qualquer outra emissão.
+ */
+accessCodeRoutes.post('/meu-codigo', async (c) => {
+  const actor = c.get('user')
+
+  const vinculo = (await query<{ colaborador_id: string | null; cracha_codigo: string | null }>(
+    'select colaborador_id,cracha_codigo from "user" where id=$1',
+    [actor.id],
+  )).rows[0]
+
+  if (!vinculo?.colaborador_id) {
+    return c.json({
+      erro: 'Esta conta não está vinculada a um colaborador. Peça a um Administrador para vincular.',
+      codigo: 'SEM_VINCULO',
+    }, 409)
+  }
+
+  let cracha = vinculo.cracha_codigo
+  if (!cracha) {
+    for (let tentativa = 0; tentativa < CODE_GENERATION_ATTEMPTS; tentativa++) {
+      const candidato = generateAccessCode()
+      const livre = await query(
+        'update "user" set cracha_codigo=$2 where id=$1 and cracha_codigo is null',
+        [actor.id, candidato],
+      )
+      if (livre.rowCount) { cracha = candidato; break }
+    }
+    if (!cracha) {
+      return c.json({ erro: 'Não foi possível sortear um crachá livre. Tente novamente.', codigo: 'COLISAO_CODIGO' }, 503)
+    }
+  }
+
+  const created = await transaction(async (client) => {
+    const collaborator = (await client.query<{ id: string; nome: string; setor: string | null; turno: string | null }>(
+      'select id,nome,setor,turno from colaboradores where id=$1 and ativo=true for update',
+      [vinculo.colaborador_id],
+    )).rows[0]
+    if (!collaborator) return { erro: 'COLABORADOR_INVALIDO' as const }
+
+    const janelas = await janelasDeHoje(client)
+    const janela = janelas.find((j) => !j.jaPassou)
+    if (!janela) return { erro: 'SEM_JANELA' as const }
+
+    const emissao = await emitirParaPeriodo(client, actor, collaborator.id, janela, 'Código próprio', cracha)
+    if (!emissao.ok) return { erro: emissao.erro, codigo: emissao.codigo }
+
+    await auditarEmissao(client, actor, emissao, collaborator, 'Código próprio')
+    return { ok: true as const, emissao, collaborator }
+  })
+
+  if ('erro' in created) {
+    if (created.erro === 'COLABORADOR_INVALIDO') {
+      return c.json({ erro: 'O colaborador vinculado está inativo.', codigo: 'COLABORADOR_INVALIDO' }, 404)
+    }
+    if (created.erro === 'SEM_JANELA') {
+      // O crachá ficou criado na mesma: o QR já existe e é o definitivo. Só
+      // não está activo, porque não há janela de café agora.
+      return c.json({
+        erro: 'Seu QR foi criado, mas não há janela de café aberta agora. Ele fica activo na próxima.',
+        codigo: 'SEM_JANELA',
+        cracha: { codigo: cracha, codigoFormatado: formatAccessCode(cracha) },
+      }, 409)
+    }
+    if (created.erro === 'EM_PAUSA') {
+      return c.json({ erro: 'Você está em pausa. O código que levou continua válido para o retorno.', codigo: 'EM_PAUSA' }, 409)
+    }
+    if (created.erro === 'JA_EMITIDO') {
+      return c.json({ erro: 'Já existe um código vivo deste período para você.', codigo: 'JA_EMITIDO' }, 409)
+    }
+    return c.json({ erro: 'Não foi possível sortear um código livre. Tente novamente.', codigo: 'COLISAO_CODIGO' }, 503)
+  }
+
+  return c.json({
+    codigo: created.emissao.codigo,
+    codigoFormatado: formatAccessCode(created.emissao.codigo),
+    qrPayload: buildQrPayload(created.collaborator.id, created.emissao.codigo),
+    periodo: created.emissao.periodo,
+  })
 })
