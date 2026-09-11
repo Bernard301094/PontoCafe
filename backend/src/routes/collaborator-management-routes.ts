@@ -28,6 +28,13 @@ const collaboratorInput = z.object({
   nome: z.string().trim().min(2).max(160),
   setor: z.string().trim().max(120).optional().nullable(),
   turno: z.string().trim().max(80).optional().nullable(),
+  /**
+   * A matrícula é o atalho do totem: a busca já a aceita, e escrever "47"
+   * deixa uma pessoa no ecrã onde o nome deixaria quatro. Até aqui nada a
+   * escrevia -- o cadastro inseria null e a edição nem a aceitava -- por isso
+   * toda a gente ficava sem ela e o atalho não existia na prática.
+   */
+  matricula: z.string().trim().max(40).optional().nullable(),
 })
 
 /**
@@ -41,13 +48,14 @@ collaboratorManagementRoutes.get('/colaboradores', async (c) => {
     nome: string
     setor: string | null
     turno: string | null
+    matricula: string | null
     ativo: boolean
     emPausa: boolean
     codigoAtivo: boolean
     pausaPeriodoConcluida: boolean
   }>(
     `with ${CURRENT_PERIOD_CTE}
-     select col.id,col.nome,col.setor,col.turno,col.ativo,
+     select col.id,col.nome,col.setor,col.turno,col.ativo,col.matricula,
             exists(
               select 1 from pausas_cafe p
                where p.colaborador_id=col.id and p.fim_em is null
@@ -90,8 +98,8 @@ collaboratorManagementRoutes.post('/colaboradores', async (c) => {
   const id = newId()
   try {
     await query(
-      'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,null,$2,$3,$4)',
-      [id, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
+      'insert into colaboradores (id,matricula,nome,setor,turno) values ($1,$5,$2,$3,$4)',
+      [id, body.data.nome, body.data.setor ?? null, body.data.turno ?? null, body.data.matricula || null],
     )
   } catch (erro) {
     if (nomeDuplicado(erro)) return c.json({ erro: ERRO_NOME_DUPLICADO }, 409)
@@ -138,10 +146,19 @@ collaboratorManagementRoutes.put('/colaboradores/:id', async (c) => {
       ativo: boolean
     }>(
       `update colaboradores
-          set nome=$2,setor=$3,turno=$4,atualizado_em=now()
+          set nome=$2,setor=$3,turno=$4,
+              matricula=case when $6::boolean then $5 else matricula end,
+              atualizado_em=now()
         where id=$1
         returning id,nome,setor,turno,ativo`,
-      [colaboradorId, body.data.nome, body.data.setor ?? null, body.data.turno ?? null],
+      [
+        colaboradorId,
+        body.data.nome,
+        body.data.setor ?? null,
+        body.data.turno ?? null,
+        body.data.matricula || null,
+        body.data.matricula !== undefined,
+      ],
     )
     const row = updated.rows[0]
     if (!row) return null

@@ -143,6 +143,41 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse-subtle" title="Sincronizado"></div>
     </div>
 
+    <!-- Menu do perfil.
+         Ate aqui nao havia forma nenhuma de sair: handleLogout existia e nenhum
+         botao lhe chamava, e o session-user que o JS procurava nunca esteve no
+         HTML. Quem entrasse num aparelho partilhado ficava la dentro. -->
+    <div id="perfil-wrap" class="relative">
+      <button type="button" id="perfil-botao" onclick="alternarMenuPerfil(event)"
+        aria-haspopup="true" aria-expanded="false"
+        class="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl border border-stone-200 hover:bg-stone-50 transition-colors">
+        <span id="perfil-iniciais" class="w-8 h-8 rounded-lg bg-coffee-800 text-amber-300 text-xs font-bold flex items-center justify-center shrink-0">--</span>
+        <span class="text-left hidden sm:block">
+          <span id="session-user" class="block text-xs font-bold text-coffee-950 leading-tight">—</span>
+          <span id="perfil-papel" class="block text-[10px] font-semibold text-stone-400 uppercase tracking-wider leading-tight">—</span>
+        </span>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-stone-400"></i>
+      </button>
+
+      <div id="perfil-menu" class="hidden absolute right-0 mt-2 w-60 bg-white rounded-2xl border border-stone-200 shadow-xl z-40 overflow-hidden">
+        <div class="px-4 py-3 border-b border-stone-100">
+          <p id="perfil-nome" class="text-sm font-bold text-coffee-950 truncate">—</p>
+          <p id="perfil-email" class="text-xs text-stone-500 truncate">—</p>
+        </div>
+        <!-- O código próprio. Um Supervisor também toma café: aqui está o QR
+             que ele mostra ao totem, no mesmo formato que o totem já lê. Só
+             aparece se a conta estiver vinculada a um colaborador. -->
+        <div id="perfil-codigo" class="px-4 py-3 border-b border-stone-100"></div>
+
+        <div class="p-1.5">
+          <button type="button" onclick="handleLogout()"
+            class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors">
+            <i data-lucide="log-out" class="w-4 h-4"></i><span>Sair da conta</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Mode Selector Tabs
          Em telas estreitas (A55 tem ~412px) sete abas não cabem numa linha:
          a faixa rola no eixo X em vez de espremer ou quebrar o cabeçalho. -->
@@ -237,12 +272,58 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 <i data-lucide="users" class="w-8 h-8"></i>
               </div>
               <h2 class="text-2xl font-bold text-coffee-950">Quem vai ao café?</h2>
-              <p class="text-sm text-stone-500 mt-1">Toque no seu nome e depois digite o código.</p>
+              <p class="text-sm text-stone-500 mt-1">Toque para se encontrar e depois digite o código.</p>
             </div>
-            <input id="totem-busca" oninput="renderTotemPessoas()" type="text" autocomplete="off"
-              placeholder="Buscar pelo nome ou matrícula"
-              class="w-full px-4 py-3 rounded-2xl border border-stone-300 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none mb-3">
-            <div id="totem-pessoas" class="max-h-[44vh] overflow-y-auto divide-y divide-stone-100"></div>
+
+            <!-- A lista fechada, e não aberta.
+                 Antes ficavam uma centena de nomes permanentemente no ecrã, à
+                 vista de quem passasse ao lado do quiosque -- a escala de quem
+                 trabalha ali, exposta o dia inteiro. Agora não se vê ninguém
+                 até alguém tocar, e mesmo aí a busca por matrícula deixa uma
+                 linha em vez de cem. -->
+            <div id="totem-combo" class="relative">
+              <button type="button" id="totem-combo-botao" onclick="totemAbrirLista()"
+                aria-haspopup="listbox" aria-expanded="false"
+                class="w-full flex items-center justify-between gap-3 px-4 py-4 rounded-2xl border-2 border-stone-300 bg-white text-left hover:border-amber-400 transition-colors">
+                <span class="flex items-center gap-3 min-w-0">
+                  <i data-lucide="user-round-search" class="w-5 h-5 text-stone-400 shrink-0"></i>
+                  <span id="totem-combo-rotulo" class="text-base font-semibold text-stone-500 truncate">Toque aqui para se encontrar</span>
+                </span>
+                <i data-lucide="chevron-down" class="w-5 h-5 text-stone-400 shrink-0"></i>
+              </button>
+
+              <div id="totem-combo-painel" class="hidden absolute left-0 right-0 top-full mt-2 z-30 bg-white rounded-2xl border border-stone-200 shadow-2xl overflow-hidden">
+                <div class="p-2 border-b border-stone-100">
+                  <input id="totem-busca" oninput="renderTotemPessoas()" type="text" autocomplete="off" inputmode="search"
+                    placeholder="Matrícula ou nome"
+                    class="w-full px-4 py-3 rounded-xl border border-stone-300 text-sm focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none">
+                </div>
+                <div id="totem-pessoas" role="listbox" class="max-h-[42vh] overflow-y-auto divide-y divide-stone-100 p-1"></div>
+              </div>
+            </div>
+
+            <!-- Atalho da câmara. Só aparece onde o QR foi liberado para este
+                 aparelho, e só se o navegador souber ler códigos. Um botão que
+                 existisse sempre e falhasse a seguir ensinaria a ignorá-lo. -->
+            <button type="button" id="totem-qr-botao" onclick="totemAbrirCamera()"
+              class="hidden w-full mt-2 flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl border-2 border-amber-300 bg-amber-50 text-coffee-900 font-bold hover:bg-amber-100 transition-colors">
+              <i data-lucide="qr-code" class="w-5 h-5"></i><span>Ler meu QR</span>
+            </button>
+
+            <!-- Leitor. O vídeo só existe enquanto está aberto: uma câmara
+                 ligada em segundo plano num quiosque é uma câmara a filmar a
+                 sala o dia inteiro. -->
+            <div id="totem-camera" class="hidden mt-3">
+              <div class="relative rounded-2xl overflow-hidden bg-stone-900 aspect-[4/3]">
+                <video id="totem-video" playsinline muted class="w-full h-full object-cover"></video>
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div class="w-2/3 aspect-square border-4 border-white/70 rounded-3xl"></div>
+                </div>
+              </div>
+              <p id="totem-camera-aviso" class="text-xs text-stone-500 text-center mt-2">Aponte o QR para a câmara.</p>
+              <button type="button" onclick="totemFecharCamera()"
+                class="w-full mt-2 py-3 rounded-2xl border border-stone-300 text-stone-600 font-semibold hover:bg-stone-50 text-sm">Cancelar</button>
+            </div>
           </div>
 
           <!-- PASSO 2: digitar o código de 6 caracteres -->
@@ -483,19 +564,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- MODAL: QR DO CÓDIGO DE CAFÉ -->
-    <div id="qr-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
-      <div class="bg-white w-full max-w-sm rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200 text-center">
-        <h3 id="qr-nome" class="text-xl font-bold text-coffee-950">—</h3>
-        <p id="qr-detalhe" class="text-sm text-stone-500 mt-1 mb-4">—</p>
-        <div class="inline-block p-3 bg-white rounded-2xl border border-stone-200 shadow-sm">
-          <canvas id="qr-canvas" class="block max-w-full h-auto"></canvas>
+    <!-- QR EM ECRÃ CHEIO.
+         O QR existe para ser lido por uma câmara a meio metro de distância, e
+         não para caber num cartão. Ocupa o ecrã todo, em fundo branco: um QR
+         pequeno, ou sobre fundo escuro, obriga a aproximar o aparelho até quase
+         tocar. O código de seis caracteres vai por baixo, grande, porque quando
+         a leitura falha é ele que se digita. -->
+    <div id="qr-modal" class="hidden fixed inset-0 z-50 bg-white items-center justify-center p-4">
+      <button type="button" onclick="fecharQr()" aria-label="Fechar"
+        class="absolute top-4 right-4 w-11 h-11 rounded-2xl border border-stone-200 text-stone-500 hover:bg-stone-50 flex items-center justify-center">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="w-full max-w-2xl text-center">
+        <h3 id="qr-nome" class="text-2xl sm:text-3xl font-extrabold text-coffee-950">—</h3>
+        <p id="qr-detalhe" class="text-sm text-stone-500 mt-1">—</p>
+
+        <div class="my-5 sm:my-7 flex justify-center">
+          <canvas id="qr-canvas" class="block w-full max-w-[min(78vw,420px)] h-auto"></canvas>
         </div>
-        <p class="text-[11px] text-stone-500 mt-4 leading-relaxed">
-          Este QR <span class="font-semibold">é</span> o código de 6 caracteres. Quem o receber pode registrar a pausa desta pessoa —
-          entregue só a ela, e libere a leitura por câmara apenas nos aparelhos que devem aceitá-la.
+
+        <p id="qr-codigo" class="font-mono text-4xl sm:text-5xl font-extrabold text-coffee-900 tracking-[0.2em] leading-none">—</p>
+        <p class="text-xs text-stone-400 mt-2">Se a câmara não ler, digite este código no totem.</p>
+
+        <p class="text-[11px] text-stone-500 mt-6 max-w-md mx-auto leading-relaxed">
+          Este QR <span class="font-semibold">é</span> o pase: quem o fotografar pode registar esta pausa.
+          Mostre-o ao totem e feche-o a seguir.
         </p>
-        <div class="flex gap-2 mt-5">
+
+        <div class="flex gap-2 mt-5 max-w-sm mx-auto">
           <button onclick="baixarQr()" class="flex-1 py-3 rounded-2xl border border-stone-300 text-stone-700 font-semibold hover:bg-stone-50 text-sm">Baixar PNG</button>
           <button onclick="fecharQr()" class="flex-1 py-3 rounded-2xl bg-coffee-900 text-white font-bold hover:bg-coffee-800 text-sm">Fechar</button>
         </div>
@@ -866,6 +963,12 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
 
           <div>
+            <label class="block text-xs font-semibold text-stone-700 mb-1">Matrícula</label>
+            <input type="text" id="col-matricula" placeholder="Ex: 047" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <p class="text-[11px] text-stone-400 mt-1">É o atalho do totem: digitar o número encontra a pessoa mais depressa do que o nome.</p>
+          </div>
+
+          <div>
             <label class="block text-xs font-semibold text-stone-700 mb-1">Setor</label>
             <input type="text" id="col-setor" placeholder="Ex: Produção" class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
           </div>
@@ -886,6 +989,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
             <button type="submit" id="col-modal-salvar" class="px-5 py-2 rounded-xl bg-coffee-800 hover:bg-coffee-900 text-white text-xs font-semibold shadow">Salvar Colaborador</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Vincular conta a colaborador.
+         Vincular tem consequencia: a partir daqui a pessoa conta como
+         colaboradora nos relatorios e as pausas dela medem-se pelos mesmos
+         limites. O dialogo diz isso antes, e nao depois. -->
+    <div id="vinculo-modal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-stone-200">
+        <h3 class="text-xl font-bold text-coffee-950 mb-1">Vincular colaborador</h3>
+        <p id="vinculo-conta" class="text-xs text-stone-500 mb-5">—</p>
+
+        <div class="relative mb-2">
+          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input id="vinculo-busca" type="search" autocomplete="off" placeholder="Buscar colaborador..."
+            aria-label="Buscar colaborador para vincular" oninput="renderOpcoesVinculo()"
+            class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-stone-200 bg-stone-50 text-sm focus:outline-none focus:border-amberAccent" />
+        </div>
+        <div id="vinculo-lista" class="max-h-56 overflow-y-auto divide-y divide-stone-100 border border-stone-100 rounded-xl"></div>
+
+        <div class="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 mt-3">
+          <i data-lucide="info" class="w-4 h-4 text-amber-600 mt-0.5 shrink-0"></i>
+          <p class="text-[11px] text-amber-800">A partir do vínculo esta pessoa passa a contar como colaboradora: aparece nos relatórios e as pausas dela medem-se pelos mesmos limites.</p>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 pt-4 mt-3 border-t border-stone-100">
+          <button type="button" onclick="salvarVinculo(null)" class="px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Desvincular</button>
+          <button type="button" onclick="fecharVinculo()" class="px-4 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Cancelar</button>
+        </div>
       </div>
     </div>
 
@@ -1038,7 +1170,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       });
       // Sair da aba do totem apaga o código a meio: o próximo a chegar não
       // pode encontrar os caracteres de outra pessoa nas caixas.
-      if (tabId === 'kiosk') { totemBoot(); } else { totemLimparCodigo(); }
+      if (tabId === 'kiosk') { totemBoot(); } else { totemFecharCamera(); totemLimparCodigo(); }
       // O prazo do código corre em segundos: ao abrir a aba, relê do servidor.
       if (tabId === 'codes') { refreshCodes(); }
       if (tabId === 'history') { refreshHistorico(); }
@@ -1092,6 +1224,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (getDeviceToken()) {
         totemVoltarPessoa();
         carregarTotemPessoas();
+        totemAtualizarQr();
       } else {
         const campo = document.getElementById('totem-activation-input');
         if (campo) campo.focus();
@@ -1208,6 +1341,138 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
+    // ---- Leitor de QR do quiosque ------------------------------------------
+    //
+    // O QR traz PONTOCAFE1|<uuid>|<codigo>: resolve de uma vez os dois passos
+    // que de outro modo sao procurar-se na lista e digitar seis caracteres.
+    //
+    // Tres condicoes para o botao aparecer, e a ausencia e a resposta:
+    //   * o aparelho tem o QR liberado (por aparelho, decidido na Gestao);
+    //   * o navegador sabe ler codigos (BarcodeDetector);
+    //   * a pagina esta num contexto seguro -- a camara exige HTTPS ou
+    //     localhost, por isso entrar pelo IP da rede nao serve.
+
+    const camera = { stream: null, timer: null, lendo: false };
+
+    async function totemAtualizarQr() {
+      const botao = document.getElementById('totem-qr-botao');
+      if (!botao) return;
+      let liberado = false;
+      try {
+        const h = await deviceFetch('/ponto/horario');
+        liberado = !!(h && h.qrHabilitado);
+      } catch (_) { liberado = false; }
+
+      const suportado = typeof window !== 'undefined' && 'BarcodeDetector' in window && window.isSecureContext;
+      botao.classList.toggle('hidden', !(liberado && suportado));
+    }
+
+    async function totemAbrirCamera() {
+      const caixa = document.getElementById('totem-camera');
+      const video = document.getElementById('totem-video');
+      const aviso = document.getElementById('totem-camera-aviso');
+      if (!caixa || !video) return;
+
+      caixa.classList.remove('hidden');
+      aviso.textContent = 'A pedir acesso à câmara...';
+      try {
+        // A traseira, que e a que aponta para quem esta em frente ao quiosque.
+        camera.stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+      } catch (_) {
+        aviso.textContent = 'Sem acesso à câmara. Digite o código.';
+        return;
+      }
+
+      video.srcObject = camera.stream;
+      await video.play().catch(() => {});
+      aviso.textContent = 'Aponte o QR para a câmara.';
+
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      camera.lendo = true;
+      camera.timer = setInterval(async () => {
+        if (!camera.lendo) return;
+        let codigos = [];
+        try { codigos = await detector.detect(video); } catch (_) { return; }
+        const bruto = codigos[0] && codigos[0].rawValue;
+        if (bruto) totemLerQr(bruto);
+      }, 400);
+    }
+
+    function totemFecharCamera() {
+      camera.lendo = false;
+      clearInterval(camera.timer);
+      camera.timer = null;
+      if (camera.stream) {
+        // Parar cada faixa, e nao so esconder o video: a luz da camara tem de
+        // apagar-se: e o unico sinal que diz a quem esta na sala que ninguem
+        // esta a filmar.
+        camera.stream.getTracks().forEach((t) => t.stop());
+        camera.stream = null;
+      }
+      const video = document.getElementById('totem-video');
+      if (video) video.srcObject = null;
+      const caixa = document.getElementById('totem-camera');
+      if (caixa) caixa.classList.add('hidden');
+    }
+
+    /** Mesmo formato que o app Android le: PONTOCAFE1|<uuid>|<codigo>. */
+    function totemLerQr(bruto) {
+      const partes = String(bruto).trim().split('|');
+      if (partes.length !== 3 || partes[0] !== 'PONTOCAFE1') return;
+      const [, colaboradorId, codigo] = partes;
+
+      const pessoa = totem.pessoas.find((p) => p.id === colaboradorId);
+      if (!pessoa) {
+        // O servidor ja tira da lista quem fechou a pausa deste periodo. Dizer
+        // isto aqui da a frase certa de imediato, em vez de a ir buscar a um 403.
+        const aviso = document.getElementById('totem-camera-aviso');
+        if (aviso) aviso.textContent = 'Este QR não corresponde a ninguém disponível agora.';
+        return;
+      }
+
+      camera.lendo = false;
+      totemFecharCamera();
+      totemEscolher(colaboradorId).then(() => {
+        // O codigo entra sozinho: quem mostrou o QR nao tem de o digitar.
+        totem.codigo = String(codigo).toUpperCase().slice(0, TOTEM_CODE_LENGTH);
+        renderTotemBoxes();
+        if (totem.codigo.length === TOTEM_CODE_LENGTH) totemRegistrar();
+      });
+    }
+
+    function totemAbrirLista() {
+      const painel = document.getElementById('totem-combo-painel');
+      const botao = document.getElementById('totem-combo-botao');
+      const busca = document.getElementById('totem-busca');
+      if (!painel) return;
+      const abrir = painel.classList.contains('hidden');
+      painel.classList.toggle('hidden', !abrir);
+      if (botao) botao.setAttribute('aria-expanded', String(abrir));
+      if (abrir && busca) {
+        // Campo limpo a cada abertura: quem chega a seguir nao encontra a busca
+        // de quem esteve antes, nem fica a saber quem foi.
+        busca.value = '';
+        renderTotemPessoas();
+        busca.focus();
+      }
+    }
+
+    function totemFecharLista() {
+      const painel = document.getElementById('totem-combo-painel');
+      const botao = document.getElementById('totem-combo-botao');
+      if (painel) painel.classList.add('hidden');
+      if (botao) botao.setAttribute('aria-expanded', 'false');
+    }
+
+    // Tocar ao lado fecha. Num quiosque isto conta mais do que num ecra pessoal:
+    // a lista nao pode ficar aberta atras de quem ja se foi embora.
+    document.addEventListener('click', (e) => {
+      const combo = document.getElementById('totem-combo');
+      if (combo && !combo.contains(e.target)) totemFecharLista();
+    });
+
     function renderTotemPessoas() {
       const lista = document.getElementById('totem-pessoas');
       if (!lista) return;
@@ -1247,6 +1512,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
     async function totemEscolher(id) {
       const pessoa = totem.pessoas.find(p => p.id === id);
       if (!pessoa) return;
+      totemFecharLista();
       clearInterval(totem.timer);
       totem.pessoa = pessoa;
       totem.codigo = '';
@@ -1282,9 +1548,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
       totem.erro = false;
       const busca = document.getElementById('totem-busca');
       if (busca) busca.value = '';
+      totemFecharCamera();
       document.getElementById('totem-step-codigo').classList.add('hidden');
       document.getElementById('totem-step-recibo').classList.add('hidden');
       document.getElementById('totem-step-pessoa').classList.remove('hidden');
+      totemFecharLista();
       renderTotemPessoas();
     }
 
@@ -1500,7 +1768,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         });
         if (!res.ok) return;
         const data = await res.json().catch(() => ({}));
-        if (data && data.user) state.usuario = data.user;
+        if (data && data.user) { state.usuario = data.user; pintarPerfil(); }
       } catch (_) { /* sem sessao, fica o que o backend disser em cada rota */ }
     }
 
@@ -1511,6 +1779,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
     async function refreshData() {
       if (!getToken()) { showLogin(); return; }
       await recuperarSessao();
+      carregarMeuCodigo();
       try {
         // allSettled, e nao all: /admin/operacao/resumo exige perfil ADMIN, e
         // com all um Supervisor perdia a tela inteira por causa de um 403 num
@@ -1541,6 +1810,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
             name: c.nome,
             role: c.turno ? 'Turno ' + c.turno : 'Sem turno',
             department: c.setor || 'Sem setor',
+            matricula: c.matricula || '',
             setorCru: c.setor || '',
             turnoCru: c.turno || '',
             // Tem um passe vivo: e quem esta prestes a sair, ou ja saiu.
@@ -2972,10 +3242,6 @@ const HTML_CONTENT = `<!DOCTYPE html>
                     <p class="text-xs mt-0.5 truncate"><span class="text-stone-500">\${c.nome}</span> · <span id="codigo-prazo-\${c.colaboradorId}" class="text-stone-500">\${prazo}</span></p>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
-                    <button onclick="mostrarQr('\${c.colaboradorId}')"
-                      class="px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50 flex items-center gap-1.5">
-                      <i data-lucide="qr-code" class="w-4 h-4"></i><span>QR</span>
-                    </button>
                     \${c.estado === 'AGUARDANDO_SAIDA' ? \`
                       <button onclick="cancelarCodigo('\${c.colaboradorId}')"
                         class="px-3 py-2 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">
@@ -3028,23 +3294,25 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // o mostra aqui está a entregá-lo à pessoa -- por captura de ecrã, por
     // mensagem ou impresso. Por isso o aviso vem junto: reencaminhá-lo é
     // reencaminhar o código.
-    function mostrarQr(colaboradorId) {
-      const codigo = (state.codes || []).find(c => c.colaboradorId === colaboradorId);
-      if (!codigo || !codigo.qrPayload) {
+    const nomePeriodo = (p) => p === 'MANHA' ? 'manhã' : (p === 'TARDE' ? 'tarde' : 'avulso');
+
+    /** Desenha um payload qualquer. Serve o código de outra pessoa e o próprio. */
+    function mostrarQrPayload(nome, detalhe, payload, codigoFormatado) {
+      if (!payload) {
         showToast('Sem QR', 'Este código não tem QR. Atualize a lista.', 'error');
         return;
       }
+      document.getElementById('qr-nome').textContent = nome;
+      document.getElementById('qr-detalhe').textContent = detalhe;
+      const noCodigo = document.getElementById('qr-codigo');
+      if (noCodigo) noCodigo.textContent = codigoFormatado || '';
 
-      document.getElementById('qr-nome').textContent = codigo.nome;
-      const periodo = codigo.periodo === 'MANHA' ? 'manhã' : (codigo.periodo === 'TARDE' ? 'tarde' : 'avulso');
-      document.getElementById('qr-detalhe').textContent =
-        'Pausa da ' + periodo + ' · código ' + codigo.codigoFormatado;
-
-      const canvas = document.getElementById('qr-canvas');
+      // 720 px de lado: o canvas e desenhado grande e depois encolhido por CSS,
+      // por isso mantem-se nitido em ecras densos em vez de ficar serrilhado.
       new QRious({
-        element: canvas,
-        value: codigo.qrPayload,
-        size: 260,
+        element: document.getElementById('qr-canvas'),
+        value: payload,
+        size: 720,
         level: 'M',
         background: '#ffffff',
         foreground: '#1c1917'
@@ -3055,6 +3323,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       modal.classList.add('flex');
       lucide.createIcons();
     }
+
 
     function fecharQr() {
       const modal = document.getElementById('qr-modal');
@@ -3114,34 +3383,42 @@ const HTML_CONTENT = `<!DOCTYPE html>
       try {
         const data = await apiFetch('/admin/usuarios');
         const users = data.usuarios || data || [];
+        // O dialogo de vinculo precisa da lista para saber que colaboradores ja
+        // estao ocupados por outra conta.
+        state.usuarios = users;
         if (!users.length) {
           container.innerHTML = '<p class="text-xs text-stone-400 py-3">Nenhuma conta de acesso cadastrada.</p>';
           return;
         }
         container.innerHTML = users.map(u => {
-          const admin = (u.role || '').toLowerCase() === 'admin';
+          const admin = u.perfil === 'ADMIN';
+          const bloqueada = u.ativo === false;
+          const senhaProvisoria = !!u.trocaSenhaPendente;
           const perfil = admin ? 'Administrador' : 'Supervisor' + (u.turno ? ' · Turno ' + u.turno : '');
-          const nomeEsc = (u.name || '').replace(/'/g, "\\\\'");
+          const nomeEsc = (u.nome || '').replace(/'/g, "\\\\'");
           return \`
             <div class="py-3">
               <div class="flex items-center justify-between gap-3 flex-wrap">
                 <div class="min-w-0">
-                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${u.name}</h4>
+                  <h4 class="text-sm font-bold text-coffee-950 truncate">\${u.nome}</h4>
                   <p class="text-xs text-stone-500 truncate">\${u.email}</p>
+                  <p class="text-[11px] mt-0.5 truncate \${u.colaboradorNome ? 'text-emerald-700' : 'text-stone-400'}">\${u.colaboradorNome ? 'Colaborador: ' + u.colaboradorNome : 'Sem colaborador vinculado'}</p>
                 </div>
                 <div class="flex items-center space-x-2 shrink-0">
-                  \${u.banned ? '<span class="text-xs px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200 font-semibold">Bloqueada</span>' : ''}
-                  \${u.mustChangePassword ? '<span class="text-xs px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">Senha provisória</span>' : ''}
+                  \${bloqueada ? '<span class="text-xs px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200 font-semibold">Bloqueada</span>' : ''}
+                  \${senhaProvisoria ? '<span class="text-xs px-2 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">Senha provisória</span>' : ''}
                   <span class="text-xs px-2 py-1 rounded-full border font-semibold \${admin ? 'bg-coffee-100 text-coffee-800 border-coffee-200' : 'bg-stone-100 text-stone-600 border-stone-200'}">\${perfil}</span>
                 </div>
               </div>
               <div class="flex flex-wrap gap-2 mt-2">
                 <button onclick="mudarPerfil('\${u.id}', \${admin}, '\${u.turno || ''}')"
                   class="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${admin ? 'Tornar Supervisor' : 'Tornar Admin'}</button>
+                <button type="button" data-conta-id="\${u.id}" onclick="abrirVinculo(this.dataset.contaId)"
+                  class="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">\${u.colaboradorId ? 'Trocar colaborador' : 'Vincular colaborador'}</button>
                 <button onclick="redefinirSenha('\${u.id}')"
                   class="px-2.5 py-1.5 rounded-lg border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Redefinir senha</button>
-                <button onclick="bloquearUsuario('\${u.id}', \${!!u.banned})"
-                  class="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-50">\${u.banned ? 'Reativar' : 'Bloquear'}</button>
+                <button onclick="bloquearUsuario('\${u.id}', \${bloqueada})"
+                  class="px-2.5 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-50">\${bloqueada ? 'Reativar' : 'Bloquear'}</button>
                 <button onclick="excluirUsuario('\${u.id}', '\${nomeEsc}')"
                   class="px-2.5 py-1.5 rounded-lg border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50">Excluir</button>
               </div>
@@ -3245,6 +3522,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
       const nome = document.getElementById('col-name').value;
       const turno = document.getElementById('col-role').value;
       const setor = document.getElementById('col-setor').value.trim();
+      // Vai sempre, mesmo vazia: o PUT grava a matrícula, e omiti-la apagaria o
+      // número de quem for editado.
+      const matricula = document.getElementById('col-matricula').value.trim();
 
       const editando = !!id;
       botao.disabled = true;
@@ -3256,7 +3536,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + getToken()
           },
-          body: JSON.stringify({ nome: nome, turno: turno || null, setor: setor || null })
+          body: JSON.stringify({ nome: nome, turno: turno || null, setor: setor || null, matricula: matricula || null })
         });
 
         const data = await res.json().catch(() => ({}));
@@ -3286,6 +3566,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       document.getElementById('col-name').value = c.name || '';
       // setor e turno chegam ja com o texto de apresentacao; o formulario quer
       // o valor cru, e "Sem setor" nao e um setor.
+      document.getElementById('col-matricula').value = c.matricula || '';
       document.getElementById('col-setor').value = c.setorCru || '';
       document.getElementById('col-role').value = c.turnoCru || '';
       const modal = document.getElementById('new-collaborator-modal');
@@ -3368,9 +3649,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
       try {
         const user = await doLogin(email, password);
         state.usuario = user;
+        pintarPerfil();
         hideLogin();
-        const quem = document.getElementById('session-user');
-        if (quem) quem.textContent = user.name || user.email;
         await refreshData();
       } catch (err) {
         const erro = document.getElementById('login-error');
@@ -3382,8 +3662,213 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
+    // ---- Perfil -------------------------------------------------------------
+
+    function fecharMenuPerfil() {
+      const menu = document.getElementById('perfil-menu');
+      const botao = document.getElementById('perfil-botao');
+      if (menu) menu.classList.add('hidden');
+      if (botao) botao.setAttribute('aria-expanded', 'false');
+    }
+
+    function alternarMenuPerfil(e) {
+      if (e) e.stopPropagation();
+      const menu = document.getElementById('perfil-menu');
+      const botao = document.getElementById('perfil-botao');
+      if (!menu) return;
+      const abrir = menu.classList.contains('hidden');
+      menu.classList.toggle('hidden', !abrir);
+      // O prazo do código corre: ao abrir, relê em vez de mostrar o de antes.
+      if (abrir) carregarMeuCodigo();
+      if (botao) botao.setAttribute('aria-expanded', String(abrir));
+    }
+
+    // Clicar fora fecha, e Escape tambem: um menu que so fecha no mesmo botao
+    // que o abriu fica preso no ecra de quem clicou ao lado.
+    document.addEventListener('click', (e) => {
+      const wrap = document.getElementById('perfil-wrap');
+      if (wrap && !wrap.contains(e.target)) fecharMenuPerfil();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') fecharMenuPerfil();
+    });
+
+    /** Iniciais do primeiro nome e do ultimo apelido: "Ana Manuela Santos" da AS. */
+    function iniciaisDe(nome) {
+      const partes = (nome || '').trim().split(/\s+/).filter(Boolean);
+      if (partes.length === 0) return '--';
+      if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+      return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+    }
+
+    function pintarPerfil() {
+      const u = state.usuario;
+      const papel = ((u && u.role) || '').toLowerCase() === 'admin' ? 'Administrador' : 'Supervisor';
+      const nome = (u && (u.name || u.email)) || '—';
+      const def = (id, valor) => { const n = document.getElementById(id); if (n) n.textContent = valor; };
+      def('session-user', nome);
+      def('perfil-papel', u ? papel : '—');
+      def('perfil-iniciais', u ? iniciaisDe(u.name || u.email) : '--');
+      def('perfil-nome', nome);
+      def('perfil-email', (u && u.email) || '—');
+      const wrap = document.getElementById('perfil-wrap');
+      if (wrap) wrap.classList.toggle('hidden', !u);
+    }
+
+    // ---- Vincular conta a colaborador ---------------------------------------
+
+    let contaAVincular = null;
+
+    function abrirVinculo(contaId) {
+      const conta = (state.usuarios || []).find(u => u.id === contaId);
+      contaAVincular = contaId;
+      document.getElementById('vinculo-conta').textContent = conta ? conta.nome + ' · ' + conta.email : '';
+      document.getElementById('vinculo-busca').value = '';
+      renderOpcoesVinculo();
+      const modal = document.getElementById('vinculo-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.getElementById('vinculo-busca').focus();
+    }
+
+    function fecharVinculo() {
+      const modal = document.getElementById('vinculo-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      contaAVincular = null;
+    }
+
+    function renderOpcoesVinculo() {
+      const lista = document.getElementById('vinculo-lista');
+      if (!lista) return;
+      const busca = semAcento((document.getElementById('vinculo-busca') || {}).value || '');
+      // Um colaborador ja ligado a outra conta nao entra: o indice unico
+      // recusaria, e oferece-lo seria prometer o que vai falhar.
+      const ocupados = {};
+      (state.usuarios || []).forEach(u => { if (u.colaboradorId && u.id !== contaAVincular) ocupados[u.colaboradorId] = true; });
+      const opcoes = (state.collaborators || [])
+        .filter(c => !ocupados[c.id])
+        .filter(c => !busca || semAcento(c.name).includes(busca))
+        .slice(0, 60);
+
+      lista.innerHTML = opcoes.length === 0
+        ? '<p class="px-4 py-6 text-xs text-stone-400 text-center">Ninguém disponível com esse nome.</p>'
+        : opcoes.map(c =>
+            '<button type="button" data-col-id="' + c.id + '" onclick="salvarVinculo(this.dataset.colId)" ' +
+              'class="w-full text-left px-4 py-2.5 hover:bg-stone-50 transition-colors">' +
+              '<span class="block text-sm font-semibold text-coffee-950 truncate">' + c.name + '</span>' +
+            '</button>').join('');
+    }
+
+    async function salvarVinculo(colaboradorId) {
+      if (!contaAVincular) return;
+      const res = await fetch(API_BASE + '/admin/usuarios/' + contaAVincular + '/colaborador', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
+        body: JSON.stringify({ colaboradorId: colaboradorId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast(colaboradorId ? 'Vinculado' : 'Desvinculado', colaboradorId ? 'A conta passa a ter código próprio.' : 'A conta deixa de bater ponto.', 'success');
+        fecharVinculo();
+        await refreshUsers();
+        await carregarMeuCodigo();
+      } else {
+        showToast('Erro', data.erro || 'Não foi possível vincular.', 'error');
+      }
+    }
+
+    // ---- Código próprio -----------------------------------------------------
+
+    async function carregarMeuCodigo() {
+      const alvo = document.getElementById('perfil-codigo');
+      if (!alvo || !getToken()) return;
+      try {
+        const d = await apiFetch('/supervisor/meu-codigo');
+        state.meuCodigo = d;
+        pintarMeuCodigo();
+      } catch (err) {
+        if (err.message !== 'unauthenticated') alvo.innerHTML = '';
+      }
+    }
+
+    function pintarMeuCodigo() {
+      const alvo = document.getElementById('perfil-codigo');
+      const d = state.meuCodigo;
+      if (!alvo || !d) return;
+
+      // Conta sem vínculo administra e não bate ponto. Não é um erro, e por
+      // isso explica-se em vez de se oferecer um botão que ia falhar.
+      if (!d.vinculado) {
+        alvo.innerHTML = '<p class="text-[11px] text-stone-400 leading-snug">' +
+          'Esta conta não está vinculada a um colaborador, por isso não tem código de café próprio. ' +
+          'Um Administrador pode vinculá-la em Gestão &rsaquo; Contas de Acesso.</p>';
+        return;
+      }
+
+      // O crachá é a cadeia fixa. Enquanto não existir, ainda não foi gerado --
+      // e gerá-lo é o mesmo gesto de pedir o código do período.
+      if (!d.cracha) {
+        alvo.innerHTML = '<p class="text-[11px] font-semibold text-stone-500 mb-2">Meu QR de café</p>' +
+          '<button type="button" onclick="emitirMeuCodigo()" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-amberAccent text-white text-xs font-semibold shadow hover:opacity-95">' +
+            '<i data-lucide="qr-code" class="w-4 h-4"></i><span>Criar meu QR</span>' +
+          '</button>';
+        lucide.createIcons();
+        return;
+      }
+
+      // O QR mostra-se sempre, porque é sempre o mesmo. O que muda por baixo é
+      // se ele vale agora: sem código vivo do período, ainda não regista nada.
+      const estado = !d.codigo
+        ? { texto: 'sem código deste período', cls: 'text-stone-400' }
+        : (d.codigo.emPausa
+            ? { texto: 'em pausa · válido para o retorno', cls: 'text-amber-700' }
+            : { texto: 'activo · expira em ' + segundosParaRelogio(d.codigo.expiraEmSegundos), cls: 'text-emerald-700' });
+
+      alvo.innerHTML = '<p class="text-[11px] font-semibold text-stone-500 mb-1">Meu QR de café</p>' +
+        '<button type="button" onclick="mostrarMeuQr()" class="w-full text-left group">' +
+          '<span class="block font-mono text-lg font-extrabold text-coffee-900 tracking-widest leading-none group-hover:opacity-70 transition-opacity">' + d.cracha.codigoFormatado + '</span>' +
+          '<span class="block text-[11px] mt-0.5 ' + estado.cls + '">' + estado.texto + '</span>' +
+        '</button>' +
+        '<button type="button" onclick="mostrarMeuQr()" class="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-stone-200 text-stone-700 text-xs font-semibold hover:bg-stone-50">' +
+          '<i data-lucide="qr-code" class="w-4 h-4"></i><span>Mostrar em ecrã cheio</span>' +
+        '</button>' +
+        (!d.codigo
+          ? '<button type="button" onclick="emitirMeuCodigo()" class="mt-1.5 w-full px-3 py-2 rounded-xl bg-amberAccent text-white text-xs font-semibold shadow hover:opacity-95">Activar para este período</button>'
+          : '');
+      lucide.createIcons();
+    }
+
+    function mostrarMeuQr() {
+      const d = state.meuCodigo;
+      if (!d || !d.cracha) return;
+      fecharMenuPerfil();
+      const detalhe = !d.codigo
+        ? 'Sem código deste período — active antes de mostrar ao totem'
+        : (d.codigo.emPausa ? 'Em pausa · válido para o retorno' : 'Pausa da ' + nomePeriodo(d.codigo.periodo));
+      mostrarQrPayload(d.colaborador.nome, detalhe, d.cracha.qrPayload, d.cracha.codigoFormatado);
+    }
+
+    async function emitirMeuCodigo() {
+      const res = await fetch(API_BASE + '/supervisor/meu-codigo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast('Código gerado', 'Código ' + (data.codigoFormatado || '') + ' — mostre o QR ao totem.', 'success');
+        await carregarMeuCodigo();
+      } else {
+        showToast('Erro', data.erro || 'Não foi possível gerar o código.', 'error');
+      }
+    }
+
     function handleLogout() {
+      fecharMenuPerfil();
       clearToken();
+      state.usuario = null;
+      state.meuCodigo = null;
+      pintarPerfil();
       state.collaborators = [];
       state.history = [];
 
@@ -3398,6 +3883,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // faz dele um totem, e nao mais um ecra de administrador. As outras abas
       // continuam a pedir login: quem toca nelas cai no overlay.
       totemBoot();
+      pintarPerfil();
       pintarBotaoAvisos();
       if (getToken()) { refreshData(); }
       else if (getDeviceToken()) { switchTab('kiosk'); }
