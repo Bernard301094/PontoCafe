@@ -19,10 +19,14 @@ const mainActivity = readFileSync(
   'utf8',
 )
 
-test('o tema envolve toda a aplicação e segue o modo claro/escuro do sistema', () => {
+test('o tema envolve toda a aplicação e fica travado no modo claro', () => {
   assert.match(mainActivity, /PontoCafeTheme\s*\{/)
   assert.match(theme, /fun PontoCafeTheme\(/)
-  assert.match(theme, /darkTheme: Boolean = isSystemInDarkTheme\(\)/)
+  // O design entregue especifica só o modo claro, e o quiosque vive numa
+  // parede: seguir o modo do sistema mudaria o totem ao anoitecer. O esquema
+  // escuro continua definido como contraparte, mas ninguém o liga sozinho.
+  assert.match(theme, /darkTheme: Boolean = false/)
+  assert.doesNotMatch(theme, /isSystemInDarkTheme/)
   // O fundo é aplicado uma vez, por dentro do tema: nenhuma tela precisa
   // (nem deve) desenhar o seu próprio gradiente de fundo.
   assert.match(theme, /PontoCafeAppBackground\(darkTheme = darkTheme, content = content\)/)

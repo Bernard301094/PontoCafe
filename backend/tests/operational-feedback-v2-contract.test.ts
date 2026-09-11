@@ -58,7 +58,7 @@ test('feedback do Ponto diferencia confirmado, offline, limite excedido e recusa
   // O comprovante não pode dizer a mesma coisa nos quatro casos: quem
   // excedeu, quem registrou sem rede e quem foi recusado precisam de ações
   // diferentes ao sair do quiosque.
-  assert.match(pontoFlow, /if \(comprovante\.excedeuLimite\) Icons\.Default\.Warning else Icons\.Default\.CheckCircle/)
+  assert.match(pontoFlow, /if \(comprovante\.excedeuLimite\) Icons\.Default\.Warning else Icons\.Default\.Coffee/)
   assert.match(pontoFlow, /comprovante\.excedeuLimite -> PontoCafeTone\.WARNING/)
   assert.match(pontoFlow, /Retorno acima do limite/)
   assert.match(pontoFlow, /Registrado sem conexão/)
