@@ -19,7 +19,11 @@ test('skeleton reutilizável preserva a estrutura visual de listas', () => {
   assert.match(skeleton, /fun PontoCafeListSkeletonScreen\(/)
   assert.match(skeleton, /fun PontoCafeSkeletonRow\(/)
   assert.match(skeleton, /rememberInfiniteTransition/)
-  assert.match(skeleton, /PontoCafePremium\.glassStrong/)
+  // A mesma superfície das linhas reais (MaterialDesignSystem.kt). É isto que
+  // faz o esqueleto 'preservar a estrutura': se tivesse fundo próprio, a lista
+  // mudaria de cor ao acabar de carregar.
+  assert.match(skeleton, /containerColor = MaterialTheme\.colorScheme\.surfaceContainerLowest/)
+  assert.match(skeleton, /BorderStroke\(1\.dp, MaterialTheme\.colorScheme\.outlineVariant\)/)
 })
 
 test('Admin usa skeleton na carga inicial de Pessoas e Dispositivos', () => {
