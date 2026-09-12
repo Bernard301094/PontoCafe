@@ -19,6 +19,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
        num turno inteiro por causa de uma atualização silenciosa do CDN seria
        caro de descobrir. -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <!-- Descodificador de QR de reserva.
+       O BarcodeDetector do navegador é mais rápido e não custa nada, mas só o
+       Chrome e o Edge o têm: no Firefox e no Safari o botão da câmara
+       desaparecia, e um quiosque não escolhe o navegador que lhe calha. Isto
+       são 128 KB carregados em diferido, e só servem quando o nativo falta.
+       Fixa-se a versão: um "latest" muda debaixo dos pés de um aparelho que
+       fica anos na parede. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -49,6 +57,61 @@ const HTML_CONTENT = `<!DOCTYPE html>
     };
   </script>
   <style>
+    /* Controlos nativos com a roupa da casa.
+       Um <select> e um <input type=date> desenham-se com a chapa do sistema
+       operativo: seta cinzenta do Windows, tipografia diferente, altura que nao
+       bate com a dos outros campos. Ao lado de campos desenhados, sao o unico
+       sitio onde a aplicacao deixa de parecer dela.
+       O que se pode tocar e o controlo fechado; a lista que o <select> abre e
+       do sistema e nao aceita CSS -- trocar isso por uma lista desenhada
+       custaria teclado, leitor de ecra e o comportamento nativo do telemovel,
+       que e melhor do que qualquer imitacao. */
+    /* O <select> continua no DOM e continua a ser a fonte de verdade: o resto
+       do codigo le-lhe o .value, reescreve-lhe as <option> e ouve-lhe o change.
+       O que se esconde e apenas o desenho. Assim o controlo desenhado por cima
+       nao tem de reimplementar nada disso -- so o reflecte. */
+    select.pc-nativo {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Enquanto o JS nao corre, o <select> tem de continuar visivel e usavel --
+       senao uma falha no script deixaria o formulario sem o campo. */
+    select {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.7rem center;
+      padding-right: 2.2rem;
+    }
+
+    /* O icone do calendario do Chrome fica cinzento-sistema: pinta-se com o
+       castanho da marca em vez de o esconder -- escondido, ninguem descobre
+       que o campo abre um calendario. */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.45;
+      filter: sepia(1) saturate(3) hue-rotate(-15deg);
+    }
+    input[type="date"]:hover::-webkit-calendar-picker-indicator,
+    input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 0.85; }
+
+    /* O Safari no iOS alinha os campos de data ao centro e deixa-os mais altos
+       do que os de texto ao lado. */
+    input[type="date"], input[type="time"] {
+      -webkit-appearance: none;
+      appearance: none;
+      text-align: left;
+    }
+
     @keyframes pulse-subtle {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.6; }
@@ -376,8 +439,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
            com nomes. Entra "Ainda sem pausa", que e o que permite escalonar as
            saidas antes de ficar sem gente ao balcao. -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <button type="button" onclick="aplicarFiltroEquipe('todos')"
-          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
+        <button type="button" data-carta-equipe="todos" aria-pressed="false" onclick="aplicarFiltroEquipe('todos')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-all">
           <div class="flex items-center justify-between text-stone-400 mb-1">
             <span class="text-[10px] font-bold uppercase tracking-wider">Equipe</span>
             <i data-lucide="users" class="w-3.5 h-3.5"></i>
@@ -385,8 +448,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <div id="stat-total" class="text-xl font-bold text-coffee-950 leading-none">0</div>
         </button>
 
-        <button type="button" onclick="aplicarFiltroEquipe('pausa')"
-          class="text-left bg-white px-4 py-3 rounded-xl border border-amber-200 shadow-sm hover:border-amber-300 transition-colors">
+        <button type="button" data-carta-equipe="pausa" aria-pressed="false" onclick="aplicarFiltroEquipe('pausa')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-amber-200 shadow-sm hover:border-amber-300 transition-all">
           <div class="flex items-center justify-between text-amber-600 mb-1">
             <span class="text-[10px] font-bold uppercase tracking-wider">Em pausa</span>
             <i data-lucide="coffee" class="w-3.5 h-3.5"></i>
@@ -394,8 +457,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <div id="stat-coffee" class="text-xl font-bold text-amber-700 leading-none">0</div>
         </button>
 
-        <button type="button" onclick="aplicarFiltroEquipe('sem-pausa')"
-          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
+        <button type="button" data-carta-equipe="sem-pausa" aria-pressed="false" onclick="aplicarFiltroEquipe('sem-pausa')"
+          class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-all">
           <div class="flex items-center justify-between text-stone-400 mb-1">
             <span class="text-[10px] font-bold uppercase tracking-wider">Ainda sem pausa</span>
             <i data-lucide="clock" class="w-3.5 h-3.5"></i>
@@ -407,9 +470,12 @@ const HTML_CONTENT = `<!DOCTYPE html>
           class="text-left bg-white px-4 py-3 rounded-xl border border-stone-200 shadow-sm hover:border-stone-300 transition-colors">
           <div class="flex items-center justify-between text-stone-400 mb-1">
             <span class="text-[10px] font-bold uppercase tracking-wider">Códigos vivos</span>
-            <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+            <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
           </div>
-          <div id="stat-codigos-pendentes" class="text-xl font-bold text-coffee-950 leading-none">0</div>
+          <div class="flex items-end justify-between gap-2">
+            <div id="stat-codigos-pendentes" class="text-xl font-bold text-coffee-950 leading-none">0</div>
+            <span class="text-[10px] text-stone-400 leading-none pb-0.5">abrir</span>
+          </div>
         </button>
       </div>
 
@@ -992,6 +1058,35 @@ const HTML_CONTENT = `<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Diálogo próprio, no lugar do confirm() e do prompt() do navegador.
+         Os nativos não se desenham: aparecem colados ao topo do ecrã, com a
+         tipografia do sistema, a dizer "localhost:4000 diz" antes da frase.
+         Numa aplicação que a equipa usa o dia inteiro, é a única parte que não
+         parece dela -- e num quiosque de parede é a única que não se pode tocar
+         com o dedo grosso. -->
+    <div id="dialogo" class="hidden fixed inset-0 z-[60] bg-stone-900/60 backdrop-blur-sm items-center justify-center p-4">
+      <div class="bg-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-stone-200">
+        <div class="flex items-start gap-3">
+          <div id="dialogo-icone" class="w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center"></div>
+          <div class="min-w-0 flex-1">
+            <h3 id="dialogo-titulo" class="text-lg font-bold text-coffee-950 leading-tight">—</h3>
+            <p id="dialogo-texto" class="text-sm text-stone-500 mt-1 whitespace-pre-line"></p>
+          </div>
+        </div>
+
+        <div id="dialogo-campo-wrap" class="hidden mt-4">
+          <input id="dialogo-campo" type="text" autocomplete="off"
+            class="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <p id="dialogo-ajuda" class="text-[11px] text-stone-400 mt-1"></p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-5 mt-4 border-t border-stone-100">
+          <button type="button" id="dialogo-cancelar" class="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-600 text-xs font-semibold hover:bg-stone-50">Cancelar</button>
+          <button type="button" id="dialogo-confirmar" class="px-5 py-2.5 rounded-xl text-white text-xs font-semibold shadow">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Vincular conta a colaborador.
          Vincular tem consequencia: a partir daqui a pessoa conta como
          colaboradora nos relatorios e as pausas dela medem-se pelos mesmos
@@ -1285,8 +1380,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
-    function desvincularTotem() {
-      if (!confirm('Desvincular este aparelho? Ele deixa de registrar ponto ate ser ativado com um codigo novo.')) return;
+    async function desvincularTotem() {
+      const ok = await perguntar('Desvincular este aparelho?',
+        'Ele deixa de registar ponto até ser activado com um código novo.',
+        { confirmar: 'Desvincular', perigoso: true });
+      if (!ok) return;
       localStorage.removeItem('ponto_device_token');
       localStorage.removeItem('ponto_device_name');
       totem.pessoa = null;
@@ -1363,8 +1461,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
         liberado = !!(h && h.qrHabilitado);
       } catch (_) { liberado = false; }
 
-      const suportado = typeof window !== 'undefined' && 'BarcodeDetector' in window && window.isSecureContext;
-      botao.classList.toggle('hidden', !(liberado && suportado));
+      // A câmara exige contexto seguro -- HTTPS ou localhost. Entrar pelo IP da
+      // rede não serve, e é melhor não mostrar o botão do que mostrá-lo a
+      // falhar. Já o descodificador deixou de ser condição: se o navegador não
+      // trouxer um, entra o jsQR.
+      botao.classList.toggle('hidden', !(liberado && window.isSecureContext));
     }
 
     async function totemAbrirCamera() {
@@ -1389,13 +1490,41 @@ const HTML_CONTENT = `<!DOCTYPE html>
       await video.play().catch(() => {});
       aviso.textContent = 'Aponte o QR para a câmara.';
 
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const nativo = 'BarcodeDetector' in window ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
+      if (!nativo && typeof jsQR !== 'function') {
+        aviso.textContent = 'Este navegador não consegue ler QR. Digite o código.';
+        totemFecharCamera();
+        return;
+      }
+
+      // O jsQR lê pixels, não vídeo: é preciso um canvas pelo meio. Fica fora
+      // do ciclo para não se criar um a cada leitura.
+      const tela = nativo ? null : document.createElement('canvas');
+      const ctx2d = tela ? tela.getContext('2d', { willReadFrequently: true }) : null;
+
       camera.lendo = true;
       camera.timer = setInterval(async () => {
         if (!camera.lendo) return;
-        let codigos = [];
-        try { codigos = await detector.detect(video); } catch (_) { return; }
-        const bruto = codigos[0] && codigos[0].rawValue;
+        let bruto = null;
+
+        if (nativo) {
+          try {
+            const codigos = await nativo.detect(video);
+            bruto = codigos[0] && codigos[0].rawValue;
+          } catch (_) { return; }
+        } else {
+          if (!video.videoWidth) return;
+          // Metade da resolução: o QR do painel é grande no ecrã e o jsQR é
+          // puro JavaScript -- ler a imagem inteira a cada 400 ms faria o
+          // quiosque engasgar em aparelhos modestos.
+          tela.width = Math.round(video.videoWidth / 2);
+          tela.height = Math.round(video.videoHeight / 2);
+          ctx2d.drawImage(video, 0, 0, tela.width, tela.height);
+          const imagem = ctx2d.getImageData(0, 0, tela.width, tela.height);
+          const achado = jsQR(imagem.data, imagem.width, imagem.height, { inversionAttempts: 'dontInvert' });
+          bruto = achado && achado.data;
+        }
+
         if (bruto) totemLerQr(bruto);
       }, 400);
     }
@@ -2214,12 +2343,28 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
     function aplicarFiltroEquipe(status) {
       filtrosEquipe.status = status;
+
       document.querySelectorAll('[data-filtro-equipe]').forEach(b => {
         const activo = b.dataset.filtroEquipe === status;
         b.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' +
           (activo ? 'bg-coffee-900 text-white shadow-sm' : 'text-stone-600 hover:text-stone-900');
         b.setAttribute('aria-pressed', String(activo));
       });
+
+      // As cartas dizem o mesmo que os chips. Antes carregar numa carta mudava
+      // a lista e a carta ficava igual: quem carregou nao via onde tinha
+      // carregado, e o unico sinal estava nos chips, mais abaixo.
+      document.querySelectorAll('[data-carta-equipe]').forEach(carta => {
+        const activo = carta.dataset.cartaEquipe === status;
+        const ambar = carta.dataset.cartaEquipe === 'pausa';
+        carta.className = 'text-left px-4 py-3 rounded-xl shadow-sm transition-all ' + (activo
+          ? (ambar
+              ? 'bg-amber-50 border-2 border-amber-500 ring-2 ring-amber-100'
+              : 'bg-coffee-50 border-2 border-coffee-800 ring-2 ring-coffee-100')
+          : 'bg-white border ' + (ambar ? 'border-amber-200 hover:border-amber-300' : 'border-stone-200 hover:border-stone-300'));
+        carta.setAttribute('aria-pressed', String(activo));
+      });
+
       renderTeamList();
     }
 
@@ -2236,6 +2381,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // a lista viria vazia sem que nada no ecra explicasse porque.
       sel.value = setores.includes(filtrosEquipe.setor) ? filtrosEquipe.setor : '';
       filtrosEquipe.setor = sel.value;
+      // O rotulo do botao desenhado vive do change: reescrever as <option> por
+      // codigo nao o dispara.
+      sel.dispatchEvent(new Event('change', { bubbles: false }));
     }
 
     function renderTeamList() {
@@ -2506,15 +2654,17 @@ const HTML_CONTENT = `<!DOCTYPE html>
       showToast('Erro', data.erro || 'A operação não foi aceita.', 'error');
     }
 
-    function mudarPerfil(id, atualAdmin, turnoAtual) {
-      const novo = confirm(
+    async function mudarPerfil(id, atualAdmin, turnoAtual) {
+      const novo = await perguntar(
+        atualAdmin ? 'Rebaixar esta conta para Supervisor?' : 'Promover esta conta a Administrador?',
         atualAdmin
-          ? 'Rebaixar esta conta para Supervisor?'
-          : 'Promover esta conta a Administrador?'
-      );
+          ? 'Deixa de poder editar colaboradores, gerir contas e libertar o QR dos aparelhos.'
+          : 'Passa a poder editar colaboradores, gerir contas e libertar o QR dos aparelhos.',
+        { confirmar: atualAdmin ? 'Rebaixar' : 'Promover', perigoso: !atualAdmin });
       if (!novo) return;
       if (atualAdmin) {
-        const turno = prompt('Turno do Supervisor (A, B, C ou D):', turnoAtual || 'A');
+        const turno = await pedirTexto('Turno do Supervisor',
+          { valor: turnoAtual || 'A', placeholder: 'A', ajuda: 'Use A, B, C ou D.' });
         if (turno === null) return;
         if (!['A', 'B', 'C', 'D'].includes(turno.trim().toUpperCase())) {
           showToast('Turno inválido', 'Use A, B, C ou D.', 'error');
@@ -2527,8 +2677,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
-    function redefinirSenha(id) {
-      const nova = prompt('Nova senha (mínimo 10 caracteres). Em branco, o sistema gera uma provisória:');
+    async function redefinirSenha(id) {
+      const nova = await pedirTexto('Nova senha',
+        { tipo: 'password', placeholder: 'Mínimo 10 caracteres', ajuda: 'Em branco, o sistema gera uma provisória.' },
+        'A pessoa terá de a trocar no primeiro acesso.');
       if (nova === null) return;
       const corpo = nova.trim() ? { novaSenha: nova.trim() } : {};
       if (nova.trim() && nova.trim().length < 10) {
@@ -2539,15 +2691,21 @@ const HTML_CONTENT = `<!DOCTYPE html>
         (d) => d.senhaTemporaria ? 'Senha provisória: ' + d.senhaTemporaria : 'Senha redefinida.');
     }
 
-    function bloquearUsuario(id, bloqueada) {
+    async function bloquearUsuario(id, bloqueada) {
       const acao = bloqueada ? 'reativar' : 'bloquear';
-      if (!confirm(bloqueada ? 'Reativar esta conta?' : 'Bloquear o acesso desta conta?')) return;
+      const ok = await perguntar(
+        bloqueada ? 'Reactivar esta conta?' : 'Bloquear o acesso desta conta?',
+        bloqueada ? 'A pessoa volta a poder entrar no painel.' : 'A pessoa deixa de conseguir entrar até ser reactivada.',
+        { confirmar: bloqueada ? 'Reactivar' : 'Bloquear', perigoso: !bloqueada });
+      if (!ok) return;
       acaoUsuario('POST', '/admin/usuarios/' + id + '/' + acao, null,
         bloqueada ? 'Conta reativada.' : 'Conta bloqueada.');
     }
 
-    function excluirUsuario(id, nome) {
-      if (!confirm('Excluir a conta de "' + nome + '"? Não há como desfazer.')) return;
+    async function excluirUsuario(id, nome) {
+      const ok = await perguntar('Excluir a conta de ' + nome + '?',
+        'Não há como desfazer.', { confirmar: 'Excluir', perigoso: true });
+      if (!ok) return;
       acaoUsuario('POST', '/admin/usuarios/' + id + '/excluir', null, 'Conta excluída.');
     }
 
@@ -2658,11 +2816,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     async function editarRegra(periodo, inicio, fim, minutos) {
-      const novoInicio = prompt('Início da janela (HH:MM):', inicio);
+      const novoInicio = await pedirTexto('Início da janela',
+        { tipo: 'time', valor: inicio, ajuda: 'Formato HH:MM.' }, 'Período ' + periodo);
       if (novoInicio === null) return;
-      const novoFim = prompt('Fim da janela (HH:MM):', fim);
+      const novoFim = await pedirTexto('Fim da janela',
+        { tipo: 'time', valor: fim, ajuda: 'Formato HH:MM.' }, 'Período ' + periodo);
       if (novoFim === null) return;
-      const novoLimite = prompt('Teto da pausa, em minutos:', String(minutos));
+      const novoLimite = await pedirTexto('Tecto da pausa',
+        { tipo: 'number', valor: String(minutos), ajuda: 'Em minutos.' }, 'Período ' + periodo);
       if (novoLimite === null) return;
       const min = parseInt(novoLimite, 10);
       if (!/^\\d{2}:\\d{2}$/.test(novoInicio) || !/^\\d{2}:\\d{2}$/.test(novoFim)) {
@@ -2937,11 +3098,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // tomar. Todo o /admin/* está por baixo do requireRole(ADMIN) do backend.
     async function alternarQrDispositivo(id, ligadoAgora) {
       const ligar = !ligadoAgora;
-      if (ligar && !confirm(
-        'Liberar a leitura por QR neste aparelho?\\n\\n' +
-        'O QR contém o mesmo código de 6 caracteres. Quem tiver a imagem pode registrar a pausa daquela pessoa. ' +
-        'Cada batida por câmara fica marcada na auditoria.'
-      )) return;
+      if (ligar) {
+        const ok = await perguntar('Libertar a leitura por QR neste aparelho?',
+          'O QR contém o mesmo código de 6 caracteres. Quem tiver a imagem pode registar a pausa daquela pessoa. ' +
+          'Cada batida por câmara fica marcada na auditoria.',
+          { confirmar: 'Libertar', perigoso: true });
+        if (!ok) return;
+      }
 
       const res = await fetch(API_BASE + '/gestao/devices/' + id + '/qr', {
         method: 'PUT',
@@ -2957,8 +3120,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
       await refreshDevices();
     }
 
-    function renomearDispositivo(id, atual) {
-      const nome = prompt('Novo nome do aparelho:', atual || '');
+    async function renomearDispositivo(id, atual) {
+      const nome = await pedirTexto('Novo nome do aparelho',
+        { valor: atual || '', placeholder: 'Ex: Totem da entrada', ajuda: 'Mínimo 2 caracteres.' });
       if (nome === null) return;
       if (nome.trim().length < 2) {
         showToast('Nome inválido', 'Use ao menos 2 caracteres.', 'error');
@@ -2967,8 +3131,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
       acaoDispositivo('PUT', '/admin/devices/' + id + '/nome', { nome: nome.trim() }, 'Nome atualizado.');
     }
 
-    function definirPinDispositivo(id) {
-      const pin = prompt('PIN de desbloqueio do terminal (4 a 12 números):');
+    async function definirPinDispositivo(id) {
+      const pin = await pedirTexto('PIN de desbloqueio do terminal',
+        { tipo: 'password', placeholder: '4 a 12 números', ajuda: 'Só números.' });
       if (pin === null) return;
       if (!/^\\d{4,12}$/.test(pin.trim())) {
         showToast('PIN inválido', 'Use de 4 a 12 números.', 'error');
@@ -2980,7 +3145,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // O token novo tambem so e mostrado uma vez -- num toast que some em quatro
     // segundos nao da para copiar 10 caracteres com maiusculas e minusculas.
     async function novoTokenDispositivo(id, nome) {
-      if (!confirm('Gerar novo código de ativação? O aparelho para de registrar ponto até ser ativado outra vez com o código novo.')) return;
+      const ok = await perguntar('Gerar novo código de activação?',
+        'O aparelho pára de registar ponto até ser activado outra vez com o código novo.',
+        { confirmar: 'Gerar', perigoso: true });
+      if (!ok) return;
       try {
         const res = await fetch(API_BASE + '/admin/devices/' + id + '/novo-token', {
           method: 'POST',
@@ -3002,13 +3170,19 @@ const HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
-    function desativarDispositivo(id) {
-      if (!confirm('Bloquear o acesso deste aparelho? Ele deixa de registrar ponto até ser reativado.')) return;
+    async function desativarDispositivo(id) {
+      const ok = await perguntar('Bloquear o acesso deste aparelho?',
+        'Ele deixa de registar ponto até ser reactivado.',
+        { confirmar: 'Bloquear', perigoso: true });
+      if (!ok) return;
       acaoDispositivo('POST', '/admin/devices/' + id + '/desativar', null, 'Acesso bloqueado.');
     }
 
-    function excluirDispositivo(id, nome) {
-      if (!confirm('Excluir "' + nome + '" definitivamente? A credencial é revogada e não há como desfazer.')) return;
+    async function excluirDispositivo(id, nome) {
+      const ok = await perguntar('Excluir ' + nome + ' definitivamente?',
+        'A credencial é revogada e não há como desfazer.',
+        { confirmar: 'Excluir', perigoso: true });
+      if (!ok) return;
       acaoDispositivo('POST', '/admin/devices/' + id + '/excluir', null, 'Aparelho excluído.');
     }
 
@@ -3042,6 +3216,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       sel.innerHTML = '<option value="">Todas as ações</option>' +
         accoes.map(a => '<option value="' + a + '">' + a.replace(/_/g, ' ').toLowerCase() + '</option>').join('');
       sel.value = accoes.includes(atual) ? atual : '';
+      sel.dispatchEvent(new Event('change', { bubbles: false }));
     }
 
     function renderAuditoria() {
@@ -3267,7 +3442,10 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // TARDE. Cada um serve para sair e para voltar da sua pausa e vale até ao
     // fim da janela do seu período -- é o que permite entregar o QR de manhã.
     async function gerarCodigosDoDia() {
-      if (!confirm('Gerar os códigos de hoje para toda a equipe?\\n\\nQuem já tem código vivo de um período mantém o dele. Quem está em pausa não é tocado.')) return;
+      const ok = await perguntar('Gerar os códigos de hoje para toda a equipa?',
+        'Quem já tem código vivo de um período mantém o dele. Quem está em pausa não é tocado.',
+        { confirmar: 'Gerar' });
+      if (!ok) return;
       const res = await fetch(API_BASE + '/supervisor/codigos/dia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getToken() },
@@ -3715,6 +3893,217 @@ const HTML_CONTENT = `<!DOCTYPE html>
       if (wrap) wrap.classList.toggle('hidden', !u);
     }
 
+    // ---- Dropdowns desenhados ------------------------------------------------
+    //
+    // A lista que um <select> abre e desenhada pelo sistema operativo e nao
+    // aceita CSS: e a unica peca do painel que nao parece do painel.
+    //
+    // Em vez de a substituir e reimplementar tudo, o <select> fica onde estava,
+    // escondido, e continua a ser a fonte de verdade -- o resto do codigo
+    // continua a ler-lhe o .value, a reescrever-lhe as <option> e a ouvir-lhe o
+    // change, sem saber de nada disto. Por cima dele desenha-se um botao e uma
+    // lista que apenas o reflectem.
+    //
+    // O teclado e o leitor de ecra sao a razao de isto ter comentario: uma
+    // lista feita a mao que os perca e pior do que a do sistema, por mais bonita
+    // que seja. Dai o role=combobox, o aria-expanded, o aria-selected e as
+    // setas, o Enter, o Escape, o Home e o End.
+
+    function estilizarSelects() {
+      document.querySelectorAll('select:not(.pc-nativo)').forEach((nativo) => {
+        nativo.classList.add('pc-nativo');
+
+        const caixa = document.createElement('div');
+        caixa.className = 'relative';
+        nativo.parentNode.insertBefore(caixa, nativo);
+        caixa.appendChild(nativo);
+
+        const botao = document.createElement('button');
+        botao.type = 'button';
+        botao.className = nativo.dataset.pcClasse ||
+          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-stone-200 bg-stone-50 text-sm text-stone-700 text-left hover:border-stone-300 focus:outline-none focus:border-amberAccent transition-colors';
+        botao.setAttribute('role', 'combobox');
+        botao.setAttribute('aria-haspopup', 'listbox');
+        botao.setAttribute('aria-expanded', 'false');
+        const rotuloAria = nativo.getAttribute('aria-label');
+        if (rotuloAria) botao.setAttribute('aria-label', rotuloAria);
+
+        const texto = document.createElement('span');
+        texto.className = 'truncate';
+        const seta = document.createElement('i');
+        seta.setAttribute('data-lucide', 'chevron-down');
+        seta.className = 'w-4 h-4 text-stone-400 shrink-0';
+        botao.appendChild(texto);
+        botao.appendChild(seta);
+
+        const painel = document.createElement('div');
+        painel.className = 'hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white rounded-xl border border-stone-200 shadow-xl max-h-60 overflow-y-auto p-1';
+        painel.setAttribute('role', 'listbox');
+
+        caixa.appendChild(botao);
+        caixa.appendChild(painel);
+
+        const sincronizarRotulo = () => {
+          const escolhida = nativo.options[nativo.selectedIndex];
+          texto.textContent = escolhida ? escolhida.textContent : '';
+          texto.className = 'truncate' + (nativo.value ? '' : ' text-stone-400');
+        };
+
+        const desenharLista = () => {
+          painel.innerHTML = '';
+          Array.from(nativo.options).forEach((opcao, i) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.setAttribute('role', 'option');
+            const activa = i === nativo.selectedIndex;
+            item.setAttribute('aria-selected', String(activa));
+            item.className = 'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ' +
+              (activa ? 'bg-coffee-900 text-white font-semibold' : 'text-stone-700 hover:bg-stone-100');
+            item.textContent = opcao.textContent;
+            item.onclick = () => escolher(i);
+            painel.appendChild(item);
+          });
+        };
+
+        const escolher = (i) => {
+          if (i < 0 || i >= nativo.options.length) return;
+          nativo.selectedIndex = i;
+          sincronizarRotulo();
+          fechar();
+          // O change tem de ser disparado a mao: mudar o .value por codigo nao
+          // o dispara, e e dele que dependem os onchange ja espalhados no HTML.
+          nativo.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        const abrir = () => {
+          // Fecha qualquer outro antes: dois abertos sobrepostos nao se leem.
+          document.querySelectorAll('[role="listbox"]').forEach((p) => p.classList.add('hidden'));
+          desenharLista();
+          painel.classList.remove('hidden');
+          botao.setAttribute('aria-expanded', 'true');
+          const activa = painel.children[nativo.selectedIndex];
+          // Levar a opcao activa ao campo de visao e um mimo, nao a funcao:
+          // se o ambiente nao souber faze-lo, o dropdown abre na mesma.
+          if (activa && activa.scrollIntoView) activa.scrollIntoView({ block: 'nearest' });
+        };
+
+        const fechar = () => {
+          painel.classList.add('hidden');
+          botao.setAttribute('aria-expanded', 'false');
+        };
+
+        botao.onclick = (e) => {
+          e.stopPropagation();
+          painel.classList.contains('hidden') ? abrir() : fechar();
+        };
+
+        botao.onkeydown = (e) => {
+          const aberto = !painel.classList.contains('hidden');
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!aberto) return abrir();
+            escolher(nativo.selectedIndex + (e.key === 'ArrowDown' ? 1 : -1));
+            abrir();
+          } else if (e.key === 'Home' || e.key === 'End') {
+            e.preventDefault();
+            escolher(e.key === 'Home' ? 0 : nativo.options.length - 1);
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            aberto ? fechar() : abrir();
+          } else if (e.key === 'Escape') {
+            fechar();
+          }
+        };
+
+        document.addEventListener('click', (e) => { if (!caixa.contains(e.target)) fechar(); });
+
+        sincronizarRotulo();
+        // Quem reescrever as <option> por codigo nao tem de saber deste botao:
+        // basta disparar um change, ou o proximo abrir redesenha a lista.
+        nativo.addEventListener('change', sincronizarRotulo);
+      });
+      lucide.createIcons();
+    }
+
+    // ---- Diálogos próprios ---------------------------------------------------
+    //
+    // Substituem confirm() e prompt(). Devolvem promessa, para o sitio que os
+    // chama poder esperar pela resposta como esperava pela do navegador -- a
+    // diferenca e que agora sao await em vez de uma chamada que bloqueia tudo.
+
+    let dialogoAberto = null;
+
+    function fecharDialogo(resposta) {
+      const caixa = document.getElementById('dialogo');
+      if (caixa) { caixa.classList.add('hidden'); caixa.classList.remove('flex'); }
+      const resolver = dialogoAberto;
+      dialogoAberto = null;
+      if (resolver) resolver(resposta);
+    }
+
+    /**
+     * @param {{titulo, texto?, confirmar?, cancelar?, perigoso?, campo?}} o
+     * Com um campo, resolve com o texto escrito (ou null se cancelar). Sem
+     * ele, resolve com true/false.
+     */
+    function abrirDialogo(o) {
+      // Um dialogo por vez: abrir outro por cima deixaria a promessa do
+      // primeiro pendurada para sempre.
+      if (dialogoAberto) fecharDialogo(o.campo ? null : false);
+
+      const perigoso = !!o.perigoso;
+      const icone = document.getElementById('dialogo-icone');
+      icone.className = 'w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center ' +
+        (perigoso ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200');
+      icone.innerHTML = '<i data-lucide="' + (perigoso ? 'alert-triangle' : 'help-circle') + '" class="w-5 h-5"></i>';
+
+      document.getElementById('dialogo-titulo').textContent = o.titulo || '';
+      document.getElementById('dialogo-texto').textContent = o.texto || '';
+
+      const wrap = document.getElementById('dialogo-campo-wrap');
+      const campo = document.getElementById('dialogo-campo');
+      wrap.classList.toggle('hidden', !o.campo);
+      if (o.campo) {
+        campo.type = o.campo.tipo || 'text';
+        campo.value = o.campo.valor || '';
+        campo.placeholder = o.campo.placeholder || '';
+        document.getElementById('dialogo-ajuda').textContent = o.campo.ajuda || '';
+      }
+
+      const confirmar = document.getElementById('dialogo-confirmar');
+      const cancelar = document.getElementById('dialogo-cancelar');
+      confirmar.textContent = o.confirmar || 'Confirmar';
+      cancelar.textContent = o.cancelar || 'Cancelar';
+      confirmar.className = 'px-5 py-2.5 rounded-xl text-white text-xs font-semibold shadow ' +
+        (perigoso ? 'bg-red-600 hover:bg-red-700' : 'bg-coffee-800 hover:bg-coffee-900');
+
+      const caixa = document.getElementById('dialogo');
+      caixa.classList.remove('hidden');
+      caixa.classList.add('flex');
+      lucide.createIcons();
+
+      return new Promise((resolve) => {
+        dialogoAberto = resolve;
+        confirmar.onclick = () => fecharDialogo(o.campo ? campo.value : true);
+        cancelar.onclick = () => fecharDialogo(o.campo ? null : false);
+        if (o.campo) {
+          // Enter confirma, como no prompt do navegador.
+          campo.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); fecharDialogo(campo.value); } };
+          setTimeout(() => { campo.focus(); campo.select(); }, 0);
+        } else {
+          setTimeout(() => confirmar.focus(), 0);
+        }
+      });
+    }
+
+    const perguntar = (titulo, texto, extra) => abrirDialogo(Object.assign({ titulo, texto }, extra || {}));
+    const pedirTexto = (titulo, campo, texto) => abrirDialogo({ titulo, texto, campo, confirmar: 'Salvar' });
+
+    // Escape cancela, como no nativo.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && dialogoAberto) fecharDialogo(false);
+    });
+
     // ---- Vincular conta a colaborador ---------------------------------------
 
     let contaAVincular = null;
@@ -3882,6 +4271,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // sem ninguem da gestao ter sessao aberta neste navegador -- e isso que
       // faz dele um totem, e nao mais um ecra de administrador. As outras abas
       // continuam a pedir login: quem toca nelas cai no overlay.
+      estilizarSelects();
       totemBoot();
       pintarPerfil();
       pintarBotaoAvisos();
