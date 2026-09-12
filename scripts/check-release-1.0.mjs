@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 function read(path) {
   assert.ok(existsSync(path), `Arquivo obrigatório ausente: ${path}`)
@@ -57,6 +57,17 @@ assert.doesNotMatch(gradle, /mlkit/)
 assert.doesNotMatch(gradle, /facenet/i)
 assert.doesNotMatch(gradle, /face-detection|face_detection|facedetect/i)
 assert.match(gradle, /com\.google\.zxing:core/)
+// Um modelo não precisa de dependência para ser empacotado: basta ser copiado
+// para assets/. Foi por aí que um facenet.tflite de 23,7 MB entrou no APK sem
+// nada acusar, inerte mas a viajar em cada instalação.
+{
+  const assetsDir = new URL('../app/src/main/assets/', import.meta.url)
+  const ficheiros = readdirSync(assetsDir, { recursive: true, encoding: 'utf8' })
+  const modelos = ficheiros.filter((n) => /\.(tflite|lite|pb|onnx)$/i.test(n) && !n.includes('voice'))
+  assert.deepEqual(modelos, [], `modelo não-vocal em assets/: ${modelos.join(', ')}`)
+  const biometricos = ficheiros.filter((n) => /face|rosto|biometri/i.test(n))
+  assert.deepEqual(biometricos, [], `asset com nome biométrico: ${biometricos.join(', ')}`)
+}
 // A câmera é opcional: um totem de parede sem lente continua a bater ponto pelo
 // código digitado, e não pode ficar fora da loja por um caminho opcional.
 assert.match(manifest, /android:name="android\.hardware\.camera\.any" android:required="false"/)
