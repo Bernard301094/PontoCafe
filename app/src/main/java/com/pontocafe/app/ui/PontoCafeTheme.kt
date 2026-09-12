@@ -58,30 +58,51 @@ private val PlusJakartaSans = FontFamily(
 )
 
 /**
- * Constantes literais da paleta do design system "Ponto Café". Use estes valores
- * quando um componente precisa da cor exata da marca (vinheta do quiosque,
- * glow biométrico) em vez de um papel semântico do Material 3.
+ * A paleta da marca, igual à do painel web.
  *
- * A paleta sintetiza clareza corporativa (neutros frios, levemente azulados) com
- * o calor tátil do ritual do café (âmbar profundo tostado).
+ * Os valores são os mesmos que o `tailwind.config` do painel declara — a escala
+ * `coffee`, o `amberAccent` e o `warmCream`. Não é coincidência que se pareçam:
+ * são literalmente os mesmos hexadecimais, para que o totem no corredor e o
+ * painel no balcão não pareçam dois produtos.
+ *
+ * O que havia antes era a paleta do DESIGN.md: neutros frios, levemente
+ * azulados. Ela não estava errada em si, estava errada *aqui* -- o canvas era
+ * `#F9F9FF`, um branco com tinta azul, e ao lado do painel a app lia-se fria e
+ * clínica, que é o oposto de um ritual de café.
  */
 object PontoCafeBrand {
-    /** Espresso escuro -- fundo do modo restrito/quiosque (on-primary-fixed). */
-    val deepEspresso = Color(0xFF2F1500)
+    // A escala `coffee` do painel, do mais claro ao mais escuro.
+    val coffee50 = Color(0xFFFDF8F5)
+    val coffee100 = Color(0xFFF7EBE1)
+    val coffee200 = Color(0xFFEBD2BF)
+    val coffee300 = Color(0xFFDDB396)
+    val coffee400 = Color(0xFFC7906E)
+    val coffee500 = Color(0xFFA46B47)
+    val coffee600 = Color(0xFF845033)
+    val coffee700 = Color(0xFF683D26)
+    val coffee800 = Color(0xFF4F2E1C)
+    val coffee900 = Color(0xFF341D12)
+    val coffee950 = Color(0xFF1E0F09)
 
-    /** Âmbar tostado -- cor operacional primária da marca (primary). */
-    val tonalAmber = Color(0xFF8D4B00)
+    /** O âmbar da marca: o selo, a etapa, o realce. */
+    val amberAccent = Color(0xFFD97706)
 
-    /** Canvas claro levemente azulado do app (surface/background). */
-    val softCreamSurface = Color(0xFFF9F9FF)
+    /** Creme quente -- o canvas de todo o app (surface/background). */
+    val warmCream = Color(0xFFFAF7F2)
 
-    /** Azul-ardósia profundo -- texto sobre o canvas claro (on-surface). */
-    val darkSlate = Color(0xFF141B2B)
+    // Neutros quentes para texto secundário e bordas. São os `stone` do painel:
+    // cinzas com fundo quente, e não os azulados que o Material dá por omissão.
+    val stone200 = Color(0xFFE7E5E4)
+    val stone400 = Color(0xFFA8A29E)
+    val stone600 = Color(0xFF57534E)
+
+    /** Espresso escuro -- fundo do modo restrito/quiosque. */
+    val deepEspresso = coffee950
 
     /** Verde esmeralda -- estados verificados/ativos e sincronismo (tertiary). */
     val emeraldSync = Color(0xFF006C49)
 
-    /** Vermelho de violação/spoof -- mesma família do erro fiscal (error). */
+    /** Vermelho de violação -- mesma família do erro fiscal (error). */
     val crimsonSpoofAlert = Color(0xFFBA1A1A)
 }
 
@@ -92,24 +113,24 @@ object PontoCafeBrand {
  * que funcionam sobre os esquemas claro e escuro do Material 3. Novos componentes
  * devem preferir MaterialTheme.colorScheme.surfaceContainer* diretamente.
  *
- * As tinturas usam o âmbar claro (#FFB77D, o `inverse-primary` do design system)
+ * As tinturas usam o âmbar claro (#F0B27A, o `inverse-primary` da paleta)
  * e não o âmbar primário: sobre fundo quase preto o primário tostado some, e o
  * âmbar claro é justamente o papel que o design reserva a superfícies escuras.
  */
 object PontoCafePremium {
-    val backgroundTop = PontoCafeBrand.deepEspresso
-    val backgroundMid = Color(0xFF241000)
-    val backgroundBottom = Color(0xFF1A0B00)
-    val glass = Color(0x12FFB77D)
-    val glassStrong = Color(0x1EFFB77D)
-    val glassSoft = Color(0x14FFB77D)
-    val border = Color(0x35FFB77D)
-    val borderSoft = Color(0x24FFB77D)
-    val glow = Color(0xFFFFB77D)
-    val glowSoft = Color(0x24FFB77D)
+    val backgroundTop = PontoCafeBrand.coffee900
+    val backgroundMid = PontoCafeBrand.coffee950
+    val backgroundBottom = Color(0xFF150A05)
+    val glass = Color(0x12F0B27A)
+    val glassStrong = Color(0x1EF0B27A)
+    val glassSoft = Color(0x14F0B27A)
+    val border = Color(0x35F0B27A)
+    val borderSoft = Color(0x24F0B27A)
+    val glow = Color(0xFFF0B27A)
+    val glowSoft = Color(0x24F0B27A)
     val ice = Color(0xFF4EDEA3)
-    val textPrimary = PontoCafeBrand.softCreamSurface
-    val textSecondary = Color(0xFFDBC2B0)
+    val textPrimary = PontoCafeBrand.coffee50
+    val textSecondary = PontoCafeBrand.coffee300
 }
 
 // Contraparte escura do design system. O design entregue especifica só o modo
@@ -133,35 +154,35 @@ private val PontoCafeDarkColors = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF0F141D),
-    onBackground = Color(0xFFDFE2F4),
-    surface = Color(0xFF0F141D),
-    onSurface = Color(0xFFDFE2F4),
-    surfaceVariant = Color(0xFF444B5C),
-    onSurfaceVariant = Color(0xFFDBC2B0),
-    surfaceDim = Color(0xFF0F141D),
-    surfaceBright = Color(0xFF353A45),
-    surfaceContainerLowest = Color(0xFF090E17),
-    surfaceContainerLow = Color(0xFF171C26),
-    surfaceContainer = Color(0xFF1B202A),
-    surfaceContainerHigh = Color(0xFF262B35),
-    surfaceContainerHighest = Color(0xFF313640),
-    surfaceTint = Color(0xFFFFB77D),
-    outline = Color(0xFFA28D7C),
-    outlineVariant = Color(0xFF554336),
-    inverseSurface = Color(0xFFDFE2F4),
-    inverseOnSurface = Color(0xFF293040),
-    inversePrimary = PontoCafeBrand.tonalAmber,
+    background = PontoCafeBrand.coffee950,
+    onBackground = PontoCafeBrand.coffee50,
+    surface = PontoCafeBrand.coffee950,
+    onSurface = PontoCafeBrand.coffee50,
+    surfaceVariant = Color(0xFF4A3225),
+    onSurfaceVariant = PontoCafeBrand.coffee300,
+    surfaceDim = PontoCafeBrand.coffee950,
+    surfaceBright = Color(0xFF45291A),
+    surfaceContainerLowest = Color(0xFF150A05),
+    surfaceContainerLow = Color(0xFF26150D),
+    surfaceContainer = Color(0xFF2C1911),
+    surfaceContainerHigh = Color(0xFF3A2116),
+    surfaceContainerHighest = Color(0xFF47291B),
+    surfaceTint = Color(0xFFF0B27A),
+    outline = PontoCafeBrand.stone400,
+    outlineVariant = Color(0xFF4A3225),
+    inverseSurface = PontoCafeBrand.coffee50,
+    inverseOnSurface = PontoCafeBrand.coffee900,
+    inversePrimary = PontoCafeBrand.coffee900,
     scrim = Color(0xFF000000),
     // Iguais aos do esquema claro: é o que "fixed" quer dizer.
-    primaryFixed = Color(0xFFFFDCC3),
-    primaryFixedDim = Color(0xFFFFB77D),
-    onPrimaryFixed = Color(0xFF2F1500),
-    onPrimaryFixedVariant = Color(0xFF6E3900),
-    secondaryFixed = Color(0xFFFFDAD4),
-    secondaryFixedDim = Color(0xFFE3BEB8),
-    onSecondaryFixed = Color(0xFF2B1613),
-    onSecondaryFixedVariant = Color(0xFF5B403C),
+    primaryFixed = Color(0xFFFDEBD3),
+    primaryFixedDim = Color(0xFFF5C481),
+    onPrimaryFixed = PontoCafeBrand.coffee950,
+    onPrimaryFixedVariant = PontoCafeBrand.coffee700,
+    secondaryFixed = PontoCafeBrand.coffee100,
+    secondaryFixedDim = PontoCafeBrand.coffee200,
+    onSecondaryFixed = PontoCafeBrand.coffee950,
+    onSecondaryFixedVariant = PontoCafeBrand.coffee800,
     tertiaryFixed = Color(0xFF6FFBBE),
     tertiaryFixedDim = Color(0xFF4EDEA3),
     onTertiaryFixed = Color(0xFF002113),
@@ -170,14 +191,19 @@ private val PontoCafeDarkColors = darkColorScheme(
 
 // Esquema claro -- transcrição literal dos tokens do design system "Ponto Café".
 private val PontoCafeLightColors = lightColorScheme(
-    primary = PontoCafeBrand.tonalAmber,
+    // O primário é o `coffee-900`, e não o âmbar, porque é ele que veste os
+    // botões cheios -- e no painel todo botão de ação principal é
+    // `bg-coffee-900 text-white`. O âmbar entra como realce, nos papéis "fixed".
+    primary = PontoCafeBrand.coffee900,
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFB15F00),
-    onPrimaryContainer = Color(0xFFFFFBFF),
-    secondary = Color(0xFF745853),
+    primaryContainer = PontoCafeBrand.coffee800,
+    onPrimaryContainer = PontoCafeBrand.coffee100,
+    secondary = PontoCafeBrand.coffee600,
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFED7D0),
-    onSecondaryContainer = Color(0xFF795C57),
+    secondaryContainer = PontoCafeBrand.coffee100,
+    onSecondaryContainer = PontoCafeBrand.coffee800,
+    // O verde fica: não é cor de marca, é estado. Trocá-lo por âmbar faria
+    // "sincronizado" e "em pausa" deixarem de se distinguir num relance.
     tertiary = PontoCafeBrand.emeraldSync,
     onTertiary = Color(0xFFFFFFFF),
     tertiaryContainer = Color(0xFF00A572),
@@ -186,37 +212,39 @@ private val PontoCafeLightColors = lightColorScheme(
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF93000A),
-    background = PontoCafeBrand.softCreamSurface,
-    onBackground = PontoCafeBrand.darkSlate,
-    surface = PontoCafeBrand.softCreamSurface,
-    onSurface = PontoCafeBrand.darkSlate,
-    surfaceVariant = Color(0xFFDCE2F7),
-    onSurfaceVariant = Color(0xFF554336),
-    surfaceDim = Color(0xFFD3DAEF),
-    surfaceBright = PontoCafeBrand.softCreamSurface,
+    background = PontoCafeBrand.warmCream,
+    onBackground = PontoCafeBrand.coffee950,
+    surface = PontoCafeBrand.warmCream,
+    onSurface = PontoCafeBrand.coffee950,
+    surfaceVariant = PontoCafeBrand.coffee100,
+    onSurfaceVariant = PontoCafeBrand.stone600,
+    surfaceDim = PontoCafeBrand.coffee200,
+    surfaceBright = Color(0xFFFFFFFF),
+    // A rampa de superfícies sobe do branco para o café claro. O cartão do
+    // design é branco sobre o creme -- é esse contraste que o faz existir.
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF1F3FF),
-    surfaceContainer = Color(0xFFE9EDFF),
-    surfaceContainerHigh = Color(0xFFE1E8FD),
-    surfaceContainerHighest = Color(0xFFDCE2F7),
-    surfaceTint = Color(0xFF904D00),
-    outline = Color(0xFF887364),
-    outlineVariant = Color(0xFFDBC2B0),
-    inverseSurface = Color(0xFF293040),
-    inverseOnSurface = Color(0xFFEDF0FF),
-    inversePrimary = Color(0xFFFFB77D),
+    surfaceContainerLow = PontoCafeBrand.coffee50,
+    surfaceContainer = PontoCafeBrand.coffee100,
+    surfaceContainerHigh = Color(0xFFF1E0D0),
+    surfaceContainerHighest = PontoCafeBrand.coffee200,
+    surfaceTint = PontoCafeBrand.amberAccent,
+    outline = PontoCafeBrand.stone400,
+    outlineVariant = PontoCafeBrand.stone200,
+    inverseSurface = PontoCafeBrand.coffee900,
+    inverseOnSurface = PontoCafeBrand.coffee50,
+    inversePrimary = Color(0xFFF0B27A),
     scrim = Color(0xFF000000),
     // Papéis "fixed": por definição do Material 3 valem o mesmo no claro e no
-    // escuro. O design usa muito -- é deles que saem as pílulas de estado
-    // (âmbar claro para etapa, verde claro para "ativo/operacional").
-    primaryFixed = Color(0xFFFFDCC3),
-    primaryFixedDim = Color(0xFFFFB77D),
-    onPrimaryFixed = Color(0xFF2F1500),
-    onPrimaryFixedVariant = Color(0xFF6E3900),
-    secondaryFixed = Color(0xFFFFDAD4),
-    secondaryFixedDim = Color(0xFFE3BEB8),
-    onSecondaryFixed = Color(0xFF2B1613),
-    onSecondaryFixedVariant = Color(0xFF5B403C),
+    // escuro. É deles que saem as pílulas de estado -- e é aqui que o âmbar da
+    // marca aparece, como no painel, onde a etapa é `bg-amber-50 text-coffee-700`.
+    primaryFixed = Color(0xFFFDEBD3),
+    primaryFixedDim = Color(0xFFF5C481),
+    onPrimaryFixed = PontoCafeBrand.coffee950,
+    onPrimaryFixedVariant = PontoCafeBrand.coffee700,
+    secondaryFixed = PontoCafeBrand.coffee100,
+    secondaryFixedDim = PontoCafeBrand.coffee200,
+    onSecondaryFixed = PontoCafeBrand.coffee950,
+    onSecondaryFixedVariant = PontoCafeBrand.coffee800,
     tertiaryFixed = Color(0xFF6FFBBE),
     tertiaryFixedDim = Color(0xFF4EDEA3),
     onTertiaryFixed = Color(0xFF002113),
