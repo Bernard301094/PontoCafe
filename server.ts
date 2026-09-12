@@ -951,11 +951,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-stone-600 mb-1">Síntese de Voz (Feedback)</label>
-            <select id="setting-voice" class="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option value="enabled">Ativada (Fala o nome ao bater ponto)</option>
-              <option value="disabled">Desativada (Somente bipes/visual)</option>
+            <label class="block text-xs font-semibold text-stone-600 mb-1">Síntese de voz no totem</label>
+            <select id="setting-voice" onchange="guardarVoz(this.value)" class="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="enabled">Activada — fala o resultado ao bater ponto</option>
+              <option value="disabled">Desactivada — só o ecrã</option>
             </select>
+            <p class="text-[11px] text-stone-400 mt-1">Vale para o totem deste navegador. O app Android tem a sua própria voz.</p>
+            <button type="button" onclick="testarVoz()" class="mt-2 text-[11px] font-semibold text-amber-700 hover:text-amber-800">Ouvir um exemplo</button>
           </div>
 
           <div class="pt-4 border-t border-stone-100">
@@ -1195,10 +1197,28 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }, 1000);
     updateClock();
 
-    // Sound & Voice Guidance
+    // ---- Voz do quiosque -----------------------------------------------------
+    //
+    // Quem está diante do totem tem as mãos ocupadas ou o telemóvel na mão, e
+    // muitas vezes já se virou antes de o ecrã acabar de desenhar. A voz diz o
+    // que aconteceu sem obrigar a olhar -- é a mesma razão por que o app
+    // Android tem PontoVoiceGuidance, e daí as frases serem as dele.
+    //
+    // A preferência fica guardada neste navegador: um totem configurado uma vez
+    // não pode perder o som a cada recarga.
+
+    const VOZ_CHAVE = 'ponto_voz';
+
+    function vozLigada() {
+      const guardado = localStorage.getItem(VOZ_CHAVE);
+      return guardado === null ? true : guardado === '1';
+    }
+
     function speakVoice(text) {
-      if (!state.voiceEnabled || !('speechSynthesis' in window)) return;
+      if (!vozLigada() || !('speechSynthesis' in window)) return;
       try {
+        // Cancelar o anterior: duas frases sobrepostas não se entendem, e a
+        // que interessa é sempre a última.
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'pt-BR';
@@ -1206,6 +1226,19 @@ const HTML_CONTENT = `<!DOCTYPE html>
         window.speechSynthesis.speak(utterance);
       } catch (err) {
         console.warn('Speech error:', err);
+      }
+    }
+
+    /** As mesmas frases do PontoVoiceGuidance do Android, para as duas falarem igual. */
+    function falarComprovante(data) {
+      if (data.status === 'INICIO') {
+        const ate = (data.inicio || {}).retornoAteLocal;
+        speakVoice(ate ? 'Pausa iniciada. Retorne até ' + ate + '.' : 'Pausa iniciada.');
+      } else {
+        const r = data.retorno || {};
+        speakVoice(r.excedeuLimite
+          ? 'Retorno registrado. Atenção: o limite da pausa foi excedido.'
+          : 'Retorno registrado com sucesso.');
       }
     }
 
@@ -1779,6 +1812,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // --- Passo 3: comprovante -----------------------------------------------
 
     function totemRecibo(data) {
+      falarComprovante(data);
       const alvo = document.getElementById('totem-step-recibo');
       const nome = (data.colaborador && data.colaborador.nome) || (totem.pessoa && totem.pessoa.nome) || '';
       const primeiro = nome.split(' ')[0] || '';
@@ -3753,10 +3787,39 @@ const HTML_CONTENT = `<!DOCTYPE html>
       document.getElementById('col-name').focus();
     }
 
+    function guardarVoz(valor) {
+      localStorage.setItem(VOZ_CHAVE, valor === 'enabled' ? '1' : '0');
+      showToast(valor === 'enabled' ? 'Voz activada' : 'Voz desactivada',
+        valor === 'enabled' ? 'O totem passa a falar o resultado.' : 'O totem deixa de falar.', 'success');
+    }
+
+    function testarVoz() {
+      if (!('speechSynthesis' in window)) {
+        showToast('Sem suporte', 'Este navegador não faz síntese de voz.', 'error');
+        return;
+      }
+      if (!vozLigada()) {
+        showToast('Voz desactivada', 'Active-a primeiro para ouvir o exemplo.', 'info');
+        return;
+      }
+      speakVoice('Pausa iniciada. Retorne até 10 e 15.');
+    }
+
+    /**
+     * O select tem de mostrar o que esta guardado, e nao o primeiro <option>.
+     *
+     * Corre ANTES de estilizarSelects, de proposito: assim o dropdown desenhado
+     * le o valor certo ao ser criado. Disparar um change aqui parecia mais
+     * simples, mas acionaria o onchange do proprio select -- e o painel abria
+     * sempre com um toast a dizer que a voz tinha sido activada.
+     */
+    function pintarPreferenciaVoz() {
+      const sel = document.getElementById('setting-voice');
+      if (sel) sel.value = vozLigada() ? 'enabled' : 'disabled';
+    }
+
     function saveSettings() {
-      const voice = document.getElementById('setting-voice').value;
-      state.voiceEnabled = (voice === 'enabled');
-      showToast('Configurações Salvas', 'Parâmetros atualizados com sucesso.', 'success');
+      guardarVoz(document.getElementById('setting-voice').value);
     }
 
     // ---- Login -------------------------------------------------------------
@@ -4271,6 +4334,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
       // sem ninguem da gestao ter sessao aberta neste navegador -- e isso que
       // faz dele um totem, e nao mais um ecra de administrador. As outras abas
       // continuam a pedir login: quem toca nelas cai no overlay.
+      pintarPreferenciaVoz();
       estilizarSelects();
       totemBoot();
       pintarPerfil();
