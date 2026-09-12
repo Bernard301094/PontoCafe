@@ -560,6 +560,16 @@ private fun CollaboratorPickerStep(
         )
     }
 
+    // A folha da câmara vive neste passo porque é aqui que o QR faz sentido:
+    // ele traz a pessoa E o código, e por isso salta directamente para o
+    // comprovante sem passar pelo teclado.
+    if (state.lendoQr) {
+        QrScannerSheet(
+            onLeitura = { conteudo -> viewModel.lerQr(conteudo) },
+            onFechar = { viewModel.fecharLeitorQr() },
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -638,6 +648,25 @@ private fun CollaboratorPickerStep(
                     },
                     grande = true,
                 )
+
+                // O atalho da câmara só aparece onde foi liberado. Um botão que
+                // existisse sempre e falhasse com "não liberado" ensinaria a
+                // ignorá-lo; aqui a ausência é a própria resposta.
+                //
+                // Fica ao lado do seletor, e não no lugar dele: o QR resolve os
+                // dois passos de uma vez, mas quem o esqueceu em casa continua a
+                // ter o caminho de sempre à mão, sem ter de o procurar.
+                if (state.qrHabilitado) {
+                    PcSecondaryButton(
+                        text = "Ler meu QR",
+                        onClick = {
+                            onInteracao()
+                            viewModel.abrirLeitorQr()
+                        },
+                        icon = PontoQrIcon,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 // Contador com o selo de café à esquerda, como no design: diz
                 // quantas pessoas a lista tem antes de a folha ser aberta.
                 Row(

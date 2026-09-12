@@ -15,6 +15,7 @@ import { coffeeRuleRoutes } from './routes/coffee-rule-routes.js'
 import { collaboratorManagementRoutes } from './routes/collaborator-management-routes.js'
 import { deviceActivationRoutes } from './routes/device-activation-routes.js'
 import { deviceManagementRoutes } from './routes/device-management-routes.js'
+import { deviceQrRoutes } from './routes/device-qr-routes.js'
 import { deviceSetupRoutes } from './routes/device-setup-routes.js'
 import { deviceTelemetryRoutes } from './routes/device-telemetry-routes.js'
 import { deviceUnlockRoutes } from './routes/device-unlock-routes.js'
@@ -180,6 +181,13 @@ app.route('/admin', adminRoutes)
 app.route('/admin', accessCodeRoutes)
 app.route('/admin', auditRoutes)
 // Rotas específicas (importar/lote/histórico) precisam preceder /colaboradores/:id.
+// A liberação de QR é a única coisa de dispositivo que o Supervisor também
+// decide, e por isso mora em /gestao e não em /admin. Não é preferência de
+// arrumação: todo o /admin/* está por baixo do requireRole('ADMIN') que
+// device-management-routes instala, e um router de Supervisor pendurado ali
+// responderia 403 a quem devia poder usá-lo.
+app.route('/gestao', deviceQrRoutes)
+
 app.route('/gestao', workforceRoutes)
 app.route('/gestao', collaboratorManagementRoutes)
 app.route('/ponto', deviceUnlockRoutes)

@@ -14,6 +14,10 @@ const accessCodeRoutes = read('backend/src/routes/access-code-routes.ts')
 const pontoRoutes = read('backend/src/routes/ponto-routes.ts')
 const offlineRoutes = read('backend/src/routes/offline-routes.ts')
 const migration = read('database/012_access_codes.sql')
+const migrationQr = read('database/014_codigo_por_periodo_e_qr.sql')
+const qrPayload = read('backend/src/domain/qr-payload.ts')
+const deviceQrRoutes = read('backend/src/routes/device-qr-routes.ts')
+const pontoStatusRoutes = read('backend/src/routes/ponto-status-routes.ts')
 const application = read('backend/src/application.ts')
 const liveRoutes = read('backend/src/routes/live-routes.ts')
 const reportRoutes = read('backend/src/routes/report-routes.ts')
@@ -100,14 +104,60 @@ test('emitir um código enquanto a pessoa está fora é recusado', () => {
   assert.match(accessCodeRoutes, /O código que ela levou continua válido para o retorno/)
 })
 
-test('um código pendente é substituído, não acumulado', () => {
-  assert.match(accessCodeRoutes, /Uma pessoa só pode ter um código pendente por vez/)
+test('um código pendente é substituído, não acumulado — mas só o do mesmo período', () => {
+  // O invariante era "um código pendente por pessoa". A 014 estreitou-o para
+  // "um por pessoa, por período e por dia", porque a MANHÃ e a TARDE passaram a
+  // ser emitidas juntas e têm de coexistir. Reemitir continua a cancelar o
+  // anterior; o que não pode é o da manhã levar o da tarde consigo.
+  assert.match(accessCodeRoutes, /Só o código deste período e deste dia é substituído/)
   assert.match(accessCodeRoutes, /update codigos_acesso set cancelado_em=now\(\)/)
+  assert.match(accessCodeRoutes, /and periodo=\$2 and dia_operacional=\$3::date/)
+  assert.match(migrationQr, /ux_codigo_acesso_periodo_dia/)
+  assert.match(migrationQr, /on codigos_acesso \(colaborador_id, periodo, dia_operacional\)/)
 })
 
-test('a colisão de sorteio é reaproveitada em vez de estourar', () => {
+test('a colisão de sorteio é reaproveitada, e a do período não', () => {
+  // Duas unicidades diferentes chegam como 23505 e pedem respostas opostas:
+  // repetir o sorteio corrige a colisão da string, e não corrige nada quando já
+  // existe código daquele período. Distinguir pelo nome da restrição é o que
+  // impede um laço de seis tentativas idênticas seguido de um erro errado.
   assert.match(accessCodeRoutes, /CODE_GENERATION_ATTEMPTS/)
-  assert.match(accessCodeRoutes, /code\?: unknown \}\)\.code === '23505'\) continue/)
+  assert.match(accessCodeRoutes, /falha\.code !== '23505'/)
+  assert.match(accessCodeRoutes, /falha\.constraint === 'ux_codigo_acesso_periodo_dia'/)
+  assert.match(accessCodeRoutes, /return \{ ok: false, erro: 'JA_EMITIDO' \}/)
+})
+
+test('o código de período vive até ao fim da janela, e o QR carrega-o', () => {
+  // É a troca que permite o QR estar no telemóvel desde manhã: o prazo deixa de
+  // ser "dois minutos a partir da emissão" e passa a ser "até ao fim da janela
+  // deste período". Continua a travar só a saída.
+  assert.match(accessCodeRoutes, /\(\(\(now\(\) at time zone \$1\)::date \+ fim\) at time zone \$1\)/)
+  assert.match(accessCodeRoutes, /jaPassou/)
+  assert.match(accessCodeRoutes, /codigos\/dia/)
+  assert.match(qrPayload, /PONTOCAFE1/)
+  // O QR não inventa autoridade: leva o colaborador que o código já tinha.
+  assert.match(qrPayload, /buildQrPayload/)
+  assert.match(qrPayload, /parseQrPayload/)
+})
+
+test('a leitura por QR é liberada por aparelho e verificada no servidor', () => {
+  // O portão não pode viver só no ecrã: uma configuração mudada a meio do turno
+  // deixaria o botão na tela de um aparelho que já não devia aceitar câmara.
+  assert.match(registrationRoutes, /origem: z\.enum\(\['TECLADO', 'QR'\]\)/)
+  assert.match(registrationRoutes, /select qr_habilitado as habilitado from dispositivos/)
+  assert.match(registrationRoutes, /QR_NAO_LIBERADO/)
+  // E cada batida por câmara fica distinguível na trilha.
+  assert.match(registrationRoutes, /'PONTO_VIA_QR'/)
+  assert.match(migrationQr, /qr_habilitado boolean not null default false/)
+  assert.match(deviceQrRoutes, /LIBERAR_QR_DISPOSITIVO/)
+  assert.match(deviceQrRoutes, /requireRole\('ADMIN', 'SUPERVISOR'\)/)
+  // O montante importa tanto quanto o router: todo o /admin/* está por baixo do
+  // requireRole('ADMIN') que device-management-routes instala, e pendurar este
+  // router ali responderia 403 ao Supervisor que devia poder usá-lo. Só /gestao.
+  assert.match(application, /app\.route\('\/gestao', deviceQrRoutes\)/)
+  assert.doesNotMatch(application, /app\.route\('\/admin', deviceQrRoutes\)/)
+  // O aparelho descobre o estado do portão junto do horário, sem rota extra.
+  assert.match(pontoStatusRoutes, /qrHabilitado/)
 })
 
 test('a carência é gravada por pausa e entra em todo cálculo de limite', () => {

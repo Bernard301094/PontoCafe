@@ -176,3 +176,58 @@ userManagementRoutes.post('/usuarios', async (c) => {
     }, 500)
   }
 })
+
+/**
+ * Vincula (ou desvincula) a conta ao colaborador que essa pessoa é.
+ *
+ * Só o Administrador o faz -- todo este módulo já exige ADMIN. Vincular tem
+ * consequência real: a partir daí a pessoa conta como colaboradora, aparece
+ * nos relatórios e as suas pausas medem-se pelos mesmos limites. Enviar
+ * `colaboradorId: null` desfaz o vínculo sem apagar nada.
+ */
+userManagementRoutes.put('/usuarios/:id/colaborador', async (c) => {
+  const usuarioId = c.req.param('id')
+  const body = await parseJson(c, z.object({
+    colaboradorId: z.string().uuid().nullable(),
+  }))
+  if (!body.ok) return body.response
+
+  const alvo = (await query<{ id: string }>('select id from "user" where id=$1', [usuarioId])).rows[0]
+  if (!alvo) return c.json({ erro: 'Conta não encontrada.' }, 404)
+
+  if (body.data.colaboradorId) {
+    const colaborador = (await query<{ id: string; nome: string }>(
+      'select id,nome from colaboradores where id=$1 and ativo=true',
+      [body.data.colaboradorId],
+    )).rows[0]
+    if (!colaborador) return c.json({ erro: 'Colaborador não encontrado ou inativo.' }, 404)
+
+    // O índice único já recusa, mas uma mensagem clara poupa quem está a
+    // configurar de decifrar um erro de constraint.
+    const ocupado = (await query<{ id: string }>(
+      'select id from "user" where colaborador_id=$1 and id<>$2',
+      [body.data.colaboradorId, usuarioId],
+    )).rows[0]
+    if (ocupado) return c.json({ erro: 'Este colaborador já está vinculado a outra conta.' }, 409)
+  }
+
+  await query('update "user" set colaborador_id=$2, "updatedAt"=now() where id=$1', [
+    usuarioId,
+    body.data.colaboradorId,
+  ])
+
+  const actor = c.get('user')
+  await query(
+    `insert into auditoria (ator_auth_id,ator_tipo,acao,entidade,entidade_id,detalhes)
+     values ($1,$2,$3,'CONTA',$4,$5::jsonb)`,
+    [
+      actor.id,
+      actor.papel,
+      body.data.colaboradorId ? 'VINCULAR_COLABORADOR' : 'DESVINCULAR_COLABORADOR',
+      usuarioId,
+      JSON.stringify({ colaboradorId: body.data.colaboradorId }),
+    ],
+  )
+
+  return c.json({ ok: true, colaboradorId: body.data.colaboradorId })
+})

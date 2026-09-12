@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pontocafe.app.PontoCafeViewModel
@@ -61,8 +62,13 @@ fun DeviceSetupScreen(
     // Sugestão de colar só aparece se o conteúdo da área de transferência já
     // parece um código de ativação válido (10 caracteres alfanuméricos) — não
     // preenche sozinho, é sempre uma sugestão que a pessoa confirma com um toque.
+    //
+    // O código vem do alfabeto de 62 símbolos, onde `a` e `A` são caracteres
+    // diferentes. Normalizar para maiúsculas aqui destruía metade dos códigos
+    // colados: o servidor comparava o hash de outra string e devolvia sempre
+    // "token inválido", sem nada no ecrã a explicar porquê.
     LaunchedEffect(Unit) {
-        val clipped = clipboard.getText()?.text?.trim()?.uppercase()
+        val clipped = clipboard.getText()?.text?.trim()
         if (clipped != null && looksLikeActivationToken(clipped) && clipped != token) {
             clipboardSuggestion = clipped
         }
@@ -170,8 +176,14 @@ fun DeviceSetupScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Código de 10 caracteres") },
-                    supportingText = { Text("${token.length}/10") },
+                    supportingText = { Text("${token.length}/10 · letras e números, maiúsculas e minúsculas contam") },
+                    // Sem capitalização automática e sem correção: o teclado do
+                    // sistema costuma promover a primeira letra a maiúscula, e
+                    // num código onde `a` e `A` são símbolos distintos isso é um
+                    // erro que a pessoa não consegue ver enquanto digita.
                     keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
                         keyboardType = KeyboardType.Ascii,
                         imeAction = ImeAction.Done,
                     ),

@@ -16,23 +16,56 @@ const telemetry = read('backend/src/routes/device-telemetry-routes.ts')
 const diagnosticClient = read('app/src/main/java/com/pontocafe/app/data/AdminReliabilityApiClient.kt')
 const diagnosticUi = read('app/src/main/java/com/pontocafe/app/ui/SystemDiagnosticsScreen.kt')
 const manifest = read('app/src/main/AndroidManifest.xml')
+const scannerSheet = read('app/src/main/java/com/pontocafe/app/ui/QrScannerSheet.kt')
+const flowHost = read('app/src/main/java/com/pontocafe/app/ui/PontoFlowHost.kt')
 const workflow = read('.github/workflows/validate.yml')
 const releaseGate = read('scripts/check-release-1.0.mjs')
 const migration = read('database/007_ponto_operation_idempotency.sql')
 const readinessIndexes = read('database/008_release_readiness_indexes.sql')
 
-test('Android candidata 1.0 mantém identidade Release e nenhum vestígio de câmera', () => {
+test('Android candidata 1.0 mantém identidade Release e nenhum vestígio de biometria', () => {
   assert.match(gradle, /versionCode = 110/)
   assert.match(gradle, /versionName = "1\.1\.0"/)
   assert.match(gradle, /isMinifyEnabled = true/)
   assert.match(gradle, /isShrinkResources = true/)
-  // O APK deixou de reconhecer rostos: nenhuma dependência de câmera, ML Kit
-  // ou TFLite pode voltar por descuido, nem o download do modelo FaceNet.
+
+  // O APK deixou de reconhecer rostos, e isso não mudou.
+  //
+  // O que mudou foi o alcance da guarda. Enquanto não havia uso legítimo de
+  // câmera, proibi-la inteira era a forma barata de proibir a biometria. A
+  // leitura do QR do café trouxe um uso legítimo, e a guarda estreitou-se para
+  // o que sempre quis dizer: nada que reconheça pessoas.
+  //
+  // A distinção não é retórica. O caminho do QR lê um quadrado preto e branco e
+  // devolve 52 caracteres de texto; não extrai template, não guarda imagem, não
+  // carrega modelo. Um motor de rosto faz as três coisas -- e é por isso que
+  // são estes nomes que continuam banidos, e não a palavra "câmera".
   assert.doesNotMatch(gradle, /play-services-tflite/)
-  assert.doesNotMatch(gradle, /androidx\.camera/)
   assert.doesNotMatch(gradle, /mlkit/)
   assert.doesNotMatch(gradle, /facenet/i)
-  assert.doesNotMatch(manifest, /permission\.CAMERA/)
+  assert.doesNotMatch(gradle, /face-detection|face_detection|facedetect/i)
+})
+
+test('a câmera do APK só sabe ler QR, e só quando alguém a pede', () => {
+  // O decodificador é o ZXing: Java puro, sem modelo e sem Play Services. Trocá-lo
+  // por um SDK de visão seria o caminho por onde a biometria voltaria.
+  assert.match(gradle, /com\.google\.zxing:core/)
+  assert.match(gradle, /androidx\.camera:camera-core/)
+
+  // Opcional no manifesto: um totem de parede sem lente continua a bater ponto
+  // pelo código digitado e não pode ficar fora da loja.
+  assert.match(manifest, /android:name="android\.hardware\.camera\.any" android:required="false"/)
+
+  // A permissão é pedida no toque em "Ler meu QR", nunca no arranque, e o botão
+  // só existe onde a operação liberou a leitura.
+  assert.match(scannerSheet, /pedirPermissao\.launch\(Manifest\.permission\.CAMERA\)/)
+  assert.match(scannerSheet, /if \(!temPermissao\) pedirPermissao\.launch/)
+  assert.match(flowHost, /if \(state\.qrHabilitado\)/)
+
+  // Nenhum quadro é guardado: o analisador lê o plano de luminância, decodifica
+  // e fecha a imagem. Se isto virasse uma gravação, seria aqui.
+  assert.match(scannerSheet, /image\.close\(\)/)
+  assert.doesNotMatch(scannerSheet, /MediaStore|FileOutputStream|ImageCapture|takePicture|toBitmap\(\)/)
 })
 
 test('backend e os dois caminhos de deploy publicam a mesma versão 1.0.0', () => {

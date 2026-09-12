@@ -55,11 +55,19 @@ adminRoutes.get('/usuarios', async (c) => {
     createdAt: string
     turno: string | null
     mustChangePassword: boolean
+    colaboradorId: string | null
+    colaboradorNome: string | null
   }>(
-    `select id,name,email,role,banned,"createdAt"::text as "createdAt",turno,
-            "mustChangePassword" as "mustChangePassword"
-       from "user"
-      order by "createdAt" desc`,
+    // O vínculo com o colaborador vem junto: é o que diz se esta conta bate
+    // ponto além de administrar, e o painel precisa dele para oferecer (ou não)
+    // o código próprio.
+    `select u.id,u.name,u.email,u.role,u.banned,u."createdAt"::text as "createdAt",u.turno,
+            u."mustChangePassword" as "mustChangePassword",
+            u.colaborador_id::text as "colaboradorId",
+            col.nome as "colaboradorNome"
+       from "user" u
+       left join colaboradores col on col.id=u.colaborador_id
+      order by u."createdAt" desc`,
   )
 
   return c.json({
@@ -69,6 +77,8 @@ adminRoutes.get('/usuarios', async (c) => {
       email: user.email,
       perfil: user.role === 'admin' ? 'ADMIN' : 'SUPERVISOR',
       ativo: !user.banned,
+      colaboradorId: user.colaboradorId,
+      colaboradorNome: user.colaboradorNome,
       criadoEm: user.createdAt,
       turno: user.role === 'user' ? user.turno : null,
       trocaSenhaPendente: user.role === 'user' && user.mustChangePassword,

@@ -28,6 +28,7 @@ const manifest = read('app/src/main/AndroidManifest.xml')
 const accessCodeRoutes = read('backend/src/routes/access-code-routes.ts')
 const pontoRegistration = read('backend/src/ponto-registration.ts')
 const accessCodeMigration = read('database/012_access_codes.sql')
+const periodoQrMigration = read('database/014_codigo_por_periodo_e_qr.sql')
 const systemUi = read('app/src/main/java/com/pontocafe/app/ui/SystemDiagnosticsScreen.kt')
 
 for (const doc of [
@@ -45,11 +46,20 @@ assert.match(gradle, /isShrinkResources = true/)
 assert.match(gradle, /compileSdk = 36/)
 assert.match(gradle, /targetSdk = 36/)
 // Nenhum vestígio de reconhecimento facial pode voltar ao APK.
+//
+// O veto era a toda a câmera enquanto não havia nenhum uso legítimo dela. Com a
+// leitura do QR do café passou a haver um, e o veto estreitou-se para o que
+// sempre quis dizer: nada de biometria. Continuam banidos os motores que
+// reconhecem rostos; a câmera é permitida apenas na forma que lê um quadrado
+// preto e branco e devolve texto.
 assert.doesNotMatch(gradle, /play-services-tflite/)
-assert.doesNotMatch(gradle, /androidx\.camera/)
 assert.doesNotMatch(gradle, /mlkit/)
 assert.doesNotMatch(gradle, /facenet/i)
-assert.doesNotMatch(manifest, /permission\.CAMERA/)
+assert.doesNotMatch(gradle, /face-detection|face_detection|facedetect/i)
+assert.match(gradle, /com\.google\.zxing:core/)
+// A câmera é opcional: um totem de parede sem lente continua a bater ponto pelo
+// código digitado, e não pode ficar fora da loja por um caminho opcional.
+assert.match(manifest, /android:name="android\.hardware\.camera\.any" android:required="false"/)
 
 assert.match(backendPackage, /"version"\s*:\s*"1\.1\.0"/)
 assert.match(backendApplication, /const API_VERSION = '1\.1\.0'/)
@@ -90,6 +100,10 @@ assert.match(accessCodeMigration, /drop table if exists templates_faciais/)
 assert.match(accessCodeMigration, /drop table if exists verificacoes_faciais/)
 assert.match(accessCodeMigration, /carencia_segundos/)
 assert.match(accessCodeMigration, /ux_codigo_acesso_vivo/)
+// A 014 troca esse indice por um por periodo e por dia: e ele que passa a
+// decidir se ja existe codigo vivo, e e o nome dele que o backend apanha na
+// colisao para responder JA_EMITIDO.
+assert.match(periodoQrMigration, /ux_codigo_acesso_periodo_dia/)
 assert.match(migration, /INICIAR/)
 assert.match(migration, /FINALIZAR/)
 assert.match(readinessIndexes, /idx_operacoes_ponto_concluido_em/)
@@ -124,7 +138,7 @@ assert.doesNotMatch(envExample, /FACE_/)
 assert.match(envExample, /DEVICE_HEALTH_RETENTION_DAYS=30/)
 
 // O passe vale uma saída e um retorno, e só serve para quem o recebeu.
-assert.match(accessCodeRoutes, /ux_codigo_acesso_vivo/)
+assert.match(accessCodeRoutes, /ux_codigo_acesso_periodo_dia/)
 assert.match(accessCodeRoutes, /EM_PAUSA/)
 assert.match(pontoRegistration, /secureCodeEquals/)
 assert.match(pontoRegistration, /carencia_segundos/)

@@ -15,7 +15,8 @@ Para a arquitetura atual:
 9. Depois das migrações 007/008, implante o Worker compatível antes de instalar o APK Android 1.0.
 10. **Antes de implantar o Worker com código de acesso**, aplique `012_access_codes.sql`. Ela cria `codigos_acesso`, adiciona `pausas_cafe.codigo_acesso_id` e `carencia_segundos`, e **apaga** `templates_faciais`, `verificacoes_faciais` e `autorizacoes`. A migração é destrutiva por desenho: o reconhecimento facial deixou de existir e o dado biométrico não fica dormente no banco. **Faça backup antes.** Não aplique a 012 mantendo o Worker antigo em produção — as rotas biométricas passariam a falhar em tabelas inexistentes.
 11. Numa instalação nova, as migrações 005 e 006 podem ser puladas: a 012 desfaz o que elas criam.
-12. Execute `npm run auth:bootstrap` uma única vez para criar o primeiro administrador em uma instalação nova.
+12. **Antes de implantar o Worker com código por período e QR**, aplique `014_codigo_por_periodo_e_qr.sql`. Ela adiciona `codigos_acesso.periodo` e `dia_operacional` (com o índice único que passa a permitir um código vivo por pessoa **por período e por dia**, em vez de um só por pessoa) e `dispositivos.qr_habilitado`, que nasce **falso** — nenhum aparelho aceita leitura por câmara até que um Administrador ou Supervisor a libere. A migração é aditiva e não apaga nada. Aplicá-la mantendo o Worker antigo é seguro: as colunas novas ficam nulas/falsas e o código anterior não as lê. O caminho inverso não: um Worker novo sobre o banco sem a 014 falha ao emitir códigos.
+13. Execute `npm run auth:bootstrap` uma única vez para criar o primeiro administrador em uma instalação nova.
 
 Depois disso, novos supervisores devem ser criados pelo recurso Admin do Better Auth com o papel `user`. Dentro do Ponto Café, esse papel é interpretado como `SUPERVISOR`.
 

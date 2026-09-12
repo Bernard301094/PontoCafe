@@ -57,6 +57,14 @@ data class RegraCafe(
 )
 
 data class HorarioCafeResponse(
+    /**
+     * Se ESTE aparelho aceita código lido pela câmara. Vem junto do horário
+     * porque é a mesma chamada que o quiosque já faz ao arrancar e ao voltar do
+     * fundo — e assim uma liberação feita a meio do turno chega sem rota extra.
+     * Falso por omissão: um servidor antigo, que não conhece o campo, deixa a
+     * câmara desligada em vez de a ligar por acidente.
+     */
+    val qrHabilitado: Boolean = false,
     val dentroHorario: Boolean,
     val periodoAtual: String?,
     val limiteSegundos: Int?,
@@ -114,6 +122,12 @@ data class RegistrarPontoRequest(
     val operacaoId: String,
     val colaboradorId: String,
     val codigo: String,
+    /**
+     * Como o código chegou ao aparelho: `"QR"` quando veio da câmara, nulo
+     * quando foi digitado. Nulo é o que todas as versões anteriores enviam, e o
+     * servidor continua a lê-las como teclado.
+     */
+    val origem: String? = null,
 )
 
 data class InicioPausaResponse(
@@ -209,7 +223,11 @@ class PontoCafeRepository(
      * incerto — uma resposta perdida depois do COMMIT tem de reaparecer como o
      * mesmo comprovante, nunca como uma segunda batida.
      */
-    suspend fun registrar(colaboradorId: String, codigo: String): RegistroPontoResponse {
+    suspend fun registrar(
+        colaboradorId: String,
+        codigo: String,
+        origem: String? = null,
+    ): RegistroPontoResponse {
         reconciliarOperacaoPendente(colaboradorId)?.let { reconciliada ->
             return RegistroPontoResponse(
                 status = reconciliada.status ?: if (reconciliada.inicio != null) "INICIO" else "RETORNO",
@@ -227,6 +245,7 @@ class PontoCafeRepository(
                 operacaoId = operationId,
                 colaboradorId = colaboradorId,
                 codigo = codigo,
+                origem = origem,
             ),
         )
 

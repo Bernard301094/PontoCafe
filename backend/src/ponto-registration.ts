@@ -219,7 +219,7 @@ export async function applyAccessCode(
     code: string
     /** ISO-8601. Usado pela fila offline; `null` significa "agora". */
     occurredAt?: string | null
-    origem: 'QUIOSQUE' | 'OFFLINE'
+    origem: 'QUIOSQUE' | 'OFFLINE' | 'QR'
   },
 ): Promise<RegistrationOutcome> {
   const normalized = normalizeAccessCode(params.code)
@@ -288,7 +288,7 @@ async function startPause(
     collaborator: CollaboratorSummary
     code: LiveCodeRow
     occurredAt: string | null
-    origem: 'QUIOSQUE' | 'OFFLINE'
+    origem: 'QUIOSQUE' | 'OFFLINE' | 'QR'
   },
 ): Promise<RegistrationOutcome> {
   const open = await client.query<{ id: string }>(
@@ -422,7 +422,7 @@ async function finishPause(
     collaborator: CollaboratorSummary
     code: LiveCodeRow
     occurredAt: string | null
-    origem: 'QUIOSQUE' | 'OFFLINE'
+    origem: 'QUIOSQUE' | 'OFFLINE' | 'QR'
   },
 ): Promise<RegistrationOutcome> {
   const open = await client.query<{

@@ -22,6 +22,17 @@ pontoRoutes.use('*', deviceTokenMiddleware)
  * daqui, não mais: o aparelho recebe uma lista mais curta em vez de aprender
  * quem tomou café. Quem está no café **agora** continua na lista — é essa
  * pessoa que ainda precisa do quiosque para registar o retorno.
+ *
+ * O limite era 100, e a equipa tem 104: quatro pessoas nunca apareciam ao abrir
+ * a lista -- só se escrevessem o nome. Um limite abaixo do tamanho da equipa
+ * não é um limite, é gente invisível. Fica em 500, que é folga para crescer;
+ * acima disso a lista deixa de se percorrer com o dedo e o caminho é a busca,
+ * por nome ou por matrícula.
+ *
+ * A ordem continua alfabética de propósito. Pôr primeiro quem está em pausa
+ * seria mais rápido para o retorno, mas mostraria a quem estiver diante do
+ * quiosque quem foi ao café -- exactamente o que o parágrafo acima evita. O
+ * atalho para não percorrer a lista é a matrícula.
  */
 pontoRoutes.get('/colaboradores', async (c) => {
   const busca = c.req.query('q')?.trim() ?? ''
@@ -32,7 +43,7 @@ pontoRoutes.get('/colaboradores', async (c) => {
       where col.ativo=true
         and ($2='' or col.nome ilike '%'||$2||'%' or coalesce(col.matricula,'') ilike '%'||$2||'%')
         and not ${periodPauseDoneSql('col.id')}
-      order by col.nome limit 100`,
+      order by col.nome limit 500`,
     [config.appTimezone, busca],
   )
   return c.json({ colaboradores: result.rows })
