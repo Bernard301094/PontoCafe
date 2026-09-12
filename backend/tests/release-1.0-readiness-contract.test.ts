@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
@@ -44,6 +44,34 @@ test('Android candidata 1.0 mantém identidade Release e nenhum vestígio de bio
   assert.doesNotMatch(gradle, /mlkit/)
   assert.doesNotMatch(gradle, /facenet/i)
   assert.doesNotMatch(gradle, /face-detection|face_detection|facedetect/i)
+})
+
+test('nenhum modelo biométrico volta pelos assets do APK', () => {
+  // A guarda olhava só para o Gradle, e um modelo não precisa de dependência
+  // para ser empacotado: basta ser copiado para assets/. Foi por aí que um
+  // facenet.tflite de 23,7 MB entrou no APK sem nada acusar -- inerte, porque
+  // não há runtime que o abra, mas a viajar dentro de cada instalação.
+  //
+  // A causa não foi descuido de quem o copiou: o README desta pasta dizia, em
+  // letras próprias, que o APK esperava esse ficheiro. Por isso o teste prende
+  // as duas pontas -- o binário e a instrução que o pedia.
+  const assetsDir = new URL('../../app/src/main/assets/', import.meta.url)
+  const ficheiros = readdirSync(assetsDir, { recursive: true, encoding: 'utf8' })
+
+  const modelos = ficheiros.filter((nome) => /\.(tflite|lite|pb|onnx)$/i.test(nome) && !nome.includes('voice'))
+  assert.deepEqual(modelos, [], `modelo não-vocal empacotado em assets/: ${modelos.join(', ')}`)
+
+  const biometricos = ficheiros.filter((nome) => /face|rosto|biometri/i.test(nome))
+  assert.deepEqual(biometricos, [], `asset com nome biométrico: ${biometricos.join(', ')}`)
+
+  // E o README tem de continuar a dizer o contrário do que dizia.
+  //
+  // Só a afirmação positiva, não a proibição da frase antiga: o README cita-a
+  // de propósito, para explicar o que correu mal, e proibir a citação proibiria
+  // a explicação junto com o erro. É a mesma armadilha em que este ficheiro já
+  // caiu uma vez, com `AccessCode.sanitizeInput`.
+  const assetsReadme = read('app/src/main/assets/README.md')
+  assert.match(assetsReadme, /Nenhum modelo biométrico entra neste diretório/)
 })
 
 test('a câmera do APK só sabe ler QR, e só quando alguém a pede', () => {

@@ -5,5 +5,5 @@
       Compose, porque é a cor que a janela do Android pinta antes do primeiro
       frame: sem isso o app abria com o cinza padrão da plataforma e piscava.
     -->
-    <color name="ponto_surface">#F9F9FF</color>
+    <color name="ponto_surface">#FAF7F2</color>
 </resources>
