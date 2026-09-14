@@ -47,6 +47,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import com.pontocafe.app.BuildConfig
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -107,6 +114,50 @@ private const val RECEIPT_AUTO_DISMISS_MILLIS = 12_000L
 internal enum class RestrictedAreaRequest { SUPERVISOR, ADMIN, LOGIN }
 
 /**
+ * Tudo o que os passos do quiosque pedem ao ViewModel, e nada mais.
+ *
+ * Os passos recebiam o ViewModel inteiro e liam dele o estado. Isso prendia cada
+ * tela a um objeto que só existe com repositório, cofre de credencial e fila
+ * offline por trás -- e por isso nenhuma delas podia ser desenhada fora do
+ * aparelho. Com o estado como valor e as ações como funções, a mesma tela se
+ * renderiza num teste com dados de exemplo, que é o que permite ver o totem
+ * antes de gerar um APK.
+ */
+internal class KioskActions(
+    val carregarColaboradores: () -> Unit,
+    val selecionarColaborador: (Colaborador) -> Unit,
+    val voltarParaLista: () -> Unit,
+    val acrescentarDigito: (Char) -> Unit,
+    val apagarUltimoDigito: () -> Unit,
+    val registrar: () -> Unit,
+    val concluirComprovante: () -> Unit,
+    val abrirLeitorQr: () -> Unit,
+    val fecharLeitorQr: () -> Unit,
+    val lerQr: (String) -> Unit,
+) {
+    companion object {
+        fun from(viewModel: PontoCafeViewModel) = KioskActions(
+            carregarColaboradores = { viewModel.carregarColaboradores(force = false) },
+            selecionarColaborador = viewModel::selecionarColaborador,
+            voltarParaLista = viewModel::voltarParaLista,
+            acrescentarDigito = viewModel::acrescentarDigito,
+            apagarUltimoDigito = viewModel::apagarUltimoDigito,
+            registrar = { viewModel.registrar() },
+            concluirComprovante = viewModel::concluirComprovante,
+            abrirLeitorQr = viewModel::abrirLeitorQr,
+            fecharLeitorQr = viewModel::fecharLeitorQr,
+            lerQr = viewModel::lerQr,
+        )
+
+        /** Ações que não fazem nada: para desenhar as telas em testes. */
+        val Inertes = KioskActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    }
+}
+
+internal fun formatarTempoKiosk(segundos: Int): String =
+    "%02d:%02d".format(segundos / 60, segundos % 60)
+
+/**
  * Quiosque do Ponto Café.
  *
  * Três passos, nesta ordem, e nada mais: a pessoa acha o próprio nome, digita o
@@ -125,6 +176,7 @@ fun PontoFlowHost(
 ) {
     val state = viewModel.state
     val scope = rememberCoroutineScope()
+    val actions = remember(viewModel) { KioskActions.from(viewModel) }
 
     var restrictedAreaRequest by remember { mutableStateOf<RestrictedAreaRequest?>(null) }
     var exitPin by remember { mutableStateOf("") }
@@ -236,7 +288,8 @@ fun PontoFlowHost(
                         .fillMaxWidth(),
                 ) {
                     KioskStepContent(
-                        viewModel = viewModel,
+                        state = state,
+                        actions = actions,
                         compactHeight = compactHeight,
                         onInteracao = { wakeTick += 1 },
                         modifier = Modifier
@@ -252,7 +305,8 @@ fun PontoFlowHost(
                 }
             } else {
                 KioskStepContent(
-                    viewModel = viewModel,
+                    state = state,
+                    actions = actions,
                     compactHeight = compactHeight,
                     onInteracao = { wakeTick += 1 },
                     modifier = Modifier
@@ -282,34 +336,68 @@ fun PontoFlowHost(
 
 /** Os três passos, extraídos para poderem viver sozinhos ou dentro do split. */
 @Composable
-private fun KioskStepContent(
-    viewModel: PontoCafeViewModel,
+internal fun KioskStepContent(
+    state: PontoCafeUiState,
+    actions: KioskActions,
     compactHeight: Boolean,
     onInteracao: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AnimatedContent(
-        targetState = viewModel.state.passo,
-        transitionSpec = {
-            fadeIn(tween(PontoCafeMotion.Standard)) togetherWith
-                fadeOut(tween(PontoCafeMotion.Quick))
-        },
-        label = "ponto-step",
-        modifier = modifier,
-    ) { passo ->
-        when (passo) {
-            PontoStep.ESCOLHER_PESSOA -> CollaboratorPickerStep(
-                viewModel = viewModel,
-                compactHeight = compactHeight,
-                onInteracao = onInteracao,
+    // Como o totem do painel: a linha de estado do aparelho, e o passo dentro
+    // de uma tarjeta branca, centrada no fundo cinzento. Rola quando o ecrã é
+    // baixo -- o teclado de 32 teclas não cabe num telemóvel deitado.
+    BoxWithConstraints(modifier = modifier) {
+        val alturaDisponivel = maxHeight
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = alturaDisponivel)
+                .padding(horizontal = 16.dp, vertical = if (compactHeight) 12.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+        ) {
+            val (textoEstado, corEstado) = when {
+                state.modoOffline && state.eventosPendentes > 0 ->
+                    "Sem conexão · ${state.eventosPendentes} registro(s) na fila" to Painel.amber400
+                state.modoOffline -> "Sem conexão · os registros ficam na fila" to Painel.amber400
+                state.eventosPendentes > 0 ->
+                    "${state.eventosPendentes} registro(s) aguardando envio" to Painel.amber400
+                else -> "Aparelho conectado" to Painel.emerald500
+            }
+            PainelLinhaEstado(
+                texto = textoEstado,
+                cor = corEstado,
+                modifier = Modifier.widthIn(max = 520.dp),
             )
 
-            PontoStep.DIGITAR_CODIGO -> AccessCodeStep(
-                viewModel = viewModel,
-                compactHeight = compactHeight,
-            )
+            PainelCartao(modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth()) {
+                AnimatedContent(
+                    targetState = state.passo,
+                    transitionSpec = {
+                        fadeIn(tween(PontoCafeMotion.Standard)) togetherWith
+                            fadeOut(tween(PontoCafeMotion.Quick))
+                    },
+                    label = "ponto-step",
+                ) { passo ->
+                    when (passo) {
+                        PontoStep.ESCOLHER_PESSOA -> CollaboratorPickerStep(
+                            state = state,
+                            actions = actions,
+                            compactHeight = compactHeight,
+                            onInteracao = onInteracao,
+                        )
 
-            PontoStep.COMPROVANTE -> ReceiptStep(viewModel = viewModel)
+                        PontoStep.DIGITAR_CODIGO -> AccessCodeStep(
+                            state = state,
+                            actions = actions,
+                            compactHeight = compactHeight,
+                        )
+
+                        PontoStep.COMPROVANTE -> ReceiptStep(state = state, actions = actions)
+                    }
+                }
+            }
         }
     }
 }
@@ -330,7 +418,7 @@ private fun KioskStepContent(
  * um vazamento.
  */
 @Composable
-private fun KioskOperationalPanel(
+internal fun KioskOperationalPanel(
     state: PontoCafeUiState,
     modifier: Modifier = Modifier,
 ) {
@@ -349,32 +437,41 @@ private fun KioskOperationalPanel(
         }
     }
 
+    // A coluna da direita do totem de parede, como uma barra lateral do painel:
+    // branca, separada do passo por uma borda stone-200, com o relógio em mono.
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = Color.White,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .drawBehind {
+                    drawLine(
+                        color = Painel.stone200,
+                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        end = androidx.compose.ui.geometry.Offset(0f, size.height),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                }
                 .padding(PontoCafeSpacing.xl),
             verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
                 Text(
                     agora.format(DateTimeFormatter.ofPattern("HH:mm", Locale("pt", "BR"))),
-                    style = MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 56.sp),
+                    color = Painel.coffee900,
                 )
                 Text(
                     agora.format(DateTimeFormatter.ofPattern("EEEE, d 'de' MMMM", Locale("pt", "BR")))
                         .replaceFirstChar { it.uppercase() },
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Painel.stone500,
                 )
             }
 
-            HorizontalDivider()
+            HorizontalDivider(color = Painel.stone200)
 
             val (titulo, apoio) = when (state.passo) {
                 PontoStep.ESCOLHER_PESSOA ->
@@ -395,12 +492,13 @@ private fun KioskOperationalPanel(
                 Text(
                     titulo,
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
+                    color = Painel.coffee950,
                 )
                 Text(
                     apoio,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Painel.stone500,
                 )
             }
 
@@ -408,8 +506,9 @@ private fun KioskOperationalPanel(
             // é dela, e some no momento em que o comprovante fecha.
             state.selecionado?.let { pessoa ->
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shape = Painel.canto2xl,
+                    color = Painel.stone50,
+                    border = PainelBordaSuave,
                 ) {
                     Row(
                         modifier = Modifier
@@ -440,7 +539,7 @@ private fun KioskOperationalPanel(
             Spacer(Modifier.weight(1f))
 
             if (state.modoOffline) {
-                PcStateBanner(
+                PainelAvisoTom(
                     title = "Sem conexão",
                     supportingText = if (state.eventosPendentes > 0) {
                         "${state.eventosPendentes} registro(s) guardados neste aparelho, à espera da rede."
@@ -455,7 +554,7 @@ private fun KioskOperationalPanel(
 }
 
 @Composable
-private fun KioskTopBar(
+internal fun KioskTopBar(
     offline: Boolean,
     pendingEvents: Int,
     hasAdminSession: Boolean,
@@ -475,74 +574,48 @@ private fun KioskTopBar(
         agora.format(DateTimeFormatter.ofPattern("HH:mm", Locale("pt", "BR")))
     }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
+    // O cabeçalho do painel. O estado da ligação saiu daqui para a linha por
+    // cima da tarjeta, que é onde o painel o põe; aqui fica só o ponto colorido
+    // ao lado do relógio.
+    PainelCabecalho(
+        versao = BuildConfig.VERSION_NAME,
+        subtitulo = "Fuso horário: ${KIOSK_ZONE.id}",
+        relogio = relogio,
+        sincronizado = !offline && pendingEvents == 0,
     ) {
-        Row(
-            modifier = Modifier
-                .statusBarsPadding()
-                .fillMaxWidth()
-                .padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        IconButton(
+            onClick = when {
+                hasAdminSession -> onAdmin
+                hasSupervisorSession -> onSupervisor
+                else -> onAccess
+            },
         ) {
             Icon(
-                Icons.Default.Coffee,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                Icons.Default.Lock,
+                contentDescription = "Área restrita",
+                tint = Painel.stone400,
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Ponto Café",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    when {
-                        offline && pendingEvents > 0 -> "Sem conexão · $pendingEvents registro(s) na fila"
-                        offline -> "Sem conexão · registros ficam na fila"
-                        pendingEvents > 0 -> "$pendingEvents registro(s) aguardando envio"
-                        else -> "Conectado"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                relogio,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            IconButton(
-                onClick = when {
-                    hasAdminSession -> onAdmin
-                    hasSupervisorSession -> onSupervisor
-                    else -> onAccess
-                },
-            ) {
-                Icon(
-                    Icons.Default.Lock,
-                    contentDescription = "Área restrita",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
 
 // region Passo 1 — escolher a pessoa
 
+/**
+ * O primeiro passo, com a cara do totem do painel: selo âmbar, título centrado,
+ * o campo que abre a lista, e só depois o que é do app -- o atalho do QR, a
+ * contagem de quem está apto e a saída para quem não se encontra.
+ */
 @Composable
 private fun CollaboratorPickerStep(
-    viewModel: PontoCafeViewModel,
+    state: PontoCafeUiState,
+    actions: KioskActions,
     compactHeight: Boolean,
     onInteracao: () -> Unit,
 ) {
-    val state = viewModel.state
     var seletorAberto by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { viewModel.carregarColaboradores(force = false) }
+    LaunchedEffect(Unit) { actions.carregarColaboradores() }
 
     if (seletorAberto) {
         PcCollaboratorPickerSheet(
@@ -551,7 +624,7 @@ private fun CollaboratorPickerStep(
             onDismiss = { seletorAberto = false },
             onEscolher = { pessoa ->
                 seletorAberto = false
-                viewModel.selecionarColaborador(pessoa)
+                actions.selecionarColaborador(pessoa)
             },
             onInteracao = { onInteracao() },
             vazioTitulo = "Nenhum colaborador disponível",
@@ -565,73 +638,30 @@ private fun CollaboratorPickerStep(
     // comprovante sem passar pelo teclado.
     if (state.lendoQr) {
         QrScannerSheet(
-            onLeitura = { conteudo -> viewModel.lerQr(conteudo) },
-            onFechar = { viewModel.fecharLeitorQr() },
+            onLeitura = { conteudo -> actions.lerQr(conteudo) },
+            onFechar = { actions.fecharLeitorQr() },
         )
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = PontoCafeSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 10.dp else 14.dp),
     ) {
-        if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.lg))
+        PainelSeloIcone(Icons.Outlined.Groups)
 
-        // Passo numerado: quem chega ao quiosque precisa saber, sem ler nada
-        // mais, que isto tem duas etapas e que a segunda é o código.
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-            // Pílula âmbar clara em vez de rótulo solto: no design a etapa é um
-            // selo, e é ele que dá a âncora de "onde estou" no totem.
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryFixed,
-                contentColor = MaterialTheme.colorScheme.onPrimaryFixedVariant,
-            ) {
-                Text(
-                    "PASSO 1 DE 2",
-                    modifier = Modifier.padding(
-                        horizontal = PontoCafeSpacing.sm,
-                        vertical = PontoCafeSpacing.xxs,
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                Text(
-                    "Toque no seu nome",
-                    style = if (compactHeight) {
-                        MaterialTheme.typography.headlineMedium
-                    } else {
-                        MaterialTheme.typography.headlineLarge
-                    },
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Icon(
-                    Icons.Default.TouchApp,
-                    contentDescription = null,
-                    modifier = Modifier.size(26.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Text(
-                "Depois vem o código de ${AccessCode.LENGTH} caracteres que o Supervisor entregou.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            PainelEtapa("PASSO 1 DE 2")
+            PainelTitulo("Quem vai ao café?", modifier = Modifier.semantics { heading() })
+            PainelSubtitulo("Toque no seu nome e depois digite o código de ${AccessCode.LENGTH} caracteres.")
         }
-
-        Spacer(Modifier.height(PontoCafeSpacing.xs))
 
         when {
             state.carregandoColaboradores && state.colaboradores.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                CircularProgressIndicator(color = Painel.coffee900, strokeWidth = 3.dp)
             }
 
             else -> {
@@ -641,7 +671,7 @@ private fun CollaboratorPickerStep(
                 // onde há uma lista para ela filtrar.
                 PcCollaboratorPickerField(
                     selecionado = null,
-                    placeholder = "Selecione seu nome",
+                    placeholder = "Toque aqui para se encontrar",
                     onClick = {
                         onInteracao()
                         seletorAberto = true
@@ -652,47 +682,36 @@ private fun CollaboratorPickerStep(
                 // O atalho da câmara só aparece onde foi liberado. Um botão que
                 // existisse sempre e falhasse com "não liberado" ensinaria a
                 // ignorá-lo; aqui a ausência é a própria resposta.
-                //
-                // Fica ao lado do seletor, e não no lugar dele: o QR resolve os
-                // dois passos de uma vez, mas quem o esqueceu em casa continua a
-                // ter o caminho de sempre à mão, sem ter de o procurar.
                 if (state.qrHabilitado) {
-                    PcSecondaryButton(
-                        text = "Ler meu QR",
+                    PainelBotaoSecundario(
+                        texto = "Ler meu QR",
                         onClick = {
                             onInteracao()
-                            viewModel.abrirLeitorQr()
+                            actions.abrirLeitorQr()
                         },
                         icon = PontoQrIcon,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                // Contador com o selo de café à esquerda, como no design: diz
-                // quantas pessoas a lista tem antes de a folha ser aberta.
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Icon(
                         Icons.Default.Coffee,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(14.dp),
+                        tint = Painel.amber600,
                     )
                     Text(
                         if (state.colaboradores.isEmpty()) {
-                            "Ninguém disponível"
+                            "Ninguém disponível para café neste período"
                         } else {
-                            "${state.colaboradores.size} pessoas aptas"
+                            "${state.colaboradores.size} pessoas aptas para café neste período"
                         },
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    Text(
-                        "para café neste período",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Painel.stone500,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -700,56 +719,39 @@ private fun CollaboratorPickerStep(
             }
         }
 
-        Spacer(Modifier.weight(1f))
-
         state.erro?.let { erro ->
-            PcStateBanner(
+            PainelAvisoTom(
                 title = "Não foi possível continuar",
                 supportingText = erro,
                 tone = PontoCafeTone.DANGER,
-                modifier = Modifier.padding(bottom = PontoCafeSpacing.sm),
             )
         }
 
-        // Saída para quem não se encontra na lista. No design é o cartão que
-        // fecha a tela, e evita que a pessoa fique parada no totem sem rumo.
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = PontoCafeSpacing.sm),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        // Saída para quem não se encontra na lista, no rodapé da tarjeta: evita
+        // que a pessoa fique parada no totem sem rumo.
+        HorizontalDivider(color = Painel.stone200, modifier = Modifier.padding(top = 4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(
-                modifier = Modifier.padding(PontoCafeSpacing.md),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryFixed,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Badge,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryFixedVariant,
-                        )
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-                    Text(
-                        "Não encontrou seu nome?",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Peça ao Supervisor para conferir sua escala ou liberar um intervalo avulso.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Icon(
+                Icons.Default.Badge,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp).padding(top = 1.dp),
+                tint = Painel.stone400,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "Não encontrou seu nome?",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Painel.stone700,
+                )
+                Text(
+                    "Peça ao Supervisor para conferir sua escala ou liberar um intervalo avulso.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Painel.stone500,
+                )
             }
         }
     }
@@ -761,109 +763,57 @@ private fun CollaboratorPickerStep(
 
 @Composable
 private fun AccessCodeStep(
-    viewModel: PontoCafeViewModel,
+    state: PontoCafeUiState,
+    actions: KioskActions,
     compactHeight: Boolean,
 ) {
-    val state = viewModel.state
     val colaborador = state.selecionado ?: return
     val retorno = state.acaoEsperada == "RETORNO"
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = PontoCafeSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 10.dp else 12.dp),
     ) {
-        // Faixa de contexto do design: em que etapa estou, e como volto atrás.
+        // "← Trocar de pessoa", pequeno e discreto no canto, como no painel.
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .clickable(enabled = !state.registrando, onClick = actions.voltarParaLista)
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryFixed,
-                contentColor = MaterialTheme.colorScheme.onPrimaryFixedVariant,
-            ) {
-                Text(
-                    "PASSO 2 DE 2",
-                    modifier = Modifier.padding(
-                        horizontal = PontoCafeSpacing.sm,
-                        vertical = PontoCafeSpacing.xxs,
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            TextButton(onClick = viewModel::voltarParaLista, enabled = !state.registrando) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Voltar para a lista de nomes",
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    "Trocar",
-                    modifier = Modifier.padding(start = PontoCafeSpacing.xxs),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+            Icon(
+                Icons.Default.ArrowBack,
+                contentDescription = "Voltar para a lista de nomes",
+                modifier = Modifier.size(14.dp),
+                tint = Painel.stone400,
+            )
+            Text(
+                "Trocar de pessoa",
+                style = MaterialTheme.typography.labelMedium,
+                color = Painel.stone400,
+            )
         }
 
-        // Cartão de quem está registrando: confirma a identidade escolhida no
-        // passo anterior antes de a pessoa gastar o código.
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            shadowElevation = 1.dp,
+        // O nome é o título do passo: confirma a identidade escolhida antes de
+        // a pessoa gastar o código.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(PontoCafeSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-            ) {
-                InitialAvatar(name = colaborador.nome, avatarSize = 48.dp)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        colaborador.nome,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.tertiary,
-                        )
-                        Text(
-                            if (retorno) "Registrando o retorno" else "Registrando a saída para o café",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Coffee,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
-            }
+            PainelEtapa("PASSO 2 DE 2")
+            PainelTitulo(
+                colaborador.nome,
+                grande = false,
+                modifier = Modifier.semantics { heading() },
+            )
+            PainelSubtitulo(
+                if (retorno) {
+                    "Digite o mesmo código que usou para sair."
+                } else {
+                    "Digite os ${AccessCode.LENGTH} caracteres entregues pelo Supervisor."
+                },
+            )
         }
 
         // Quem já saiu vê o relógio da própria pausa enquanto digita: é a
@@ -878,51 +828,24 @@ private fun AccessCodeStep(
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-            ) {
-                Text(
-                    if (retorno) "Digite o mesmo código" else "Digite seu código",
-                    modifier = Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Icon(
-                    Icons.Default.Pin,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Text(
-                if (retorno) {
-                    "É o mesmo código que você usou para sair."
-                } else {
-                    "Insira os ${AccessCode.LENGTH} caracteres entregues pelo Supervisor."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
         AccessCodeBoxes(
             codigo = state.codigo,
             error = state.erro != null,
+            compactHeight = compactHeight,
         )
 
         // O prazo é curto e vale para a SAÍDA apenas. Quem já saiu precisa da
         // garantia oposta — que não vai perder o código enquanto toma café.
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         ) {
             Icon(
                 Icons.Default.Schedule,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+                tint = Painel.stone400,
             )
             Text(
                 if (retorno) {
@@ -931,42 +854,33 @@ private fun AccessCodeStep(
                     "Código de uso único · vale ${formatValidade(state.validadeCodigoSegundos)} depois de gerado."
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (retorno) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    LocalPontoCafeSemanticColors.current.warning
-                },
+                color = Painel.stone500,
+                textAlign = TextAlign.Center,
             )
         }
 
-        if (!compactHeight) Spacer(Modifier.height(PontoCafeSpacing.xxs))
-
         state.erro?.let { erro ->
-            PcStateBanner(
+            PainelAvisoTom(
                 title = "Código não aceito",
                 supportingText = erro,
                 tone = PontoCafeTone.DANGER,
             )
         }
 
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.BottomCenter) {
-            AccessCodeKeypad(
-                enabled = !state.registrando,
-                onDigit = viewModel::acrescentarDigito,
-                onBackspace = viewModel::apagarUltimoDigito,
-                compactHeight = compactHeight,
-            )
-        }
+        AccessCodeKeypad(
+            enabled = !state.registrando,
+            onDigit = actions.acrescentarDigito,
+            onBackspace = actions.apagarUltimoDigito,
+            compactHeight = compactHeight,
+        )
 
-        PcPrimaryButton(
-            text = if (retorno) "Registrar retorno" else "Liberar e sair para o café",
-            onClick = viewModel::registrar,
+        PainelBotaoPrimario(
+            texto = if (retorno) "Registrar retorno" else "Liberar e sair para o café",
+            onClick = { actions.registrar() },
             enabled = state.codigoCompleto && !state.registrando,
             loading = state.registrando,
             icon = Icons.Default.Coffee,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = PontoCafeSpacing.md),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -975,11 +889,12 @@ private fun AccessCodeStep(
  * Seis caixas em vez de um campo de texto.
  *
  * Num quiosque a pessoa digita de pé, muitas vezes sem óculos: o que ela precisa
- * de ver num relance é quantos caracteres já entraram e qual falta. Um
- * OutlinedTextField comum não responde a essa pergunta.
+ * de ver num relance é quantos caracteres já entraram e qual falta. As caixas
+ * são as do painel -- stone-50 com borda fina, a próxima em âmbar, e a letra em
+ * JetBrains Mono.
  */
 @Composable
-private fun AccessCodeBoxes(codigo: String, error: Boolean) {
+private fun AccessCodeBoxes(codigo: String, error: Boolean, compactHeight: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -987,18 +902,18 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
                 contentDescription = "Código: ${codigo.length} de ${AccessCode.LENGTH} caracteres digitados"
                 liveRegion = LiveRegionMode.Polite
             },
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         repeat(AccessCode.LENGTH) { index ->
             val char = codigo.getOrNull(index)
             val preenchido = char != null
-            // A caixa que recebe o próximo caractere fica tingida em vez de
-            // contornada: é assim que o design marca o cursor, e libera a borda
-            // para significar só uma coisa -- erro.
+            // A caixa que recebe o próximo caractere fica âmbar, como o cursor do
+            // painel; a borda vermelha só aparece para dizer uma coisa -- erro.
             val proxima = !error && index == codigo.length
-            val fundo = when {
-                proxima -> MaterialTheme.colorScheme.surfaceContainerHigh
-                else -> MaterialTheme.colorScheme.surfaceContainerLowest
+            val (fundo, borda, largura) = when {
+                error -> Triple(Painel.red50, Color(0xFFF87171), 2.dp)
+                proxima -> Triple(Painel.amber50, Painel.amber300, 2.dp)
+                else -> Triple(Painel.stone50, Painel.stone200, 1.dp)
             }
             // O dígito que entra salta de 0,7 para 1. É o único retorno visual
             // de que a tecla pegou: o dedo tapa a caixa no instante do toque, e
@@ -1007,31 +922,23 @@ private fun AccessCodeBoxes(codigo: String, error: Boolean) {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(64.dp)
+                    .height(if (compactHeight) 50.dp else 58.dp)
                     .graphicsLayer {
                         scaleX = pop.value
                         scaleY = pop.value
                     }
-                    .background(fundo, RoundedCornerShape(8.dp))
-                    .then(
-                        if (error) {
-                            Modifier.border(2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .background(fundo, Painel.cantoXl)
+                    .border(largura, borda, Painel.cantoXl),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     char?.toString() ?: "",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 30.sp,
-                    color = if (preenchido) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    style = TextStyle(
+                        fontFamily = JetBrainsMono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp,
+                    ),
+                    color = if (error) Color(0xFFB91C1C) else Painel.coffee950,
                 )
             }
         }
@@ -1054,18 +961,18 @@ private fun AccessCodeKeypad(
 ) {
     val teclas = AccessCode.ALPHABET.toList()
     val porLinha = 8
-    val alturaTecla = if (compactHeight) 40.dp else 48.dp
+    val alturaTecla = if (compactHeight) 38.dp else 44.dp
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 640.dp),
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         teclas.chunked(porLinha).forEach { linha ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 linha.forEach { tecla ->
                     KeypadKey(
@@ -1080,11 +987,11 @@ private fun AccessCodeKeypad(
                 }
             }
         }
-        KeypadKey(
-            label = "Apagar",
-            enabled = enabled,
+        PainelBotaoSuave(
+            texto = "Apagar",
             onClick = onBackspace,
-            modifier = Modifier.fillMaxWidth().height(alturaTecla),
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -1100,33 +1007,26 @@ private fun KeypadKey(
     // Tecla comprime 0,92 -- mais que os 0,96 de um botão comum. Aqui a
     // compressão é o recibo do toque, e o dedo tapa o número enquanto o preme.
     val escala = rememberPontoPressScale(interactionSource, PontoPressScale.Key)
-    Surface(
+    Box(
         modifier = modifier
             .pontoPressScale { escala }
+            // Tecla do painel: branca, borda stone-200, canto de 12dp.
+            .shadow(1.dp, Painel.cantoXl)
+            .background(Color.White, Painel.cantoXl)
+            .border(1.dp, Painel.stone200, Painel.cantoXl)
             .clickable(
                 enabled = enabled,
                 onClick = onClick,
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
             ),
-        // Tecla branca elevada sobre o canvas, como no design do totem: o
-        // contraste entre a tecla e o fundo é o que faz o alvo aparecer de longe.
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        shadowElevation = 1.dp,
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
+        Text(
+            label,
+            style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 16.sp),
+            color = if (enabled) Painel.coffee900 else Painel.stone400,
+        )
     }
 }
 
@@ -1173,7 +1073,7 @@ private fun OpenPauseCountdown(
         kotlin.math.abs(restante) % 60,
     )
 
-    PcStateBanner(
+    PainelAvisoTom(
         title = when {
             excedeu -> "Limite excedido há $relogio"
             emCarencia -> "O tempo de café começa em $relogio"
@@ -1189,15 +1089,15 @@ private fun OpenPauseCountdown(
 // region Passo 3 — comprovante
 
 @Composable
-private fun ReceiptStep(viewModel: PontoCafeViewModel) {
-    val comprovante = viewModel.state.comprovante ?: return
+private fun ReceiptStep(state: PontoCafeUiState, actions: KioskActions) {
+    val comprovante = state.comprovante ?: return
 
     // O comprovante fecha sozinho para o quiosque não ficar preso no ecrã de uma
     // pessoa que já saiu andando. Doze segundos são suficientes para ler o
     // horário e conferir o nome.
     //
-    // A contagem agora é visível, como no design: quem está atrás na fila vê que
-    // o totem se libera sozinho e não fica a perguntar se pode tocar.
+    // A contagem é visível, como no painel: quem está atrás na fila vê que o
+    // totem se libera sozinho e não fica a perguntar se pode tocar.
     var segundosRestantes by remember(comprovante) {
         mutableIntStateOf((RECEIPT_AUTO_DISMISS_MILLIS / 1_000L).toInt())
     }
@@ -1206,7 +1106,7 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
             delay(1_000L)
             segundosRestantes--
         }
-        viewModel.concluirComprovante()
+        actions.concluirComprovante()
     }
 
     val saida = comprovante.tipo == TipoComprovantePonto.INICIO
@@ -1216,289 +1116,158 @@ private fun ReceiptStep(viewModel: PontoCafeViewModel) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(PontoCafeSpacing.lg),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.md, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // O momento em que o produto inteiro diz "deu certo". Era um círculo
-        // estático: aparecia já pronto, sem marcar o instante do registro. Agora
-        // o ícone salta e uma onda sai do círculo e se apaga -- uma vez só, sem
-        // laço nenhum a correr depois.
+        // O momento em que o produto inteiro diz "deu certo": o selo salta e uma
+        // onda sai dele e se apaga -- uma vez só, sem laço nenhum a correr depois.
         val marca = rememberPopOnChange(gatilho = comprovante, de = 0.6f)
         val onda = remember(comprovante) { Animatable(0f) }
         LaunchedEffect(comprovante) { onda.animateTo(1f, tween(PontoCafeMotion.Slow)) }
-        val corOnda = if (comprovante.excedeuLimite) {
-            LocalPontoCafeSemanticColors.current.warning
-        } else {
-            LocalPontoCafeSemanticColors.current.success
-        }
+        val corOnda = if (comprovante.excedeuLimite) Painel.red600 else Painel.amber400
 
-        // Selo da marca com a confirmação sobreposta, como no design: a xícara
-        // diz o que aconteceu e o visto verde diz que ficou registrado.
-        Box(contentAlignment = Alignment.BottomEnd) {
-            Surface(
-                modifier = Modifier
-                    .size(88.dp)
-                    .drawBehind {
-                        val progresso = onda.value
-                        if (progresso < 1f) {
-                            drawCircle(
-                                color = corOnda,
-                                radius = size.minDimension / 2f * (1f + progresso * 0.7f),
-                                alpha = (1f - progresso) * 0.45f,
-                            )
-                        }
-                    }
-                    .graphicsLayer {
-                        scaleX = marca.value
-                        scaleY = marca.value
-                    },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        if (comprovante.excedeuLimite) Icons.Default.Warning else Icons.Default.Coffee,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(44.dp),
-                    )
-                }
-            }
-            if (!comprovante.excedeuLimite) {
-                Surface(
-                    modifier = Modifier.size(28.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.background),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // Pílula de estado antes do título: diz num relance o que o totem fez.
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        ) {
-            Row(
-                modifier = Modifier.padding(
-                    horizontal = PontoCafeSpacing.sm,
-                    vertical = PontoCafeSpacing.xxs,
-                ),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xxs),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                )
-                Text(
-                    if (saida) "CAFÉ LIBERADO" else "RETORNO REGISTRADO",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-
-        Text(
-            if (saida) "Bom café, ${comprovante.nome.substringBefore(' ')}!" else "Bem-vindo de volta!",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
-        )
-        Text(
-            comprovante.nome,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-
-        // Cartão do comprovante com a faixa de acento no topo e o carimbo de
-        // estado à direita -- o "recibo" do design.
-        Surface(
+        val icone = if (comprovante.excedeuLimite) Icons.Default.Warning else Icons.Default.Coffee
+        PainelSeloIcone(
+            icon = icone,
+            tom = when {
+                comprovante.excedeuLimite -> PainelTom.VERMELHO
+                saida -> PainelTom.AMBAR
+                else -> PainelTom.VERDE
+            },
+            tamanho = 72.dp,
             modifier = Modifier
-                .widthIn(max = 520.dp)
-                .fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            shadowElevation = 2.dp,
-        ) {
-            Column {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-                Column(
-                    modifier = Modifier.padding(PontoCafeSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
-                        ) {
-                            Icon(
-                                Icons.Default.Timer,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                "Comprovante do registro",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                        StatusPill(
-                            text = if (comprovante.pendenteSincronizacao) "Na fila" else "Autenticado",
-                            tone = if (comprovante.pendenteSincronizacao) {
-                                PontoCafeTone.INFO
-                            } else {
-                                PontoCafeTone.SUCCESS
-                            },
-                        )
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs)) {
-                ReceiptLine(
-                    icon = Icons.Default.Timer,
-                    label = if (saida) "Saída registrada" else "Retorno registrado",
-                    value = comprovante.horarioRegistrado,
-                )
-                if (saida) {
-                    comprovante.contagemComecaAs?.let {
-                        ReceiptLine(
-                            icon = Icons.Default.Timer,
-                            label = "Seu tempo começa a contar",
-                            value = it,
-                        )
-                    }
-                    comprovante.retornoAte?.let {
-                        ReceiptLine(
-                            icon = Icons.Default.Timer,
-                            label = "Volte até",
-                            value = it,
-                        )
-                    }
-                } else {
-                    comprovante.duracaoSegundos?.let {
-                        ReceiptLine(
-                            icon = Icons.Default.Timer,
-                            label = "Tempo fora",
-                            value = viewModel.formatarTempo(it),
-                        )
-                    }
-                    comprovante.tempoContadoSegundos?.let {
-                        ReceiptLine(
-                            icon = Icons.Default.Timer,
-                            label = "Tempo contado (sem a tolerância)",
-                            value = viewModel.formatarTempo(it),
+                .drawBehind {
+                    val progresso = onda.value
+                    if (progresso < 1f) {
+                        drawCircle(
+                            color = corOnda,
+                            radius = size.minDimension / 2f * (1f + progresso * 0.7f),
+                            alpha = (1f - progresso) * 0.45f,
                         )
                     }
                 }
-                ReceiptLine(
-                    icon = Icons.Default.Badge,
-                    label = "Limite do café",
-                    value = viewModel.formatarTempo(comprovante.limiteSegundos) +
-                        if (comprovante.carenciaSegundos > 0) {
-                            " + ${comprovante.carenciaSegundos / 60} min de tolerância"
-                        } else {
-                            ""
-                        },
-                )
-                    }
+                .graphicsLayer {
+                    scaleX = marca.value
+                    scaleY = marca.value
+                },
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PainelTitulo(
+                if (saida) "Bom café, ${comprovante.nome.substringBefore(' ')}!" else "Bem-vindo de volta!",
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+            )
+            PainelSubtitulo(
+                if (saida) {
+                    "Saída registrada às ${comprovante.horarioRegistrado}" +
+                        (comprovante.retornoAte?.let { ". Volte até $it." } ?: ".")
+                } else {
+                    "Retorno registrado às ${comprovante.horarioRegistrado}."
+                },
+            )
+        }
+
+        // O recibo, numa caixa stone-50: o que o painel diz numa frase, o totem
+        // detalha linha a linha, porque é o único comprovante que a pessoa leva.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Painel.stone50, Painel.canto2xl)
+                .border(1.dp, Painel.stone200, Painel.canto2xl)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ReceiptLine(
+                label = if (saida) "Saída registrada" else "Retorno registrado",
+                value = comprovante.horarioRegistrado,
+            )
+            if (saida) {
+                comprovante.contagemComecaAs?.let {
+                    ReceiptLine(label = "Seu tempo começa a contar", value = it)
+                }
+                comprovante.retornoAte?.let {
+                    ReceiptLine(label = "Volte até", value = it)
+                }
+            } else {
+                comprovante.duracaoSegundos?.let {
+                    ReceiptLine(label = "Tempo fora", value = formatarTempoKiosk(it))
+                }
+                comprovante.tempoContadoSegundos?.let {
+                    ReceiptLine(label = "Tempo contado (sem a tolerância)", value = formatarTempoKiosk(it))
                 }
             }
+            ReceiptLine(
+                label = "Limite do café",
+                value = formatarTempoKiosk(comprovante.limiteSegundos) +
+                    if (comprovante.carenciaSegundos > 0) {
+                        " + ${comprovante.carenciaSegundos / 60} min"
+                    } else {
+                        ""
+                    },
+            )
+            ReceiptLine(
+                label = "Estado",
+                value = if (comprovante.pendenteSincronizacao) "Na fila" else "Autenticado",
+            )
         }
 
         if (comprovante.excedeuLimite) {
-            PcStateBanner(
+            PainelAvisoTom(
                 title = "Retorno acima do limite",
                 supportingText = "O tempo de café foi ultrapassado. O Supervisor recebeu este registro.",
                 tone = tone,
-                modifier = Modifier.widthIn(max = 520.dp),
             )
         }
 
         if (comprovante.pendenteSincronizacao) {
-            PcStateBanner(
+            PainelAvisoTom(
                 title = "Registrado sem conexão",
                 supportingText = "Este registro está guardado neste aparelho e será enviado ao servidor assim que a rede voltar. O código será validado nesse momento.",
                 tone = PontoCafeTone.INFO,
-                modifier = Modifier.widthIn(max = 520.dp),
             )
         }
 
         if (comprovante.foraHorario) {
-            PcStateBanner(
+            PainelAvisoTom(
                 title = "Fora do horário habitual",
                 supportingText = "A pausa foi liberada pelo código, mas ficou marcada como fora da janela de café.",
                 tone = PontoCafeTone.INFO,
-                modifier = Modifier.widthIn(max = 520.dp),
             )
         }
 
-        PcPrimaryButton(
-            text = "Concluir e liberar o totem",
-            icon = Icons.Default.Coffee,
-            onClick = viewModel::concluirComprovante,
-            modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
+        PainelBotaoPrimario(
+            texto = "Liberar para o próximo",
+            onClick = actions.concluirComprovante,
+            modifier = Modifier.fillMaxWidth(),
         )
 
         Text(
-            "Liberando o totem para o próximo colega em ${segundosRestantes}s",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Este totem se libera sozinho em ${segundosRestantes}s.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Painel.stone400,
             textAlign = TextAlign.Center,
         )
     }
 }
 
 @Composable
-private fun ReceiptLine(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String,
-) {
+private fun ReceiptLine(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
         Text(
             label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            color = Painel.stone500,
         )
         Text(
             value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            style = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Bold, fontSize = 14.sp),
+            color = Painel.coffee900,
         )
     }
 }

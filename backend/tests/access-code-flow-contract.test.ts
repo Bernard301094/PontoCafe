@@ -290,7 +290,12 @@ test('o quiosque de parede usa a largura, e sem expor terceiros', () => {
   // nada de terceiros. O quiosque fica num corredor, e a lista já vem cortada
   // do servidor justamente para ele não aprender quem tomou café — um mural de
   // pausas alheias aqui desfaria isso.
-  const painel = kiosk.slice(kiosk.indexOf('private fun KioskOperationalPanel'))
+  // Sem o modificador de visibilidade: o painel passou a `internal` para poder
+  // ser fotografado num teste, e o que se protege aqui é o que ele lê, não quem
+  // o pode chamar.
+  const inicioPainel = kiosk.indexOf('fun KioskOperationalPanel(')
+  assert.ok(inicioPainel >= 0, 'KioskOperationalPanel precisa existir')
+  const painel = kiosk.slice(inicioPainel)
   const corpo = painel.slice(0, painel.indexOf('\n@Composable'))
   for (const vazamento of ['pausasAtivas', 'livePauses', 'historico', 'colaboradores']) {
     assert.ok(

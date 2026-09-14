@@ -57,6 +57,9 @@ private val PlusJakartaSans = FontFamily(
     jakarta(600, italic = true),
 )
 
+/** A família do app, para as peças que desenham texto fora da escala do Material. */
+internal val PontoCafeFontFamily: FontFamily get() = PlusJakartaSans
+
 /**
  * A paleta da marca, igual à do painel web.
  *
@@ -87,11 +90,14 @@ object PontoCafeBrand {
     /** O âmbar da marca: o selo, a etapa, o realce. */
     val amberAccent = Color(0xFFD97706)
 
-    /** Creme quente -- o canvas de todo o app (surface/background). */
+    /** Creme quente da escala da marca. O painel declara-o mas não o usa como fundo. */
     val warmCream = Color(0xFFFAF7F2)
 
     // Neutros quentes para texto secundário e bordas. São os `stone` do painel:
     // cinzas com fundo quente, e não os azulados que o Material dá por omissão.
+    // O fundo do painel é `bg-stone-100`, e não o creme: foi a primeira coisa
+    // que a fotografia lado a lado mostrou estar errada.
+    val stone100 = Color(0xFFF5F5F4)
     val stone200 = Color(0xFFE7E5E4)
     val stone400 = Color(0xFFA8A29E)
     val stone600 = Color(0xFF57534E)
@@ -212,9 +218,9 @@ private val PontoCafeLightColors = lightColorScheme(
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF93000A),
-    background = PontoCafeBrand.warmCream,
+    background = PontoCafeBrand.stone100,
     onBackground = PontoCafeBrand.coffee950,
-    surface = PontoCafeBrand.warmCream,
+    surface = PontoCafeBrand.stone100,
     onSurface = PontoCafeBrand.coffee950,
     surfaceVariant = PontoCafeBrand.coffee100,
     onSurfaceVariant = PontoCafeBrand.stone600,
@@ -298,22 +304,29 @@ internal val DarkSemanticColors = PontoCafeSemanticColors(
 )
 
 private val LightSemanticColors = PontoCafeSemanticColors(
-    // Esmeralda do design system (tertiary): como texto/ícone sobre containers
-    // claros e sobre o canvas o contraste passa de 4.5:1 sem escurecer o tom.
-    success = PontoCafeBrand.emeraldSync,
-    successContainer = Color(0xFF6FFBBE),
-    onSuccessContainer = Color(0xFF002113),
-    warning = Color(0xFF8C6D00),
-    warningContainer = Color(0xFFFFE18C),
-    onWarningContainer = Color(0xFF2B2000),
-    info = Color(0xFF35618D),
-    infoContainer = Color(0xFFD1E4FF),
-    onInfoContainer = Color(0xFF001D35),
-    // Mesmo vermelho do erro fiscal; a distinção com o erro de formulário fica
-    // no container, deliberadamente mais terracota que o errorContainer rosado.
-    critical = PontoCafeBrand.crimsonSpoofAlert,
-    criticalContainer = Color(0xFFFFB4A0),
-    onCriticalContainer = Color(0xFF410F08),
+    // Os tons de estado do painel: `bg-emerald-100 text-emerald-800`,
+    // `bg-amber-100 text-amber-800`, `bg-red-100 text-red-800`, e o neutro
+    // `bg-stone-100 text-stone-700`. Antes eram os containers tonais do
+    // Material -- verde-menta, amarelo-manteiga, um azul para "informação" e um
+    // salmão --, e ao lado do painel pareciam de outra aplicação.
+    //
+    // Para texto e ícone sobre o fundo claro usa-se o degrau 700, e não o 600
+    // das classes do painel: o 600 do verde e do âmbar fica abaixo de 4,5:1
+    // sobre stone-100, e num totem lido de pé isso não é detalhe.
+    success = Color(0xFF047857),
+    successContainer = Color(0xFFD1FAE5),
+    onSuccessContainer = Color(0xFF065F46),
+    warning = Color(0xFFB45309),
+    warningContainer = Color(0xFFFEF3C7),
+    onWarningContainer = Color(0xFF92400E),
+    info = Color(0xFF57534E),
+    // stone-200 e não stone-100: o aviso neutro também aparece direto sobre o
+    // fundo, que já é stone-100, e ali ficaria invisível.
+    infoContainer = Color(0xFFE7E5E4),
+    onInfoContainer = Color(0xFF44403C),
+    critical = Color(0xFFB91C1C),
+    criticalContainer = Color(0xFFFEE2E2),
+    onCriticalContainer = Color(0xFF991B1B),
 )
 
 // O padrão acompanha o app, que é sempre claro. Só vale para composables fora
@@ -349,11 +362,14 @@ object PontoCafeDimensions {
 // os únicos outros consumidores de `extraSmall` no app são duas faixas de acento
 // de 4dp de largura (que a 8px apenas viram cápsula, coerente com a linguagem de
 // pílula do design), 8dp é o valor que serve à superfície que realmente aparece.
+// Os cantos do painel: rounded-xl (12), rounded-2xl (16) e rounded-3xl (24).
+// Um degrau acima do que o DESIGN.md pedia, e é por isso que as tarjetas do app
+// pareciam mais "caixa" e menos "cartão" ao lado das do painel.
 private val PontoCafeShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(24.dp),
 )
 

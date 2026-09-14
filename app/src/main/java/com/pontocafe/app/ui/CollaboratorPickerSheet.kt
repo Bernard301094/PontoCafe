@@ -81,36 +81,32 @@ internal fun PcCollaboratorPickerField(
                     ?: placeholder
             },
         enabled = enabled,
-        // Campo de busca em pílula branca elevada, como no design: sem contorno,
-        // a separação do canvas vem da sombra. O anel âmbar fica só para quando
-        // já há alguém escolhido, que é o estado que precisa de destaque.
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        shadowElevation = 1.dp,
+        // O campo do painel: retângulo branco de canto 16dp com borda stone-300
+        // e o ícone solto à esquerda. Era uma pílula elevada sem contorno, que é
+        // o desenho do DESIGN.md e não o do painel. O âmbar fica para quando já
+        // há alguém escolhido, que é o estado que precisa de destaque.
+        shape = Painel.canto2xl,
+        color = androidx.compose.ui.graphics.Color.White,
         border = if (selecionado != null) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f))
+            BorderStroke(2.dp, Painel.amber300)
         } else {
-            null
+            BorderStroke(1.dp, Painel.stone300)
         },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = PontoCafeSpacing.sm, vertical = PontoCafeSpacing.xs),
+            modifier = Modifier.padding(horizontal = PontoCafeSpacing.md, vertical = PontoCafeSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
             if (selecionado != null) {
                 InitialAvatar(name = selecionado.nome, avatarSize = if (grande) 44.dp else 36.dp)
             } else {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(if (grande) 12.dp else 9.dp)
-                            .size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = Painel.stone400,
+                )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(

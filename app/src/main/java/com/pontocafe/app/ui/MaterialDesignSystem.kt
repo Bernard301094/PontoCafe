@@ -76,15 +76,17 @@ fun PcHeroCard(
         PontoCafeTone.SUCCESS -> semantic.success
         PontoCafeTone.WARNING -> semantic.warning
         PontoCafeTone.DANGER -> semantic.critical
-        PontoCafeTone.INFO -> MaterialTheme.colorScheme.tertiary
+        // Informação é neutra no painel (stone), e não o verde de "sincronizado":
+        // os dois tinham a mesma cor e um aviso qualquer parecia confirmação.
+        PontoCafeTone.INFO -> semantic.info
         PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.primary
     }
     val container = when (tone) {
         PontoCafeTone.SUCCESS -> semantic.successContainer
         PontoCafeTone.WARNING -> semantic.warningContainer
         PontoCafeTone.DANGER -> semantic.criticalContainer
-        PontoCafeTone.INFO -> MaterialTheme.colorScheme.tertiaryContainer
-        PontoCafeTone.NEUTRAL -> MaterialTheme.colorScheme.surfaceContainer
+        PontoCafeTone.INFO -> semantic.infoContainer
+        PontoCafeTone.NEUTRAL -> Color.White
     }
 
     Row(
@@ -155,7 +157,7 @@ fun PcMetricTile(
 ) {
     val semantic = LocalPontoCafeSemanticColors.current
     val accent = if (attention) semantic.warning else MaterialTheme.colorScheme.primary
-    val container = if (attention) semantic.warningContainer else MaterialTheme.colorScheme.surfaceContainerLowest
+    val container = if (attention) semantic.warningContainer else Color.White
 
     Card(
         modifier = modifier.semantics(mergeDescendants = true) {
@@ -163,10 +165,9 @@ fun PcMetricTile(
             if (attention) stateDescription = "Requer atenção"
         },
         colors = CardDefaults.cardColors(containerColor = container),
-        // Nível 1 do design: superfície branca sobre o canvas frio, cantos de
-        // 12dp e sombra difusa -- a elevação é que separa o cartão do fundo,
-        // não uma tintura no container.
-        shape = MaterialTheme.shapes.medium,
+        // A tarjeta de número do painel: branca, rounded-2xl, borda stone-200.
+        shape = Painel.canto2xl,
+        border = BorderStroke(1.dp, if (attention) Painel.amber200 else Painel.stone200),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
@@ -238,7 +239,8 @@ fun PcActionTile(
             },
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        shape = MaterialTheme.shapes.medium,
+        shape = Painel.canto2xl,
+        border = PainelBordaSuave,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         interactionSource = interactionSource,
     ) {
@@ -247,20 +249,8 @@ fun PcActionTile(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
         ) {
-            Surface(
-                modifier = Modifier.size(44.dp),
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
+            // O selo âmbar do painel, e não o quadrado castanho cheio.
+            PainelSeloIcone(icon = icon, tamanho = 44.dp)
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -272,13 +262,13 @@ fun PcActionTile(
             Surface(
                 modifier = Modifier.size(28.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                color = Painel.stone100,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = Painel.stone500,
                         modifier = Modifier.size(14.dp),
                     )
                 }
@@ -292,10 +282,14 @@ fun PcSectionSurface(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    // A tarjeta de lista do painel: `bg-white rounded-2xl border-stone-200
+    // shadow-sm`. A borda é o que a separa do fundo cinzento -- a sombra sozinha
+    // quase não se vê num ecrã de telemóvel ao sol.
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
-        shape = MaterialTheme.shapes.medium,
+        shape = Painel.canto2xl,
+        border = PainelBordaSuave,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Box(modifier = Modifier.padding(PontoCafeSpacing.md)) { content() }
@@ -411,9 +405,16 @@ fun PcPrimaryButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        // Pílula completa: no design system o raio total é reservado a botões,
-        // chips e contadores -- é o que separa "toque aqui" de "container".
-        shape = CircleShape,
+        // Canto de 16dp, como todo botão de ação do painel (`rounded-2xl`). A
+        // pílula era do DESIGN.md; lado a lado com o painel, é das diferenças que
+        // mais se notam. Desabilitado fica a 40%, como o `disabled:opacity-40`.
+        shape = Painel.canto2xl,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Painel.coffee900,
+            contentColor = Color.White,
+            disabledContainerColor = Painel.coffee900.copy(alpha = 0.4f),
+            disabledContentColor = Color.White.copy(alpha = 0.9f),
+        ),
         contentPadding = ButtonDefaults.ContentPadding,
         interactionSource = interactionSource,
     ) {
@@ -443,7 +444,13 @@ fun PcTonalButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = CircleShape,
+        shape = Painel.canto2xl,
+        // stone-200: o botão tonal vive sobre o fundo stone-100 e sobre as
+        // tarjetas brancas, e precisa de se ver nos dois.
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = Painel.stone200,
+            contentColor = Painel.coffee900,
+        ),
         interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
@@ -473,9 +480,9 @@ fun PcSecondaryButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = CircleShape,
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = Painel.canto2xl,
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = contentColor),
+        border = BorderStroke(1.dp, Painel.stone300),
         interactionSource = interactionSource,
     ) {
         PcButtonContent(text = text, icon = icon, loading = loading)
@@ -504,7 +511,7 @@ fun PcDangerButton(
             .defaultMinSize(minHeight = pontoTouchTarget())
             .semantics { if (loading) stateDescription = "Carregando" },
         enabled = enabled && !loading,
-        shape = CircleShape,
+        shape = Painel.canto2xl,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
