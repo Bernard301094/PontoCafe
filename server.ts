@@ -2697,7 +2697,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         { confirmar: atualAdmin ? 'Rebaixar' : 'Promover', perigoso: !atualAdmin });
       if (!novo) return;
       if (atualAdmin) {
-        const turno = await pedirTexto('Turno do Supervisor',
+        const turno = await pedirTexto('Turno do Supervisor',
           { valor: turnoAtual || 'A', placeholder: 'A', ajuda: 'Use A, B, C ou D.' });
         if (turno === null) return;
         if (!['A', 'B', 'C', 'D'].includes(turno.trim().toUpperCase())) {
@@ -2712,8 +2712,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     async function redefinirSenha(id) {
-      const nova = await pedirTexto('Nova senha',
-        { tipo: 'password', placeholder: 'Mínimo 10 caracteres', ajuda: 'Em branco, o sistema gera uma provisória.' },
+      const nova = await pedirTexto('Nova senha',
+        { tipo: 'password', placeholder: 'Mínimo 10 caracteres', ajuda: 'Em branco, o sistema gera uma provisória.' },
         'A pessoa terá de a trocar no primeiro acesso.');
       if (nova === null) return;
       const corpo = nova.trim() ? { novaSenha: nova.trim() } : {};
@@ -2850,13 +2850,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     async function editarRegra(periodo, inicio, fim, minutos) {
-      const novoInicio = await pedirTexto('Início da janela',
+      const novoInicio = await pedirTexto('Início da janela',
         { tipo: 'time', valor: inicio, ajuda: 'Formato HH:MM.' }, 'Período ' + periodo);
       if (novoInicio === null) return;
-      const novoFim = await pedirTexto('Fim da janela',
+      const novoFim = await pedirTexto('Fim da janela',
         { tipo: 'time', valor: fim, ajuda: 'Formato HH:MM.' }, 'Período ' + periodo);
       if (novoFim === null) return;
-      const novoLimite = await pedirTexto('Tecto da pausa',
+      const novoLimite = await pedirTexto('Tecto da pausa',
         { tipo: 'number', valor: String(minutos), ajuda: 'Em minutos.' }, 'Período ' + periodo);
       if (novoLimite === null) return;
       const min = parseInt(novoLimite, 10);
@@ -3166,7 +3166,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
     }
 
     async function definirPinDispositivo(id) {
-      const pin = await pedirTexto('PIN de desbloqueio do terminal',
+      const pin = await pedirTexto('PIN de desbloqueio do terminal',
         { tipo: 'password', placeholder: '4 a 12 números', ajuda: 'Só números.' });
       if (pin === null) return;
       if (!/^\\d{4,12}$/.test(pin.trim())) {
@@ -3179,9 +3179,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
     // O token novo tambem so e mostrado uma vez -- num toast que some em quatro
     // segundos nao da para copiar 10 caracteres com maiusculas e minusculas.
     async function novoTokenDispositivo(id, nome) {
-      const ok = await perguntar('Gerar novo código de activação?',
-        'O aparelho pára de registar ponto até ser activado outra vez com o código novo.',
-        { confirmar: 'Gerar', perigoso: true });
+      const ok = await perguntar('Gerar novo código de activação?',
+        'O aparelho pára de registar ponto até ser activado outra vez com o código novo.',
+        { confirmar: 'Gerar', perigoso: true });
       if (!ok) return;
       try {
         const res = await fetch(API_BASE + '/admin/devices/' + id + '/novo-token', {
