@@ -656,13 +656,18 @@ internal fun colaboradorDetalhe(colaborador: Colaborador): String = listOfNotNul
 ).joinToString(" · ").ifBlank { "Sem setor definido" }
 
 /**
- * "Expira em 0 min" é o pior texto possível para uma janela de dois minutos:
- * quem lê conclui que já perdeu o código quando ainda tem 50 segundos.
+ * "Expira em 0 min" é o pior texto possível quando faltam 50 segundos: quem lê
+ * conclui que já perdeu o código.
+ *
+ * E desde os códigos por período o prazo é o fim da janela, que pode estar a
+ * horas: "240 min" obriga a fazer a conta de cabeça, "4 h" não.
  */
 internal fun expiracaoCurta(segundos: Int): String = when {
     segundos <= 0 -> "instantes"
     segundos < 60 -> "$segundos s"
-    else -> "${segundos / 60} min"
+    segundos < 3_600 -> "${segundos / 60} min"
+    segundos % 3_600 < 60 -> "${segundos / 3_600} h"
+    else -> "${segundos / 3_600} h ${(segundos % 3_600) / 60} min"
 }
 
 @Composable

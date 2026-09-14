@@ -781,7 +781,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 class="font-bold text-coffee-950 text-base">Emitir para um colaborador</h3>
-              <p class="text-xs text-stone-500 mt-0.5">O código vale por poucos minutos; para o retorno ele não expira.</p>
+              <p class="text-xs text-stone-500 mt-0.5">Vale para sair até o fim da janela de café do período; para o retorno ele não expira.</p>
             </div>
             <span id="codes-people-count" class="text-xs font-medium text-stone-500"></span>
           </div>

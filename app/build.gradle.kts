@@ -194,6 +194,16 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // As fotografias das telas só são gravadas quando pedidas
+        // (-Proborazzi.record=true). Num `test` normal as telas são desenhadas
+        // mas nada é escrito em disco.
+        unitTests.all {
+            it.systemProperty(
+                "roborazzi.test.record",
+                providers.gradleProperty("roborazzi.record").orElse("false").get(),
+            )
+            it.maxHeapSize = "2g"
+        }
     }
 }
 
@@ -244,6 +254,20 @@ dependencies {
     // Use the real implementation so authorization error bodies are parsed
     // exactly as they are on-device, without changing production APK behavior.
     testImplementation("org.json:json:20240303")
+
+    // Fotografias das telas na JVM, sem emulador.
+    //
+    // Durante semanas o visual do app foi mudado sem que ninguém o visse a
+    // correr: não há emulador nem aparelho na máquina de desenvolvimento, e
+    // "compila" não diz nada sobre como uma tela fica. O Robolectric desenha o
+    // Compose com gráficos nativos e o Roborazzi grava o resultado em PNG --
+    // é o que permite comparar o totem com o painel antes de gerar um APK.
+    // Só entra nos testes: nada disto vai para o APK.
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.74.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.74.0")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

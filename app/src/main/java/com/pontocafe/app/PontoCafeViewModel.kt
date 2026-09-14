@@ -97,13 +97,6 @@ data class PontoCafeUiState(
     /** `codigo` de erro do Worker: é o que a voz usa para dizer o motivo certo. */
     val erroCodigo: String? = null,
     /**
-     * Janela para apresentar o código na SAÍDA, como o servidor a define.
-     *
-     * A tela e a voz leem daqui em vez de trazer o número escrito à mão: se a
-     * operação mudar o prazo, os dois acompanham sem novo APK.
-     */
-    val validadeCodigoSegundos: Int = 120,
-    /**
      * Se ESTE aparelho foi liberado para ler o código pela câmara.
      *
      * Vem do servidor a cada validação de credencial, e não de uma preferência
@@ -862,7 +855,6 @@ class PontoCafeViewModel(
             atualizacaoDisponivel = latest?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
             atualizacaoObrigatoria = minimum?.let { compareVersions(BuildConfig.VERSION_NAME, it) < 0 } == true,
             eventosPendentes = offlineStatus.second,
-            validadeCodigoSegundos = appStatus?.codigoValidadeSegundos ?: state.validadeCodigoSegundos,
         )
     }
 

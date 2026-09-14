@@ -284,7 +284,10 @@ fun SystemDiagnosticsScreen(
                             rows = listOf(
                                 "Timezone" to diagnostic.configuracao.timezone,
                                 "Sessão" to "${diagnostic.configuracao.sessaoHoras} h",
-                                "Validade do código" to "${diagnostic.configuracao.codigoValidadeSegundos / 60} min · máx. ${diagnostic.configuracao.codigoMaxTentativas} tentativas",
+                                // O servidor ainda informa codigoValidadeSegundos, mas
+                                // ele não governa mais vencimento nenhum: o código vale
+                                // até o fim da janela do período em que foi emitido.
+                                "Validade do código" to "Até o fim da janela do período · máx. ${diagnostic.configuracao.codigoMaxTentativas} tentativas",
                                 "Tolerância antes do limite" to "${diagnostic.configuracao.carenciaSegundos} s",
                                 "Offline máximo" to "${diagnostic.configuracao.offlineMaxHoras} h",
                                 "Retenção de códigos" to "${diagnostic.configuracao.retencaoCodigosDias} dias",

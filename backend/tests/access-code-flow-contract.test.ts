@@ -68,22 +68,34 @@ test('o esquema garante uma saída e um retorno, nesta ordem', () => {
   assert.match(accessCodeRoutes, /Cancelá-lo agora deixaria a pausa sem como ser fechada/)
 })
 
-test('a janela de saída é curta e a mesma no servidor, na tela e na voz', () => {
-  // Dois minutos obriga a emitir o código com a pessoa já diante do quiosque,
-  // em vez de virar um papel guardado no bolso.
-  assert.match(config, /ACCESS_CODE_TTL_SECONDS', 120/)
-  assert.match(wranglerConfig, /"ACCESS_CODE_TTL_SECONDS": "120"/)
-  // O número nunca é escrito à mão no cliente: desce por /app-status.
-  assert.match(application, /codigoValidadeSegundos: config\.accessCodeTtlSeconds/)
-  assert.match(pontoApi, /val codigoValidadeSegundos: Int/)
-  assert.match(kioskViewModel, /validadeCodigoSegundos = appStatus\?\.codigoValidadeSegundos/)
-  assert.match(kiosk, /formatValidade\(state\.validadeCodigoSegundos\)/)
-  assert.match(voiceGuidance, /kiosk\([\s\S]{0,400}state\.validadeCodigoSegundos/)
-  assert.match(voiceGuidance, /blocked\(state\.erroCodigo, state\.validadeCodigoSegundos\)/)
-  // A fala precisa dizer o prazo e o que fazer quando ele passa.
-  assert.match(voiceGuidance, /Ele vale \$\{spokenDuration\(validadeSegundos\)\}/)
-  assert.match(voiceGuidance, /Este código expirou/)
+test('a janela de saída é a do período, e o servidor, a tela e a voz dizem o mesmo', () => {
+  // Este teste afirmava uma janela de dois minutos contada da emissão. A 014
+  // trocou-a pelo fim da janela de café do período, por decisão de produto:
+  // o código da manhã tem de poder estar no telemóvel desde as oito. O TTL de
+  // 120 segundos continua na configuração, mas nenhum vencimento o usa.
+  //
+  // O servidor: toda emissão grava expira_em = fim da janela, e o vencimento
+  // compara com essa coluna.
+  assert.match(accessCodeRoutes, /motivo,expira_em,periodo,dia_operacional/)
+  assert.match(accessCodeRoutes, /janela\.expiraEm,/)
+  assert.doesNotMatch(accessCodeRoutes, /now\(\)\+\(\$\d+\*interval '1 second'\)/)
+  assert.match(registration, /expira_em <= coalesce\(\$2::timestamptz,now\(\)\)/)
+
+  // A tela e a voz dizem o prazo verdadeiro, com as mesmas palavras.
+  const prazo = /vale para sair até o fim da janela de café/i
+  assert.match(kiosk, prazo)
+  assert.match(voiceGuidance, prazo)
+  assert.match(voiceGuidance, /a janela de café do período dele já terminou/)
   assert.match(voiceGuidance, /Peça um código novo ao supervisor/)
+
+  // E nenhuma delas volta a contar minutos a partir da emissão.
+  for (const [nome, fonte] of [['quiosque', kiosk], ['voz', voiceGuidance]] as const) {
+    assert.doesNotMatch(fonte, /depois de gerado/, `${nome} ainda fala em prazo contado da emissão`)
+    assert.doesNotMatch(fonte, /validadeCodigoSegundos/, `${nome} ainda lê o TTL de 120 segundos`)
+    assert.doesNotMatch(fonte, /poucos minutos/, `${nome} ainda promete poucos minutos`)
+  }
+  assert.doesNotMatch(kioskViewModel, /validadeCodigoSegundos/)
+
   // No retorno não há prazo, e a voz diz isso para ninguém correr à toa.
   assert.match(voiceGuidance, /Ele não expira para o retorno/)
 })
@@ -290,7 +302,12 @@ test('o quiosque de parede usa a largura, e sem expor terceiros', () => {
   // nada de terceiros. O quiosque fica num corredor, e a lista já vem cortada
   // do servidor justamente para ele não aprender quem tomou café — um mural de
   // pausas alheias aqui desfaria isso.
-  const painel = kiosk.slice(kiosk.indexOf('private fun KioskOperationalPanel'))
+  // Sem o modificador de visibilidade: o painel passou a `internal` para poder
+  // ser fotografado num teste, e o que se protege aqui é o que ele lê, não quem
+  // o pode chamar.
+  const inicioPainel = kiosk.indexOf('fun KioskOperationalPanel(')
+  assert.ok(inicioPainel >= 0, 'KioskOperationalPanel precisa existir')
+  const painel = kiosk.slice(inicioPainel)
   const corpo = painel.slice(0, painel.indexOf('\n@Composable'))
   for (const vazamento of ['pausasAtivas', 'livePauses', 'historico', 'colaboradores']) {
     assert.ok(

@@ -1,5 +1,12 @@
 package com.pontocafe.app.ui
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -199,21 +206,43 @@ fun PcHeroZoneTopBar(
     modifier: Modifier = Modifier,
 ) {
     val displayName = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName
+    val topoBarraStatus = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            // A barra branca do painel vai de ponta a ponta do ecrã, mas este
+            // cabeçalho é chamado dentro da coluna com margem do PcHeroPage,
+            // ao lado do conteúdo da tela. Em vez de mexer nas seis telas que o
+            // usam, a barra sangra para fora da margem e para cima até ao topo,
+            // e devolve ao layout só a altura que ocupava antes.
+            .sangrarAteABorda(lateral = PontoCafeSpacing.lg, topo = PontoCafeSpacing.md + topoBarraStatus)
+            .background(Color.White)
+            .drawBehind {
+                drawLine(
+                    color = Painel.stone200,
+                    start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                    end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            .padding(
+                start = PontoCafeSpacing.lg,
+                end = PontoCafeSpacing.lg,
+                top = PontoCafeSpacing.md + topoBarraStatus,
+                bottom = 12.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(PontoCafeSpacing.sm),
     ) {
-        // Selo âmbar da marca: é a âncora do cabeçalho no design, e o que faz
-        // qualquer tela do app se identificar como Ponto Café num relance.
+        // O logótipo do painel: quadrado coffee-800 com a xícara em âmbar.
         Surface(
             modifier = Modifier.size(40.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shape = Painel.cantoXl,
+            color = Painel.coffee800,
+            contentColor = Painel.amber400,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.Coffee, contentDescription = null, modifier = Modifier.size(24.dp))
             }
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -223,47 +252,43 @@ fun PcHeroZoneTopBar(
             ) {
                 Text(
                     text = "Ponto Café",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Painel.coffee950,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
                 )
-                // O perfil vira pílula, como no design -- deixou de ser a
-                // sobrancelha em caixa alta acima do título.
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Text(
-                        text = eyebrow,
-                        modifier = Modifier.padding(
-                            horizontal = PontoCafeSpacing.xs,
-                            vertical = PontoCafeSpacing.xxs,
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                    )
-                }
+                // O perfil na pílula âmbar do painel -- a mesma do selo da versão.
+                Text(
+                    text = eyebrow,
+                    modifier = Modifier
+                        .background(Painel.amber100, CircleShape)
+                        .border(1.dp, Painel.amber200, CircleShape)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Painel.amber800,
+                    maxLines = 1,
+                )
             }
-            // O título da tela desce para a linha de apoio: no design ele diz
-            // "onde estou", e não é mais o texto de maior peso do cabeçalho.
+            // O título da tela desce para a linha de apoio: no painel ela diz
+            // "onde estou", em stone-500, e não é o texto de maior peso.
             Text(
                 text = title,
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Painel.stone500,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // Volta ao totem: não está no mockup, mas é a saída da área restrita e
-        // some do app se sair daqui. Fica compacta, só com o ícone.
+        // Volta ao totem: é a saída da área restrita e some do app se sair
+        // daqui. Fica compacta, só com o ícone, na caixa stone-50 do painel.
         Surface(
             onClick = onBackToPonto,
             modifier = Modifier.size(36.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = Painel.cantoXl,
+            color = Painel.stone50,
+            contentColor = Painel.stone600,
+            border = PainelBordaSuave,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
@@ -559,4 +584,25 @@ private fun ChartLegend(label: String, color: androidx.compose.ui.graphics.Color
 private fun percentDelta(current: Int, previous: Int): Int? {
     if (previous <= 0) return null
     return (((current - previous).toDouble() / previous.toDouble()) * 100.0).roundToInt()
+}
+
+/**
+ * Deixa um elemento ocupar a margem lateral e o espaço acima dele, sem empurrar
+ * o resto do layout.
+ *
+ * Mede com a largura acrescida das duas margens, desenha deslocado para a
+ * esquerda e para cima, e reporta ao pai só a altura que sobra -- para quem vem
+ * a seguir na coluna, nada mudou de lugar.
+ */
+internal fun Modifier.sangrarAteABorda(lateral: Dp, topo: Dp): Modifier = layout { measurable, constraints ->
+    val lateralPx = lateral.roundToPx()
+    val topoPx = topo.roundToPx()
+    val largura = constraints.maxWidth + lateralPx * 2
+    val placeable = measurable.measure(
+        constraints.copy(minWidth = largura, maxWidth = largura),
+    )
+    val alturaReportada = (placeable.height - topoPx).coerceAtLeast(0)
+    layout(constraints.maxWidth, alturaReportada) {
+        placeable.place(-lateralPx, -topoPx)
+    }
 }
