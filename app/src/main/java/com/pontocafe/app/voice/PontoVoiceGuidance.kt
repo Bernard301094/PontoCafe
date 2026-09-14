@@ -46,26 +46,21 @@ enum class PontoVoiceKioskCue {
 }
 
 /**
- * Fallback usado só enquanto /app-status ainda não respondeu nesta sessão.
- * O valor real vem do servidor (`config.accessCodeTtlSeconds`).
- */
-private const val DEFAULT_CODE_VALIDITY_SECONDS = 120
-
-/**
  * Pure phrase policy. Keeping copy and cadence outside the speech engines makes
  * voice behavior deterministic and testable.
  */
 object PontoVoicePromptPolicy {
     /**
-     * [validadeSegundos] é a janela real que o servidor devolve em /app-status,
-     * nunca um número escrito à mão aqui. Se a operação decidir alargar ou
-     * encurtar o prazo, a fala acompanha sozinha — dizer "dois minutos" quando o
-     * servidor concede cinco seria pior do que não dizer nada.
+     * O prazo da saída é o fim da janela de café do período a que o código
+     * pertence, e não uma duração contada a partir da emissão.
+     *
+     * A fala dizia "dois minutos a partir do momento em que foi gerado", com o
+     * número vindo de /app-status. Deixou de ser verdade quando os códigos
+     * passaram a ser emitidos por período: o de manhã vale até o fim da janela
+     * da manhã. Uma pessoa com o código no telemóvel desde as oito ouvia que ele
+     * tinha morrido às oito e dois -- e ia pedir outro ao supervisor sem precisar.
      */
-    fun kiosk(
-        cue: PontoVoiceKioskCue,
-        validadeSegundos: Int = DEFAULT_CODE_VALIDITY_SECONDS,
-    ): PontoVoicePrompt = when (cue) {
+    fun kiosk(cue: PontoVoiceKioskCue): PontoVoicePrompt = when (cue) {
         PontoVoiceKioskCue.ESCOLHER_PESSOA -> prompt(
             key = "pick-person",
             text = "Toque no seu nome na lista.",
@@ -74,12 +69,12 @@ object PontoVoicePromptPolicy {
             stabilityDelayMillis = 3_000L,
             interrupt = false,
         )
-        // A janela é curta, então dizê-la é a informação mais útil do passo: quem
-        // souber que tem pouco tempo digita agora em vez de guardar o papel.
+        // Dizer até quando o código vale para sair é a informação mais útil do
+        // passo -- e tem de ser o prazo verdadeiro, o fim da janela do período.
         PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA -> prompt(
             key = "type-code-out",
             text = "Digite o código de seis caracteres que o supervisor entregou. " +
-                "Ele vale ${spokenDuration(validadeSegundos)} a partir do momento em que foi gerado.",
+                "Ele vale para sair até o fim da janela de café do seu período.",
             priority = PontoVoicePriority.INSTRUCTION,
             cooldownMillis = 20_000L,
             stabilityDelayMillis = 900L,
@@ -95,22 +90,6 @@ object PontoVoicePromptPolicy {
             stabilityDelayMillis = 900L,
             interrupt = false,
         )
-    }
-
-    /**
-     * Duração falada em pt-BR. O motor lê "2" como "dois", então o número vai em
-     * dígito; o que se resolve aqui é o singular/plural e o caso de janelas
-     * menores que um minuto, onde "0 minutos" seria absurdo.
-     */
-    internal fun spokenDuration(totalSeconds: Int): String {
-        val safe = totalSeconds.coerceAtLeast(0)
-        if (safe < 60) return if (safe == 1) "1 segundo" else "$safe segundos"
-        val minutes = safe / 60
-        val seconds = safe % 60
-        val minutesText = if (minutes == 1) "1 minuto" else "$minutes minutos"
-        if (seconds == 0) return minutesText
-        val secondsText = if (seconds == 1) "1 segundo" else "$seconds segundos"
-        return "$minutesText e $secondsText"
     }
 
     fun receipt(comprovante: ComprovantePonto): PontoVoicePrompt {
@@ -152,10 +131,7 @@ object PontoVoicePromptPolicy {
     }
 
     /** Recebe o `codigo` de erro devolvido pelo Worker, não uma frase livre. */
-    fun blocked(
-        motivo: String?,
-        validadeSegundos: Int = DEFAULT_CODE_VALIDITY_SECONDS,
-    ): PontoVoicePrompt = when (motivo) {
+    fun blocked(motivo: String?): PontoVoicePrompt = when (motivo) {
         "PAUSA_PERIODO_JA_UTILIZADA" -> criticalPrompt(
             "blocked-period",
             "Esta pausa já foi utilizada hoje. Nenhum novo registro foi criado.",
@@ -168,7 +144,7 @@ object PontoVoicePromptPolicy {
         // A fala precisa fechar a porta e apontar a saída na mesma frase.
         "CODIGO_EXPIRADO" -> criticalPrompt(
             "blocked-expired-code",
-            "Este código expirou. Ele vale apenas ${spokenDuration(validadeSegundos)} depois de gerado. " +
+            "Este código expirou: a janela de café do período dele já terminou. " +
                 "Peça um código novo ao supervisor.",
         )
         "CODIGO_BLOQUEADO_TEMPORARIAMENTE" -> criticalPrompt(
@@ -482,12 +458,11 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
         state.erro,
         state.erroCodigo,
         state.selecionado?.id,
-        state.validadeCodigoSegundos,
     ) {
         when {
             comprovante != null -> PontoVoicePromptPolicy.receipt(comprovante)
             !state.erro.isNullOrBlank() && state.selecionado != null ->
-                PontoVoicePromptPolicy.blocked(state.erroCodigo, state.validadeCodigoSegundos)
+                PontoVoicePromptPolicy.blocked(state.erroCodigo)
             !state.erro.isNullOrBlank() -> PontoVoicePromptPolicy.genericRegistrationError()
             state.passo == PontoStep.DIGITAR_CODIGO ->
                 PontoVoicePromptPolicy.kiosk(
@@ -496,7 +471,6 @@ fun PontoVoiceGuidanceEffect(viewModel: PontoCafeViewModel) {
                     } else {
                         PontoVoiceKioskCue.DIGITAR_CODIGO_SAIDA
                     },
-                    state.validadeCodigoSegundos,
                 )
             state.passo == PontoStep.ESCOLHER_PESSOA ->
                 PontoVoicePromptPolicy.kiosk(PontoVoiceKioskCue.ESCOLHER_PESSOA)

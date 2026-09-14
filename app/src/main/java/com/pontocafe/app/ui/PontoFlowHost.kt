@@ -481,7 +481,7 @@ internal fun KioskOperationalPanel(
                 PontoStep.DIGITAR_CODIGO -> if (state.acaoEsperada == "RETORNO") {
                     "Digite o mesmo código" to "É o código que você usou para sair. Ele não expira para o retorno."
                 } else {
-                    "Digite o código" to "O código vale por poucos minutos depois de gerado."
+                    "Digite o código" to "Ele vale para sair até o fim da janela de café do período."
                 }
 
                 PontoStep.COMPROVANTE ->
@@ -834,8 +834,9 @@ private fun AccessCodeStep(
             compactHeight = compactHeight,
         )
 
-        // O prazo é curto e vale para a SAÍDA apenas. Quem já saiu precisa da
-        // garantia oposta — que não vai perder o código enquanto toma café.
+        // O prazo vale só para a SAÍDA, e é o fim da janela de café do período a
+        // que o código pertence -- não uma contagem a partir da emissão. Quem já
+        // saiu precisa da garantia oposta: que não perde o código enquanto toma café.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -851,7 +852,7 @@ private fun AccessCodeStep(
                 if (retorno) {
                     "Este código não expira para o retorno."
                 } else {
-                    "Código de uso único · vale ${formatValidade(state.validadeCodigoSegundos)} depois de gerado."
+                    "Vale para sair até o fim da janela de café do seu período."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = Painel.stone500,
@@ -1377,15 +1378,3 @@ private fun RestrictedAccessDialog(
     )
 }
 
-/**
- * Prazo do código em texto curto. Espelha PontoVoicePromptPolicy.spokenDuration:
- * a tela e a voz têm de dizer o mesmo número, e ele vem do servidor.
- */
-private fun formatValidade(totalSegundos: Int): String {
-    val safe = totalSegundos.coerceAtLeast(0)
-    if (safe < 60) return "$safe s"
-    val minutos = safe / 60
-    val segundos = safe % 60
-    val minutosTexto = if (minutos == 1) "1 minuto" else "$minutos minutos"
-    return if (segundos == 0) minutosTexto else "$minutosTexto e $segundos s"
-}

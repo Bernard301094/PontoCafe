@@ -86,8 +86,9 @@ data class AppStatusResponse(
     val timezone: String,
     val offlineMaxEventAgeHours: Int,
     val tamanhoCodigoAcesso: Int = 6,
-    /** Janela para apresentar o código na SAÍDA. O retorno não tem prazo. */
-    val codigoValidadeSegundos: Int = 120,
+    // O servidor ainda envia `codigoValidadeSegundos`, mas o app deixou de o
+    // ler: desde os códigos por período o prazo da saída é o fim da janela, e
+    // aquele número de 120 segundos já não governa vencimento nenhum.
     val carenciaSegundos: Int = 60,
 )
 
